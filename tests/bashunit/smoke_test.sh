@@ -123,11 +123,6 @@ _smoke_critical_paths() {
     .config/opencode/plugins/agents-local.ts
     .config/opencode/plugins/herdr-resource-context.ts
     .config/herdr/config.toml
-    .config/herdr/plugins/command-palette/herdr-plugin.toml
-    .config/herdr/plugins/command-palette/open.py
-    .config/herdr/plugins/command-palette/open_in_zed.py
-    .config/herdr/plugins/command-palette/palette.py
-    .config/herdr/plugins/command-palette/smart_close.py
     .config/herdr/plugins/worktree-setup/herdr-plugin.toml
     .config/herdr/plugins/worktree-setup/setup.ts
     .config/herdr/plugins/config/seigi.worktree-setup/config.toml
@@ -148,11 +143,7 @@ _smoke_critical_paths() {
       .config/kitty/herdr.conf
       .config/karabiner
       .config/zed
-      .config/herdr/plugins/herdr-caffeinate/herdr-plugin.toml
-      .config/herdr/plugins/herdr-caffeinate/reconcile.sh
-      .config/herdr/plugins/herdr-caffeinate/lib.sh
-      .config/herdr/plugins/herdr-caffeinate/actions.sh
-      .config/herdr/plugins/herdr-caffeinate/config.example.sh
+      .config/herdr/plugins/config/herdr-wakeup/config.json
     )
   fi
 }
@@ -223,62 +214,6 @@ function test_smoke_009_herdr_plugin_updates_are_automatic_and_owner_res() {
   assert_file_exists "$config"
   assert_file_contains "$config" 'auto_update = true'
   assert_file_contains "$config" 'trusted_owners = \["dio16"\]'
-}
-
-# Literal consumed outside this repo: herdr's plugin manifest parser matches
-# this exact `id` to register the palette entry, same category as test 006.
-function test_smoke_010_herdr_lazygit_popup_entrypoint_is_configured() {
-  _bats_test_init 10 'herdr lazygit popup entrypoint is configured'
-  assert_file_contains "$HOME/.config/herdr/plugins/command-palette/herdr-plugin.toml" 'id = "lazygit"'
-}
-
-function test_smoke_013_herdr_command_palette_loads_toml_and_project_loc() {
-  _bats_test_init 13 'herdr command palette loads TOML and project-local commands'
-  tmpdir="$(mktemp -d)"
-  mkdir -p "$tmpdir/global" "$tmpdir/repo/sub" "$tmpdir/repo/.herdr/command-palette"
-  cat > "$tmpdir/global/commands.toml" <<'TOML'
-[[commands]]
-title = "Global TOML"
-type = "shell"
-command = "echo global"
-
-[[commands]]
-name = "Search"
-type = "form"
-command = "echo {value_q}"
-
-[commands.form]
-prompt = "Search for"
-TOML
-  cat > "$tmpdir/repo/.herdr/command-palette/project.toml" <<'TOML'
-name = "Project Choice"
-type = "select"
-command = "echo {value_q}"
-
-[[options]]
-label = "One"
-value = "one"
-TOML
-
-  run env HERDR_COMMAND_PALETTE_CONFIG="$tmpdir/global/commands.toml" HERDR_TARGET_CWD="$tmpdir/repo/sub" python3 - <<'PY'
-import importlib.util, os, sys
-path=os.path.expanduser("~/.config/herdr/plugins/command-palette/palette.py")
-spec=importlib.util.spec_from_file_location("palette", path)
-mod=importlib.util.module_from_spec(spec)
-sys.modules[spec.name]=mod
-spec.loader.exec_module(mod)
-cfg, cmds = mod.load_commands()
-by_title = {cmd.title: cmd for cmd in cmds}
-assert cfg.name == "commands.toml"
-assert by_title["Project Choice"].origin == "Project"
-assert by_title["Project Choice"].kind == "select"
-assert by_title["Search"].kind == "form"
-assert by_title["Global TOML"].origin == "Global"
-assert mod.command_kind({"name": "Default Shell", "command": "echo hi"}) == "shell"
-assert mod.context_vars(cfg)["project_root"].endswith("/repo")
-PY
-  assert_success
-  rm -rf "$tmpdir"
 }
 
 # ===========================================
@@ -562,36 +497,6 @@ function test_smoke_028_kitty_herdr_bindings_survive_a_non_latin_keyboar() {
   [ -z "$risky" ] || fail "bindings missing --allow-fallback: $risky"
 }
 
-# The real consumer is the palette's own hint parser: load_key_binding_groups()
-# reads `# palette: Group | Key | Description` comments out of the terminal
-# config and builds the panel from them, silently dropping any line that does
-# not split into three non-empty fields. Grepping the literal comment cannot
-# see that drop, so run the deployed parser over the deployed kitty config
-# (pinned via HERDR_COMMAND_PALETTE_KEYBINDINGS_CONFIG, which is the parser's
-# own override, so the result does not depend on which terminal hosts the run)
-# and assert the entries it actually produces.
-function test_smoke_029_kitty_carries_command_palette_hints_for_the_herd() {
-  _bats_test_init 29 'kitty command-palette hints parse into palette key-binding groups (macOS only)'
-  is_macos || skip "Not on macOS"
-  run env \
-    HERDR_COMMAND_PALETTE_KEYBINDINGS_CONFIG="$HOME/.config/kitty/herdr.conf" \
-    PYTHONPYCACHEPREFIX="$BATS_TEST_TMPDIR/pycache" \
-    python3 - <<'PY'
-import importlib.util, os, sys
-
-path = os.path.expanduser("~/.config/herdr/plugins/command-palette/palette.py")
-spec = importlib.util.spec_from_file_location("palette", path)
-mod = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = mod
-spec.loader.exec_module(mod)
-
-groups = dict(mod.load_key_binding_groups())
-assert ("⌘T", "New tab") in groups.get("Tabs & workspaces", []), groups
-assert ("⌘D", "Split right") in groups.get("Panes", []), groups
-PY
-  assert_success
-}
-
 function test_smoke_030_lazygit_config_keeps_russian_layout_keybindings() {
   _bats_test_init 30 'lazygit config keeps Russian-layout keybindings and popup exit (macOS only)'
   is_macos || skip "Not on macOS"
@@ -602,44 +507,9 @@ function test_smoke_030_lazygit_config_keeps_russian_layout_keybindings() {
   assert_file_contains "$config" "^quitOnTopLevelReturn: true$"
 }
 
-function test_smoke_031_herdr_caffeinate_plugin_scripts_are_valid_sh_mac() {
-  _bats_test_init 31 'herdr caffeinate plugin scripts are valid sh (macOS only)'
-  is_macos || skip "Not on macOS"
-  for f in reconcile.sh lib.sh actions.sh; do
-    run sh -n "$HOME/.config/herdr/plugins/herdr-caffeinate/$f"
-    assert_success
-  done
-}
-
 # ===========================================
 # Hard tool dependencies
 # ===========================================
-
-# fzf is a hard dependency of the command palette: palette.py shells out to
-# `fzf --filter` as its only scorer and refuses to start without it. So this
-# test asserts rather than skips, and it asserts the version floor. The floor
-# is read from palette.py's own FZF_MIN_VERSION so the two cannot drift.
-function test_smoke_036_fzf_is_installed_and_meets_the_command_palette_s() {
-  _bats_test_init 36 'fzf is installed and meets the command palette'\''s version floor'
-  run command -v fzf
-  assert_success
-
-  run fzf --version
-  assert_success
-  local version="${output%% *}"
-
-  run python3 - "$version" <<'PY'
-import importlib.util, os, sys
-path = os.path.expanduser("~/.config/herdr/plugins/command-palette/palette.py")
-spec = importlib.util.spec_from_file_location("palette", path)
-palette = importlib.util.module_from_spec(spec)
-sys.modules["palette"] = palette
-spec.loader.exec_module(palette)
-found = tuple(int(part) for part in sys.argv[1].split(".")[:2])
-assert found >= palette.FZF_MIN_VERSION, f"fzf {sys.argv[1]} is below {palette.FZF_MIN_VERSION}"
-PY
-  assert_success
-}
 
 function test_smoke_037_alerter_is_installed_for_focus_notify() {
   _bats_test_init 37 'alerter is installed for focus notify (macOS only)'

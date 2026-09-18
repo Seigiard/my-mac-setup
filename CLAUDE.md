@@ -115,7 +115,7 @@ Adding a managed config, step by step:
 1. Check `home/.chezmoiexternal.toml` — skills and configs managed there (e.g., `linear-cli`, `improve-claude-md`) must NOT be duplicated in `home/`, or chezmoi reports "inconsistent state".
 2. `chezmoi add ~/.config/tool` — creates the source file in `home/`.
 3. Add a `.tmpl` suffix if the file needs OS branching or secrets; OS-specific files also need a rule in `home/.chezmoiignore`.
-4. Coverage passes the test-oracle gate first: state the oracle line (consumer, observable failure, oracle independent of this change) — when it cannot be completed, zero new tests is the correct outcome. When it can, extend the narrowest test that proves deployment behavior; use `tests/bashunit/smoke_test.sh` only for cross-component coverage.
+4. Apply the **test-oracle gate** before proposing coverage.
 5. A new managed path is deployment-sensitive; follow `docs/agent-verification.md`.
 
 `modify_` scripts (e.g., `modify_dot_claude.json`) read the existing file from stdin and output a modified version — don't treat them as regular templates.
@@ -168,9 +168,9 @@ For repository issue queries, lifecycle changes, or unresolved work, load the `r
 
 Costly-to-reverse architecture decisions go to `docs/decisions/` as minimal Architecture Decision Records with `Context`, `Considered options`, and `Decision` sections.
 
-<important if="you are adding, changing, or reviewing tests">
+<important if="you are deciding whether a test is warranted, or adding, changing, or reviewing tests">
 
-- Read `docs/solutions/design-patterns/semantic-regression-tests-over-source-shape.md`; it defines semantic regression tests, control fixtures, coverage ownership, and honest verification.
+- **Test-oracle gate:** Read `docs/solutions/design-patterns/semantic-regression-tests-over-source-shape.md` first to decide whether a permanent test is warranted — including the zero-new-tests outcome — before designing one.
 - Assert command status before inspecting output. Pair rejection fixtures with a nearby valid control that reaches the intended success path.
 - Search existing coverage first and strengthen its best owner instead of duplicating the assertion. Put new coverage in the narrowest relevant suite; reserve `tests/bashunit/smoke_test.sh` for deployed cross-component behavior.
 - Use `chezmoi_test_init()` from `tests/helpers/common.bash` instead of raw `chezmoi init`.

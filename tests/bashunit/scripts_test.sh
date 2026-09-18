@@ -1852,10 +1852,15 @@ SH
 
 function test_scripts_0851_obsolete_plugin_removal_accepts_formatted_plugin_json() {
   _bats_test_init 851 'obsolete plugin removal accepts formatted plugin JSON'
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local script="$BATS_TEST_TMPDIR/install-herdr-github-plugins.sh"
   local fake_bin="$BATS_TEST_TMPDIR/bin"
   local calls="$BATS_TEST_TMPDIR/herdr.calls"
-  mkdir -p "$fake_bin"
+  local home="$BATS_TEST_TMPDIR/github-plugin-home"
+  local wakeup_config="$home/.config/herdr/plugins/config/herdr-wakeup"
+  mkdir -p "$fake_bin" "$wakeup_config"
+  printf '%s\n' '{"stop_grace_seconds":1200}' > "$wakeup_config/config.json"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
 
   cat > "$fake_bin/uname" <<'SH'
 #!/bin/sh
@@ -1870,31 +1875,125 @@ if [ "$*" = "plugin list --json" ]; then
   "result": {
     "plugins": [
       { "plugin_id": "artisann.zed-herdr" },
-      { "plugin_id": "worktrunk" }
+      { "plugin_id": "worktrunk" },
+      { "plugin_id": "herdr-wakeup", "source": { "kind": "github" } },
+      { "plugin_id": "seigi.command-palette", "source": { "kind": "local" } }
     ]
   }
 }
 JSON
+elif [ "$*" = "plugin config-dir herdr-wakeup" ]; then
+  printf '%s\n' "$HOME/.config/herdr/plugins/config/herdr-wakeup"
 fi
 exit 0
 SH
   chmod +x "$fake_bin/uname" "$fake_bin/herdr"
 
-  run env HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
+  run env HOME="$home" HERDR_CALLS="$calls" \
+    HERDR_SOCKET_PATH=/tmp/mms-herdr-wakeup-test.sock PATH="$fake_bin:$PATH" bash "$script"
   assert_success
   run grep -Fx "plugin uninstall artisann.zed-herdr" "$calls"
   assert_success
   run grep -Fx "plugin uninstall worktrunk" "$calls"
   assert_success
+  run grep -Fx "plugin uninstall seigi.command-palette" "$calls"
+  assert_failure
   run grep -Fx "plugin install dio16/herdr-auto-update -y" "$calls"
+  assert_success
+  run grep -Fx "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y" "$calls"
+  assert_success
+  run grep -Fx "plugin enable seigi.command-palette" "$calls"
+  assert_success
+  run grep -Fx "plugin install usrivastava92/herdr-wakeup/plugin --ref 43db0b9f88a4b1bc560593b0ce8f2a7d2a940f04 -y" "$calls"
+  assert_success
+  run grep -Fx "plugin action invoke stop --plugin herdr-wakeup" "$calls"
+  assert_success
+  run grep -Fx "plugin enable herdr-wakeup" "$calls"
+  assert_success
+  local session_config="$wakeup_config/sessions/f60c672338465554/config.json"
+  run readlink "$session_config"
+  assert_success
+  assert_output "$wakeup_config/config.json"
+}
+
+function test_scripts_08511_github_command_palette_is_not_uninstalled_during_update() {
+  _bats_test_init 8511 'GitHub command palette is updated in place, not treated as the local cutover'
+  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local script="$BATS_TEST_TMPDIR/install-herdr-github-plugins-linux.sh"
+  local fake_bin="$BATS_TEST_TMPDIR/bin-github-palette"
+  local calls="$BATS_TEST_TMPDIR/herdr-github-palette.calls"
+  mkdir -p "$fake_bin"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
+
+  cat > "$fake_bin/uname" <<'SH'
+#!/bin/sh
+printf 'Linux\n'
+SH
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+if [ "$*" = "plugin list --json" ]; then
+  printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","source":{"kind":"github","owner":"Seigiard","repo":"herdr-command-palette"}}]}}'
+fi
+exit 0
+SH
+  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
+
+  run env HOME="$BATS_TEST_TMPDIR/github-palette-home" HERDR_CALLS="$calls" \
+    PATH="$fake_bin:$PATH" bash "$script"
+  assert_success
+  run grep -Fx "plugin uninstall seigi.command-palette" "$calls"
+  assert_failure
+  run grep -Fx "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y" "$calls"
+  assert_success
+  run grep -F "herdr-focus-notify" "$calls"
+  assert_failure
+  run grep -F "herdr-auto-update" "$calls"
+  assert_failure
+}
+
+function test_scripts_08512_existing_herdr_wakeup_is_restored_when_managed_policy_linking_fails() {
+  _bats_test_init 8512 'existing Herdr Wakeup is restored when managed policy linking fails'
+  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local script="$BATS_TEST_TMPDIR/install-herdr-wakeup-config-failure.sh"
+  local fake_bin="$BATS_TEST_TMPDIR/bin-wakeup-config-failure"
+  local calls="$BATS_TEST_TMPDIR/herdr-wakeup-config-failure.calls"
+  local home="$BATS_TEST_TMPDIR/herdr-wakeup-config-failure-home"
+  mkdir -p "$fake_bin" "$home"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
+
+  cat > "$fake_bin/uname" <<'SH'
+#!/bin/sh
+printf 'Darwin\n'
+SH
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+if [ "$*" = "plugin list --json" ]; then
+  printf '%s\n' '{"result":{"plugins":[{"plugin_id":"herdr-wakeup","source":{"kind":"github"}}]}}'
+elif [ "$*" = "plugin config-dir herdr-wakeup" ]; then
+  printf '%s\n' "$HOME/.config/herdr/plugins/config/herdr-wakeup"
+fi
+exit 0
+SH
+  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
+
+  run env HOME="$home" HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
+  assert_success
+  assert_output --partial "config: link the managed policy"
+  run grep -Fx "plugin action invoke stop --plugin herdr-wakeup" "$calls"
+  assert_success
+  run grep -Fx "plugin action invoke start --plugin herdr-wakeup" "$calls"
   assert_success
 }
 
 function test_scripts_0852_obsolete_plugin_removal_reports_malformed_entries() {
   _bats_test_init 852 'obsolete plugin removal reports malformed plugin entries'
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local script="$BATS_TEST_TMPDIR/install-herdr-github-plugins-malformed.sh"
   local fake_bin="$BATS_TEST_TMPDIR/bin-malformed"
   mkdir -p "$fake_bin"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
 
   cat > "$fake_bin/uname" <<'SH'
 #!/bin/sh
@@ -1909,9 +2008,296 @@ exit 0
 SH
   chmod +x "$fake_bin/uname" "$fake_bin/herdr"
 
-  run env PATH="$fake_bin:$PATH" bash "$script"
+  run env HOME="$BATS_TEST_TMPDIR/malformed-plugin-home" PATH="$fake_bin:$PATH" bash "$script"
   assert_success
   assert_output --partial "failed to inspect obsolete plugin artisann.zed-herdr"
+}
+
+palette_migration_prepare() {
+  local work="$1"
+  local source="$work/source" home="$work/home" fake_bin="$work/bin"
+  mkdir -p \
+    "$source/.chezmoiscripts" \
+    "$home/.config/herdr/plugins/command-palette" \
+    "$home/.config/herdr/command-palette" \
+    "$fake_bin"
+  cp "$SOURCE_ROOT/.chezmoiscripts/run_once_after_6-migrate-herdr-command-palette.sh.tmpl" \
+    "$source/.chezmoiscripts/"
+  printf 'legacy plugin\n' > "$home/.config/herdr/plugins/command-palette/palette.py"
+  printf 'user catalog\n' > "$home/.config/herdr/command-palette/commands.toml"
+  write_test_config "$work/chezmoi.yaml"
+
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+case "$*" in
+  "plugin list --json")
+    printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","source":{"kind":"local"}}]}}'
+    ;;
+  "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y")
+    [ "${HERDR_FAIL_STEP:-}" != install ]
+    ;;
+  "plugin enable seigi.command-palette")
+    [ "${HERDR_FAIL_STEP:-}" != enable ]
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+SH
+  chmod +x "$fake_bin/herdr"
+}
+
+palette_migration_apply() {
+  local work="$1" fail_step="${2:-}"
+  HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" \
+    PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
+    HERDR_FAIL_STEP="$fail_step" chezmoi_full_fixture apply \
+    --source "$work/source" --destination "$work/home" --config "$work/chezmoi.yaml"
+}
+
+function test_scripts_08521_command_palette_migration_retries_after_install_failure() {
+  _bats_test_init 8521 'command palette migration restores local registration and retries after install failure'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/palette-install-failure"
+  palette_migration_prepare "$work"
+
+  run palette_migration_apply "$work" install
+  assert_failure
+  assert_dir_exists "$work/home/.config/herdr/plugins/command-palette"
+  assert_file_exists "$work/home/.config/herdr/command-palette/commands.toml"
+  run grep -Fx "plugin link $work/home/.config/herdr/plugins/command-palette --enabled" "$work/herdr.calls"
+  assert_success
+
+  run palette_migration_apply "$work"
+  assert_success
+  assert_dir_not_exists "$work/home/.config/herdr/plugins/command-palette"
+  assert_file_exists "$work/home/.config/herdr/command-palette/commands.toml"
+  run grep -Fc "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y" "$work/herdr.calls"
+  assert_success
+  assert_output "2"
+}
+
+function test_scripts_08522_command_palette_migration_retries_after_enable_failure() {
+  _bats_test_init 8522 'command palette migration restores local registration and retries after enable failure'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/palette-enable-failure"
+  palette_migration_prepare "$work"
+
+  run palette_migration_apply "$work" enable
+  assert_failure
+  assert_dir_exists "$work/home/.config/herdr/plugins/command-palette"
+  assert_file_exists "$work/home/.config/herdr/command-palette/commands.toml"
+  run grep -Fx "plugin link $work/home/.config/herdr/plugins/command-palette --enabled" "$work/herdr.calls"
+  assert_success
+
+  run palette_migration_apply "$work"
+  assert_success
+  assert_dir_not_exists "$work/home/.config/herdr/plugins/command-palette"
+  assert_file_exists "$work/home/.config/herdr/command-palette/commands.toml"
+  run grep -Fc "plugin enable seigi.command-palette" "$work/herdr.calls"
+  assert_success
+  assert_output "2"
+}
+
+function test_scripts_08523_plugin_list_fake_fields_match_real_herdr() {
+  _bats_test_init 8523 'plugin-list fake fields match the installed Herdr contract'
+  command_exists herdr || skip "herdr is not installed"
+  local plugin_json
+
+  run env -i HOME="$HOME" PATH="$PATH" \
+    HERDR_SOCKET_PATH="/tmp/mms-herdr-plugin-contract-$$.sock" herdr plugin list --json
+  [[ $status -eq 0 ]] || skip "real herdr returned no plugin list: $output"
+  plugin_json="$output"
+
+  run env PLUGIN_JSON="$plugin_json" python3 - <<'PY'
+import json
+import os
+
+plugins = json.loads(os.environ["PLUGIN_JSON"])["result"]["plugins"]
+assert plugins, "real herdr returned no plugins"
+kinds = set()
+for plugin in plugins:
+    assert isinstance(plugin.get("plugin_id"), str), plugin
+    source = plugin.get("source")
+    assert isinstance(source, dict) and isinstance(source.get("kind"), str), plugin
+    kinds.add(source["kind"])
+assert kinds <= {"local", "github"}, kinds
+print(" ".join(sorted(kinds)))
+PY
+  assert_success
+  [[ " $output " == *" local "* && " $output " == *" github "* ]] \
+    || skip "real registry does not currently expose both local and github source kinds: $output"
+}
+
+caffeinate_migration_prepare() {
+  local work="$1" legacy_root="${2:-present}"
+  local source="$work/source" home="$work/home" fake_bin="$work/bin"
+  mkdir -p \
+    "$source/.chezmoiscripts/darwin" \
+    "$source/.chezmoitemplates" \
+    "$source/private_dot_config/herdr/plugins/config/herdr-wakeup" \
+    "$home/.config/herdr/plugins/config/herdr-wakeup" \
+    "$fake_bin"
+  if [[ "$legacy_root" == present ]]; then
+    mkdir -p "$home/.config/herdr/plugins/herdr-caffeinate"
+    printf '%s\n' 'id = "keepawake.caffeinate"' \
+      > "$home/.config/herdr/plugins/herdr-caffeinate/herdr-plugin.toml"
+    cat > "$home/.config/herdr/plugins/herdr-caffeinate/reconcile.sh" <<'SH'
+#!/bin/sh
+: > "$HOME/legacy-reconciled"
+SH
+    chmod +x "$home/.config/herdr/plugins/herdr-caffeinate/reconcile.sh"
+  fi
+  cp "$SOURCE_ROOT/.chezmoiscripts/darwin/run_once_after_6-migrate-herdr-caffeinate.sh.tmpl" \
+    "$source/.chezmoiscripts/darwin/"
+  cp "$SOURCE_ROOT/.chezmoitemplates/herdr-wakeup-package.sh" \
+    "$source/.chezmoitemplates/"
+  printf '%s\n' '{"stop_grace_seconds":1200}' \
+    > "$source/private_dot_config/herdr/plugins/config/herdr-wakeup/config.json"
+  write_test_config "$work/chezmoi.yaml"
+
+  cat > "$fake_bin/herdr" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+case "$*" in
+  "plugin list --json")
+    printf '%s\n' '{"result":{"plugins":[{"plugin_id":"keepawake.caffeinate","source":{"kind":"local"}}]}}'
+    ;;
+  "plugin install usrivastava92/herdr-wakeup/plugin --ref 43db0b9f88a4b1bc560593b0ce8f2a7d2a940f04 -y")
+    [ "$HERDR_FAIL_STEP" != install ] || exit 1
+    : > "$HOME/replacement-installed"
+    ;;
+  "plugin config-dir herdr-wakeup")
+    printf '%s\n' "$HOME/.config/herdr/plugins/config/herdr-wakeup"
+    ;;
+  "plugin enable herdr-wakeup")
+    [ "$HERDR_FAIL_STEP" != enable ] || exit 1
+    [ -f "$HOME/replacement-installed" ] || exit 3
+    [ -L "$HOME/.config/herdr/plugins/config/herdr-wakeup/sessions/f60c672338465554/config.json" ] || exit 4
+    : > "$HOME/replacement-enabled"
+    ;;
+  "plugin action invoke stop --plugin keepawake.caffeinate")
+    [ -d "$HOME/.config/herdr/plugins/herdr-caffeinate" ] || exit 1
+    [ -f "$HOME/replacement-enabled" ] || exit 5
+    : > "$HOME/legacy-stopped"
+    ;;
+  "plugin action invoke status --plugin keepawake.caffeinate")
+    [ -f "$HOME/legacy-reconciled" ] || exit 10
+    ;;
+  "plugin disable keepawake.caffeinate")
+    [ ! -d "$HOME/.config/herdr/plugins/herdr-caffeinate" ] || \
+      [ -f "$HOME/legacy-stopped" ] || exit 6
+    : > "$HOME/legacy-disabled"
+    ;;
+  "server reload-config")
+    [ -f "$HOME/legacy-disabled" ] || exit 7
+    if [ "$HERDR_FAIL_STEP" = reload ] && [ ! -f "$HOME/activation-reload-failed" ]; then
+      : > "$HOME/activation-reload-failed"
+      exit 1
+    fi
+    : > "$HOME/server-reloaded"
+    ;;
+  "plugin action invoke start --plugin herdr-wakeup")
+    [ -f "$HOME/server-reloaded" ] || exit 8
+    : > "$HOME/replacement-started"
+    ;;
+  "plugin uninstall keepawake.caffeinate")
+    [ -f "$HOME/replacement-started" ] || exit 9
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+SH
+  chmod +x "$fake_bin/herdr"
+  : > "$work/herdr.calls"
+}
+
+caffeinate_migration_run() {
+  local work="$1" fail_step="${2:-}"
+  HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" \
+    PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
+    HERDR_FAIL_STEP="$fail_step" HERDR_SOCKET_PATH=/tmp/mms-herdr-wakeup-test.sock \
+    chezmoi_full_fixture apply --source "$work/source" --destination "$work/home" \
+      --config "$work/chezmoi.yaml"
+}
+
+function test_scripts_08524_caffeinate_migration_cuts_over_only_after_the_replacement_is_ready() {
+  _bats_test_init 8524 'caffeinate migration configures the replacement before stopping the local plugin'
+  local work="$BATS_TEST_TMPDIR/caffeinate-migration"
+  local wakeup_config="$work/home/.config/herdr/plugins/config/herdr-wakeup"
+  caffeinate_migration_prepare "$work"
+
+  run caffeinate_migration_run "$work"
+  assert_success
+  assert_dir_not_exists "$work/home/.config/herdr/plugins/herdr-caffeinate"
+  run readlink "$wakeup_config/sessions/f60c672338465554/config.json"
+  assert_success
+  assert_output "$wakeup_config/config.json"
+  run grep -Fx "plugin action invoke stop --plugin keepawake.caffeinate" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin uninstall keepawake.caffeinate" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin install usrivastava92/herdr-wakeup/plugin --ref 43db0b9f88a4b1bc560593b0ce8f2a7d2a940f04 -y" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin enable herdr-wakeup" "$work/herdr.calls"
+  assert_success
+}
+
+function test_scripts_08525_caffeinate_migration_keeps_the_local_owner_when_installation_fails() {
+  _bats_test_init 8525 'caffeinate migration keeps the local wake-lock owner when replacement installation fails'
+  local work="$BATS_TEST_TMPDIR/caffeinate-migration-install-failure"
+  caffeinate_migration_prepare "$work"
+
+  run caffeinate_migration_run "$work" install
+  assert_failure
+  assert_output --partial "Herdr Wakeup installation failed"
+  assert_dir_exists "$work/home/.config/herdr/plugins/herdr-caffeinate"
+  run grep -Fx "plugin action invoke stop --plugin keepawake.caffeinate" "$work/herdr.calls"
+  assert_failure
+  run grep -Fx "plugin uninstall keepawake.caffeinate" "$work/herdr.calls"
+  assert_failure
+
+  run caffeinate_migration_run "$work"
+  assert_success
+  assert_dir_not_exists "$work/home/.config/herdr/plugins/herdr-caffeinate"
+  run grep -Fc "plugin install usrivastava92/herdr-wakeup/plugin --ref 43db0b9f88a4b1bc560593b0ce8f2a7d2a940f04 -y" "$work/herdr.calls"
+  assert_success
+  assert_output "2"
+}
+
+function test_scripts_08526_caffeinate_migration_removes_a_stale_local_registration_without_legacy_files() {
+  _bats_test_init 8526 'caffeinate migration removes the stale local registration after replacement startup'
+  local work="$BATS_TEST_TMPDIR/caffeinate-migration-stale-registration"
+  caffeinate_migration_prepare "$work" absent
+
+  run caffeinate_migration_run "$work"
+  assert_success
+  run grep -Fx "plugin uninstall keepawake.caffeinate" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin action invoke start --plugin herdr-wakeup" "$work/herdr.calls"
+  assert_success
+}
+
+function test_scripts_08527_caffeinate_migration_restores_the_local_owner_when_reload_fails() {
+  _bats_test_init 8527 'caffeinate migration restores the local owner when replacement activation fails'
+  local work="$BATS_TEST_TMPDIR/caffeinate-migration-reload-failure"
+  caffeinate_migration_prepare "$work"
+
+  run caffeinate_migration_run "$work" reload
+  assert_failure
+  assert_output --partial "restored and reconciled the local owner"
+  assert_dir_exists "$work/home/.config/herdr/plugins/herdr-caffeinate"
+  assert_file_exists "$work/home/legacy-reconciled"
+  run grep -Fx "plugin enable keepawake.caffeinate" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin action invoke status --plugin keepawake.caffeinate" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin uninstall herdr-wakeup" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin uninstall keepawake.caffeinate" "$work/herdr.calls"
+  assert_failure
 }
 
 # Herdr plugin link guard
@@ -1919,9 +2305,7 @@ SH
 
 # plugin-link script template : the plugin directory it registers
 HERDR_LINK_GUARD_SCRIPTS=(
-  "run_onchange_after_2-link-herdr-command-palette.sh.tmpl:command-palette"
   "run_onchange_after_4-link-herdr-worktree-setup.sh.tmpl:worktree-setup"
-  "run_onchange_after_5-link-herdr-caffeinate.sh.tmpl:herdr-caffeinate"
 )
 
 # Renders one link script into $work and gives it a $HOME carrying the plugin
@@ -1990,10 +2374,10 @@ function test_scripts_0853_herdr_plugin_link_scripts_register_only_from_the_logi
 function test_scripts_0854_herdr_plugin_link_scripts_refuse_a_disposable_home() {
   _bats_test_init 854 'herdr plugin link scripts refuse a $HOME declared disposable'
   command_exists chezmoi || skip "chezmoi not available"
-  local work="$BATS_TEST_TMPDIR/disposable-caffeinate"
+  local work="$BATS_TEST_TMPDIR/disposable-worktree-setup"
   mkdir -p "$work/home"
   herdr_link_guard_prepare \
-    "run_onchange_after_5-link-herdr-caffeinate.sh.tmpl" herdr-caffeinate "$work/home" "$work"
+    "run_onchange_after_4-link-herdr-worktree-setup.sh.tmpl" worktree-setup "$work/home" "$work"
 
   run env MMS_DISPOSABLE_HOME=1 HOME="$work/home" HERDR_CALLS="$work/herdr.calls" \
     PATH="$work/bin:$PATH" bash "$work/script.sh"
@@ -3260,6 +3644,20 @@ function test_scripts_023_herdr_child_start_requires_exactly_one_explicit() {
   assert_failure 2
   assert_output --partial "mode flag may be specified only once"
   assert_file_not_exists "$CHILD_STUB/calls.log"
+}
+
+function test_scripts_27203_herdr_child_refuses_to_start_inside_an_external_leg() {
+  _bats_test_init 27203 'herdr-child refuses to start a child inside an External leg before Herdr mutation'
+  child_stub_herdr
+
+  SE_EXTERNAL_LEG=1 run child_start --kind claude --wait --timeout 5000
+  assert_failure 2
+  assert_output --partial "inside an external leg"
+  assert_file_not_exists "$CHILD_STUB/calls.log"
+
+  SE_EXTERNAL_LEG= STUB_REQUIRE_SPLIT=1 run child_start --kind claude --wait --timeout 5000
+  assert_success
+  assert_file_exists "$CHILD_STUB/calls.log"
 }
 
 function test_scripts_024_herdr_child_validates_tab_placement_before_herdr() {
@@ -8775,6 +9173,10 @@ claude_modifier_setup() {
   cat > "$CLAUDE_MODIFIER_BIN/op" <<'STUB'
 #!/bin/sh
 printf '%s\n' "$2" >> "$MMS_TEST_OP_MARKER"
+if [ "${MMS_TEST_OP_MODE:-}" = error ]; then
+  printf '%s\n' 'op: account is not signed in' >&2
+  exit 1
+fi
 case "$2" in
   *Jina*) printf '%s\n' 'interactive-jina' ;;
 esac
@@ -8945,6 +9347,25 @@ function test_scripts_1326_claude_settings_modifier_passes_settings_through_with
     assert_success
     assert_output "$input"
   done
+}
+
+function test_scripts_1327_claude_settings_modifier_reports_1password_read_errors() {
+  _bats_test_init 1327 'Claude settings modifier preserves the 1Password error when Jina cannot be read'
+  claude_modifier_setup
+
+  run --separate-stderr env -u MMS_CHEZMOI_UNATTENDED PATH="$CLAUDE_MODIFIER_BIN:$PATH" HOME=/stub/home \
+    MMS_TEST_OP_MARKER="$CLAUDE_MODIFIER_OP_MARKER" MMS_TEST_OP_MODE=error \
+    bash "$CLAUDE_MODIFIER" <<< '{}'
+
+  assert_success
+  # oracle: only the controlled fake helper can create this launch marker, so an
+  # unattended run that never reaches `op` cannot pass on empty stderr alone.
+  assert_file_exists "$CLAUDE_MODIFIER_OP_MARKER"
+  assert_stderr --partial 'op: account is not signed in'
+  assert_stderr --partial 'modify_dot_claude.json: could not read Jina API Key from 1Password; skipping its MCP server'
+  refute_stderr --partial '1Password returned no Jina API Key'
+  run jq -e '.mcpServers | has("jina") | not' <<< "$output"
+  assert_success
 }
 
 # ===========================================
@@ -11523,4 +11944,260 @@ n
   assert_file_exists "$PINS_ROOT/stray-artifact"
   assert_equal "$(git -C "$PINS_ROOT" status --porcelain --untracked-files=no)" \
     ' M private_dot_config/mise/config.toml'
+}
+
+# herdr-agent-limits tab bar status
+# ===========================================
+
+AGENT_LIMITS_SCRIPT="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-limits"
+
+# Writes a fixture home whose windows are all live, then leaves the caller to
+# age individual ones. Offsets are relative so the fixture never expires.
+agent_limits_fixture() {
+  local home="$1" cc_reset="$2" cx_reset="$3" now
+  now="$(date +%s)"
+  mkdir -p "$home/.cache/claude-rate-limits" "$home/.cache/codex-rate-limits" "$home/bin"
+  printf '{"fetched_at":%s,"five_hour":{"used_percentage":3,"resets_at":%s}}' \
+    "$now" "$((now + cc_reset))" > "$home/.cache/claude-rate-limits/latest.json"
+  codex_limits_cache "$home" 15 "$((now + cx_reset))" false 0 "$now"
+  # The codex segment is offered only where codex could refresh it. The display
+  # path reads the cache and never runs the binary, so presence is all a
+  # display fixture needs; test 27209 exercises the refresh against the real one.
+  printf '#!/bin/sh\nexit 0\n' > "$home/bin/codex"
+  chmod +x "$home/bin/codex"
+}
+
+# The cache the refresh writes and the bar reads, as a single window.
+codex_limits_cache() {
+  local home="$1" pct="$2" resets_at="$3" blocked="$4" credits="$5" fetched_at="$6"
+  mkdir -p "$home/.cache/codex-rate-limits"
+  printf '{"fetched_at":%s,"windows":[{"used_percent":%s,"window_minutes":10080,"resets_at":%s}],"blocked":%s,"reset_credits":%s}' \
+    "$fetched_at" "$pct" "$resets_at" "$blocked" "$credits" \
+    > "$home/.cache/codex-rate-limits/latest.json"
+}
+
+# A hermetic PATH: the fixture's codex, plus enough to resolve python3. The
+# outer PATH stays out so a developer's real codex cannot answer for the stub.
+agent_limits_run() {
+  local home="$1"
+  run env -i HOME="$home" PATH="$home/bin:/usr/bin:/bin" bash "$AGENT_LIMITS_SCRIPT"
+}
+
+function test_scripts_27204_agent_limits_drops_windows_whose_reset_has_passed() {
+  _bats_test_init 27204 'agent limits drops windows whose reset has passed'
+  local home="$BATS_TEST_TMPDIR/limits-expiry"
+
+  # #given both providers report a window that is still open
+  agent_limits_fixture "$home" 3600 86400
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then each provider contributes its live window
+  assert_success
+  assert_output --partial 'cc 5h 3%'
+  assert_output --partial 'cx 7d 15%'
+
+  # #given the same numbers, but after both windows have reset
+  agent_limits_fixture "$home" -3600 -86400
+
+  # #when the status entry runs again
+  agent_limits_run "$home"
+
+  # #then neither percentage is shown: a finished window describes a period
+  # that is over, and a stale number in a status bar misleads silently
+  assert_success
+  refute_output --partial '3%'
+  refute_output --partial '15%'
+}
+
+function test_scripts_27205_agent_limits_prefers_the_live_cache_over_the_stale_claude_json() {
+  _bats_test_init 27205 'agent limits prefers the live cache over the stale claude json'
+  local home="$BATS_TEST_TMPDIR/limits-precedence" now
+  now="$(date +%s)"
+
+  # #given a live status-line cache alongside a week-old .claude.json holding a
+  # different figure for the same account-wide window
+  agent_limits_fixture "$home" 3600 86400
+  mkdir -p "$home/.claude"
+  printf '{"cachedUsageUtilization":{"fetchedAtMs":%s,"utilization":{"five_hour":{"utilization":88}}}}' \
+    "$(((now - 604800) * 1000))" > "$home/.claude/.claude.json"
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then the live figure wins and the stale one never reaches the bar
+  assert_success
+  assert_output --partial 'cc 5h 3%'
+  refute_output --partial '88%'
+
+  # #given the live cache is gone, as on a home that has not run Claude yet
+  rm -f "$home/.cache/claude-rate-limits/latest.json"
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then the fallback figure appears, labelled with its age rather than
+  # passed off as current
+  assert_success
+  assert_output --partial 'cc 5h 88%'
+  assert_output --partial 'old)'
+}
+
+function test_scripts_27206_agent_limits_marks_a_spent_window_without_rounding_into_it() {
+  _bats_test_init 27206 'agent limits marks a spent window without rounding into it'
+  local home="$BATS_TEST_TMPDIR/limits-spent" now exhausted
+  now="$(date +%s)"
+  mkdir -p "$home/.cache/claude-rate-limits"
+  # nf-cod-circle_slash U+EABD
+  exhausted="$(printf '\356\252\275')"
+
+  # #given a window that is genuinely spent
+  printf '{"fetched_at":%s,"five_hour":{"used_percentage":100,"resets_at":%s}}' \
+    "$now" "$((now + 3600))" > "$home/.cache/claude-rate-limits/latest.json"
+
+  # #when the status entry runs
+  run env -i HOME="$home" bash "$AGENT_LIMITS_SCRIPT"
+
+  # #then it reads as a state rather than a stuck gauge, and still says when
+  # the allowance comes back
+  assert_success
+  assert_output --partial "${exhausted}100%"
+  assert_output --partial '⟳'
+
+  # #given a window that is merely close to spent
+  printf '{"fetched_at":%s,"five_hour":{"used_percentage":99.6,"resets_at":%s}}' \
+    "$now" "$((now + 3600))" > "$home/.cache/claude-rate-limits/latest.json"
+
+  # #when the status entry runs
+  run env -i HOME="$home" bash "$AGENT_LIMITS_SCRIPT"
+
+  # #then rounding never manufactures an exhaustion that has not happened
+  assert_success
+  assert_output --partial '5h 99%'
+  refute_output --partial '100%'
+  refute_output --partial "$exhausted"
+}
+
+function test_scripts_27207_agent_limits_says_what_a_blocked_codex_account_can_still_do() {
+  _bats_test_init 27207 'agent limits says what a blocked codex account can still do'
+  local home="$BATS_TEST_TMPDIR/limits-credits" now exhausted
+  now="$(date +%s)"
+  # nf-cod-circle_slash U+EABD
+  exhausted="$(printf '\356\252\275')"
+  agent_limits_fixture "$home" 3600 86400
+
+  # #given a spent window with reset credits in hand
+  codex_limits_cache "$home" 100 "$((now + 86400))" true 2 "$now"
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then the count reaches the bar: at 100% it is the difference between
+  # waiting for the reset and carrying on now. The spelling is ours; what the
+  # zero-credit control below fixes is that the count appears at all.
+  assert_success
+  assert_output --partial 'r2'
+
+  # #given the same spent window with no credits left
+  codex_limits_cache "$home" 100 "$((now + 86400))" true 0 "$now"
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then nothing claims a credit that is not there
+  assert_success
+  refute_output --partial 'r0'
+  refute_output --partial ' r'
+
+  # #given an account blocked while its window still reads below 100%, which
+  # is what spend control and depleted credits look like
+  codex_limits_cache "$home" 40 "$((now + 86400))" true 0 "$now"
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then the segment carries the state, because no percentage in the line
+  # would reveal it
+  assert_success
+  assert_output --partial "cx ${exhausted}"
+
+  # #given the same figure on an account that is not blocked
+  codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$now"
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then the marker stays off: it reports the backend's verdict, not a
+  # threshold this script picked
+  assert_success
+  refute_output --partial "$exhausted"
+}
+
+function test_scripts_27208_agent_limits_labels_a_codex_figure_the_refresh_stopped_updating() {
+  _bats_test_init 27208 'agent limits labels a codex figure the refresh stopped updating'
+  local home="$BATS_TEST_TMPDIR/limits-stale" now
+  now="$(date +%s)"
+  agent_limits_fixture "$home" 3600 86400
+
+  # #given a cache the minute-by-minute refresh has not touched for an hour,
+  # as when the account is logged out or the machine is offline
+  codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$((now - 3600))"
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then the figure is labelled old rather than passed off as current
+  assert_success
+  assert_output --partial 'cx 7d 40%'
+  assert_output --partial 'old)'
+
+  # #given the same figure from a refresh that is keeping up
+  codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$now"
+
+  # #when the status entry runs
+  agent_limits_run "$home"
+
+  # #then the bar says nothing about age, because there is nothing to qualify
+  assert_success
+  assert_output --partial 'cx 7d 40%'
+  refute_output --partial 'old)'
+}
+
+function test_scripts_27209_codex_limits_refresh_fills_its_cache_from_the_real_app_server() {
+  _bats_test_init 27209 'codex limits refresh fills its cache from the real app server'
+  command_exists codex || skip "codex is not installed"
+  local home="$BATS_TEST_TMPDIR/limits-refresh" cache
+  mkdir -p "$home"
+  cache="$home/.cache/codex-rate-limits/latest.json"
+
+  # #given the real app server, reached with the real account: a fake codex
+  # here would only compare this patch against itself, and the cache's fields
+  # are a claim about codex's response that only codex can adjudicate.
+  # #when the refresh path runs against it
+  run env HOME="$home" CODEX_HOME="$HOME/.codex" \
+    bash "$AGENT_LIMITS_SCRIPT" --refresh-codex
+  assert_success
+
+  # A logged-out or offline machine has no oracle, only a silent empty cache,
+  # so say which one is missing instead of asserting an invented shape.
+  [[ -f "$cache" ]] || skip "codex app-server returned no rate limits (logged out or offline?)"
+
+  # #then every field the bar formats arrives populated. The depth stops at
+  # what the display reads: anything further restates a response shape codex
+  # owns and would fail on its next release for no local reason.
+  run python3 -c '
+import json, sys, time
+d = json.load(open(sys.argv[1]))
+assert time.time() - d["fetched_at"] < 300, "cache is not fresh"
+assert isinstance(d["blocked"], bool), d["blocked"]
+assert isinstance(d["reset_credits"], int), d["reset_credits"]
+assert d["windows"], "no window carried a used_percent"
+for w in d["windows"]:
+    assert isinstance(w["used_percent"], (int, float)), w
+    assert w["window_minutes"], w
+print("ok")
+' "$cache"
+  assert_success
+  assert_output --partial 'ok'
 }

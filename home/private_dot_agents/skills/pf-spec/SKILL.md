@@ -8,7 +8,7 @@ argument-hint: "<epic-or-topic>"
 
 Write the approved research narrative into the product contracts: author the contract deltas, open the **epic PR** (kept open — `/pf-build` builds into it), and iterate with the user until the contract spec matches the theory in their head, analyzing every feedback round for missing priors. Second step of the `/pf-research` → `/pf-spec` → `/pf-build` cycle (shared mechanics: read `~/.claude/shared/pf-cycle.md` first).
 
-**Entry.** The normal entry is an approved research narrative at `~/.claude/artifacts/<id>/research.md`. A small, well-understood change may instead be spec'd directly from the user's instruction, with no formal research step — then the user's instruction is what Step 1 reads, and the spec narrative's Purpose section carries it.
+**Entry.** The normal entry is an approved research narrative at `~/.claude/artifacts/<id>/research.md`, or an issue audit at `~/.claude/artifacts/<ISSUE-ID>/issue.md` whose chosen option changes a contract — then its Рекомендация section is what Step 1 reads, and the contract owner's confirmation the audit called for happens in this step. A small, well-understood change may instead be spec'd directly from the user's instruction, with no formal research step — then the user's instruction is what Step 1 reads, and the spec narrative's Purpose section carries it.
 
 ## What the contract spec is
 

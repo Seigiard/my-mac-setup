@@ -10,6 +10,10 @@ Launch two fresh peer sessions to inspect the same simplification scope.
 
 Each peer uses the `ce-simplify-code` rubric to produce findings without editing. After collecting both reports, close both tabs before synthesis. The parent applies the accepted set exactly once and verifies behavior.
 
+## Inside an External leg
+
+When `SE_EXTERNAL_LEG` is set to any non-empty value, this session is already a leg and `se-external-leg-pair` refuses to launch. Run `ce-simplify-code` directly in this session for the same scope, under the leg's own instructions, and return its findings.
+
 ## Resolve scope
 
 Resolve the scope using `ce-simplify-code` Step 1:

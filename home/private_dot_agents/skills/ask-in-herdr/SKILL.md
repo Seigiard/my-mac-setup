@@ -62,7 +62,7 @@ Only `status=answered` puts an answer on stdout, and it comes from the report fi
 | `ask.sh: status=blocked` | 1 | The child settled at `blocked`. The transport is retained. |
 | `ask.sh: status=working` | 124 | The wait did not settle. The child pane remains live, stdout can be partial, and the transport is retained. |
 | `ask.sh: status=undelivered` | 1 | The pane, start, or initial prompt failed before a usable answer existed. |
-| `ask.sh: status=refused` | 2 | Arguments or posture are invalid, or the pre-external secret scan refused launch. |
+| `ask.sh: status=refused` | 2 | Arguments or posture are invalid, the pre-external secret scan refused launch, or the caller is inside an External leg (`SE_EXTERNAL_LEG=1`). |
 | `ask.sh: status=no-report` | 3 | The child settled, but no report file existed after the recovery request. |
 | `ask.sh: status=empty-report` | 4 | The report file existed but was empty after the recovery request. |
 | `ask.sh: status=bad-report` | 5 | The report path was a symlink or not a regular file. It was never read. |

@@ -18,3 +18,12 @@
 # local reimplementation before Herdr enables the replacement, or both event
 # hooks can produce the same notification.
 .config/herdr/plugins/herdr-focus-notify
+
+# se-doc-review and se-plan are retired: they wrap ce-doc-review and ce-plan,
+# which are outside the installed compound engineering set. Deleting their
+# sources left the deployed copies discoverable, so agents still invoked them
+# and launched peers against a skill that does not exist.
+.agents/skills/se-doc-review
+.agents/skills/se-plan
+.claude/skills/se-doc-review
+.claude/skills/se-plan

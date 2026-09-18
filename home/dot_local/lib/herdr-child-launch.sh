@@ -3,6 +3,13 @@
 # Owns: child launch argument parsing, setup, cleanup, and watcher arming.
 
 start_child() {
+  # An External leg must return its own report; a child launched from inside
+  # one would nest agents under a review nobody asked to widen. Exit 2 is what
+  # ask-in-herdr reports as status=refused.
+  if [ -n "${SE_EXTERNAL_LEG:-}" ]; then
+    printf 'herdr-child: already inside an external leg; do this work in the current session\n' >&2
+    exit 2
+  fi
   require_parent
 
   local -a original_args=("$@")

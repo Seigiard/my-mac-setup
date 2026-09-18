@@ -35,6 +35,8 @@ Mapping `external-leg-models/2026-09-12` was verified against Claude Code 2.1.23
 
 Both clients support `low`, `medium`, `high`, `xhigh`, and `max` effort for these models. The three current callers declare `medium/high`, preserving their previous Sonnet/high and Terra behavior.
 
+Both leg tabs start with `SE_EXTERNAL_LEG=1`, which the agent, its tool processes, and its subagents inherit. The command refuses with status `2` when that variable is already set to any non-empty value, and `herdr-child start` refuses the same way, so no leg can open a nested pair or child. A skill that finds itself inside a leg does its work in that session instead.
+
 ## Result
 
 The command copies usable reports only after every known peer tab closes, then removes private transport before publishing `PAIR_RESULT`. Cleanup failure exits `3` and publishes nothing. Stderr identifies any resource it could not remove or any successful tab creation that returned no trackable tab ID.
@@ -57,7 +59,7 @@ Exit statuses:
 
 - `0`: cleanup completed and at least one report is available.
 - `1`: cleanup completed but no report is available, or result publication failed.
-- `2`: refused before peer creation because input, environment, dependencies, or the initial scan were invalid.
+- `2`: refused before peer creation because input, environment, dependencies, or the initial scan were invalid, or because the caller is itself an External leg.
 - `3`: cleanup was incomplete; synthesis is forbidden.
 - `129`, `130`, or `143`: the process received HUP, INT, or TERM and cleanup completed. Incomplete cleanup overrides these with `3`.
 
