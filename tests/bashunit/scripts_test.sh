@@ -5644,6 +5644,11 @@ SH
     chezmoi_full_fixture_finite_stdin execute-template < "$HERDR_INTEGRATIONS_TMPL"
   assert_success
   assert_output --partial '# herdr version:'
+  printf '%s\n' "$output" > "$BATS_TEST_TMPDIR/herdr-integrations-wrapper-only.sh"
+
+  run env PATH="$stub:/usr/bin:/bin" bash "$BATS_TEST_TMPDIR/herdr-integrations-wrapper-only.sh"
+  assert_success
+  assert_output --partial 'skipping agent-state integration refresh'
 }
 
 # Present leg of 093's pair: with herdr on PATH the refresh must actually issue
@@ -8730,6 +8735,24 @@ function test_scripts_1323_herdr_pane_label_after_script_skips_missing_herdr_wit
   skip_if_no_chezmoi
   hpl_cutover_setup
   mv "$HPL_STUB/herdr" "$HPL_STUB/herdr.unavailable"
+
+  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
+
+  assert_success
+  assert_output --partial "herdr not found; skipping pane-labels plugin link"
+  assert_dir_not_exists "$HPL_CUTOVER_HOME/.cache/herdr-pane-labels/cutover-rollback"
+}
+
+function test_scripts_1327_herdr_pane_label_after_script_skips_a_broken_wrapper_() {
+  _bats_test_init 1327 'herdr pane-label after script skips a broken wrapper without a transaction'
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  rm "$HPL_STUB/herdr"
+  cat > "$HPL_STUB/herdr" <<'SH'
+#!/bin/sh
+exit 127
+SH
+  chmod +x "$HPL_STUB/herdr"
 
   run hpl_cutover_run "$HPL_CUTOVER_AFTER"
 
