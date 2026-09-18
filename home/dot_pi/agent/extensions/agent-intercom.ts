@@ -3,8 +3,8 @@ import { join } from "node:path"
 
 let intercomExtension: ((pi: any) => any) | undefined
 const shouldLoad =
-  process.env.HERDR_ENV === "1" && process.env.HERDR_AGENT_INTERCOM_PI_LOAD === "1"
-delete process.env.HERDR_AGENT_INTERCOM_PI_LOAD
+  process.env.HERDR_ENV === "1" &&
+  process.env.HERDR_AGENT_INTERCOM_PI_LOAD === String(process.pid)
 if (shouldLoad) {
   const root = join(
     process.env.HOME ?? "",

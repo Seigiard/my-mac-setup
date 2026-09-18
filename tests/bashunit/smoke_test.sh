@@ -817,6 +817,12 @@ function test_smoke_1073_deployed_agent_intercom_package_exposes_each_selected_a
   assert_file_exists "$root/node_modules/@dataforxyz/agent-intercom-opencode/dist/plugin.mjs"
   assert_file_exists "$root/node_modules/@dataforxyz/agent-intercom-pi/index.ts"
 
+  run env \
+    AGENT_INTERCOM_OPENCODE_LOADER_PATH="$HOME/.config/opencode/plugins/agent-intercom.ts" \
+    AGENT_INTERCOM_PI_LOADER_PATH="$HOME/.pi/agent/extensions/agent-intercom.ts" \
+    bun test "$BATS_TEST_DIRNAME/agent-intercom-loaders.test.ts"
+  assert_success
+
   run env HOME="$HOME" bun -e '
 const opencode = await import(process.argv[1])
 const pi = await import(process.argv[2])
@@ -841,7 +847,7 @@ SH
   run cat "$log"
   assert_success
   assert_output --partial '<--disallowed-tools><Edit Write NotebookEdit AskUserQuestion>'
-  assert_output --partial '<--dangerously-skip-permissions>'
+  refute_output --partial '<--dangerously-skip-permissions>'
 }
 
 assert_herdr_label_writer_contract() {

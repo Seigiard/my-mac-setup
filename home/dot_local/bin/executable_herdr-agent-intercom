@@ -122,7 +122,9 @@ case "$agent" in
   claude)
     cci="$intercom_root/node_modules/.bin/cci"
     bridge="$HOME/.local/bin/herdr-agent-intercom-claude"
-    if [[ ! -x "$cci" || ! -x "$bridge" ]]; then
+    claude_server="$intercom_root/node_modules/@dataforxyz/agent-intercom-claude/dist/claude-server.mjs"
+    inbox_monitor="$intercom_root/node_modules/@dataforxyz/agent-intercom-claude/dist/inbox-monitor.mjs"
+    if [[ ! -x "$cci" || ! -x "$bridge" || ! -f "$claude_server" || ! -f "$inbox_monitor" ]]; then
       exec "$agent_command" "$@"
     fi
     export AGENT_INTERCOM_CLAUDE_COMMAND="$agent_command"
@@ -138,7 +140,7 @@ case "$agent" in
     # only the overlapping controls it must reconstruct; the bridge restores
     # the complete native argv afterward.
     cci_args=()
-    permission_args=(--dangerously-skip-permissions)
+    permission_args=()
     arg_index=0
     while [[ "$arg_index" -lt "${#claude_args[@]}" ]]; do
       arg="${claude_args[$arg_index]}"
@@ -179,7 +181,7 @@ case "$agent" in
     exec "$agent_command" "$@"
     ;;
   pi)
-    export HERDR_AGENT_INTERCOM_PI_LOAD=1
+    export HERDR_AGENT_INTERCOM_PI_LOAD="$$"
     pi_args=()
     while [[ $# -gt 0 ]]; do
       case "$1" in

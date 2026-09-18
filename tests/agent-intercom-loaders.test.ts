@@ -3,11 +3,12 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const OPENCODE_LOADER = join(
-  import.meta.dir,
-  "../home/private_dot_config/opencode/plugins/agent-intercom.ts",
-);
-const PI_LOADER = join(import.meta.dir, "../home/dot_pi/agent/extensions/agent-intercom.ts");
+const OPENCODE_LOADER =
+  process.env.AGENT_INTERCOM_OPENCODE_LOADER_PATH ??
+  join(import.meta.dir, "../home/private_dot_config/opencode/plugins/agent-intercom.ts");
+const PI_LOADER =
+  process.env.AGENT_INTERCOM_PI_LOADER_PATH ??
+  join(import.meta.dir, "../home/dot_pi/agent/extensions/agent-intercom.ts");
 const PACKAGE_LOCK = join(
   import.meta.dir,
   "../home/dot_local/share/agent-intercom/package-lock.json",
@@ -25,12 +26,13 @@ function packageRoot(home: string): string {
   return join(home, ".local", "share", "agent-intercom", "node_modules");
 }
 
-async function loadFromHome(
+async function loadModulesFromHome(
   loader: string,
   home: string,
   herdr: boolean,
   activation: Record<string, string> = {},
-): Promise<any> {
+  count = 1,
+): Promise<any[]> {
   const copy = join(temporaryDir("agent-intercom-loader-"), `loader-${loadCount++}.ts`);
   cpSync(loader, copy);
   const keys = ["HOME", "HERDR_ENV", "OPENCODE_INTERCOM_NAME", "HERDR_AGENT_INTERCOM_PI_LOAD"];
@@ -40,13 +42,26 @@ async function loadFromHome(
   if (herdr) process.env.HERDR_ENV = "1";
   Object.assign(process.env, activation);
   try {
-    return await import(copy);
+    const modules = [];
+    for (let index = 0; index < count; index += 1) {
+      modules.push(await import(`${copy}?load=${index}`));
+    }
+    return modules;
   } finally {
     for (const [key, value] of previous) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
   }
+}
+
+async function loadFromHome(
+  loader: string,
+  home: string,
+  herdr: boolean,
+  activation: Record<string, string> = {},
+): Promise<any> {
+  return (await loadModulesFromHome(loader, home, herdr, activation))[0];
 }
 
 afterEach(() => {
@@ -151,7 +166,7 @@ describe("Pi Agent Intercom loader", () => {
     );
 
     const module = await loadFromHome(PI_LOADER, home, true, {
-      HERDR_AGENT_INTERCOM_PI_LOAD: "1",
+      HERDR_AGENT_INTERCOM_PI_LOAD: String(process.pid),
     });
     const pi: Record<string, unknown> = {};
     module.default(pi);
@@ -177,7 +192,7 @@ describe("Pi Agent Intercom loader", () => {
   test("is a no-op inside Herdr when the managed package is absent", async () => {
     const home = temporaryDir("agent-intercom-pi-missing-herdr-");
     const module = await loadFromHome(PI_LOADER, home, true, {
-      HERDR_AGENT_INTERCOM_PI_LOAD: "1",
+      HERDR_AGENT_INTERCOM_PI_LOAD: String(process.pid),
     });
     const pi: Record<string, unknown> = {};
     module.default(pi);
@@ -194,8 +209,49 @@ describe("Pi Agent Intercom loader", () => {
     );
 
     const module = await loadFromHome(PI_LOADER, home, true, {
-      HERDR_AGENT_INTERCOM_PI_LOAD: "1",
+      HERDR_AGENT_INTERCOM_PI_LOAD: String(process.pid),
     });
     expect(module.default({})).toBeUndefined();
+  });
+
+  test("stays active when Pi reloads extensions in the same process", async () => {
+    const home = temporaryDir("agent-intercom-pi-reload-");
+    const packageDir = join(packageRoot(home), "@dataforxyz", "agent-intercom-pi");
+    mkdirSync(packageDir, { recursive: true });
+    await Bun.write(
+      join(packageDir, "index.ts"),
+      "export default (pi: any) => { pi.transport = 'native'; };\n",
+    );
+
+    const modules = await loadModulesFromHome(
+      PI_LOADER,
+      home,
+      true,
+      { HERDR_AGENT_INTERCOM_PI_LOAD: String(process.pid) },
+      2,
+    );
+    const initial: Record<string, unknown> = {};
+    const reloaded: Record<string, unknown> = {};
+    modules[0].default(initial);
+    modules[1].default(reloaded);
+    expect(initial).toEqual({ transport: "native" });
+    expect(reloaded).toEqual({ transport: "native" });
+  });
+
+  test("ignores an activation marker inherited from another process", async () => {
+    const home = temporaryDir("agent-intercom-pi-nested-");
+    const packageDir = join(packageRoot(home), "@dataforxyz", "agent-intercom-pi");
+    mkdirSync(packageDir, { recursive: true });
+    await Bun.write(
+      join(packageDir, "index.ts"),
+      "export default (pi: any) => { pi.transport = 'native'; };\n",
+    );
+
+    const module = await loadFromHome(PI_LOADER, home, true, {
+      HERDR_AGENT_INTERCOM_PI_LOAD: String(process.pid + 1),
+    });
+    const pi: Record<string, unknown> = {};
+    module.default(pi);
+    expect(pi).toEqual({});
   });
 });

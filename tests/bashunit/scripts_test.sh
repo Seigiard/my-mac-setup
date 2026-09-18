@@ -45,8 +45,13 @@ agent_intercom_stub_command() {
   local path="$1"
   cat > "$path" <<'SH'
 #!/usr/bin/env bash
+pi_load=
+if [[ -n "${HERDR_AGENT_INTERCOM_PI_LOAD:-}" ]]; then
+  pi_load=foreign
+  [[ "$HERDR_AGENT_INTERCOM_PI_LOAD" == "$$" ]] && pi_load=self
+fi
 printf '%s name=<%s> args=' "${0##*/}" "${OPENCODE_INTERCOM_NAME-}"
-printf ' active=<%s> pi_load=<%s>' "${HERDR_AGENT_INTERCOM_ACTIVE-}" "${HERDR_AGENT_INTERCOM_PI_LOAD-}"
+printf ' active=<%s> pi_load=<%s>' "${HERDR_AGENT_INTERCOM_ACTIVE-}" "$pi_load"
 [[ $# -eq 0 ]] || printf '<%s>' "$@"
 printf '\n'
 SH
@@ -61,8 +66,12 @@ agent_intercom_stub_bin() {
   agent_intercom_stub_command "$stub/opencode"
   agent_intercom_stub_command "$stub/pi"
   agent_intercom_stub_command "$stub/cci"
-  mkdir -p "$home/.local/share/agent-intercom/node_modules/.bin" "$home/.local/bin"
+  mkdir -p "$home/.local/share/agent-intercom/node_modules/.bin" \
+    "$home/.local/share/agent-intercom/node_modules/@dataforxyz/agent-intercom-claude/dist" \
+    "$home/.local/bin"
   ln -sf "$stub/cci" "$home/.local/share/agent-intercom/node_modules/.bin/cci"
+  : > "$home/.local/share/agent-intercom/node_modules/@dataforxyz/agent-intercom-claude/dist/claude-server.mjs"
+  : > "$home/.local/share/agent-intercom/node_modules/@dataforxyz/agent-intercom-claude/dist/inbox-monitor.mjs"
   cp "$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom-claude" \
     "$home/.local/bin/herdr-agent-intercom-claude"
   chmod +x "$home/.local/bin/herdr-agent-intercom-claude"
@@ -103,12 +112,12 @@ function test_scripts_1331_agent_intercom_launcher_propagates_a_child_alias_to_e
   run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
     PATH="$stub:$PATH" bash "$launcher" pi --provider anthropic
   assert_success
-  assert_output 'pi name=<> args= active=<1> pi_load=<1><--name><ochre-okapi><--provider><anthropic>'
+  assert_output 'pi name=<> args= active=<1> pi_load=<self><--name><ochre-okapi><--provider><anthropic>'
 
   run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
     PATH="$stub:$PATH" bash "$launcher" pi --name wrong -n wrong-again -- --name message
   assert_success
-  assert_output 'pi name=<> args= active=<1> pi_load=<1><--name><ochre-okapi><--><--name><message>'
+  assert_output 'pi name=<> args= active=<1> pi_load=<self><--name><ochre-okapi><--><--name><message>'
 }
 
 function test_scripts_1332_agent_intercom_launcher_resolves_the_current_pane_alias() {
@@ -207,17 +216,17 @@ function test_scripts_1337_agent_intercom_launcher_preserves_utility_and_nested_
   run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
     PATH="$stub:$PATH" bash "$launcher" claude --debug mcp list
   assert_success
-  assert_output --partial 'active=<1> pi_load=<><--dangerously-skip-permissions><--tui><--transport><mcp><--name><ochre-okapi>'
+  assert_output --partial 'active=<1> pi_load=<><--tui><--transport><mcp><--name><ochre-okapi>'
 
   run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
     PATH="$stub:$PATH" bash "$launcher" claude --mcp-config mcp --model sonnet
   assert_success
-  assert_output --partial 'active=<1> pi_load=<><--model><sonnet><--dangerously-skip-permissions><--tui><--transport><mcp><--name><ochre-okapi>'
+  assert_output --partial 'active=<1> pi_load=<><--model><sonnet><--tui><--transport><mcp><--name><ochre-okapi>'
 
   run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
     PATH="$stub:$PATH" bash "$launcher" claude --tools Read mcp list
   assert_success
-  assert_output --partial 'active=<1> pi_load=<><--dangerously-skip-permissions><--tui><--transport><mcp><--name><ochre-okapi>'
+  assert_output --partial 'active=<1> pi_load=<><--tui><--transport><mcp><--name><ochre-okapi>'
 
   run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
     PATH="$stub:$PATH" bash "$launcher" claude --model sonnet -p prompt
@@ -240,6 +249,12 @@ function test_scripts_1337_agent_intercom_launcher_preserves_utility_and_nested_
   assert_output 'pi name=<> args= active=<> pi_load=<><--export><session.jsonl><output.html>'
 
   run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/missing-intercom" \
+    PATH="$stub:$PATH" bash "$launcher" claude
+  assert_success
+  assert_output 'claude name=<> args= active=<1> pi_load=<>'
+
+  rm -f "$BATS_TEST_TMPDIR/agent-intercom-home/.local/share/agent-intercom/node_modules/@dataforxyz/agent-intercom-claude/dist/inbox-monitor.mjs"
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
     PATH="$stub:$PATH" bash "$launcher" claude
   assert_success
   assert_output 'claude name=<> args= active=<1> pi_load=<>'
