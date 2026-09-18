@@ -161,10 +161,11 @@ The first deployed host slice pins the tested Core, Claude, OpenCode, and Pi
 commits in one package root under `~/.local/share/agent-intercom`. A Herdr-only
 launcher derives the public name from the child alias or current pane record,
 runs interactive Claude sessions through live MCP `cci`, exports OpenCode's
-adapter name, and passes Pi's normal session name. Utility, nested, and
-unidentified launches pass through unchanged. OpenCode loads only its server
-plugin. Codex is deferred because its tested wakeable worker and proactive MCP
-surface register separate Intercom identities.
+adapter name, and passes Pi's normal session name. Claude and Pi utility
+launches, plus nested and unidentified launches for all clients, pass through
+unchanged. OpenCode does not classify subcommands at the launcher boundary and
+loads only its server plugin. Codex is deferred because its tested wakeable
+worker and proactive MCP surface register separate Intercom identities.
 
 ## Consequences
 

@@ -45,7 +45,7 @@ case "$agent" in
     while [[ "$arg_index" -lt "${#claude_args[@]}" ]]; do
       arg="${claude_args[$arg_index]}"
       case "$arg" in
-        agents|auth|auto-mode|config|doctor|gateway|import|install|mcp|migrate-installer|plugin|plugins|project|setup-token|ultrareview|update|upgrade)
+        agents|auth|auto-mode|doctor|gateway|import|install|mcp|plugin|plugins|project|setup-token|ultrareview|update|upgrade)
           exec "$agent_command" "$@"
           ;;
         --allow-dangerously-skip-permissions|--ax-screen-reader|--background|--bare|--bg|--brief|-c|--chrome|--continue|--dangerously-skip-permissions|--disable-slash-commands|--exclude-dynamic-system-prompt-sections|--fork-session|--forward-subagent-text|--ide|--include-hook-events|--include-partial-messages|--no-chrome|--no-session-persistence|--replay-user-messages|--safe-mode|--strict-mcp-config|--verbose)

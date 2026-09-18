@@ -24,5 +24,9 @@ if (shouldLoad) {
 }
 
 export default function agentIntercom(pi: any) {
-  return intercomExtension?.(pi)
+  try {
+    return intercomExtension?.(pi)
+  } catch {
+    return undefined
+  }
 }

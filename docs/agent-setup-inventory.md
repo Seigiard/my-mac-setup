@@ -62,7 +62,9 @@ The locked package set lives at
 `~/.local/share/agent-intercom`; a managed launcher selects Claude's live MCP
 transport while preserving native Claude arguments and tool restrictions,
 exports the OpenCode name, or passes Pi's normal `--name` option.
-Utility, nested, unidentified, and non-Herdr launches bypass Intercom unchanged.
+Claude and Pi utility launches bypass Intercom unchanged. Nested, unidentified,
+and non-Herdr launches do the same for all three clients; OpenCode does not
+classify subcommands at the launcher boundary.
 
 OpenCode loads only the server plugin, so the Intercom `/intercom`, `Alt+M`, and
 `Alt+I` TUI conveniences are intentionally absent. Pi loads the native extension.

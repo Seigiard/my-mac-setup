@@ -32,6 +32,8 @@ export const AgentIntercomPlugin: Plugin = async (input) => {
   process.env.OPENCODE_INTERCOM_NAME = intercomName
   try {
     return await intercomPlugin(input)
+  } catch {
+    return {}
   } finally {
     if (previousName === undefined) delete process.env.OPENCODE_INTERCOM_NAME
     else process.env.OPENCODE_INTERCOM_NAME = previousName

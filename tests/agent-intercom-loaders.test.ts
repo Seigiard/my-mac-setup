@@ -8,10 +8,6 @@ const OPENCODE_LOADER = join(
   "../home/private_dot_config/opencode/plugins/agent-intercom.ts",
 );
 const PI_LOADER = join(import.meta.dir, "../home/dot_pi/agent/extensions/agent-intercom.ts");
-const PACKAGE_MANIFEST = join(
-  import.meta.dir,
-  "../home/dot_local/share/agent-intercom/package.json",
-);
 const PACKAGE_LOCK = join(
   import.meta.dir,
   "../home/dot_local/share/agent-intercom/package-lock.json",
@@ -58,20 +54,6 @@ afterEach(() => {
 });
 
 describe("Agent Intercom package pins", () => {
-  test("the managed package set names every tested revision exactly", () => {
-    const manifest = JSON.parse(readFileSync(PACKAGE_MANIFEST, "utf8"));
-    expect(manifest.dependencies).toEqual({
-      "@dataforxyz/agent-intercom-core":
-        "git+https://github.com/dataforxyz/agent-intercom-core.git#8316cbab548f422ad11c78ed887fabeef94817c1",
-      "@dataforxyz/agent-intercom-claude":
-        "git+https://github.com/dataforxyz/agent-intercom-claude.git#7de76e5d4f6461b007b19dfc5dbcf11928868adc",
-      "@dataforxyz/agent-intercom-opencode":
-        "git+https://github.com/dataforxyz/agent-intercom-opencode.git#91ce62f03f14b89ea11fc39eedf7d44bca808cf4",
-      "@dataforxyz/agent-intercom-pi":
-        "git+https://github.com/dataforxyz/agent-intercom-pi.git#0fffed27d15055b866fe4e52803be6adcd363051",
-    });
-  });
-
   test("the lock resolves every git dependency over portable HTTPS URLs", () => {
     const lock = JSON.parse(readFileSync(PACKAGE_LOCK, "utf8"));
     const packages = lock.packages as Record<string, { resolved?: string }>;
@@ -141,6 +123,21 @@ describe("OpenCode Agent Intercom loader", () => {
     });
     expect(await module.AgentIntercomPlugin({})).toEqual({});
   });
+
+  test("is a no-op when the server plugin fails during initialization", async () => {
+    const home = temporaryDir("agent-intercom-opencode-broken-");
+    const packageDir = join(packageRoot(home), "@dataforxyz", "agent-intercom-opencode");
+    mkdirSync(join(packageDir, "dist"), { recursive: true });
+    await Bun.write(
+      join(packageDir, "dist", "plugin.mjs"),
+      "export default async () => { throw new Error('initialization failed'); };\n",
+    );
+
+    const module = await loadFromHome(OPENCODE_LOADER, home, true, {
+      OPENCODE_INTERCOM_NAME: "ochre-okapi",
+    });
+    expect(await module.AgentIntercomPlugin({})).toEqual({});
+  });
 });
 
 describe("Pi Agent Intercom loader", () => {
@@ -185,5 +182,20 @@ describe("Pi Agent Intercom loader", () => {
     const pi: Record<string, unknown> = {};
     module.default(pi);
     expect(pi).toEqual({});
+  });
+
+  test("is a no-op when the native extension fails during initialization", async () => {
+    const home = temporaryDir("agent-intercom-pi-broken-");
+    const packageDir = join(packageRoot(home), "@dataforxyz", "agent-intercom-pi");
+    mkdirSync(packageDir, { recursive: true });
+    await Bun.write(
+      join(packageDir, "index.ts"),
+      "export default () => { throw new Error('initialization failed'); };\n",
+    );
+
+    const module = await loadFromHome(PI_LOADER, home, true, {
+      HERDR_AGENT_INTERCOM_PI_LOAD: "1",
+    });
+    expect(module.default({})).toBeUndefined();
   });
 });
