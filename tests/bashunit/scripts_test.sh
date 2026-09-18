@@ -2317,7 +2317,8 @@ PY
 
 function test_scripts_08524_worktree_setup_is_installed_enabled_and_pinned() {
   _bats_test_init 8524 'standalone Worktree Setup is installed enabled and pinned to the reviewed commit'
-  command_exists herdr || skip "herdr is not installed"
+  command_exists herdr && herdr --version >/dev/null 2>&1 \
+    || skip "a working upstream herdr is not installed"
   [[ "${MMS_DISPOSABLE_HOME:-}" == 1 ]] || skip "requires the disposable post-apply registry"
   local plugin_json
   run env -i HOME="$HOME" PATH="$PATH" \
