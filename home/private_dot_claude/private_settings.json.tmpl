@@ -61,8 +61,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/herdr-agent-state.sh' session",
-            "timeout": 10
+            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/herdr-resource-context.sh'",
+            "timeout": 25
           }
         ]
       },
@@ -84,6 +84,22 @@
             "type": "command",
             "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/herdr-worktree-identity-hook.sh'",
             "timeout": 2
+          },
+          {
+            "type": "command",
+            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/herdr-resource-context.sh'",
+            "timeout": 25
+          }
+        ]
+      }
+    ],
+    "PostToolBatch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/herdr-resource-context.sh'",
+            "timeout": 25
           }
         ]
       }

@@ -111,6 +111,7 @@ _smoke_critical_paths() {
     .claude/CLAUDE.md
     .pi/agent/extensions/agents-local.ts
     .pi/agent/extensions/agent-hooks.ts
+    .pi/agent/extensions/herdr-resource-context.ts
     .claude/hooks/agent-hooks-dispatch.sh
     .local/lib/agent-hooks/index.ts
     .local/lib/agent-hooks/claude.ts
@@ -120,6 +121,7 @@ _smoke_critical_paths() {
     .local/lib/agent-hooks/local-instructions.ts
     .config/opencode/plugins/agent-hooks.ts
     .config/opencode/plugins/agents-local.ts
+    .config/opencode/plugins/herdr-resource-context.ts
     .config/herdr/config.toml
     .config/herdr/plugins/worktree-setup/herdr-plugin.toml
     .config/herdr/plugins/worktree-setup/setup.ts
@@ -525,18 +527,29 @@ function test_smoke_037_alerter_is_installed_for_focus_notify() {
 # ===========================================
 
 function test_smoke_1051_herdr_alias_pane_label_child_and_secret_scan_files_are_deployed() {
-  _bats_test_init 1051 'herdr alias, pane-label, child, and secret scan files are deployed'
+  _bats_test_init 1051 'herdr runtime files are deployed'
   assert_file_exists "$HOME/.local/lib/herdr-aliases.sh"
+  assert_file_exists "$HOME/.local/lib/herdr-resource-tree.py"
   assert_file_exists "$HOME/.local/bin/herdr-pane-labels"
   assert_file_executable "$HOME/.local/bin/herdr-pane-labels"
   assert_file_exists "$HOME/.local/bin/herdr-child"
   assert_file_executable "$HOME/.local/bin/herdr-child"
+  assert_file_exists "$HOME/.local/bin/herdr-resource-tree"
+  assert_file_executable "$HOME/.local/bin/herdr-resource-tree"
+  assert_file_exists "$HOME/.local/bin/herdr"
+  assert_file_executable "$HOME/.local/bin/herdr"
   assert_file_exists "$HOME/.local/bin/pre-external-secret-scan"
   assert_file_executable "$HOME/.local/bin/pre-external-secret-scan"
   assert_file_exists "$HOME/.local/bin/se-external-leg-pair"
   assert_file_executable "$HOME/.local/bin/se-external-leg-pair"
   assert_file_exists "$HOME/.agents/skills/ask-in-herdr/scripts/follow-up.sh"
   assert_file_executable "$HOME/.agents/skills/ask-in-herdr/scripts/follow-up.sh"
+}
+
+function test_smoke_1074_managed_zsh_resolves_herdr_through_the_provenance_wrapper() {
+  _bats_test_init 1074 'managed zsh resolves herdr through the provenance wrapper'
+  run zsh -fc 'source "$HOME/.zshrc"; [[ "$(command -v herdr)" = "$HOME/.local/bin/herdr" ]]'
+  assert_success
 }
 
 function test_smoke_1052_herdr_child_and_consult_contracts_use_allocator_owned_p() {
@@ -549,13 +562,11 @@ function test_smoke_1052_herdr_child_and_consult_contracts_use_allocator_owned_p
     'herdr-child reap --to <alias> --pane <pane-id>'
 }
 
-# Single owner of the task-sync retirement: the absence (no task-sync hook
-# registered anywhere) is paired with the positive capability that replaced it
-# (the native agent-state hook on SessionStart), so a settings file that lost
-# both would still go red. This test also owns the deployed SessionStart
-# registration of herdr-agent-state.sh — do not re-assert it elsewhere.
-function test_smoke_1054_claude_settings_omit_task_sync_hooks_and_retain_native_() {
-  _bats_test_init 1054 'claude settings omit task-sync hooks and retain native agent state'
+# Single deployed owner for Claude's Herdr session/context chain. The managed
+# resource hook invokes the native Agent-session reporter before its SessionStart
+# query, then refreshes at each supported pre-model boundary.
+function test_smoke_1054_claude_settings_deliver_herdr_resource_context() {
+  _bats_test_init 1054 'claude settings deploy Herdr resource context without Stop continuation'
   local settings="$HOME/.claude/settings.json"
   assert_file_exists "$settings"
   run python3 - "$settings" <<'PY'
@@ -563,10 +574,20 @@ import json, sys
 hooks = json.load(open(sys.argv[1]))["hooks"]
 commands = [h["command"] for entries in hooks.values() for entry in entries for h in entry["hooks"]]
 assert not any("herdr-task-sync-hook.sh" in command for command in commands), commands
-session = [h["command"] for entry in hooks["SessionStart"] for h in entry["hooks"]]
-assert any("herdr-agent-state.sh" in c for c in session), session
+
+def event_commands(event):
+    return [h["command"] for entry in hooks.get(event, []) for h in entry["hooks"]]
+
+for event in ("SessionStart", "UserPromptSubmit", "PostToolBatch"):
+    found = event_commands(event)
+    assert any("herdr-resource-context.sh" in command for command in found), (event, found)
+assert not any("herdr-resource-context.sh" in command for command in event_commands("Stop"))
 PY
   assert_success
+  assert_file_executable "$HOME/.claude/hooks/herdr-resource-context.sh"
+  if [ -z "${MMS_CI_MINIMAL:-}" ]; then
+    assert_file_executable "$HOME/.claude/hooks/herdr-agent-state.sh"
+  fi
 }
 
 function test_smoke_1064_deployed_settings_wire_the_context_threshold_handoff() {
@@ -646,6 +667,29 @@ function test_smoke_1070_deployed_opencode_agents_local_plugin_injects_from_the_
     PI_AGENTS_LOCAL_EXTENSION_PATH="$HOME/.pi/agent/extensions/agents-local.ts" \
     AGENT_HOOKS_CORE_PATH="$core" \
     bun test "$BATS_TEST_DIRNAME/agents-local-opencode-plugin.test.ts"
+  assert_success
+}
+
+# The checkout suite proves the adapter contract. This deployed run also proves
+# chezmoi kept the new plugin path managed and OpenCode can load that exact file.
+function test_smoke_1072_deployed_opencode_resource_context_reaches_model_requests() {
+  _bats_test_init 1072 'deployed opencode Herdr resource context reaches model requests'
+  local plugin="$HOME/.config/opencode/plugins/herdr-resource-context.ts"
+  assert_file_exists "$plugin"
+  run env HERDR_RESOURCE_CONTEXT_OPENCODE_PLUGIN_PATH="$plugin" \
+    bun test "$BATS_TEST_DIRNAME/herdr-resource-context-opencode-plugin.test.ts"
+  assert_success
+}
+
+# The checkout suite proves the adapter behavior. This deployed run proves
+# chezmoi installed the Pi extension that will bind the native session manager
+# and consume the deployed shared CLI at model-request time.
+function test_smoke_1073_deployed_pi_resource_context_reaches_model_requests() {
+  _bats_test_init 1073 'deployed Pi Herdr resource context reaches model requests'
+  local extension="$HOME/.pi/agent/extensions/herdr-resource-context.ts"
+  assert_file_exists "$extension"
+  run env HERDR_RESOURCE_CONTEXT_PI_EXTENSION_PATH="$extension" \
+    bun test "$BATS_TEST_DIRNAME/herdr-resource-context-pi-extension.test.ts"
   assert_success
 }
 

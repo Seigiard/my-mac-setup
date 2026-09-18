@@ -14,13 +14,13 @@ set -u
 
 plugin_dir="$HOME/.config/herdr/plugins/worktree-setup"
 
-if ! command -v herdr >/dev/null 2>&1; then
-  echo "herdr not found; skipping worktree-setup plugin link"
+if skip_reason="$(herdr_link_guard_skip_reason)"; then
+  echo "$skip_reason; skipping worktree-setup plugin link"
   exit 0
 fi
 
-if skip_reason="$(herdr_link_guard_skip_reason)"; then
-  echo "$skip_reason; skipping worktree-setup plugin link"
+if ! herdr --version >/dev/null 2>&1; then
+  echo "herdr not found; skipping worktree-setup plugin link"
   exit 0
 fi
 

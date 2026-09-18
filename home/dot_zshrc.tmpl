@@ -19,6 +19,10 @@ for _brew_bin in /opt/homebrew/bin /usr/local/bin /home/linuxbrew/.linuxbrew/bin
 done
 unset _brew_bin
 
+# Managed wrappers intentionally override package-manager binaries. path_helper
+# and the Homebrew repair above may move Homebrew ahead after .zshenv runs.
+path=("$HOME/.local/bin" ${path:#"$HOME/.local/bin"})
+
 # -------------------------------------------
 # Oh My Zsh
 # -------------------------------------------
@@ -136,4 +140,3 @@ if (( $+functions[zsh-defer] )); then
   zsh-defer source $ZSH/custom/plugins/fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh
   zsh-defer source $ZSH/custom/plugins/zsh-history-substring-search/zsh-history-substring-search.plugin.zsh
 fi
-

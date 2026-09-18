@@ -67,7 +67,7 @@ fail_after_rollback() {
   exit 1
 }
 
-if ! command -v herdr >/dev/null 2>&1; then
+if ! herdr --version >/dev/null 2>&1; then
   [[ -d "$legacy_root" ]] || exit 0
   echo "Caffeinate migration needs herdr; retry after herdr is installed" >&2
   exit 1

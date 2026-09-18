@@ -1832,6 +1832,9 @@ function test_scripts_0085_worktree_setup_relink_uses_the_herdr_cli_contract() {
   cat > "$stub/herdr" <<'SH'
 #!/bin/sh
 expected="$HOME/.config/herdr/plugins/worktree-setup"
+if [ "$#" -eq 1 ] && [ "$1" = --version ]; then
+  exit 0
+fi
 if [ "$#" -eq 3 ] && [ "$1" = plugin ] && [ "$2" = link ] && [ "$3" = "$expected" ]; then
   : > "$HOME/plugin-linked"
   exit 0
@@ -2298,6 +2301,21 @@ function test_scripts_08527_caffeinate_migration_restores_the_local_owner_when_r
   assert_success
   run grep -Fx "plugin uninstall keepawake.caffeinate" "$work/herdr.calls"
   assert_failure
+}
+
+function test_scripts_08528_caffeinate_migration_skips_a_broken_wrapper_without_legacy_files() {
+  _bats_test_init 8528 'caffeinate migration skips a broken wrapper without legacy files'
+  local work="$BATS_TEST_TMPDIR/caffeinate-migration-wrapper-only"
+  caffeinate_migration_prepare "$work" absent
+  cat > "$work/bin/herdr" <<'SH'
+#!/bin/sh
+exit 127
+SH
+  chmod +x "$work/bin/herdr"
+
+  run caffeinate_migration_run "$work"
+
+  assert_success
 }
 
 # Herdr plugin link guard
@@ -3073,7 +3091,12 @@ case "${1:-} ${2:-}" in
   "pane split")
     [ "${STUB_SPLIT_FAIL:-0}" = 1 ] && exit 1
     : > "$CHILD_STUB/split-seen"
-    printf '{"result":{"pane":{"pane_id":"wT:p9","terminal_id":"term-child"}}}\n' ;;
+    if [ "${STUB_SPLIT_NO_TERMINAL:-0}" = 1 ]; then
+      printf '{"result":{"pane":{"pane_id":"wT:p9","terminal_id":""}}}\n'
+    else
+      printf '{"result":{"pane":{"pane_id":"wT:p9","terminal_id":"term-child"}}}\n'
+    fi
+    exit "${STUB_SPLIT_STATUS:-0}" ;;
   "tab create")
     [ "${STUB_TAB_CREATE_FAIL:-0}" = 1 ] && exit 1
     : > "$CHILD_STUB/split-seen"
@@ -3083,7 +3106,8 @@ case "${1:-} ${2:-}" in
       printf '{"result":{"root_pane":{"pane_id":"wT:p9","terminal_id":""},"tab":{"tab_id":"wT:tA"}}}\n'
     else
       printf '{"result":{"root_pane":{"pane_id":"wT:p9","terminal_id":"term-child"},"tab":{"tab_id":"wT:tA"}}}\n'
-    fi ;;
+    fi
+    exit "${STUB_TAB_CREATE_STATUS:-0}" ;;
   "agent start")
     if [ "${STUB_REQUIRE_SPLIT:-0}" = 1 ] && [ ! -f "$CHILD_STUB/split-seen" ]; then
       printf 'agent start before pane split\n' >&2
@@ -3180,6 +3204,17 @@ case "${1:-} ${2:-}" in
 esac
 SH
   chmod +x "$CHILD_STUB/herdr"
+  cat > "$CHILD_STUB/herdr-resource-tree" <<'SH'
+#!/usr/bin/env bash
+printf '%q ' "$@" >> "$CHILD_STUB/resource-tree.log"
+printf '\n' >> "$CHILD_STUB/resource-tree.log"
+[ "${STUB_PARENTAGE_FAIL:-0}" != 1 ] || {
+  printf 'injected parentage failure\n' >&2
+  exit 75
+}
+printf '{"parent":{"presentation_name":"parent"},"child":{"presentation_name":"child"}}\n'
+SH
+  chmod +x "$CHILD_STUB/herdr-resource-tree"
   cat > "$CHILD_STUB/ps" <<'SH'
 #!/usr/bin/env bash
 if [ -f "$CHILD_STUB/fail-ps" ]; then
@@ -3722,8 +3757,40 @@ function test_scripts_026_herdr_child_attached_mode_starts_no_watcher() {
   assert_file_contains "$CHILD_STUB/calls.log" 'pane split.*HERDR_CHILD_LAUNCH_MODE=wait'
   assert_file_contains "$CHILD_STUB/calls.log" 'pane split.*HERDR_CHILD_PARENT_TERMINAL=term-parent'
   assert_file_contains "$CHILD_STUB/calls.log" 'pane split.*HERDR_CHILD_PARENT_SESSION=parent-session'
+  assert_file_contains "$CHILD_STUB/resource-tree.log" '^record-child --pane wT:p9 --terminal term-child'
   run grep -q 'supervised' "$CHILD_STUB/calls.log"
   assert_failure
+}
+
+function test_scripts_1240_herdr_child_preserves_a_verified_child_when_parentage_recording_fails() {
+  _bats_test_init 1240 'herdr-child preserves a verified child when parentage recording fails'
+  child_stub_herdr
+
+  STUB_PARENTAGE_FAIL=1 run child_start --kind claude --wait
+  assert_failure 75
+  assert_output --partial 'injected parentage failure'
+  assert_output --partial 'parentage recording failed after Agent start'
+  assert_output --partial 'child preserved'
+  assert_output --partial 'automatic launch retry is unsafe'
+  assert_output --partial "\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\""
+  assert_file_contains "$CHILD_STUB/resource-tree.log" '^record-child --pane wT:p9 --terminal term-child'
+  run grep -Eq '^(pane close|agent prompt)' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+function test_scripts_1241_herdr_child_preserves_a_wrapper_partial_success_without_retrying() {
+  _bats_test_init 1241 'herdr-child preserves a wrapper partial success without retrying'
+  child_stub_herdr
+
+  STUB_SPLIT_STATUS=70 run child_start --kind claude --wait
+  assert_failure 70
+  assert_output --partial '"pane_id":"wT:p9"'
+  assert_output --partial 'pane creation returned status 70 after reporting pane wT:p9'
+  assert_output --partial 'automatic creation retry is unsafe'
+  run grep -Ec '^(pane split|agent start|pane close)' "$CHILD_STUB/calls.log"
+  assert_success
+  assert_output '1'
+  assert_file_not_exists "$CHILD_STUB/resource-tree.log"
 }
 
 function test_scripts_027_herdr_child_detached_mode_fails_closed_without_a() {
@@ -3734,6 +3801,88 @@ function test_scripts_027_herdr_child_detached_mode_fails_closed_without_a() {
   assert_output --partial "parent agent_session is unavailable"
   assert_file_contains "$CHILD_STUB/calls.log" '^agent list'
   run grep -Eq '^(pane split|agent start|agent prompt|pane report-metadata)' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+function test_scripts_1242_herdr_child_attached_mode_keeps_unknown_parent_launches_usable() {
+  _bats_test_init 1242 'herdr-child attached mode keeps unknown-parent launches usable'
+  child_stub_herdr
+
+  STUB_PARENT_SESSION_MISSING=1 run child_start --kind claude --wait
+  assert_success
+  assert_output --partial '"pane":"wT:p9"'
+  assert_file_not_exists "$CHILD_STUB/resource-tree.log"
+}
+
+child_deployed_tree() {
+  # A deployed layout: the provenance wrapper sits beside herdr-child, and a
+  # different herdr comes first on PATH. Only a wrapper reached by path can
+  # record the creator edge record-child later requires.
+  local root="$CHILD_STUB/deployed"
+  mkdir -p "$root/bin"
+  ln -sf "$SOURCE_ROOT/dot_local/lib" "$root/lib"
+  cp "$HERDR_CHILD" "$root/bin/herdr-child"
+  chmod +x "$root/bin/herdr-child"
+  cat > "$root/bin/herdr" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$CHILD_STUB/wrapper.log"
+exec "$CHILD_STUB/herdr" "$@"
+SH
+  chmod +x "$root/bin/herdr"
+  printf '%s\n' "$root/bin/herdr-child"
+}
+
+function test_scripts_1244_herdr_child_creates_through_the_wrapper_beside_it() {
+  _bats_test_init 1244 'herdr-child creates through the wrapper beside it, not through PATH'
+  child_stub_herdr
+  local deployed
+  deployed="$(child_deployed_tree)"
+
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    STUB_START_CONTEXT=1 HERDR_CHILD_PANE_BUSY_RETRY_DELAY=0.01 \
+    HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+    HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
+    HERDR_CHILD_TEST_WATCHER_RELEASE="$CHILD_STUB/release-watcher" \
+    bash "$deployed" start --kind claude --wait --prompt "test task"
+  assert_success
+
+  # The creation reached the sibling wrapper even though PATH resolves a
+  # different herdr first.
+  assert_file_contains "$CHILD_STUB/wrapper.log" '^pane split'
+
+  # Reads stay off the wrapper: interception is only needed for creation, and
+  # routing every call through it would pay its startup cost on each poll.
+  run grep -q '^agent list' "$CHILD_STUB/wrapper.log"
+  assert_failure
+  assert_file_contains "$CHILD_STUB/calls.log" '^agent list'
+}
+
+function test_scripts_1245_herdr_child_attached_mode_keeps_unknown_child_session_launches_usable() {
+  _bats_test_init 1245 'herdr-child attached mode keeps unknown-child-session launches usable'
+  child_stub_herdr
+
+  # Herdr may observe the child before supplying its optional conversation
+  # identity. Attached mode records no edge rather than failing a live child.
+  STUB_CHILD_SESSION_MISSING=1 run child_start --kind claude --wait
+  assert_success
+  assert_output --partial '"pane":"wT:p9"'
+  assert_file_contains "$CHILD_STUB/calls.log" '^agent prompt'
+  assert_file_not_exists "$CHILD_STUB/resource-tree.log"
+}
+
+function test_scripts_1246_herdr_child_replays_an_unparseable_partial_creation_response() {
+  _bats_test_init 1246 'herdr-child replays a partial creation response it cannot parse'
+  child_stub_herdr
+
+  # The wrapper exits nonzero after Herdr created the pane, and the response is
+  # too partial to yield an identity. The surviving coordinates only reach the
+  # caller if the native result is replayed before parsing.
+  STUB_SPLIT_NO_TERMINAL=1 STUB_SPLIT_STATUS=70 run child_start --kind claude --wait
+  assert_failure 70
+  assert_output --partial '"pane_id":"wT:p9"'
+  assert_output --partial 'pane split failed'
+  run grep -Eq '^(agent start|pane close)' "$CHILD_STUB/calls.log"
   assert_failure
 }
 
@@ -5226,6 +5375,7 @@ function test_scripts_065_herdr_child_tab_mode_records_ownership_before_st() {
   [[ "$call5" == agent\ list* ]] || fail "unexpected fifth tab-mode call: $call5"
   [[ "$call6" == pane\ get*wT:p9* ]] || fail "unexpected sixth tab-mode call: $call6"
   [[ "$call7" == agent\ prompt*--wait* ]] || fail "unexpected seventh tab-mode call: $call7"
+  assert_file_contains "$CHILD_STUB/resource-tree.log" '^record-child --pane wT:p9 --terminal term-child'
 }
 
 function test_scripts_066_herdr_child_tab_launch_signal_closes_a_parsed_cr() {
@@ -5372,6 +5522,7 @@ function test_scripts_067_herdr_child_tab_mode_composes_with_detached_supe() {
   assert_file_contains "$CHILD_STUB/calls.log" '^tab create --workspace w1'
   assert_file_contains "$CHILD_STUB/calls.log" 'pane report-metadata wT:p9 --source child-agent-tab.*child-tab=wT:tA'
   assert_file_contains "$CHILD_STUB/calls.log" 'pane report-metadata wT:p9 --source child-agent.*child_mode=detach'
+  assert_file_contains "$CHILD_STUB/resource-tree.log" '^record-child --pane wT:p9 --terminal term-child'
 }
 
 function test_scripts_068_herdr_child_tab_mode_preserves_malformed_creatio() {
@@ -5383,6 +5534,22 @@ function test_scripts_068_herdr_child_tab_mode_preserves_malformed_creatio() {
   assert_output --partial "tab wT:tA was preserved"
   run grep -Eq '^(pane report-metadata|agent start|pane close)' "$CHILD_STUB/calls.log"
   assert_failure
+}
+
+function test_scripts_1243_herdr_child_tab_mode_preserves_wrapper_partial_success_without_retrying() {
+  _bats_test_init 1243 'herdr-child tab mode preserves wrapper partial success without retrying'
+  child_stub_herdr
+
+  STUB_TAB_CREATE_STATUS=70 HERDR_WORKSPACE_ID=w1 run child_start \
+    --kind claude --tab --wait
+  assert_failure 70
+  assert_output --partial '"pane_id":"wT:p9"'
+  assert_output --partial 'tab creation returned status 70 after reporting pane wT:p9'
+  assert_output --partial 'automatic creation retry is unsafe'
+  run grep -Ec '^(tab create|pane report-metadata|agent start|pane close)' "$CHILD_STUB/calls.log"
+  assert_success
+  assert_output '1'
+  assert_file_not_exists "$CHILD_STUB/resource-tree.log"
 }
 
 function test_scripts_0681_herdr_child_tab_mode_cleans_owned_pane_on_repor() {
@@ -5950,6 +6117,30 @@ function test_scripts_093_herdr_integrations_script_exits_0_and_skips_when() {
   run env PATH="/usr/bin:/bin" bash "$BATS_TEST_TMPFILE"
   assert_success
   assert_output --partial "skipping agent-state integration refresh"
+}
+
+function test_scripts_0932_herdr_integrations_template_renders_when_only_a_broken_wrapper_is_on_path() {
+  _bats_test_init 932 'herdr-integrations template renders when only a broken wrapper is on PATH'
+  skip_if_no_chezmoi
+  [[ -f "$HERDR_INTEGRATIONS_TMPL" ]] || skip "herdr-integrations script not found"
+  local stub="$BATS_TEST_TMPDIR/wrapper-only" chezmoi_dir
+  chezmoi_dir="$(dirname "$(command -v chezmoi)")"
+  mkdir -p "$stub"
+  cat > "$stub/herdr" <<'SH'
+#!/bin/sh
+exit 127
+SH
+  chmod +x "$stub/herdr"
+
+  PATH="$stub:$chezmoi_dir:/usr/bin:/bin" run --separate-stderr \
+    chezmoi_full_fixture_finite_stdin execute-template < "$HERDR_INTEGRATIONS_TMPL"
+  assert_success
+  assert_output --partial '# herdr version:'
+  printf '%s\n' "$output" > "$BATS_TEST_TMPDIR/herdr-integrations-wrapper-only.sh"
+
+  run env PATH="$stub:/usr/bin:/bin" bash "$BATS_TEST_TMPDIR/herdr-integrations-wrapper-only.sh"
+  assert_success
+  assert_output --partial 'skipping agent-state integration refresh'
 }
 
 # Present leg of 093's pair: with herdr on PATH the refresh must actually issue
@@ -8070,9 +8261,10 @@ function test_scripts_1208_herdr_pane_labels_icon_constants_stay_independent_of_
   assert_output "$HPL_ICON_BRANCH"
 }
 
-# Gate for the stub-conformance tests. Their oracle is the installed herdr
+# Gate for the stub-conformance tests. Their oracle is a working upstream herdr
 # binary (docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md),
-# and each environment answers its absence differently:
+# not the managed provenance wrapper, and each environment answers its absence
+# differently:
 # - workstation without herdr: a missing developer tool -- visible skip;
 # - disposable home under MMS_CI_MINIMAL: push/PR CI renders the CI-minimal
 #   Brewfile, which deliberately guards out `brew "herdr"`
@@ -8088,16 +8280,16 @@ function test_scripts_1208_herdr_pane_labels_icon_constants_stay_independent_of_
 # multiplexer and this suite runs headless under chezmoi apply), so that
 # skip is irreducible there and never a fail.
 require_real_herdr_oracle() {
-  command_exists herdr && return 0
+  command_exists herdr && herdr --version >/dev/null 2>&1 && return 0
   case "$(mms_disposable_home_verdict)" in
     run)
       if [ -n "${MMS_CI_MINIMAL:-}" ]; then
         skip "herdr is guarded out of the CI-minimal Brewfile render"
       fi
-      fail "herdr is missing inside a disposable-home gate, where the full Brewfile declares it (home/private_dot_config/brewfiles/Brewfile.tmpl). The stub-conformance tests cannot skip here -- this environment owns the dependency, and a skip drops the stubs' only tether to the real binary."
+      fail "a working upstream herdr is unavailable inside a disposable-home gate, where the full Brewfile declares it (home/private_dot_config/brewfiles/Brewfile.tmpl). The stub-conformance tests cannot skip here -- this environment owns the dependency, and a skip drops the stubs' only tether to the real binary."
       return 1
       ;;
-    *) skip "herdr is not installed" ;;
+    *) skip "a working upstream herdr is not installed" ;;
   esac
 }
 
@@ -9036,6 +9228,24 @@ function test_scripts_1323_herdr_pane_label_after_script_skips_missing_herdr_wit
   skip_if_no_chezmoi
   hpl_cutover_setup
   mv "$HPL_STUB/herdr" "$HPL_STUB/herdr.unavailable"
+
+  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
+
+  assert_success
+  assert_output --partial "herdr not found; skipping pane-labels plugin link"
+  assert_dir_not_exists "$HPL_CUTOVER_HOME/.cache/herdr-pane-labels/cutover-rollback"
+}
+
+function test_scripts_1327_herdr_pane_label_after_script_skips_a_broken_wrapper_() {
+  _bats_test_init 1327 'herdr pane-label after script skips a broken wrapper without a transaction'
+  skip_if_no_chezmoi
+  hpl_cutover_setup
+  rm "$HPL_STUB/herdr"
+  cat > "$HPL_STUB/herdr" <<'SH'
+#!/bin/sh
+exit 127
+SH
+  chmod +x "$HPL_STUB/herdr"
 
   run hpl_cutover_run "$HPL_CUTOVER_AFTER"
 
@@ -10658,6 +10868,7 @@ function tear_down() {
 
 HWI_CLAUDE_HOOK="$SOURCE_ROOT/private_dot_claude/hooks/executable_herdr-worktree-identity-hook.sh"
 HWI_OPENCODE_PLUGIN_SOURCE="$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-worktree-identity.ts"
+HRC_CLAUDE_HOOK="$SOURCE_ROOT/private_dot_claude/hooks/executable_herdr-resource-context.sh"
 
 hwi_adapter_stub_engine() {
   local root="$1"
@@ -10734,6 +10945,255 @@ function test_scripts_1223_claude_worktree_identity_hook_fails_open_without_engi
   run find "$root" -mindepth 1 -maxdepth 1 -type d -name 'call-*' -print
   assert_success
   assert_output ''
+}
+
+hrc_stub_hooks() {
+  local root="$1"
+  mkdir -p "$root/bin"
+  cat > "$root/bin/herdr-resource-tree" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$HRC_TEST_DIR/query-argv"
+[ -z "${HRC_QUERY_STATUS:-}" ] || exit "$HRC_QUERY_STATUS"
+cat "$HRC_TEST_DIR/context"
+SH
+  cat > "$root/bin/herdr-agent-state" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >> "$HRC_TEST_DIR/state-argv"
+cat >> "$HRC_TEST_DIR/state-input"
+SH
+  chmod +x "$root/bin/herdr-resource-tree" "$root/bin/herdr-agent-state"
+}
+
+hrc_payload() {
+  local event="$1" session="$2" source="${3:-}" agent_id="${4:-}"
+  jq -nc --arg event "$event" --arg session "$session" --arg source "$source" --arg agent_id "$agent_id" '
+    {hook_event_name: $event, session_id: $session, cwd: "/tmp"}
+    + (if $source == "" then {} else {source: $source} end)
+    + (if $agent_id == "" then {} else {agent_id: $agent_id} end)'
+}
+
+hrc_run() {
+  local root="$1" event="$2" session="$3" source="${4:-}" agent_id="${5:-}"
+  env HOME="$root/home" HERDR_ENV=1 HRC_TEST_DIR="$root" \
+    HERDR_RESOURCE_CONTEXT_CLI="$root/bin/herdr-resource-tree" \
+    HERDR_AGENT_STATE_HOOK="$root/bin/herdr-agent-state" \
+    HERDR_RESOURCE_CONTEXT_STATE_DIR="$root/state" \
+    bash "$HRC_CLAUDE_HOOK" <<< "$(hrc_payload "$event" "$session" "$source" "$agent_id")"
+}
+
+function test_scripts_1225_claude_resource_context_reaches_each_model_request_without_duplicate_turns() {
+  _bats_test_init 1225 'Claude resource context reaches model input and refreshes only when changed'
+  local root="$BATS_TEST_TMPDIR/resource-context" response
+  hrc_stub_hooks "$root"
+  printf '%s\n' 'Parent agent: "parent-a" [herdr:claude/id/parent-A]' \
+    'Descendant agent: "child-old" [herdr:pi/id/child-old]' > "$root/context"
+
+  run hrc_run "$root" SessionStart session-current startup
+  assert_success
+  response="$output"
+  run jq -r '.hookSpecificOutput.hookEventName' <<< "$response"
+  assert_success
+  assert_output 'SessionStart'
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+  assert_output --partial 'Parent agent: "parent-a"'
+  assert_output --partial 'child-old'
+  run jq -e 'has("initialUserMessage") or has("systemMessage") or has("decision")' <<< "$response"
+  assert_failure
+  assert_file_contains "$root/state-argv" '^session$'
+  assert_file_contains "$root/state-input" '"session_id":"session-current"'
+  run paste -sd ' ' "$root/query-argv"
+  assert_success
+  assert_output '--context --caller-agent claude --caller-session-id session-current'
+
+  # The unchanged projection is already in the conversation. Re-emitting it on
+  # every lifecycle event would only add duplicate system reminders.
+  run hrc_run "$root" UserPromptSubmit session-current
+  assert_success
+  assert_output ''
+
+  printf '%s\n' 'Parent agent: "parent-a" [herdr:claude/id/parent-A]' \
+    'Descendant agent: "child-new" [herdr:pi/id/child-new]' > "$root/context"
+  run hrc_run "$root" UserPromptSubmit session-current
+  assert_success
+  response="$output"
+  run jq -r '.hookSpecificOutput.hookEventName' <<< "$response"
+  assert_success
+  assert_output 'UserPromptSubmit'
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+  assert_output --partial 'child-new'
+  refute_output --partial 'child-old'
+
+  run hrc_run "$root" PostToolBatch session-current
+  assert_success
+  assert_output ''
+  printf '%s\n' 'Descendant agent: "child-latest" [herdr:pi/id/child-latest]' > "$root/context"
+  run hrc_run "$root" PostToolBatch session-current
+  assert_success
+  response="$output"
+  run jq -r '.hookSpecificOutput.hookEventName' <<< "$response"
+  assert_success
+  assert_output 'PostToolBatch'
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+  assert_output --partial 'child-latest'
+
+  # Compaction keeps the Claude session identity, but the compacted model input
+  # needs the current projection restored even when it has not changed.
+  run hrc_run "$root" SessionStart session-current compact
+  assert_success
+  assert_output --partial 'child-latest'
+  assert_file_contains "$root/state-input" '"source":"compact"'
+
+  run hrc_run "$root" SessionStart session-current resume
+  assert_success
+  assert_output --partial 'child-latest'
+  assert_file_contains "$root/state-input" '"source":"resume"'
+}
+
+function test_scripts_1226_claude_resource_context_is_session_scoped_and_marks_unavailable_queries() {
+  _bats_test_init 1226 'Claude resource context does not leak across sessions and marks unavailable queries'
+  local root="$BATS_TEST_TMPDIR/resource-context-guards"
+  hrc_stub_hooks "$root"
+  printf '%s\n' 'Resources:' '- pane "owned" [w1:p1]' > "$root/context"
+
+  run hrc_run "$root" SessionStart session-old startup
+  assert_success
+  local response="$output"
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+  assert_output --partial 'pane "owned"'
+
+  # A successful empty projection invalidates stale generated context without
+  # inventing an empty resource listing.
+  : > "$root/context"
+  run hrc_run "$root" UserPromptSubmit session-old
+  assert_success
+  local cleared="$output"
+  run jq -e '.hookSpecificOutput.additionalContext | length > 0' <<< "$cleared"
+  assert_success
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$cleared"
+  assert_success
+  refute_output --partial 'Resources:'
+
+  # The shared query rejects a stale pane occupant through the expected session
+  # arguments. Query failure must not be presented as a complete empty tree.
+  HRC_QUERY_STATUS=1 run hrc_run "$root" SessionStart session-fresh startup
+  assert_success
+  local unavailable="$output"
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$unavailable"
+  assert_success
+  assert_output --partial 'Agent resource context unavailable'
+  assert_output --partial 'earlier generated resource context is stale'
+  assert_output --partial 'must not be treated as an empty resource branch'
+  run paste -sd ' ' "$root/query-argv"
+  assert_success
+  assert_output '--context --caller-agent claude --caller-session-id session-fresh'
+
+  # A transient failure invalidates the dedupe state. The next successful
+  # query must restore the projection even when its value did not change.
+  printf '%s\n' 'Resources:' '- pane "restored" [w1:p2]' > "$root/context"
+  run hrc_run "$root" SessionStart session-recovery startup
+  assert_success
+  assert_output --partial 'pane \"restored\"'
+  HRC_QUERY_STATUS=1 run hrc_run "$root" UserPromptSubmit session-recovery
+  assert_success
+  assert_output --partial 'Agent resource context unavailable'
+  run hrc_run "$root" UserPromptSubmit session-recovery
+  assert_success
+  assert_output --partial 'pane \"restored\"'
+
+  rm -f "$root/query-argv"
+  run hrc_run "$root" UserPromptSubmit session-fresh '' subagent-1
+  assert_success
+  assert_output ''
+  assert_file_not_exists "$root/query-argv"
+
+  # A subagent id carrying a newline still suppresses the hook. Reading the
+  # payload one line per field would leave agent_id empty and promote the
+  # remainder into session_id, querying the parent pane's branch from a
+  # subagent turn.
+  rm -f "$root/query-argv"
+  run hrc_run "$root" UserPromptSubmit session-fresh '' "$(printf '\nsub')"
+  assert_success
+  assert_output ''
+  assert_file_not_exists "$root/query-argv"
+
+  # Control: the same turn without an agent id must reach the CLI, so the
+  # rejection above cannot pass by never querying at all.
+  rm -f "$root/query-argv"
+  run hrc_run "$root" UserPromptSubmit session-control
+  assert_success
+  assert_file_exists "$root/query-argv"
+
+  run env HOME="$root/home" HERDR_ENV= HRC_TEST_DIR="$root/outside" \
+    HERDR_RESOURCE_CONTEXT_CLI="$root/bin/herdr-resource-tree" \
+    bash "$HRC_CLAUDE_HOOK" <<< "$(hrc_payload UserPromptSubmit outside)"
+  assert_success
+  assert_output ''
+  assert_dir_not_exists "$root/outside"
+}
+
+hrc_run_without_jq() {
+  local root="$1" event="$2" session="$3" minimal="$1/nojq"
+  # PATH carries only what the hook and the stubbed reporter need to run, so
+  # jq is genuinely absent rather than merely shadowed.
+  mkdir -p "$minimal"
+  ln -sf "$(command -v bash)" "$minimal/bash"
+  ln -sf "$(command -v cat)" "$minimal/cat"
+  env HOME="$root/home" HERDR_ENV=1 HRC_TEST_DIR="$root" PATH="$minimal" \
+    HERDR_RESOURCE_CONTEXT_CLI="$root/bin/herdr-resource-tree" \
+    HERDR_AGENT_STATE_HOOK="$root/bin/herdr-agent-state" \
+    HERDR_RESOURCE_CONTEXT_STATE_DIR="$root/state" \
+    bash "$HRC_CLAUDE_HOOK" <<< "$(hrc_payload "$event" "$session" startup)"
+}
+
+function test_scripts_1247_claude_resource_context_reports_session_identity_without_jq() {
+  _bats_test_init 1247 'Claude resource context reports Agent session identity without jq'
+  local root="$BATS_TEST_TMPDIR/resource-context-nojq"
+  hrc_stub_hooks "$root"
+  : > "$root/context"
+
+  # Herdr's reporter needs no jq, and creator attribution, record-child and
+  # branch resolution all fail once the Agent session is unknown. A missing jq
+  # must degrade only the projection.
+  run hrc_run_without_jq "$root" SessionStart session-nojq
+  assert_success
+  assert_output ''
+  assert_file_contains "$root/state-argv" '^session$'
+
+  # Control: the projection is the part jq gates, so it must not have queried.
+  assert_file_not_exists "$root/query-argv"
+}
+
+function test_scripts_1248_claude_resource_context_states_one_outage_once() {
+  _bats_test_init 1248 'Claude resource context states a persistent outage once per conversation'
+  local root="$BATS_TEST_TMPDIR/resource-context-outage"
+  hrc_stub_hooks "$root"
+  printf '%s\n' 'Parent agent: "parent-a" [herdr:claude/id/parent-A]' > "$root/context"
+
+  # A pane with no observable Agent session fails for the whole conversation,
+  # and Claude's transcript is append-only: restating the notice on every tool
+  # batch only grows context.
+  HRC_QUERY_STATUS=1 run hrc_run "$root" UserPromptSubmit session-outage
+  assert_success
+  assert_output --partial 'resource context unavailable'
+
+  HRC_QUERY_STATUS=1 run hrc_run "$root" PostToolBatch session-outage
+  assert_success
+  assert_output ''
+
+  # A fresh conversation cannot know about the outage, so SessionStart still
+  # emits.
+  HRC_QUERY_STATUS=1 run hrc_run "$root" SessionStart session-outage
+  assert_success
+  assert_output --partial 'resource context unavailable'
+
+  # Recovery re-declares the projection authoritative rather than staying quiet.
+  run hrc_run "$root" PostToolBatch session-outage
+  assert_success
+  assert_output --partial 'parent-a'
 }
 
 function test_scripts_1224_opencode_worktree_identity_plugin_uses_deployed_consumer_boundary() {
