@@ -1786,7 +1786,7 @@ SH
   assert_success
   run grep -Fx "plugin enable seigi.command-palette" "$calls"
   assert_success
-  run grep -Fx "plugin install Seigiard/herdr-worktree-setup --ref 2aa166ea8082a3b3fbb057f1b841436160c06740 -y" "$calls"
+  run grep -Fx "plugin install Seigiard/herdr-worktree-setup --ref 81373a59bcd0833ce928f66e64da1a6c4b56ba40 -y" "$calls"
   assert_success
   run grep -Fx "plugin enable seigi.worktree-setup" "$calls"
   assert_success
@@ -1834,7 +1834,7 @@ SH
   assert_failure
   run grep -Fx "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y" "$calls"
   assert_success
-  run grep -Fx "plugin install Seigiard/herdr-worktree-setup --ref 2aa166ea8082a3b3fbb057f1b841436160c06740 -y" "$calls"
+  run grep -Fx "plugin install Seigiard/herdr-worktree-setup --ref 81373a59bcd0833ce928f66e64da1a6c4b56ba40 -y" "$calls"
   assert_success
   run grep -F "herdr-focus-notify" "$calls"
   assert_failure
@@ -1861,7 +1861,7 @@ case "$*" in
   "plugin list --json")
     printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.worktree-setup","source":{"kind":"local"}}]}}'
     ;;
-  "plugin install Seigiard/herdr-worktree-setup --ref 2aa166ea8082a3b3fbb057f1b841436160c06740 -y")
+  "plugin install Seigiard/herdr-worktree-setup --ref 81373a59bcd0833ce928f66e64da1a6c4b56ba40 -y")
     [ "${HERDR_FAIL_STEP:-}" != install ]
     ;;
   "plugin uninstall seigi.worktree-setup")
@@ -1904,7 +1904,29 @@ function test_scripts_0853_worktree_setup_migration_retries_after_install_failur
   run worktree_migration_apply "$work"
   assert_success
   assert_dir_not_exists "$work/home/.config/herdr/plugins/worktree-setup"
-  run grep -Fc "plugin install Seigiard/herdr-worktree-setup --ref 2aa166ea8082a3b3fbb057f1b841436160c06740 -y" "$work/herdr.calls"
+  run grep -Fc "plugin install Seigiard/herdr-worktree-setup --ref 81373a59bcd0833ce928f66e64da1a6c4b56ba40 -y" "$work/herdr.calls"
+  assert_success
+  assert_output "2"
+}
+
+function test_scripts_08531_worktree_setup_migration_retries_after_enable_failure() {
+  _bats_test_init 8531 'worktree setup migration restores local files and retries after enable failure'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/worktree-enable-migration"
+  worktree_migration_prepare "$work"
+
+  run worktree_migration_apply "$work" enable
+  assert_failure
+  assert_dir_exists "$work/home/.config/herdr/plugins/worktree-setup"
+  run grep -Fx "plugin uninstall seigi.worktree-setup" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin link $work/home/.config/herdr/plugins/worktree-setup --enabled" "$work/herdr.calls"
+  assert_success
+
+  run worktree_migration_apply "$work"
+  assert_success
+  assert_dir_not_exists "$work/home/.config/herdr/plugins/worktree-setup"
+  run grep -Fc "plugin enable seigi.worktree-setup" "$work/herdr.calls"
   assert_success
   assert_output "2"
 }

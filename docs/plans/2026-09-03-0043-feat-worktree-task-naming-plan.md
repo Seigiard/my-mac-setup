@@ -18,7 +18,7 @@ execution: code
 - **Product authority:** The user, per the 2026-09-02 debug session. The six failure findings from that session are binding requirements, not suggestions.
 - **Execution profile:** Interactive, human-reviewed, shipped as one PR. No autonomous apply.
 - **Tail ownership:** Agents never run `chezmoi apply` on the host. Deployment verification runs in Docker (`make test-ubuntu`); the user performs the live apply.
-- **Stop conditions:** Stop and ask if the marker contract in the standalone [`herdr-worktree-setup` package](https://github.com/Seigiard/herdr-worktree-setup/blob/2aa166ea8082a3b3fbb057f1b841436160c06740/README.md#generated-worktree-marker) must change, or if satisfying the contention requirement forces a second long-lived daemon.
+- **Stop conditions:** Stop and ask if the marker contract in the standalone [`herdr-worktree-setup` package](https://github.com/Seigiard/herdr-worktree-setup/blob/81373a59bcd0833ce928f66e64da1a6c4b56ba40/README.md#generated-worktree-marker) must change, or if satisfying the contention requirement forces a second long-lived daemon.
 - **Open blockers:** None.
 
 ---
