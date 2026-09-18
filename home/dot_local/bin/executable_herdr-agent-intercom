@@ -25,12 +25,78 @@ if [[ "${HERDR_ENV:-}" != "1" ]]; then
   exec "$agent_command" "$@"
 fi
 
+if [[ "${HERDR_AGENT_INTERCOM_ACTIVE:-}" == "1" ]] &&
+  { [[ -z "${HERDR_AGENT_INTERCOM_NAME:-}" ]] ||
+    [[ -z "${HERDR_CHILD_NAME:-}" ]] ||
+    [[ "$HERDR_CHILD_NAME" == "$HERDR_AGENT_INTERCOM_NAME" ]]; }; then
+  exec "$agent_command" "$@"
+fi
+
+case "$agent" in
+  claude)
+    for arg in "$@"; do
+      [[ "$arg" != "--" ]] || break
+      case "$arg" in
+        -h|--help|-v|--version|-p|--print) exec "$agent_command" "$@" ;;
+      esac
+    done
+    claude_args=("$@")
+    arg_index=0
+    while [[ "$arg_index" -lt "${#claude_args[@]}" ]]; do
+      arg="${claude_args[$arg_index]}"
+      case "$arg" in
+        agents|auth|auto-mode|config|doctor|gateway|import|install|mcp|migrate-installer|plugin|plugins|project|setup-token|ultrareview|update|upgrade)
+          exec "$agent_command" "$@"
+          ;;
+        --allow-dangerously-skip-permissions|--ax-screen-reader|--background|--bare|--bg|--brief|-c|--chrome|--continue|--dangerously-skip-permissions|--disable-slash-commands|--exclude-dynamic-system-prompt-sections|--fork-session|--forward-subagent-text|--ide|--include-hook-events|--include-partial-messages|--no-chrome|--no-session-persistence|--replay-user-messages|--safe-mode|--strict-mcp-config|--verbose)
+          arg_index=$((arg_index + 1))
+          ;;
+        --agent|--agents|--append-system-prompt|--autocompact|--debug-file|--effort|--environment|--fallback-model|--input-format|--json-schema|--max-budget-usd|--model|--name|-n|--output-format|--permission-mode|--plugin-dir|--plugin-url|--remote-control-session-name-prefix|--session-id|--setting-sources|--settings|--system-prompt)
+          arg_index=$((arg_index + 2))
+          ;;
+        --cloud|--debug|-d|--from-pr|--prompt-suggestions|--remote-control|--resume|-r|--teleport|--tmux|--worktree|-w)
+          arg_index=$((arg_index + 1))
+          if [[ "$arg_index" -lt "${#claude_args[@]}" ]]; then
+            case "${claude_args[$arg_index]}" in
+              -*) ;;
+              *) arg_index=$((arg_index + 1)) ;;
+            esac
+          fi
+          ;;
+        --add-dir|--allowedTools|--allowed-tools|--betas|--disallowedTools|--disallowed-tools|--file|--mcp-config|--tools)
+          arg_index=$((arg_index + 1))
+          while [[ "$arg_index" -lt "${#claude_args[@]}" ]]; do
+            case "${claude_args[$arg_index]}" in
+              -*) break ;;
+              *) arg_index=$((arg_index + 1)) ;;
+            esac
+          done
+          ;;
+        --*=*) arg_index=$((arg_index + 1)) ;;
+        *) break ;;
+      esac
+    done
+    ;;
+  pi)
+    for arg in "$@"; do
+      [[ "$arg" != "--" ]] || break
+      case "$arg" in
+        -p|--print|--export|--export=*|--list-models|--list-models=*)
+          exec "$agent_command" "$@"
+          ;;
+      esac
+    done
+    case "${1:-}" in
+      auth|config|install|list|remove|uninstall|update|-h|--help|-v|--version)
+        exec "$agent_command" "$@"
+        ;;
+    esac
+    ;;
+esac
+
 intercom_name="${HERDR_CHILD_NAME:-}"
 if [[ -z "$intercom_name" && -n "${HERDR_PANE_ID:-}" ]]; then
-  snapshot="$(herdr agent get "$HERDR_PANE_ID" 2>/dev/null)" || {
-    printf 'herdr-agent-intercom: cannot read Herdr pane %s\n' "$HERDR_PANE_ID" >&2
-    exit 1
-  }
+  snapshot="$(herdr agent get "$HERDR_PANE_ID" 2>/dev/null || true)"
   intercom_name="$(printf '%s' "$snapshot" | python3 -c '
 import json
 import sys
@@ -46,22 +112,18 @@ sys.stdout.write(name.strip())
 fi
 
 if [[ -z "$intercom_name" ]]; then
-  printf 'herdr-agent-intercom: cannot resolve a Herdr alias for this session\n' >&2
-  exit 1
+  exec "$agent_command" "$@"
 fi
 
 intercom_root="$HOME/.local/share/agent-intercom"
+export HERDR_AGENT_INTERCOM_ACTIVE=1
+export HERDR_AGENT_INTERCOM_NAME="$intercom_name"
 case "$agent" in
   claude)
     cci="$intercom_root/node_modules/.bin/cci"
-    if [[ ! -x "$cci" ]]; then
-      printf 'herdr-agent-intercom: cci is not installed at %s\n' "$cci" >&2
-      exit 1
-    fi
     bridge="$HOME/.local/bin/herdr-agent-intercom-claude"
-    if [[ ! -x "$bridge" ]]; then
-      printf 'herdr-agent-intercom: Claude argument bridge is not installed at %s\n' "$bridge" >&2
-      exit 1
+    if [[ ! -x "$cci" || ! -x "$bridge" ]]; then
+      exec "$agent_command" "$@"
     fi
     export AGENT_INTERCOM_CLAUDE_COMMAND="$agent_command"
     export AGENT_INTERCOM_CLAUDE_ARGC="$#"
@@ -118,6 +180,7 @@ case "$agent" in
     exec "$agent_command" "$@"
     ;;
   pi)
+    export HERDR_AGENT_INTERCOM_PI_LOAD=1
     pi_args=()
     while [[ $# -gt 0 ]]; do
       case "$1" in

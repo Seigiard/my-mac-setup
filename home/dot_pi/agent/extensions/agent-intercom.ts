@@ -2,7 +2,10 @@
 import { join } from "node:path"
 
 let intercomExtension: ((pi: any) => any) | undefined
-if (process.env.HERDR_ENV === "1") {
+const shouldLoad =
+  process.env.HERDR_ENV === "1" && process.env.HERDR_AGENT_INTERCOM_PI_LOAD === "1"
+delete process.env.HERDR_AGENT_INTERCOM_PI_LOAD
+if (shouldLoad) {
   const root = join(
     process.env.HOME ?? "",
     ".local",
@@ -12,12 +15,12 @@ if (process.env.HERDR_ENV === "1") {
     "@dataforxyz",
     "agent-intercom-pi",
   )
-  const module = await import(join(root, "index.ts"))
-
-  if (typeof module.default !== "function") {
-    throw new Error("Agent Intercom Pi package has no default extension export")
+  try {
+    const module = await import(join(root, "index.ts"))
+    if (typeof module.default === "function") intercomExtension = module.default
+  } catch {
+    // Intercom is additive; an incomplete optional install must not block Pi.
   }
-  intercomExtension = module.default
 }
 
 export default function agentIntercom(pi: any) {

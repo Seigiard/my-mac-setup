@@ -9,9 +9,9 @@ set -euo pipefail
 root="$HOME/.local/share/agent-intercom"
 # Chezmoi runs each script in a fresh process, so repeat the PATH bootstrap from
 # the package installer instead of relying on its shell-local `brew shellenv`.
-for prefix in /opt/homebrew /usr/local /home/linuxbrew/.linuxbrew; do
-  if [[ -d "$prefix/bin" ]]; then
-    export PATH="$prefix/bin:$prefix/sbin:$PATH"
+for brew_bin in /opt/homebrew/bin/brew /home/linuxbrew/.linuxbrew/bin/brew /usr/local/bin/brew; do
+  if [[ -x "$brew_bin" ]]; then
+    eval "$("$brew_bin" shellenv)"
     break
   fi
 done

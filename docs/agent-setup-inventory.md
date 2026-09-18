@@ -57,11 +57,12 @@ extension list remains the source of truth for non-skill packages.
 ## Agent Intercom
 
 Claude Code, OpenCode, and Pi sessions launched inside Herdr join the same local
-Agent Intercom broker under their Herdr alias. The locked package set lives at
+Agent Intercom broker under their Herdr alias when the launcher can resolve one.
+The locked package set lives at
 `~/.local/share/agent-intercom`; a managed launcher selects Claude's live MCP
 transport while preserving native Claude arguments and tool restrictions,
 exports the OpenCode name, or passes Pi's normal `--name` option.
-Launches outside Herdr bypass the launcher unchanged.
+Utility, nested, unidentified, and non-Herdr launches bypass Intercom unchanged.
 
 OpenCode loads only the server plugin, so the Intercom `/intercom`, `Alt+M`, and
 `Alt+I` TUI conveniences are intentionally absent. Pi loads the native extension.

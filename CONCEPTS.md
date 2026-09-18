@@ -31,7 +31,7 @@ The shared communication substrate through which a coding agent can discover or 
 One supported placement and transport combination for Agent intercom, such as host-to-host process communication, host-to-`nono`, or host-to-container. The first communication fabric covers one physical host and containers running on it. Profiles may use different socket exposure or bridging mechanisms while preserving the same agent-facing operations and explicit-name addressing; local VMs and remote hosts require later profiles.
 
 ### Agent communication identity
-The Herdr-assigned globally unique agent alias by which a person or agent addresses an Agent intercom participant. Every supported launcher passes that alias into the communication adapter, including `nono` and container profiles. Agent Intercom's session ID remains an internal transport detail. Discovery may hide an alias by policy without making an explicitly supplied alias unaddressable.
+The Herdr-assigned globally unique agent alias by which a person or agent addresses an Agent intercom participant. Every supported launcher passes that alias into the communication adapter, including `nono` and container profiles. Agent Intercom's session ID remains an internal transport detail. Adapter policy may restrict both discovery and exact-name delivery; unrestricted exact-alias routing is deferred.
 
 ### Agent confinement backend
 The inner boundary that restricts one agent principal and its subprocesses, such as `nono` or SRT. It controls which host resources that principal can reach but does not define where the development workspace or operating system runs.
@@ -43,7 +43,7 @@ An optional outer container or VM that hosts a development workspace, toolchain,
 The nearest layer outside an agent-controlled boundary that may own communication credentials, socket bridges, network egress, and optional safety policy. It may run on the physical host or inside a trusted development container or VM. The first communication slice does not require every message to be durably owned by this layer.
 
 ### Launch relationship graph
-The optional visibility policy created when one agent launches another. A subagent may discover only its parent and siblings by default, while an explicit agent name remains a deliberate escape hatch for addressing any registered agent. The graph narrows ambient discovery; it is not an absolute communication authorization boundary.
+The optional visibility and delivery policy created when one agent launches another. A subagent may discover and address only its parent and siblings when the active adapter enforces the graph. Unrestricted exact-name routing across unrelated branches is deferred.
 
 ### herdr-worktree-identity
 The component that derives one multi-word branch name from a generated worktree session's prompt, renames the authorized branch once with attribution, and gives the workspace the same final name. The alias system exclusively owns pane, tab, and agent identity. A contended claim writes a diagnostic but has no terminal outcome, so the next naming event retries it.

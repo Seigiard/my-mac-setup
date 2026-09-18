@@ -817,12 +817,13 @@ function test_smoke_1073_deployed_agent_intercom_package_exposes_each_selected_a
   assert_file_exists "$root/node_modules/@dataforxyz/agent-intercom-opencode/dist/plugin.mjs"
   assert_file_exists "$root/node_modules/@dataforxyz/agent-intercom-pi/index.ts"
 
-  run env HERDR_ENV=1 HOME="$HOME" bun -e '
+  run env HOME="$HOME" bun -e '
 const opencode = await import(process.argv[1])
 const pi = await import(process.argv[2])
-if (typeof opencode.AgentIntercomPlugin !== "function") throw new Error("OpenCode loader is unavailable")
-if (typeof pi.default !== "function") throw new Error("Pi loader is unavailable")
-' "$HOME/.config/opencode/plugins/agent-intercom.ts" "$HOME/.pi/agent/extensions/agent-intercom.ts"
+if (typeof opencode.default !== "function") throw new Error("OpenCode adapter is unavailable")
+if (typeof pi.default !== "function") throw new Error("Pi adapter is unavailable")
+' "$root/node_modules/@dataforxyz/agent-intercom-opencode/dist/plugin.mjs" \
+    "$root/node_modules/@dataforxyz/agent-intercom-pi/index.ts"
   assert_success
 
   local stub="$BATS_TEST_TMPDIR/claude" log="$BATS_TEST_TMPDIR/agent-intercom-claude.args"

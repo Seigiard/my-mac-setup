@@ -5,7 +5,7 @@ date: 2026-09-12
 supersedes: []
 ---
 
-# ADR-0015: Use a shared intercom for location-independent agent communication
+# ADR-0018: Use a shared intercom for location-independent agent communication
 
 ## Context
 
@@ -160,10 +160,11 @@ connectivity.
 The first deployed host slice pins the tested Core, Claude, OpenCode, and Pi
 commits in one package root under `~/.local/share/agent-intercom`. A Herdr-only
 launcher derives the public name from the child alias or current pane record,
-runs Claude through live MCP `cci`, exports OpenCode's adapter name, and passes
-Pi's normal session name. OpenCode loads only its server plugin. Codex is deferred
-because its tested wakeable worker and proactive MCP surface register separate
-Intercom identities.
+runs interactive Claude sessions through live MCP `cci`, exports OpenCode's
+adapter name, and passes Pi's normal session name. Utility, nested, and
+unidentified launches pass through unchanged. OpenCode loads only its server
+plugin. Codex is deferred because its tested wakeable worker and proactive MCP
+surface register separate Intercom identities.
 
 ## Consequences
 
