@@ -180,7 +180,7 @@ Unconfirmed bets recorded because scoping confirmation was skipped; each is veri
 ### Sources
 
 - Verified client contracts: OpenCode `packages/plugin/src/index.ts` (tool.execute.before mutates `output.args`; throw blocks; subagent bypass anomalyco/opencode#5894); Pi `packages/coding-agent/src/core/extensions/types.ts` (`ToolCallEventResult.block`, mutable `event.input`); Claude Code hooks reference (stdin JSON, exit codes, `hookSpecificOutput`).
-- Repo precedent: `home/private_dot_config/herdr/plugins/worktree-setup/setup.ts` (bun-invoked TS), `home/dot_pi/agent/extensions/agents-local.ts` (typed + bun-tested extension shape), `tests/pi-agents-local-extension.test.ts` (fake-client harness pattern), `docs/decisions/0001-se-pipeline-architecture-redirection.md` (rejected abstraction shapes), `docs/solutions/design-patterns/gate-bias-follows-blast-radius.md`, `docs/solutions/design-patterns/external-review-legs-as-unreliable-subprocesses.md`, `docs/solutions/design-patterns/idle-machine-wall-clock-bounds-are-latent-flakes.md`.
+- Repo precedent: the standalone [`herdr-worktree-setup` package](https://github.com/Seigiard/herdr-worktree-setup) (bun-invoked TS), `home/dot_pi/agent/extensions/agents-local.ts` (typed + bun-tested extension shape), `tests/pi-agents-local-extension.test.ts` (fake-client harness pattern), `docs/decisions/0001-se-pipeline-architecture-redirection.md` (rejected abstraction shapes), `docs/solutions/design-patterns/gate-bias-follows-blast-radius.md`, `docs/solutions/design-patterns/external-review-legs-as-unreliable-subprocesses.md`, `docs/solutions/design-patterns/idle-machine-wall-clock-bounds-are-latent-flakes.md`.
 
 ---
 
@@ -199,7 +199,7 @@ Unconfirmed bets recorded because scoping confirmation was skipped; each is veri
   4. Dispatch runs the applicable policies for (client, tool) in declaration order; a thrown policy error is caught and treated as allow (R4); `AGENT_HOOKS_DISABLE` is a comma-separated policy-name skip list read from the process environment only (R8).
   5. `selfcheck.ts` per R8: runtime liveness via a registry-derived known-bad canary for every block-capable (policy, client) route, deployed-vs-loaded identity from the per-session markers (KTD5), human-readable default plus `--json` (consumed by the union test and the post-apply liveness case). The blocking-canary assertion becomes meaningful only once U2's policies exist — its verification scenario lives in U2.
   6. One exported fixture module is the single home for the shared known-bad/known-good corpus; the core suite and both adapter suites import it — no per-suite copies.
-- **Patterns to follow:** dependency-free `node:*`-only TS (`worktree-setup/setup.ts`); testable-export shape with env-var-overridable import path (`tests/pi-agents-local-extension.test.ts`); `Makefile:34-35` per-test-file target convention.
+- **Patterns to follow:** dependency-free `node:*`-only TS (the standalone `herdr-worktree-setup` package); testable-export shape with env-var-overridable import path (`tests/pi-agents-local-extension.test.ts`); `Makefile:34-35` per-test-file target convention.
 - **Test scenarios:**
   - Each dialect's fixture event normalizes to the same canonical event (three inputs, one expected output, per tool kind) — including a Write-shaped fixture whose text arrives only in `content`, proving full-file writes reach the policies.
   - Dispatch returns the first deny and stops running later policies (ordering fixture with two denying policies).

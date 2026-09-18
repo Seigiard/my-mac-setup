@@ -15,9 +15,9 @@ the sole owner of pane, tab, and agent identity.
 - New checkouts live under `~/.worktrees/<repo>/<branch-slug>` through
   `[worktrees].directory` in `~/.config/herdr/config.toml`.
 
-The repository-owned `seigi.worktree-setup` plugin handles the one capability
-outside Herdr's native lifecycle: preparing a newly created checkout. Its sole
-policy file is
+The standalone [`seigi.worktree-setup`](https://github.com/Seigiard/herdr-worktree-setup)
+plugin handles the one capability outside Herdr's native lifecycle: preparing a
+newly created checkout. Its sole policy file is
 `~/.config/herdr/plugins/config/seigi.worktree-setup/config.toml`. Tables are
 keyed by the canonical `origin` remote, matching the former Worktrunk project
 keys. A repository with no table receives no setup or fresh-base mutation.
@@ -54,13 +54,24 @@ contained by another local branch, the remote cannot be fetched, or files
 appear before reset. Only an untouched new branch is reset to fetched
 `origin/HEAD`.
 
+## Provenance boundary
+
+Worktree creation is native Herdr behavior. The setup plugin observes the
+`worktree.created` event after creation and does not create or claim tabs, panes,
+workspaces, or worktrees. The managed `herdr` PATH wrapper owns provenance only
+for the creation commands it intercepts; plugin-triggered or otherwise
+unsupported creation paths remain unknown-provenance paths.
+
 ## Ownership and deployment
 
-- Chezmoi deploys and links `seigi.worktree-setup` from the repository-owned
-  plugin directory.
+- Chezmoi installs and enables the reviewed `seigi.worktree-setup` package from
+  GitHub, while retaining the repository-keyed policy file here.
+- The one-time migration removes the formerly managed local implementation only
+  after the standalone package is installed and enabled. Failed installation or
+  enablement retains the local plugin for the next apply.
 - The GitHub-plugin installer removes a previously installed Worktrunk plugin.
-- A one-time migration removes only the obsolete files this repository managed;
-  unrelated files in the old config directory are preserved.
+- A one-time migration removes the obsolete local plugin directory after
+  cutover; the separately managed policy directory is preserved.
 - Chezmoi changes are not live from this checkout. They become active only
   after this repository is committed, synced into chezmoi's source clone, and
   applied by the user.

@@ -143,7 +143,7 @@ Upstream устанавливает launcher вне checkout и копирует
 | `herdr-worktree-setup` | `setup.ts`, manifest, tests/docs | repository-keyed copy/steps/fresh-base policy | Уже читает `$HERDR_PLUGIN_CONFIG_DIR`; marker связан с worktree-identity |
 | `herdr-pane-labels` | reconciler, private libraries, manifest, lifecycle и tests | sidebar rows, выбранные параметры и версия пакета | Самый сложный перенос: alias consumers, работающие daemons, поколения и metadata ownership |
 
-Основания: [notify config](../../home/private_dot_config/herdr/plugins/herdr-focus-notify/notify.py#L33-L107), [caffeinate import](../../home/private_dot_config/herdr/plugins/herdr-caffeinate/reconcile.sh), [palette config interface](../../home/private_dot_config/herdr/plugins/command-palette/README.md#L42-L79), [worktree config interface](../../home/private_dot_config/herdr/plugins/worktree-setup/setup.ts#L120-L130).
+Основания: [notify config](../../home/private_dot_config/herdr/plugins/herdr-focus-notify/notify.py#L33-L107), [caffeinate import](../../home/private_dot_config/herdr/plugins/herdr-caffeinate/reconcile.sh), [palette config interface](../../home/private_dot_config/herdr/plugins/command-palette/README.md#L42-L79), [worktree config interface](https://github.com/Seigiard/herdr-worktree-setup/blob/2aa166ea8082a3b3fbb057f1b841436160c06740/README.md#configuration).
 
 ### Две реальные зависимости, которые мешают простому переносу папок
 
