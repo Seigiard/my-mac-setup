@@ -585,7 +585,9 @@ assert not any("herdr-resource-context.sh" in command for command in event_comma
 PY
   assert_success
   assert_file_executable "$HOME/.claude/hooks/herdr-resource-context.sh"
-  assert_file_executable "$HOME/.claude/hooks/herdr-agent-state.sh"
+  if [ -z "${MMS_CI_MINIMAL:-}" ]; then
+    assert_file_executable "$HOME/.claude/hooks/herdr-agent-state.sh"
+  fi
 }
 
 function test_smoke_1064_deployed_settings_wire_the_context_threshold_handoff() {
