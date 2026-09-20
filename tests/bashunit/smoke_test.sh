@@ -531,11 +531,9 @@ function test_smoke_037_alerter_is_installed_for_focus_notify() {
 # ===========================================
 
 function test_smoke_1051_herdr_alias_pane_label_child_and_secret_scan_files_are_deployed() {
-  _bats_test_init 1051 'herdr runtime files are deployed'
+  _bats_test_init 1051 'herdr support files are deployed'
   assert_file_exists "$HOME/.local/lib/herdr-aliases.sh"
   assert_file_exists "$HOME/.local/lib/herdr-resource-tree.py"
-  assert_file_exists "$HOME/.local/bin/herdr-pane-labels"
-  assert_file_executable "$HOME/.local/bin/herdr-pane-labels"
   assert_file_exists "$HOME/.local/bin/herdr-child"
   assert_file_executable "$HOME/.local/bin/herdr-child"
   assert_file_exists "$HOME/.local/bin/herdr-resource-tree"
@@ -548,6 +546,11 @@ function test_smoke_1051_herdr_alias_pane_label_child_and_secret_scan_files_are_
   assert_file_executable "$HOME/.local/bin/se-external-leg-pair"
   assert_file_exists "$HOME/.agents/skills/ask-in-herdr/scripts/follow-up.sh"
   assert_file_executable "$HOME/.agents/skills/ask-in-herdr/scripts/follow-up.sh"
+}
+
+require_working_herdr() {
+  command_exists herdr && herdr --version >/dev/null 2>&1 \
+    || skip "a working upstream herdr is not installed"
 }
 
 function test_smoke_1074_managed_zsh_resolves_herdr_through_the_provenance_wrapper() {
@@ -890,11 +893,13 @@ assert_herdr_label_writer_contract() {
 
 function test_smoke_1059_herdr_deployed_files_preserve_label_writer_ownership() {
   _bats_test_init 1059 'herdr deployed files preserve label-writer ownership boundaries'
+  require_working_herdr
   assert_herdr_label_writer_contract "$HOME/.local/bin/herdr-pane-labels"
 }
 
 function test_smoke_1060_herdr_pane_labels_is_installed_as_a_github_package() {
   _bats_test_init 1060 'herdr pane labels is installed as a GitHub package'
+  require_working_herdr
   run herdr plugin list --json
   assert_success
   run jq -e '.result.plugins[] | select(.plugin_id == "seigi.pane-labels" and .source.kind == "github" and .source.repo == "herdr-pane-labels")' <<< "$output"
@@ -903,6 +908,7 @@ function test_smoke_1060_herdr_pane_labels_is_installed_as_a_github_package() {
 
 function test_smoke_1061_herdr_pane_labels_keeps_runtime_and_aliases_package_owned() {
   _bats_test_init 1061 'herdr pane labels keeps runtime and aliases package-owned'
+  require_working_herdr
   assert_file_exists "$HOME/.local/bin/herdr-pane-labels"
   assert_file_executable "$HOME/.local/bin/herdr-pane-labels"
   assert_file_exists "$HOME/.local/lib/herdr-aliases.sh"
