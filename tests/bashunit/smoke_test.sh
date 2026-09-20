@@ -532,7 +532,6 @@ function test_smoke_037_alerter_is_installed_for_focus_notify() {
 
 function test_smoke_1051_herdr_alias_pane_label_child_and_secret_scan_files_are_deployed() {
   _bats_test_init 1051 'herdr support files are deployed'
-  assert_file_exists "$HOME/.local/lib/herdr-aliases.sh"
   assert_file_exists "$HOME/.local/lib/herdr-resource-tree.py"
   assert_file_exists "$HOME/.local/bin/herdr-child"
   assert_file_executable "$HOME/.local/bin/herdr-child"

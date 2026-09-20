@@ -6827,7 +6827,7 @@ SH
 
 pane_labels_migration_apply() {
   local work="$1" fail_step="${2:-}"
-  HOME="$work/home" PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
+  HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
     HERDR_FAIL_STEP="$fail_step" bash \
     "$SOURCE_ROOT/.chezmoiscripts/run_once_after_6-migrate-herdr-pane-labels.sh.tmpl"
 }
