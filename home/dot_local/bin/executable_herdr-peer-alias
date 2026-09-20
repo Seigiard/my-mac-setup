@@ -6,9 +6,20 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=home/dot_local/lib/herdr-aliases.sh
-source "$SCRIPT_DIR/../lib/herdr-aliases.sh"
+# Alias policy belongs to the standalone pane-labels package. This command
+# selects candidates only; registration remains the caller's responsibility.
+herdr_alias_candidates() {
+  local allocator="${HERDR_ALIAS_ALLOCATOR:-herdr-pane-labels}"
+  if ! command -v "$allocator" >/dev/null 2>&1 && \
+    [ "$allocator" = herdr-pane-labels ] && [ -x "$HOME/.local/bin/herdr-pane-labels" ]; then
+    allocator="$HOME/.local/bin/herdr-pane-labels"
+  fi
+  command -v "$allocator" >/dev/null 2>&1 || {
+    printf 'herdr-peer-alias: alias allocator is not on PATH: %s\n' "$allocator" >&2
+    return 1
+  }
+  "$allocator" --alias-candidates "$1"
+}
 
 usage() {
   cat >&2 <<'USAGE'

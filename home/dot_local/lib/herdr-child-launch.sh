@@ -105,7 +105,7 @@ start_child() {
   }
   local candidate_file candidate occupied
   candidate_file="$(mktemp)"
-  if ! herdr_alias_candidates "${HERDR_SOCKET_PATH:-no-socket}|$HERDR_PANE_ID|$kind|$cwd|$$|$(herdr_now_seq)" > "$candidate_file"; then
+  if ! herdr_alias_candidates "${HERDR_SOCKET_PATH:-no-socket}|$HERDR_PANE_ID|$kind|$cwd|$$|$(date +%s)-$RANDOM" > "$candidate_file"; then
     rm -f "$candidate_file"
     printf 'herdr-child: could not build alias candidates\n' >&2
     return 1

@@ -8,8 +8,22 @@ set -euo pipefail
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=home/dot_local/lib/herdr-process.sh
 source "$SCRIPT_DIR/../lib/herdr-process.sh"
-# shellcheck source=home/dot_local/lib/herdr-aliases.sh
-source "$SCRIPT_DIR/../lib/herdr-aliases.sh"
+
+# Alias selection is owned by the standalone pane-labels package. This is a
+# candidate stream, not a reservation; Herdr's agent_name_taken response stays
+# the collision boundary for concurrent launches.
+herdr_alias_candidates() {
+  local allocator="${HERDR_ALIAS_ALLOCATOR:-herdr-pane-labels}"
+  if ! command -v "$allocator" >/dev/null 2>&1 && \
+    [ "$allocator" = herdr-pane-labels ] && [ -x "$HOME/.local/bin/herdr-pane-labels" ]; then
+    allocator="$HOME/.local/bin/herdr-pane-labels"
+  fi
+  command -v "$allocator" >/dev/null 2>&1 || {
+    printf 'herdr-child: alias allocator is not on PATH: %s\n' "$allocator" >&2
+    return 1
+  }
+  "$allocator" --alias-candidates "$1"
+}
 # shellcheck source=home/dot_local/lib/herdr-child-runtime.sh
 source "$SCRIPT_DIR/../lib/herdr-child-runtime.sh"
 # shellcheck source=home/dot_local/lib/herdr-child-supervision.sh
