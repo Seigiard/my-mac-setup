@@ -531,11 +531,8 @@ function test_smoke_037_alerter_is_installed_for_focus_notify() {
 # ===========================================
 
 function test_smoke_1051_herdr_alias_pane_label_child_and_secret_scan_files_are_deployed() {
-  _bats_test_init 1051 'herdr runtime files are deployed'
-  assert_file_exists "$HOME/.local/lib/herdr-aliases.sh"
+  _bats_test_init 1051 'herdr support files are deployed'
   assert_file_exists "$HOME/.local/lib/herdr-resource-tree.py"
-  assert_file_exists "$HOME/.local/bin/herdr-pane-labels"
-  assert_file_executable "$HOME/.local/bin/herdr-pane-labels"
   assert_file_exists "$HOME/.local/bin/herdr-child"
   assert_file_executable "$HOME/.local/bin/herdr-child"
   assert_file_exists "$HOME/.local/bin/herdr-resource-tree"
@@ -548,6 +545,11 @@ function test_smoke_1051_herdr_alias_pane_label_child_and_secret_scan_files_are_
   assert_file_executable "$HOME/.local/bin/se-external-leg-pair"
   assert_file_exists "$HOME/.agents/skills/ask-in-herdr/scripts/follow-up.sh"
   assert_file_executable "$HOME/.agents/skills/ask-in-herdr/scripts/follow-up.sh"
+}
+
+require_working_herdr() {
+  command_exists herdr && herdr --version >/dev/null 2>&1 \
+    || skip "a working upstream herdr is not installed"
 }
 
 function test_smoke_1074_managed_zsh_resolves_herdr_through_the_provenance_wrapper() {
@@ -850,18 +852,15 @@ SH
 }
 
 assert_herdr_label_writer_contract() {
-  local config="$1"
-  local engine="$2"
+  local engine="$1"
   local writer_roots=(
     "$(dirname "$engine")"
-    "$(dirname "$config")"
   )
 
   # Nothing here asserts config.toml content. Sidebar rows, widths, and which
   # tokens a row renders are the user's presentation preferences in the user's
   # own config; a test that froze them would fail on an intended edit and prove
-  # nothing about the label writer. The config path is kept only because its
-  # directory holds the plugin files the writer counts sweep.
+  # nothing about the label writer.
 
   run bash -c '
     pattern="$1"; shift
@@ -892,110 +891,26 @@ assert_herdr_label_writer_contract() {
 
 function test_smoke_1059_herdr_deployed_files_preserve_label_writer_ownership() {
   _bats_test_init 1059 'herdr deployed files preserve label-writer ownership boundaries'
-  assert_herdr_label_writer_contract \
-    "$HOME/.config/herdr/config.toml" \
-    "$HOME/.local/bin/herdr-pane-labels"
+  require_working_herdr
+  assert_herdr_label_writer_contract "$HOME/.local/bin/herdr-pane-labels"
 }
 
-function test_smoke_1060_herdr_pane_label_plugin_deploys_the_approved_herdr_0_8_() {
-  _bats_test_init 1060 'herdr pane-label plugin deploys the approved Herdr 0.8 lifecycle inputs'
-  local plugin="$HOME/.config/herdr/plugins/herdr-pane-labels"
-  local manifest="$plugin/herdr-plugin.toml"
-  assert_file_exists "$manifest"
-  assert_file_exists "$plugin/ensure.sh"
-  assert_file_exists "$plugin/sweep.sh"
-  run sh -n "$plugin/ensure.sh"
+function test_smoke_1060_herdr_pane_labels_is_installed_as_a_github_package() {
+  _bats_test_init 1060 'herdr pane labels is installed as a GitHub package'
+  require_working_herdr
+  run herdr plugin list --json
   assert_success
-  run sh -n "$plugin/sweep.sh"
+  run jq -e '.result.plugins[] | select(.plugin_id == "seigi.pane-labels" and .source.kind == "github" and .source.repo == "herdr-pane-labels")' <<< "$output"
   assert_success
-
-  run awk '
-    /^on = "/ {
-      event = $0
-      sub(/^on = "/, "", event)
-      sub(/"$/, "", event)
-      next
-    }
-    /^command = / && event != "" {
-      command = $0
-      sub(/^command = /, "", command)
-      print event "|" command
-      event = ""
-    }
-  ' "$manifest"
-  assert_success
-  assert_output $'pane.created|["sh", "ensure.sh", "--event"]\npane.moved|["sh", "ensure.sh", "--event"]\npane.exited|["sh", "ensure.sh", "--event"]\npane.closed|["sh", "ensure.sh", "--event"]\npane.agent_detected|["sh", "ensure.sh", "--event"]\npane.agent_status_changed|["sh", "ensure.sh", "--event"]\ntab.created|["sh", "ensure.sh", "--event"]\ntab.closed|["sh", "ensure.sh", "--event"]\ntab.moved|["sh", "ensure.sh", "--event"]\ntab.renamed|["sh", "ensure.sh", "--event"]\nworktree.created|["sh", "ensure.sh", "--event"]\nworktree.opened|["sh", "ensure.sh", "--event"]'
-  assert_file_contains "$manifest" '^min_herdr_version = "0\.8\.2"$'
-  assert_file_contains "$manifest" '^id = "sweep"$'
-  assert_file_contains "$manifest" '^title = "Pane labels: refresh now"$'
-  assert_file_contains "$manifest" '^command = \["sh", "sweep\.sh"\]$'
-  run grep -E '^on = ".*\*|^on = "(pane\.updated|workspace\.focused|tab\.focused|pane\.focused)"' "$manifest"
-  assert_failure
 }
 
-function test_smoke_1061_herdr_pane_label_plugin_keeps_startup_sweep_and_relink_() {
-  _bats_test_init 1061 'herdr pane-label plugin keeps startup sweep and relink deployment wiring'
-  local plugin="$HOME/.config/herdr/plugins/herdr-pane-labels"
-  local manifest="$plugin/herdr-plugin.toml"
-  local relink="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_6-link-herdr-pane-labels.sh.tmpl"
-  assert_file_contains "$manifest" '^\[\[startup\]\]$'
-  assert_file_contains "$manifest" '^command = \["sh", "ensure.sh"\]$'
-  assert_file_contains "$plugin/ensure.sh" 'herdr-pane-labels'
-  assert_file_contains "$plugin/ensure.sh" 'labels.*--ensure-sweep-daemon'
-  assert_file_contains "$plugin/ensure.sh" "^  ''|--ensure-sweep-daemon)\$"
-  assert_file_contains "$plugin/sweep.sh" 'labels.*--sweep'
-  # The relink script's hash-trigger includes are owned by test 1062, which
-  # derives them from the template and checks the plugin directory listing.
-  assert_file_contains "$relink" 'herdr plugin link'
-  assert_file_contains "$relink" 'herdr plugin enable "\$HPL_CUTOVER_PLUGIN_ID"'
-}
-
-function test_smoke_1062_herdr_pane_label_cutover_templates_share_one_safety_bod() {
-  _bats_test_init 1062 'herdr pane-label cutover templates share one safety body and complete hash inputs'
-  local before="$SOURCE_ROOT/.chezmoiscripts/run_onchange_before_6-quiesce-herdr-pane-labels.sh.tmpl"
-  local after="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_6-link-herdr-pane-labels.sh.tmpl"
-  local shared="$SOURCE_ROOT/.chezmoitemplates/herdr-pane-labels-cutover-lib.sh"
-  local plugin_rel='private_dot_config/herdr/plugins/herdr-pane-labels'
-  local file path plugin_file before_inputs after_inputs
-
-  assert_file_exists "$before"
-  assert_file_exists "$after"
-  assert_file_exists "$shared"
-
-  # The hash-input list is derived from each template, never hand-copied, so it
-  # cannot drift from what the template actually hashes. Independent sides: the
-  # two templates against each other, every derived path against the source
-  # tree, and the plugin directory listing against the derived list.
-  before_inputs="$(grep -o 'include "[^"]*" | sha256sum' "$before" \
-    | sed 's/^include "//; s/" | sha256sum$//' | sort)"
-  after_inputs="$(grep -o 'include "[^"]*" | sha256sum' "$after" \
-    | sed 's/^include "//; s/" | sha256sum$//' | sort)"
-  [[ -n "$before_inputs" ]] || fail "no hash-trigger includes in $before"
-  [[ -n "$after_inputs" ]] || fail "no hash-trigger includes in $after"
-  assert_equal "$before_inputs" "$after_inputs"
-  grep -Fxq 'dot_local/lib/herdr-process.sh' <<< "$before_inputs" \
-    || fail "shared pane-label process dependency is not a cutover hash input"
-  while IFS= read -r path; do
-    assert_file_exists "$SOURCE_ROOT/$path"
-  done <<< "$before_inputs"
-  assert_dir_exists "$SOURCE_ROOT/$plugin_rel"
-  for plugin_file in "$SOURCE_ROOT/$plugin_rel"/*; do
-    path="$plugin_rel/${plugin_file##*/}"
-    grep -Fxq -- "$path" <<< "$before_inputs" \
-      || fail "plugin file $path is not a hash-trigger include in $before"
-  done
-
-  # The shared safety body must be included as a body, not only hashed —
-  # matching the closing "}}" excludes the sha256sum trigger lines above.
-  for file in "$before" "$after"; do
-    assert_file_contains "$file" 'include "\.chezmoitemplates/herdr-pane-labels-cutover-lib\.sh" }}'
-  done
-  assert_file_contains "$before" 'include "dot_local/lib/herdr-aliases\.sh"'
-  assert_file_contains "$before" '^source "\$alias_library"'
-  assert_file_contains "$shared" 'herdr pane report-metadata "\$pane"'
-  assert_file_contains "$shared" '^        --source task-sync --clear-token task'
-  run grep -n -- '--source task-sync.*--seq\|--clear-token task.*--seq' "$shared"
-  assert_failure
+function test_smoke_1061_herdr_pane_labels_keeps_runtime_and_aliases_package_owned() {
+  _bats_test_init 1061 'herdr pane labels keeps runtime and aliases package-owned'
+  require_working_herdr
+  assert_file_exists "$HOME/.local/bin/herdr-pane-labels"
+  assert_file_executable "$HOME/.local/bin/herdr-pane-labels"
+  assert_file_exists "$HOME/.local/lib/herdr-aliases.sh"
+  assert_file_exists "$HOME/.local/lib/herdr-pane-labels.version"
 }
 
 # ===========================================
