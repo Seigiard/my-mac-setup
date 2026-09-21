@@ -113,6 +113,13 @@ start_child() {
   # name shape but pair a word no color list contains, which lets the package's
   # reconciler tell a placeholder from an allocated name and rename it once the
   # allocator answers again.
+  #
+  # That rename has a cost worth knowing. It invalidates the alias-plus-pane
+  # pair the parent stored at launch: `herdr-child prompt --to` then fails
+  # closed, and `herdr-child reap --to` returns 0 without closing the pane. Ask
+  # and reply stay correct, because the child re-resolves its current alias from
+  # its pane before every message. A placeholder-named child is therefore
+  # reachable but not reliably reapable until the parent re-reads its name.
   if ! herdr_alias_candidates "${HERDR_SOCKET_PATH:-no-socket}|$HERDR_PANE_ID|$kind|$cwd|$$|$(date +%s)-$RANDOM" > "$candidate_file"; then
     printf 'herdr-child: alias allocator unavailable; starting with a placeholder name\n' >&2
     printf 'unnamed-%s\n' alpha bravo charlie delta echo foxtrot golf hotel india juliet \

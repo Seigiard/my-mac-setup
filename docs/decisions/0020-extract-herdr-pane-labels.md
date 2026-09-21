@@ -47,8 +47,17 @@ presentation settings, and keeps only a one-time migration. That migration
 disables the local plugin, drains and verifies the old daemon, freezes child
 launches, installs and enables the package, performs strict reconciliation for
 each running session, verifies the package CLI boundary, and removes the old
-layout only after success. A failure restores the old executable, aliases,
-child launcher, plugin registration, and daemon path.
+layout only after success.
+
+The migration is one-way and does not restore the previous writer on failure.
+The implementation it replaces leaves this repository with this change, so a
+restored copy would be an orphan that no later apply can rebuild, and keeping
+the restore path consistent with an already-deployed launcher was the source
+of its worst defects. A failure instead undoes the child-launch freeze, drops
+the half-registered package and clears the CLI boundary marker, then exits
+non-zero so a later apply retries from a state it can act on. Pane labels stay
+stale until one succeeds, and the abort names the `herdr plugin link` command
+that restores them sooner.
 
 The package preserves complete-snapshot reconciliation, generation checks,
 target identity revalidation, explicit metadata clearing, stale Git-location
@@ -56,6 +65,12 @@ handling, and one active label writer per socket. Progress reporting remains a
 separate publisher and is not part of this package.
 
 ## Consequences
+
+`herdr-child` and `herdr-peer-alias` no longer refuse to launch when that
+boundary cannot answer, which is its normal state between a clean machine's
+first apply and the package's installation. They fall back to placeholder names
+outside the package's pool, which the package's reconciler is free to rename
+once it answers; a caller must not treat a launch-time alias as stable.
 
 A clean home can install and update Pane Labels without this dotfiles checkout.
 The package's build step installs the runtime CLI and private libraries under

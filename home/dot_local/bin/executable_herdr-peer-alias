@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# herdr-peer-alias — print one free allocator-owned agent alias.
+# herdr-peer-alias — print one free agent alias.
 # Peers started outside herdr-child (the se-* review peers) name their agent
-# from here, so every registered name stays inside the pool that pane-label
-# reconciliation renames toward and that the pane-label cutover validates.
+# from here. The name comes from the package's pool whenever its allocator
+# answers; when it cannot, this falls back to a placeholder outside that pool,
+# which pane-label reconciliation is entitled to rename once the allocator
+# returns. A caller must therefore not treat the printed name as stable for the
+# life of the run.
 
 set -euo pipefail
 
@@ -25,9 +28,13 @@ usage() {
   cat >&2 <<'USAGE'
 Usage: herdr-peer-alias <seed> [reserved-alias ...]
 
-Prints one color-animal alias that no live agent holds and that no reserved
-argument claims. Reserve an alias that this run already picked but has not yet
+Prints one alias that no live agent holds and that no reserved argument
+claims. Reserve an alias that this run already picked but has not yet
 registered with herdr agent start.
+
+Normally a color-animal name from the pane-labels package. If its allocator
+cannot answer, prints an unnamed-* placeholder instead, which the package may
+rename once it can.
 USAGE
 }
 
