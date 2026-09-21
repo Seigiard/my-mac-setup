@@ -32,6 +32,7 @@ setup() {
   unset HERDR_CHILD_TEST_NOW_SEQ
   unset HERDR_CHILD_TEST_TAKEOVER_METADATA_PUBLISHED
   unset CHILD_REAP_PID
+  CHILD_STUBS=()
   # U2 exercises authorization only. Do not let an installed local model CLI
   # turn those fixtures into live naming requests now that U3 derives names.
   export HERDR_WORKTREE_IDENTITY_DISABLE_ENGINES=1
@@ -328,48 +329,95 @@ SH
   assert_output '<private prompt><--plugin-dir></managed/intercom>'
 }
 
+# Mint every stub through here. A test that stubs herdr more than once
+# re-points CHILD_STUB, and teardown used to see only the last value, so each
+# earlier stub — and any watcher armed against it — was abandoned
+# (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
+child_new_stub() {
+  CHILD_STUB="$(mktemp -d)"
+  export CHILD_STUB
+  CHILD_STUBS+=("$CHILD_STUB")
+}
+
+# A launch leaves its watcher armed on purpose and writes the pid to a path the
+# next launch may reuse, so a stub's pid files record what teardown happens to
+# have been told, not what is running. The watcher's --run-dir names its stub,
+# so ask the process table instead.
+child_stub_watcher_pids() {
+  local stub="$1" pid
+  for pid in $(ps -axo pid=,args= | awk -v marker="--run-dir $stub/" '
+    index($0, "herdr-child __watcher") && index($0, marker) { print $1 }'); do
+    # The snapshot is stale by the time it is read and pids get recycled, so
+    # re-verify the whole identity -- watcher and stub -- not half of it.
+    ps -o args= -p "$pid" 2>/dev/null | grep -F 'herdr-child __watcher' \
+      | grep -Fq -- "--run-dir $stub/" || continue
+    printf '%s\n' "$pid"
+  done
+}
+
+child_stub_stop_pid() {
+  local pid="$1" attempt=0
+  kill -TERM "$pid" 2>/dev/null || true
+  while kill -0 "$pid" 2>/dev/null && [[ "$attempt" -lt 100 ]]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  # A watcher that survives TERM (e.g., stuck publishing through a deleted
+  # stub) must not outlive the test (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -KILL "$pid" 2>/dev/null || true
+  fi
+}
+
+# Reap before removing: rm -rf against a live writer is a race the writer wins.
+child_stub_reap() {
+  local stub="$1" pid_file pid
+  [[ -d "$stub" ]] || return 0
+  : > "$stub/release-watcher" 2>/dev/null || true
+  for pid_file in "$stub"/*.pid; do
+    [[ -s "$pid_file" ]] || continue
+    pid="$(cat "$pid_file" 2>/dev/null || true)"
+    [[ -n "$pid" ]] || continue
+    child_stub_stop_pid "$pid"
+  done
+  for pid in $(child_stub_watcher_pids "$stub"); do
+    child_stub_stop_pid "$pid"
+  done
+  rm -rf "$stub"
+}
+
+child_reap_all_stubs() {
+  local stub
+  for stub in ${CHILD_STUBS[@]+"${CHILD_STUBS[@]}"}; do
+    child_stub_reap "$stub"
+  done
+  CHILD_STUBS=()
+  CHILD_STUB=""
+}
+
 teardown() {
   hpl_teardown
   hwi_teardown
-  if [[ -n "${CHILD_STUB:-}" ]]; then
-    if [[ -e "$CHILD_STUB/reap-invalidated.ready" ]]; then
-      : > "$CHILD_STUB/reap-invalidated.release"
+  local stub
+  for stub in ${CHILD_STUBS[@]+"${CHILD_STUBS[@]}"}; do
+    if [[ -e "$stub/reap-invalidated.ready" ]]; then
+      : > "$stub/reap-invalidated.release"
     fi
-    if [[ -n "${CHILD_REAP_PID:-}" ]]; then
-      local reap_attempt=0
-      while kill -0 "$CHILD_REAP_PID" 2>/dev/null && [[ "$reap_attempt" -lt 100 ]]; do
-        reap_attempt=$((reap_attempt + 1))
-        sleep 0.01
-      done
-      if kill -0 "$CHILD_REAP_PID" 2>/dev/null; then
-        kill -TERM "$CHILD_REAP_PID" 2>/dev/null || true
-      fi
-      wait "$CHILD_REAP_PID" 2>/dev/null || true
-      CHILD_REAP_PID=""
-    fi
-    [[ ! -e "$CHILD_STUB/release-watcher" ]] || true
-    : > "$CHILD_STUB/release-watcher" 2>/dev/null || true
-    local pid_file watcher_pid
-    for pid_file in watcher.pid new-watcher.pid reply.pid; do
-      [[ -s "$CHILD_STUB/$pid_file" ]] || continue
-      watcher_pid="$(cat "$CHILD_STUB/$pid_file" 2>/dev/null || true)"
-      if [[ -n "$watcher_pid" ]]; then
-        kill -TERM "$watcher_pid" 2>/dev/null || true
-        local attempt=0
-        while kill -0 "$watcher_pid" 2>/dev/null && [[ "$attempt" -lt 100 ]]; do
-          attempt=$((attempt + 1))
-          sleep 0.01
-        done
-        # A watcher that survives TERM (e.g., stuck publishing through a
-        # deleted stub) must not outlive the test (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
-        if kill -0 "$watcher_pid" 2>/dev/null; then
-          kill -KILL "$watcher_pid" 2>/dev/null || true
-        fi
-      fi
+  done
+  if [[ -n "${CHILD_REAP_PID:-}" ]]; then
+    local reap_attempt=0
+    while kill -0 "$CHILD_REAP_PID" 2>/dev/null && [[ "$reap_attempt" -lt 100 ]]; do
+      reap_attempt=$((reap_attempt + 1))
+      sleep 0.01
     done
+    if kill -0 "$CHILD_REAP_PID" 2>/dev/null; then
+      kill -TERM "$CHILD_REAP_PID" 2>/dev/null || true
+    fi
+    wait "$CHILD_REAP_PID" 2>/dev/null || true
+    CHILD_REAP_PID=""
   fi
+  child_reap_all_stubs
   [[ -n "${BATS_TEST_TMPFILE:-}" ]] && rm -f "$BATS_TEST_TMPFILE" || true
-  [[ -n "${CHILD_STUB:-}" ]] && rm -rf "$CHILD_STUB" || true
   unset HERDR_WORKTREE_IDENTITY_DISABLE_ENGINES
 }
 
@@ -2932,8 +2980,7 @@ SH
 }
 
 ask_live_stub() {
-  CHILD_STUB="$(mktemp -d)"
-  export CHILD_STUB
+  child_new_stub
   cat > "$CHILD_STUB/herdr-child" <<'SH'
 #!/usr/bin/env bash
 printf '%q ' "$@" >> "$CHILD_STUB/child.log"; printf '\n' >> "$CHILD_STUB/child.log"
@@ -3478,8 +3525,7 @@ HERDR_CHILD="$SOURCE_ROOT/dot_local/bin/executable_herdr-child"
 
 child_stub_herdr() {
   export HERDR_ALIAS_TEST_SEED=tests
-  CHILD_STUB="$(mktemp -d)"
-  export CHILD_STUB
+  child_new_stub
   cat > "$CHILD_STUB/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
@@ -6186,6 +6232,64 @@ SH
   assert_output --partial "child session changed during startup grace"
   run grep -Eq '^(agent prompt|pane close)' "$CHILD_STUB/calls.log"
   assert_failure
+}
+
+function test_scripts_0732_stub_teardown_reaps_a_watcher_from_every_stub_a() {
+  _bats_test_init 0732 'stub teardown reaps a watcher from every stub a test created, not only the last'
+  local first second probe probe_pid attempt
+  child_stub_herdr
+  first="$CHILD_STUB"
+  probe="$first/state/runs/probe"
+  mkdir -p "$probe"
+  # Stands in for the watcher a detached launch arms: the same command line,
+  # so the same reap has to find it, without a launch's timing. It borrows the
+  # shipped descriptor hygiene, or a regression here would hold the runner's
+  # capture pipe and stall the suite instead of failing this case.
+  printf '#!/usr/bin/env bash\nsource %s\n' \
+    "$SOURCE_ROOT/dot_local/lib/herdr-process.sh" > "$probe/herdr-child"
+  cat >> "$probe/herdr-child" <<'SH'
+close_inherited_descriptors
+# Deliberately a hold that deleting the run directory does not end: that is
+# the shape teardown cannot reap by rm -rf alone (incident 4 in
+# docs/solutions/design-patterns/outliving-processes-hang-the-suite.md), so it
+# is the shape that holds the sweep to its job. The absolute bound keeps a red
+# run from leaking this for an hour.
+attempt=0
+while [ "$attempt" -lt 1200 ]; do
+  attempt=$((attempt + 1))
+  /bin/sleep 0.05
+done
+SH
+  chmod +x "$probe/herdr-child"
+  # Orphaned on purpose: a real watcher is nohup'd away from its launcher, and
+  # a child of this shell would still answer kill -0 as a zombie once dead.
+  # The pid lands outside *.pid so only the process-table sweep can find it.
+  ( bash "$probe/herdr-child" __watcher --run-dir "$probe" \
+      --pane wT:p9 --generation probe --timeout 3600000 --launcher-pid $$ \
+      </dev/null >/dev/null 2>&1 &
+    printf '%s\n' "$!" > "$first/probe.watcher" )
+  child_wait_for_file "$first/probe.watcher"
+  probe_pid="$(cat "$first/probe.watcher")"
+  kill -0 "$probe_pid" 2>/dev/null || fail 'the probe watcher never started'
+
+  # The next launch re-points CHILD_STUB away from the armed stub. What runs
+  # below is the suite's real teardown, called early so the case can hold it
+  # to its verdict; bashunit calling it again afterwards is a no-op.
+  child_stub_herdr
+  second="$CHILD_STUB"
+  [ "$first" != "$second" ] || fail 'the second stub reused the first directory'
+
+  teardown
+
+  attempt=0
+  while kill -0 "$probe_pid" 2>/dev/null && [ "$attempt" -lt 200 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  run kill -0 "$probe_pid"
+  assert_failure
+  assert_dir_not_exists "$first"
+  assert_dir_not_exists "$second"
 }
 
 function test_scripts_074_herdr_child_preserves_a_working_pane_when_the_wa() {
