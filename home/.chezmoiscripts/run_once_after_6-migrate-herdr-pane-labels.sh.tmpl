@@ -98,11 +98,23 @@ stop_daemons() {
   done < "$sockets"
 }
 
+# An id Herdr does not know has no event-driven writer to stop, so
+# plugin_not_found is the state this gate wants rather than a failure. An
+# earlier aborted attempt leaves exactly that state -- the local registration
+# is dropped before the install and nothing puts it back -- and treating it as
+# fatal made every later apply fail here instead of retrying the cutover.
 disable_plugin() {
-  local socket failed=0
+  local socket output failed=0
   while IFS= read -r socket; do
     [ -n "$socket" ] || continue
-    env HERDR_SOCKET_PATH="$socket" herdr plugin disable "$plugin_id" >/dev/null 2>&1 || failed=1
+    output="$(env HERDR_SOCKET_PATH="$socket" herdr plugin disable "$plugin_id" 2>&1)" && continue
+    case "$output" in
+      *plugin_not_found*) ;;
+      *)
+        [ -z "$output" ] || printf '%s\n' "$output" >&2
+        failed=1
+        ;;
+    esac
   done < "$sockets"
   [ "$failed" -eq 0 ]
 }
@@ -169,6 +181,12 @@ abort_cutover() {
   restore_file "$scratch/child" "$legacy_child" || true
   rm -f -- "$version_file"
   cleanup_scratch
+  # The local registration was dropped before the install and this does not put
+  # it back. Labels stay stale until a later apply wins, so name the one command
+  # that restores them now, the way the command-palette migration does.
+  if [ -d "$legacy_plugin" ]; then
+    error "pane labels stay stale until the next successful apply; to restore them now run: herdr plugin link $legacy_plugin --enabled"
+  fi
 }
 
 if package_already_installed; then
@@ -196,7 +214,7 @@ fi
 if [ -x "$legacy_child" ]; then cp -p "$legacy_child" "$scratch/child" || { cleanup_scratch; exit 1; }; fi
 
 if ! disable_plugin || ! stop_daemons; then
-  error "could not quiesce the old writer safely; no files were removed"
+  error "could not quiesce the old writer safely; aborting the cutover"
   abort_cutover
   exit 1
 fi
@@ -218,7 +236,7 @@ if [ "$local_plugin_registered" -eq 1 ]; then
 fi
 # Installation can fetch and build source. Stream its progress, but close stdin
 # so an unseen upstream prompt fails instead of blocking chezmoi apply -- and it
-# would block with herdr-child already replaced by the freeze stub below.
+# would block with herdr-child already replaced by the freeze stub.
 if ! env -u HERDR_SOCKET_PATH herdr plugin install "$repo" --ref "$ref" -y </dev/null; then
   error "package installation failed; aborting the cutover; retry on the next apply"
   abort_cutover

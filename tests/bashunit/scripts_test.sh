@@ -6915,6 +6915,9 @@ pane_labels_migration_prepare() {
   printf 'legacy-child\n' > "$home/.local/bin/herdr-child"
   chmod +x "$home/.local/bin/herdr-pane-labels" "$home/.local/bin/herdr-child"
   printf 'legacy-plugin\n' > "$home/.config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml"
+  # The real machine has the local plugin registered, which is what makes
+  # local_plugin_registered 1 and puts the uninstall on the cutover path.
+  : > "$work/registry-local"
 
   cat > "$bin/herdr" <<'SH'
 #!/usr/bin/env bash
@@ -6925,6 +6928,26 @@ printf '%s\n' "$*" >> "$HERDR_CALLS"
 [ -n "${HERDR_SOCKET_PATH:-}" ] && printf '%s %s\n' "$HERDR_SOCKET_PATH" "$*" >> "$HERDR_CALLS.sockets"
 case "$*" in
   'session list --json') printf '%s\n' "$STUB_SESSIONS" ;;
+  'plugin list --json')
+    if [ -f "$HERDR_REGISTRY/registry-github" ]; then
+      printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.pane-labels","source":{"kind":"github","repo":"herdr-pane-labels"},"enabled":true}]}}'
+    elif [ -f "$HERDR_REGISTRY/registry-local" ]; then
+      printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.pane-labels","source":{"kind":"local"},"enabled":true}]}}'
+    else
+      printf '%s\n' '{"result":{"plugins":[]}}'
+    fi
+    ;;
+  'plugin disable seigi.pane-labels')
+    # Herdr refuses to disable an id it does not know, and an aborted attempt
+    # leaves exactly that state.
+    if [ ! -f "$HERDR_REGISTRY/registry-local" ] && [ ! -f "$HERDR_REGISTRY/registry-github" ]; then
+      printf 'plugin_not_found\n' >&2
+      exit 1
+    fi
+    ;;
+  'plugin uninstall seigi.pane-labels')
+    rm -f "$HERDR_REGISTRY/registry-local" "$HERDR_REGISTRY/registry-github"
+    ;;
   'plugin install Seigiard/herdr-pane-labels --ref aba61eb788c5fe0630dc570d96fd14683e2f63c7 -y')
     # A real install can prompt. Record whatever it could read, so a caller that
     # leaves stdin open is visible instead of merely lucky.
@@ -6942,8 +6965,9 @@ ENGINE
     printf 'package-aliases\n' > "$HOME/.local/lib/herdr-aliases.sh"
     printf 'package-process\n' > "$HOME/.local/lib/herdr-process.sh"
     printf '0.2.3\n' > "$HOME/.local/lib/herdr-pane-labels.version"
+    : > "$HERDR_REGISTRY/registry-github"
     ;;
-  'plugin enable seigi.pane-labels'|'plugin uninstall seigi.pane-labels'|'server reload-config')
+  'plugin enable seigi.pane-labels'|'server reload-config')
     if [ "${HERDR_FAIL_STEP:-}" = enable ] && [ "$*" = 'plugin enable seigi.pane-labels' ]; then
       exit 1
     fi
@@ -6959,6 +6983,7 @@ pane_labels_migration_apply() {
   [ -n "$sessions" ] || sessions='{"result":{"sessions":[]}}'
   HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
     HERDR_ENGINE_CALLS="$work/engine.calls" HERDR_INSTALL_STDIN="$work/install.stdin" \
+    HERDR_REGISTRY="$work" \
     HERDR_FAIL_STEP="$fail_step" STUB_SESSIONS="$sessions" bash \
     "$SOURCE_ROOT/.chezmoiscripts/run_once_after_6-migrate-herdr-pane-labels.sh.tmpl"
 }
@@ -7083,7 +7108,6 @@ function test_scripts_1341_pane_labels_migration_drives_each_running_session() {
 }
 
 
-
 # A running flag that is not a boolean is a schema the script cannot read. The
 # same filter already carries a // fallback because the shape moved once, and
 # guessing "stopped" would skip a live session the cutover has to reconcile.
@@ -7115,6 +7139,30 @@ STDIN
   assert_file_exists "$work/install.stdin"
   run grep -F 'SHOULD-NOT-REACH-THE-INSTALLER' "$work/install.stdin"
   assert_failure
+}
+
+
+# The abort path drops the local registration and nothing puts it back, so the
+# next run meets an id Herdr does not know. Treating that as a quiesce failure
+# made the cutover unrepeatable: every later apply died at the gate while the
+# labels it had already killed stayed dead.
+function test_scripts_1345_pane_labels_migration_retries_after_an_abort() {
+  _bats_test_init 1345 'pane labels migration retries after an abort'
+  local work="$BATS_TEST_TMPDIR/pane-labels-migration-retry"
+  local sessions='{"result":{"sessions":[{"running":true,"socket_path":"/tmp/retry.sock"}]}}'
+  pane_labels_migration_prepare "$work"
+
+  run pane_labels_migration_apply "$work" install "$sessions"
+  assert_failure
+  # The abort names the command that brings labels back before the next apply.
+  assert_output --partial 'herdr plugin link '
+  # The registration is gone, which is the state the retry has to tolerate.
+  assert_file_not_exists "$work/registry-local"
+
+  run pane_labels_migration_apply "$work" '' "$sessions"
+  assert_success
+  assert_file_exists "$work/registry-github"
+  assert_dir_not_exists "$work/home/.config/herdr/plugins/herdr-pane-labels"
 }
 
 
