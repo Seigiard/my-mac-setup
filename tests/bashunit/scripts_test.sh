@@ -348,30 +348,42 @@ child_register_stub() {
 # next launch may reuse, so a stub's pid files record what teardown happens to
 # have been told, not what is running. The watcher's --run-dir names its stub,
 # so ask the process table instead.
+# The whole identity -- watcher and stub -- never half of it.
+child_stub_pid_is_watcher() {
+  ps -o args= -p "$1" 2>/dev/null | grep -F 'herdr-child __watcher' \
+    | grep -Fq -- "--run-dir $2/"
+}
+
 child_stub_watcher_pids() {
   local stub="$1" pid
   for pid in $(ps -axo pid=,args= | awk -v marker="--run-dir $stub/" '
     index($0, "herdr-child __watcher") && index($0, marker) { print $1 }'); do
-    # The snapshot is stale by the time it is read and pids get recycled, so
-    # re-verify the whole identity -- watcher and stub -- not half of it.
-    ps -o args= -p "$pid" 2>/dev/null | grep -F 'herdr-child __watcher' \
-      | grep -Fq -- "--run-dir $stub/" || continue
+    # The snapshot is stale by the time it is read and pids get recycled.
+    child_stub_pid_is_watcher "$pid" "$stub" || continue
     printf '%s\n' "$pid"
   done
 }
 
+# A second argument re-verifies identity before the kill. Callers that read a
+# pid out of a file pass none: reply.pid holds a test's own process rather than
+# a watcher, so a watcher check there would stop reaping it altogether.
 child_stub_stop_pid() {
-  local pid="$1" attempt=0
+  local pid="$1" stub="${2:-}" attempt=0
   kill -TERM "$pid" 2>/dev/null || true
   while kill -0 "$pid" 2>/dev/null && [[ "$attempt" -lt 100 ]]; do
     attempt=$((attempt + 1))
     sleep 0.01
   done
+  kill -0 "$pid" 2>/dev/null || return 0
   # A watcher that survives TERM (e.g., stuck publishing through a deleted
   # stub) must not outlive the test (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
-  if kill -0 "$pid" 2>/dev/null; then
-    kill -KILL "$pid" 2>/dev/null || true
+  # The scan proved this pid a watcher up to a second ago, not now, so prove it
+  # again before the kill -- tests/run-post-apply.sh re-verifies at both points
+  # for the same reason.
+  if [[ -n "$stub" ]]; then
+    child_stub_pid_is_watcher "$pid" "$stub" || return 0
   fi
+  kill -KILL "$pid" 2>/dev/null || true
 }
 
 # Reap before removing: rm -rf against a live writer is a race the writer wins.
@@ -386,7 +398,7 @@ child_stub_reap() {
     child_stub_stop_pid "$pid"
   done
   for pid in $(child_stub_watcher_pids "$stub"); do
-    child_stub_stop_pid "$pid"
+    child_stub_stop_pid "$pid" "$stub"
   done
   rm -rf "$stub"
 }
@@ -6615,9 +6627,11 @@ function test_scripts_1402_herdr_peer_alias_fails_closed_on_an_incomplete_() {
 
 herdr_child_alias_stub() {
   local work="$1"
-  # Callers register $work with child_register_stub so teardown reaps the
-  # watcher a detached launch arms here; this runs in a command substitution,
-  # so nothing it assigns would reach the test shell anyway
+  # $work is what callers register with child_register_stub, so every teardown
+  # hook belongs under it: the state dir here, and the release barrier and pid
+  # file in herdr_child_alias_launch. Point one at this bin directory instead
+  # and that step goes silently inert, leaving the process-table sweep as the
+  # only thing still reaping these cases
   # (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
   local stub="$work/bin"
   mkdir -p "$stub" "$work/tmp"
@@ -6676,8 +6690,8 @@ herdr_child_alias_launch() {
   env PATH="$stub:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_ALIAS_ALLOCATOR="$allocator" HCA_WORK="$work" TMPDIR="$work/tmp" \
     HERDR_CHILD_STATE_DIR="$work/state" HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 \
-    HERDR_CHILD_TEST_WATCHER_PID_FILE="$stub/watcher.pid" \
-    HERDR_CHILD_TEST_WATCHER_RELEASE="$stub/release-watcher" \
+    HERDR_CHILD_TEST_WATCHER_PID_FILE="$work/watcher.pid" \
+    HERDR_CHILD_TEST_WATCHER_RELEASE="$work/release-watcher" \
     bash "$HERDR_CHILD" start --kind claude --detach --prompt 'alias degradation task'
 }
 
