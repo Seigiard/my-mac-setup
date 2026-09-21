@@ -76,6 +76,21 @@
   process = git-lfs filter-process
   required = true
 
+{{ if lookPath "gh" -}}
+# Authenticate GitHub HTTPS remotes with the gh token instead of the SSH agent.
+# The SSH key lives in 1Password and needs per-use approval, which a background
+# push cannot answer. The empty helper resets the inherited credential chain for
+# these hosts so the keychain does not answer before gh. Written by
+# `gh auth setup-git`; kept here because chezmoi owns this file and would
+# otherwise drop it on the next apply.
+[credential "https://github.com"]
+	helper =
+	helper = !{{ lookPath "gh" }} auth git-credential
+[credential "https://gist.github.com"]
+	helper =
+	helper = !{{ lookPath "gh" }} auth git-credential
+
+{{ end -}}
 # OS-specific includes
 [includeIf "gitdir:/Users/"]
   path = ~/.gitconfig-macos
