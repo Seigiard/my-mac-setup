@@ -6501,18 +6501,16 @@ function test_scripts_1402_herdr_peer_alias_fails_closed_on_an_incomplete_() {
   assert_output --partial "malformed herdr agent list"
 }
 
-# ===========================================
-# herdr-integrations run-script
-# ===========================================
-
 # herdr-child alias degradation
 # ===========================================
 
-CHILD_LAUNCHER="$SOURCE_ROOT/dot_local/bin/executable_herdr-child"
-
 herdr_child_alias_stub() {
   local work="$1"
-  local stub="$work/bin"
+  # teardown() keys the watcher cleanup on CHILD_STUB, so the stub bin has to
+  # be that directory or a detached launch leaks a poller for the rest of the
+  # file (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
+  CHILD_STUB="$work/bin"
+  local stub="$CHILD_STUB"
   mkdir -p "$stub" "$work/tmp"
   cat > "$stub/herdr" <<'SH'
 #!/usr/bin/env bash
@@ -6569,7 +6567,9 @@ herdr_child_alias_launch() {
   env PATH="$stub:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_ALIAS_ALLOCATOR="$allocator" HCA_WORK="$work" TMPDIR="$work/tmp" \
     HERDR_CHILD_STATE_DIR="$work/state" HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 \
-    bash "$CHILD_LAUNCHER" start --kind claude --detach --prompt 'alias degradation task'
+    HERDR_CHILD_TEST_WATCHER_PID_FILE="$stub/watcher.pid" \
+    HERDR_CHILD_TEST_WATCHER_RELEASE="$stub/release-watcher" \
+    bash "$HERDR_CHILD" start --kind claude --detach --prompt 'alias degradation task'
 }
 
 # A silent allocator is the common state, not the rare one: chezmoi deploys this
@@ -6602,6 +6602,10 @@ function test_scripts_1404_herdr_child_uses_the_allocator_when_it_answers() {
   assert_file_contains "$work/started-name" '^red-wolf$'
 }
 
+
+# ===========================================
+# herdr-integrations run-script
+# ===========================================
 
 HERDR_INTEGRATIONS_TMPL="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_3-setup-herdr-integrations.sh.tmpl"
 
