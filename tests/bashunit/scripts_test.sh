@@ -8154,7 +8154,13 @@ function test_scripts_2701_herdr_child_reap_owner_guard_stops_when_run_dir() {
 function test_scripts_271_herdr_child_shared_lifecycle_primitives_keep_con() {
   _bats_test_init 271 'herdr-child shared lifecycle primitives keep polling and launch-state contracts'
   local work_dir runtime supervision
-  work_dir="$(mktemp -d)"
+  # Not a bare mktemp -d: the case keeps launch.state to read it back, and an
+  # assertion failing before the last line exits the test (_bats_assert_fail),
+  # so a trailing rm never runs on exactly the runs worth repeating. Under
+  # BATS_TEST_TMPDIR the file tmproot reaps it either way
+  # (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
+  work_dir="$BATS_TEST_TMPDIR/child-lifecycle"
+  mkdir -p "$work_dir"
   runtime="$SOURCE_ROOT/dot_local/lib/herdr-child-runtime.sh"
   supervision="$SOURCE_ROOT/dot_local/lib/herdr-child-supervision.sh"
 
