@@ -1,22 +1,40 @@
 #!/usr/bin/env bash
-# herdr-peer-alias — print one free allocator-owned agent alias.
+# herdr-peer-alias — print one free agent alias.
 # Peers started outside herdr-child (the se-* review peers) name their agent
-# from here, so every registered name stays inside the pool that pane-label
-# reconciliation renames toward and that the pane-label cutover validates.
+# from here. The name comes from the package's pool whenever its allocator
+# answers; when it cannot, this falls back to a placeholder outside that pool,
+# which pane-label reconciliation is entitled to rename once the allocator
+# returns. A caller must therefore not treat the printed name as stable for the
+# life of the run.
 
 set -euo pipefail
 
-SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=home/dot_local/lib/herdr-aliases.sh
-source "$SCRIPT_DIR/../lib/herdr-aliases.sh"
+# Alias policy belongs to the standalone pane-labels package. This command
+# selects candidates only; registration remains the caller's responsibility.
+herdr_alias_candidates() {
+  local allocator="${HERDR_ALIAS_ALLOCATOR:-herdr-pane-labels}"
+  if ! command -v "$allocator" >/dev/null 2>&1 && \
+    [ "$allocator" = herdr-pane-labels ] && [ -x "$HOME/.local/bin/herdr-pane-labels" ]; then
+    allocator="$HOME/.local/bin/herdr-pane-labels"
+  fi
+  command -v "$allocator" >/dev/null 2>&1 || {
+    printf 'herdr-peer-alias: alias allocator is not on PATH: %s\n' "$allocator" >&2
+    return 1
+  }
+  "$allocator" --alias-candidates "$1"
+}
 
 usage() {
   cat >&2 <<'USAGE'
 Usage: herdr-peer-alias <seed> [reserved-alias ...]
 
-Prints one color-animal alias that no live agent holds and that no reserved
-argument claims. Reserve an alias that this run already picked but has not yet
+Prints one alias that no live agent holds and that no reserved argument
+claims. Reserve an alias that this run already picked but has not yet
 registered with herdr agent start.
+
+Normally a color-animal name from the pane-labels package. If its allocator
+cannot answer, prints an unnamed-* placeholder instead, which the package may
+rename once it can.
 USAGE
 }
 
@@ -60,8 +78,16 @@ done
 # it inherited from us. It also discarded the producer's exit status, so a pool
 # that failed validation was reported as exhausted instead.
 candidates="$(herdr_alias_candidates "$seed")" || {
-  printf 'herdr-peer-alias: could not build the alias pool\n' >&2
-  exit 1
+  # Same degradation as herdr-child: the allocator is missing for a whole window
+  # on a clean machine, because chezmoi deploys this command before the package
+  # installs, and again after any failed install. Refusing to name a peer stops
+  # it from starting at all, which is a steep price for a decorative name. The
+  # placeholders keep the pool's name shape but pair a word no color list holds,
+  # so the package's reconciler can tell them from allocated names and rename
+  # them once it answers again.
+  printf 'herdr-peer-alias: alias allocator unavailable; using a placeholder name\n' >&2
+  candidates="$(printf 'unnamed-%s\n' alpha bravo charlie delta echo foxtrot golf hotel \
+    india juliet kilo lima mike november oscar papa quebec romeo sierra tango)"
 }
 
 if [ -n "$candidates" ]; then

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+[ "${1:-}" = --alias-candidates ] && [ $# -eq 2 ] || exit 2
+printf '%s\n' red-wolf blue-fox green-otter amber-badger silver-koala purple-raven
