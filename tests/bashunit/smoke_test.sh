@@ -860,8 +860,7 @@ assert_herdr_label_writer_contract() {
   # Nothing here asserts config.toml content. Sidebar rows, widths, and which
   # tokens a row renders are the user's presentation preferences in the user's
   # own config; a test that froze them would fail on an intended edit and prove
-  # nothing about the label writer. The config path is kept only because its
-  # directory holds the plugin files the writer counts sweep.
+  # nothing about the label writer.
 
   run bash -c '
     pattern="$1"; shift

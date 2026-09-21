@@ -2,26 +2,30 @@
 # Move the live local Pane Labels writer to the standalone package. This is the
 # only dotfiles-owned lifecycle code: later installs and updates belong to the
 # package and the normal GitHub-plugin installer.
+# running_sockets gates the whole cutover on its exit status. Without pipefail a
+# bare pipeline reports sort's success over a failed query or a malformed payload.
 set -u
+set -o pipefail
 
 plugin_id="seigi.pane-labels"
 repo="Seigiard/herdr-pane-labels"
 ref="aba61eb788c5fe0630dc570d96fd14683e2f63c7"
-legacy_engine="$HOME/.local/bin/herdr-pane-labels"
-legacy_aliases="$HOME/.local/lib/herdr-aliases.sh"
-legacy_process="$HOME/.local/lib/herdr-process.sh"
+# One path, two implementations: the package's CLI shim installs over the same
+# name as the engine this migration retires, which is why the cutover cannot
+# stage the new one beside the old and verify it first.
+engine="$HOME/.local/bin/herdr-pane-labels"
 legacy_child="$HOME/.local/bin/herdr-child"
 legacy_plugin="${XDG_CONFIG_HOME:-$HOME/.config}/herdr/plugins/herdr-pane-labels"
 cache="$HOME/.cache/herdr-pane-labels"
-rollback="$cache/cutover-rollback"
-sockets="$rollback/sockets"
+scratch="$cache/cutover"
+sockets="$scratch/sockets"
 version_file="$HOME/.local/lib/herdr-pane-labels.version"
 
 log() { printf 'herdr pane-labels migration: %s\n' "$*"; }
 error() { printf 'herdr pane-labels migration: %s\n' "$*" >&2; }
 
-cleanup_rollback() {
-  rm -rf -- "$rollback"
+cleanup_scratch() {
+  rm -rf -- "$scratch"
 }
 
 restore_file() {
@@ -40,11 +44,23 @@ wait_gone() {
   done
 }
 
+# Capture the payload first: pipefail catches a failing query, but a query that
+# succeeds with empty stdout would leave jq with nothing to evaluate and an exit
+# status of 0, which is indistinguishable from a genuinely empty session list.
 running_sockets() {
-  herdr session list --json | jq -r '
+  local payload
+  payload="$(herdr session list --json 2>/dev/null)" || return 1
+  [ -n "$payload" ] || return 1
+  printf '%s' "$payload" | jq -r '
     (.result.sessions // .sessions) as $sessions
     | if ($sessions | type) == "array"
-      then [$sessions[] | select(.running == true) | .socket_path // empty] | .[]
+      then [$sessions[]
+            | if (.running | type) != "boolean"
+              then error("session without a boolean running flag") else . end
+            | select(.running)
+            | .socket_path
+            | if type == "string" and length > 0 then .
+              else error("running session without socket_path") end] | .[]
       else error("malformed session list")
       end' | LC_ALL=C sort -u
 }
@@ -60,10 +76,17 @@ stop_daemons() {
     start="$(cat "$lock/start" 2>/dev/null)"
     case "$pid" in '' | *[!0-9]*) return 1 ;; esac
     kill -0 "$pid" 2>/dev/null || continue
-    current="$(ps -p "$pid" -o lstart= 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    # sweep.lock/start is written by process_start_marker, which pins LC_ALL=C.
+    # ps -o lstart= is locale-dependent, so an ambient read never matches on a
+    # non-C LC_TIME. The second read mirrors process_start_matches' fallback for
+    # records written before that pin.
+    current="$(LC_ALL=C ps -p "$pid" -o lstart= 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
     command="$(ps -ww -p "$pid" -o command= 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-    [ "$current" = "$start" ] || return 1
-    case "$command" in *"$legacy_engine --sweep-daemon"*) ;; *) return 1 ;; esac
+    if [ "$current" != "$start" ]; then
+      current="$(ps -p "$pid" -o lstart= 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+      [ "$current" = "$start" ] || return 1
+    fi
+    case "$command" in *"$engine --sweep-daemon"*) ;; *) return 1 ;; esac
     kill -TERM "$pid" 2>/dev/null || return 1
     wait_gone "$pid" || return 1
     attempt=0
@@ -84,13 +107,8 @@ disable_plugin() {
   [ "$failed" -eq 0 ]
 }
 
-restore_local_plugin() {
-  [ -d "$rollback/plugin" ] || return 1
-  env -u HERDR_SOCKET_PATH herdr plugin link "$rollback/plugin" --enabled >/dev/null 2>&1
-}
-
 package_already_installed() {
-  [ -x "$legacy_engine" ] || return 1
+  [ -x "$engine" ] || return 1
   [ -f "$version_file" ] || return 1
   herdr plugin list --json 2>/dev/null | jq -e \
     --arg id "$plugin_id" --arg repo "${repo##*/}" \
@@ -99,7 +117,7 @@ package_already_installed() {
 }
 
 local_plugin_registered=0
-if [ -x "$legacy_engine" ] || [ -d "$legacy_plugin" ]; then
+if [ -x "$engine" ] || [ -d "$legacy_plugin" ]; then
   if herdr plugin list --json 2>/dev/null | jq -e \
     --arg id "$plugin_id" \
     '.result.plugins[] | select(.plugin_id == $id and .source.kind == "local")' \
@@ -136,34 +154,28 @@ reload_herdr_config() {
   return 1
 }
 
-rollback() {
-  local socket
+# Not a rollback. This migration is one-way: the implementation it replaces is
+# gone from the dotfiles source, so a restored copy is an orphan that nothing
+# maintains and the next apply cannot rebuild. Restoring one was also where the
+# worst defects lived, because the restored pieces had to be mutually
+# consistent and the deployed launcher had already moved on.
+#
+# So this leaves exactly what a retry needs: a machine that can still launch
+# panes, and no half-finished package that would make the next run believe the
+# cutover already succeeded. Pane labels stay stale until a later apply wins,
+# which is the price of not carrying that restore path.
+abort_cutover() {
   env -u HERDR_SOCKET_PATH herdr plugin uninstall "$plugin_id" >/dev/null 2>&1 || true
-  restore_file "$rollback/engine" "$legacy_engine" || true
-  restore_file "$rollback/aliases" "$legacy_aliases" || true
-  restore_file "$rollback/process" "$legacy_process" || true
-  restore_file "$rollback/child" "$legacy_child" || true
-  if restore_local_plugin; then
-    while IFS= read -r socket; do
-      [ -n "$socket" ] || continue
-      env HERDR_SOCKET_PATH="$socket" herdr plugin enable "$plugin_id" >/dev/null 2>&1 || true
-      env HERDR_SOCKET_PATH="$socket" herdr server reload-config >/dev/null 2>&1 || true
-      env HERDR_SOCKET_PATH="$socket" "$legacy_engine" --ensure-sweep-daemon >/dev/null 2>&1 || true
-    done < "$sockets"
-  fi
-  if [ -f "$rollback/version" ]; then
-    restore_file "$rollback/version" "$version_file" || true
-  else
-    rm -f -- "$version_file"
-  fi
-  cleanup_rollback
+  restore_file "$scratch/child" "$legacy_child" || true
+  rm -f -- "$version_file"
+  cleanup_scratch
 }
 
 if package_already_installed; then
   exit 0
 fi
 
-if [ ! -x "$legacy_engine" ] && [ ! -d "$legacy_plugin" ]; then
+if [ ! -x "$engine" ] && [ ! -d "$legacy_plugin" ]; then
   exit 0
 fi
 
@@ -172,81 +184,85 @@ if ! command -v herdr >/dev/null 2>&1; then
   exit 1
 fi
 
-mkdir -p "$rollback" || exit 1
+mkdir -p "$scratch" || exit 1
 if ! running_sockets > "$sockets"; then
   error "could not inspect running Herdr sessions; retry on the next apply"
-  cleanup_rollback
+  cleanup_scratch
   exit 1
 fi
 
-if [ -x "$legacy_engine" ]; then cp -p "$legacy_engine" "$rollback/engine" || { cleanup_rollback; exit 1; }; fi
-if [ -f "$legacy_aliases" ]; then cp -p "$legacy_aliases" "$rollback/aliases" || { cleanup_rollback; exit 1; }; fi
-if [ -f "$legacy_process" ]; then cp -p "$legacy_process" "$rollback/process" || { cleanup_rollback; exit 1; }; fi
-if [ -x "$legacy_child" ]; then cp -p "$legacy_child" "$rollback/child" || { cleanup_rollback; exit 1; }; fi
-if [ -f "$version_file" ]; then cp -p "$version_file" "$rollback/version" || { cleanup_rollback; exit 1; }; fi
-if [ -d "$legacy_plugin" ]; then cp -R "$legacy_plugin" "$rollback/plugin" || { cleanup_rollback; exit 1; }; fi
+# The freeze stub below is the only edit this script makes to a file it does
+# not own the source of, so it is the only one worth a copy.
+if [ -x "$legacy_child" ]; then cp -p "$legacy_child" "$scratch/child" || { cleanup_scratch; exit 1; }; fi
 
 if ! disable_plugin || ! stop_daemons; then
   error "could not quiesce the old writer safely; no files were removed"
-  rollback
+  abort_cutover
   exit 1
 fi
 
 # Prevent a child launch from crossing the interval where the old alias policy
 # has stopped and the package's policy has not yet been installed.
 if [ -x "$legacy_child" ]; then
-  printf '%s\n' '#!/bin/sh' 'exit 1' > "$legacy_child.cutover" || { rollback; exit 1; }
+  printf '%s\n' '#!/bin/sh' 'exit 1' > "$legacy_child.cutover" || { abort_cutover; exit 1; }
   chmod 755 "$legacy_child.cutover"
-  mv "$legacy_child.cutover" "$legacy_child" || { rollback; exit 1; }
+  mv "$legacy_child.cutover" "$legacy_child" || { abort_cutover; exit 1; }
 fi
 
 if [ "$local_plugin_registered" -eq 1 ]; then
   if ! env -u HERDR_SOCKET_PATH herdr plugin uninstall "$plugin_id" >/dev/null 2>&1; then
-    error "could not unregister the local plugin; restoring the local writer"
-    rollback
+    error "could not unregister the local plugin; aborting the cutover; retry on the next apply"
+    abort_cutover
     exit 1
   fi
 fi
-if ! env -u HERDR_SOCKET_PATH herdr plugin install "$repo" --ref "$ref" -y; then
-  error "package installation failed; restoring the local writer"
-  rollback
+# Installation can fetch and build source. Stream its progress, but close stdin
+# so an unseen upstream prompt fails instead of blocking chezmoi apply -- and it
+# would block with herdr-child already replaced by the freeze stub below.
+if ! env -u HERDR_SOCKET_PATH herdr plugin install "$repo" --ref "$ref" -y </dev/null; then
+  error "package installation failed; aborting the cutover; retry on the next apply"
+  abort_cutover
   exit 1
 fi
 if ! enable_package; then
-  error "package enable failed; restoring the local writer"
-  rollback
+  error "package enable failed; aborting the cutover; retry on the next apply"
+  abort_cutover
   exit 1
 fi
 
-if [ "$(cat "$version_file" 2>/dev/null)" != "0.2.3" ] || [ ! -x "$legacy_engine" ]; then
+if [ "$(cat "$version_file" 2>/dev/null)" != "0.2.3" ] || [ ! -x "$engine" ]; then
   error "package installation did not activate its CLI boundary"
-  rollback
+  abort_cutover
   exit 1
 fi
 
 if ! reload_herdr_config; then
-  error "Herdr config reload failed; restoring the local writer"
-  rollback
+  error "Herdr config reload failed; aborting the cutover; retry on the next apply"
+  abort_cutover
   exit 1
 fi
 
 while IFS= read -r socket; do
   [ -n "$socket" ] || continue
-  if ! env HERDR_SOCKET_PATH="$socket" HERDR_PANE_LABELS_STRICT_SWEEP=1 "$legacy_engine" --sweep >/dev/null 2>&1 || \
-    ! env HERDR_SOCKET_PATH="$socket" "$legacy_engine" --ensure-sweep-daemon >/dev/null 2>&1; then
-    error "package reconciliation failed for $socket; restoring the local writer"
-    rollback
+  # The install and the global enable above address the default server only, so
+  # a session on another socket would keep the plugin state it was left with
+  # until its next restart. Best-effort: a socket that has since gone away must
+  # not fail a cutover whose real gate is the strict sweep below.
+  env HERDR_SOCKET_PATH="$socket" herdr plugin enable "$plugin_id" >/dev/null 2>&1 || true
+  env HERDR_SOCKET_PATH="$socket" herdr server reload-config >/dev/null 2>&1 || true
+  if ! env HERDR_SOCKET_PATH="$socket" HERDR_PANE_LABELS_STRICT_SWEEP=1 "$engine" --sweep >/dev/null 2>&1 || \
+    ! env HERDR_SOCKET_PATH="$socket" "$engine" --ensure-sweep-daemon >/dev/null 2>&1; then
+    error "package reconciliation failed for $socket; aborting the cutover; retry on the next apply"
+    abort_cutover
     exit 1
   fi
 done < "$sockets"
 
 rm -rf -- "$legacy_plugin"
-restore_file "$rollback/child" "$legacy_child" || {
+restore_file "$scratch/child" "$legacy_child" || {
   error "could not restore herdr-child after cutover"
-  rollback
+  abort_cutover
   exit 1
 }
-rm -f -- "$rollback/engine" "$rollback/aliases" "$rollback/process" "$rollback/child" "$rollback/version"
-rm -rf -- "$rollback/plugin"
-cleanup_rollback
+cleanup_scratch
 log "migrated live Pane Labels to $repo at $ref"

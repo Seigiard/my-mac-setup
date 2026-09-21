@@ -6919,12 +6919,23 @@ pane_labels_migration_prepare() {
   cat > "$bin/herdr" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$HERDR_CALLS"
+# Socket-scoped calls carry their target in the environment, not in the
+# argument list, so the plain call log cannot show that the per-socket loops
+# ran at all.
+[ -n "${HERDR_SOCKET_PATH:-}" ] && printf '%s %s\n' "$HERDR_SOCKET_PATH" "$*" >> "$HERDR_CALLS.sockets"
 case "$*" in
-  'session list --json') printf '%s\n' '{"result":{"sessions":[]}}' ;;
+  'session list --json') printf '%s\n' "$STUB_SESSIONS" ;;
   'plugin install Seigiard/herdr-pane-labels --ref aba61eb788c5fe0630dc570d96fd14683e2f63c7 -y')
+    # A real install can prompt. Record whatever it could read, so a caller that
+    # leaves stdin open is visible instead of merely lucky.
+    IFS= read -r -t 1 stdin_line < /dev/stdin 2>/dev/null || stdin_line=''
+    printf '%s' "$stdin_line" > "$HERDR_INSTALL_STDIN"
     [ "${HERDR_FAIL_STEP:-}" = install ] && exit 1
     cat > "$HOME/.local/bin/herdr-pane-labels" <<'ENGINE'
 #!/bin/sh
+# The reconciliation loop drives the engine, not herdr, so its calls land in a
+# log of their own.
+printf '%s %s\n' "${HERDR_SOCKET_PATH:-none}" "$*" >> "$HERDR_ENGINE_CALLS"
 case "${1:-}" in --sweep|--ensure-sweep-daemon) exit 0 ;; esac
 ENGINE
     chmod +x "$HOME/.local/bin/herdr-pane-labels"
@@ -6944,9 +6955,11 @@ SH
 }
 
 pane_labels_migration_apply() {
-  local work="$1" fail_step="${2:-}"
+  local work="$1" fail_step="${2:-}" sessions="${3:-}"
+  [ -n "$sessions" ] || sessions='{"result":{"sessions":[]}}'
   HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
-    HERDR_FAIL_STEP="$fail_step" bash \
+    HERDR_ENGINE_CALLS="$work/engine.calls" HERDR_INSTALL_STDIN="$work/install.stdin" \
+    HERDR_FAIL_STEP="$fail_step" STUB_SESSIONS="$sessions" bash \
     "$SOURCE_ROOT/.chezmoiscripts/run_once_after_6-migrate-herdr-pane-labels.sh.tmpl"
 }
 
@@ -6966,20 +6979,144 @@ function test_scripts_1337_pane_labels_migration_activates_and_removes_the_legac
   assert_file_exists "$work/home/.local/lib/herdr-pane-labels.version"
 }
 
-function test_scripts_1338_pane_labels_migration_rolls_back_a_partial_install() {
-  _bats_test_init 1338 'pane labels migration rolls back a partial package install'
+# A failed cutover does not restore the old writer -- that implementation is
+# gone from source and a restored copy would be an orphan. What it must leave
+# is a machine that can still launch panes and a next apply that actually
+# retries instead of reading the half-finished install as a finished cutover.
+function test_scripts_1338_pane_labels_migration_aborts_a_partial_install_cl() {
+  _bats_test_init 1338 'pane labels migration aborts a partial package install cleanly'
   local work="$BATS_TEST_TMPDIR/pane-labels-migration-failure"
   pane_labels_migration_prepare "$work"
 
   run pane_labels_migration_apply "$work" install
   assert_failure
+  # The freeze stub is the one edit that would otherwise brick pane launches.
+  assert_file_contains "$work/home/.local/bin/herdr-child" '^legacy-child$'
+  # Nothing may claim a finished cutover on the next run.
+  run grep -Fx "plugin uninstall seigi.pane-labels" "$work/herdr.calls"
+  assert_success
+  # And nothing re-registers a local plugin the source no longer carries.
+  run grep -F 'plugin link ' "$work/herdr.calls"
+  assert_failure
+}
+
+# Failing at enable means the install already succeeded and wrote the boundary
+# marker. Leaving that marker behind is what would make package_already_installed
+# report a finished cutover and skip the retry for good.
+function test_scripts_1342_pane_labels_migration_clears_the_boundary_marker_() {
+  _bats_test_init 1342 'pane labels migration clears the boundary marker when it aborts after install'
+  local work="$BATS_TEST_TMPDIR/pane-labels-migration-enable-failure"
+  pane_labels_migration_prepare "$work"
+
+  run pane_labels_migration_apply "$work" enable
+  assert_failure
+  # The control the sibling test cannot give: install ran, so the marker existed.
+  run grep -Fx 'plugin install Seigiard/herdr-pane-labels --ref aba61eb788c5fe0630dc570d96fd14683e2f63c7 -y' "$work/herdr.calls"
+  assert_success
+  assert_file_not_exists "$work/home/.local/lib/herdr-pane-labels.version"
+  run grep -Fx "plugin uninstall seigi.pane-labels" "$work/herdr.calls"
+  assert_success
+  assert_file_contains "$work/home/.local/bin/herdr-child" '^legacy-child$'
+}
+
+# running_sockets gates every destructive step on knowing which sessions are
+# live. A payload it cannot parse must stop the cutover, not read as "no
+# sessions" and let the migration proceed past the point of no return.
+function test_scripts_1339_pane_labels_migration_stops_on_an_unparseable_ses() {
+  _bats_test_init 1339 'pane labels migration stops on an unparseable session list'
+  local work="$BATS_TEST_TMPDIR/pane-labels-migration-malformed"
+  pane_labels_migration_prepare "$work"
+
+  run pane_labels_migration_apply "$work" '' '{"unexpected":true}'
+  assert_failure
+  assert_output --partial 'could not inspect running Herdr sessions'
   assert_dir_exists "$work/home/.config/herdr/plugins/herdr-pane-labels"
   assert_file_contains "$work/home/.local/bin/herdr-pane-labels" '^legacy-engine$'
-  assert_file_contains "$work/home/.local/lib/herdr-aliases.sh" '^legacy-aliases$'
-  assert_file_contains "$work/home/.local/lib/herdr-process.sh" '^legacy-process$'
-  assert_file_contains "$work/home/.local/bin/herdr-child" '^legacy-child$'
-  assert_file_contains "$work/herdr.calls" '^plugin link '
+  run grep -F 'plugin install' "$work/herdr.calls"
+  assert_failure
 }
+
+# An empty socket_path is discarded by every consumer loop, so accepting it
+# would silently reduce a live session to no session at all.
+function test_scripts_1340_pane_labels_migration_stops_on_a_running_session_() {
+  _bats_test_init 1340 'pane labels migration stops on a running session without a socket path'
+  local work="$BATS_TEST_TMPDIR/pane-labels-migration-no-socket"
+  pane_labels_migration_prepare "$work"
+
+  run pane_labels_migration_apply "$work" '' '{"result":{"sessions":[{"running":true,"socket_path":""}]}}'
+  assert_failure
+  assert_output --partial 'could not inspect running Herdr sessions'
+  assert_dir_exists "$work/home/.config/herdr/plugins/herdr-pane-labels"
+  run grep -F 'plugin install' "$work/herdr.calls"
+  assert_failure
+}
+
+# With every session list empty, the socket-driven half of the cutover never
+# executes and could be deleted outright without a test noticing.
+function test_scripts_1341_pane_labels_migration_drives_each_running_session() {
+  _bats_test_init 1341 'pane labels migration drives each running session socket'
+  local work="$BATS_TEST_TMPDIR/pane-labels-migration-sessions"
+  local socket="$BATS_TEST_TMPDIR/session-a.sock"
+  pane_labels_migration_prepare "$work"
+
+  local second="$BATS_TEST_TMPDIR/session-b.sock"
+  run pane_labels_migration_apply "$work" '' \
+    "{\"result\":{\"sessions\":[{\"running\":true,\"socket_path\":\"$socket\"},{\"running\":true,\"socket_path\":\"$second\"},{\"running\":false,\"socket_path\":\"$BATS_TEST_TMPDIR/stopped.sock\"}]}}"
+  assert_success
+  local sock
+  for sock in "$socket" "$second"; do
+    run grep -Fx "$sock plugin disable seigi.pane-labels" "$work/herdr.calls.sockets"
+    assert_success
+    run grep -Fx "$sock plugin enable seigi.pane-labels" "$work/herdr.calls.sockets"
+    assert_success
+    run grep -Fx "$sock server reload-config" "$work/herdr.calls.sockets"
+    assert_success
+    run grep -Fx "$sock --sweep" "$work/engine.calls"
+    assert_success
+    run grep -Fx "$sock --ensure-sweep-daemon" "$work/engine.calls"
+    assert_success
+  done
+  run grep -F "$BATS_TEST_TMPDIR/stopped.sock" "$work/herdr.calls.sockets"
+  assert_failure
+  run grep -F "$BATS_TEST_TMPDIR/stopped.sock" "$work/engine.calls"
+  assert_failure
+}
+
+
+
+# A running flag that is not a boolean is a schema the script cannot read. The
+# same filter already carries a // fallback because the shape moved once, and
+# guessing "stopped" would skip a live session the cutover has to reconcile.
+function test_scripts_1343_pane_labels_migration_stops_on_a_non_boolean_runn() {
+  _bats_test_init 1343 'pane labels migration stops on a non-boolean running flag'
+  local work="$BATS_TEST_TMPDIR/pane-labels-migration-running-shape"
+  pane_labels_migration_prepare "$work"
+
+  run pane_labels_migration_apply "$work" '' \
+    '{"result":{"sessions":[{"running":"true","socket_path":"/tmp/shape.sock"}]}}'
+  assert_failure
+  assert_output --partial 'could not inspect running Herdr sessions'
+  run grep -F 'plugin install' "$work/herdr.calls"
+  assert_failure
+}
+
+# Two sibling installers close stdin and say why: an unseen upstream prompt must
+# fail rather than hang chezmoi apply, and here it would hang with herdr-child
+# already replaced by the freeze stub.
+function test_scripts_1344_pane_labels_migration_closes_stdin_for_the_packag() {
+  _bats_test_init 1344 'pane labels migration closes stdin for the package install'
+  local work="$BATS_TEST_TMPDIR/pane-labels-migration-stdin"
+  pane_labels_migration_prepare "$work"
+
+  run pane_labels_migration_apply "$work" <<'STDIN'
+SHOULD-NOT-REACH-THE-INSTALLER
+STDIN
+  assert_success
+  assert_file_exists "$work/install.stdin"
+  run grep -F 'SHOULD-NOT-REACH-THE-INSTALLER' "$work/install.stdin"
+  assert_failure
+}
+
 
 # Claude settings modifier
 # ===========================================
