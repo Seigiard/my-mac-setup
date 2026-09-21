@@ -336,7 +336,12 @@ SH
 child_new_stub() {
   CHILD_STUB="$(mktemp -d)"
   export CHILD_STUB
-  CHILD_STUBS+=("$CHILD_STUB")
+  child_register_stub "$CHILD_STUB"
+}
+
+# For a directory the caller names itself rather than one minted above.
+child_register_stub() {
+  CHILD_STUBS+=("$1")
 }
 
 # A launch leaves its watcher armed on purpose and writes the pid to a path the
@@ -6610,11 +6615,11 @@ function test_scripts_1402_herdr_peer_alias_fails_closed_on_an_incomplete_() {
 
 herdr_child_alias_stub() {
   local work="$1"
-  # teardown() keys the watcher cleanup on CHILD_STUB, so the stub bin has to
-  # be that directory or a detached launch leaks a poller for the rest of the
-  # file (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
-  CHILD_STUB="$work/bin"
-  local stub="$CHILD_STUB"
+  # Callers register $work with child_register_stub so teardown reaps the
+  # watcher a detached launch arms here; this runs in a command substitution,
+  # so nothing it assigns would reach the test shell anyway
+  # (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
+  local stub="$work/bin"
   mkdir -p "$stub" "$work/tmp"
   cat > "$stub/herdr" <<'SH'
 #!/usr/bin/env bash
@@ -6683,6 +6688,7 @@ function test_scripts_1403_herdr_child_starts_with_a_placeholder_when_the_al() {
   _bats_test_init 1403 'herdr-child starts with a placeholder when the alias allocator is silent'
   local work="$BATS_TEST_TMPDIR/child-alias-absent"
   local stub
+  child_register_stub "$work"
   stub="$(herdr_child_alias_stub "$work")"
 
   run --separate-stderr herdr_child_alias_launch "$work" "$work/absent-allocator" "$stub"
@@ -6697,6 +6703,7 @@ function test_scripts_1404_herdr_child_uses_the_allocator_when_it_answers() {
   _bats_test_init 1404 'herdr-child uses the allocator when it answers'
   local work="$BATS_TEST_TMPDIR/child-alias-present"
   local stub
+  child_register_stub "$work"
   stub="$(herdr_child_alias_stub "$work")"
 
   run --separate-stderr herdr_child_alias_launch "$work" \
