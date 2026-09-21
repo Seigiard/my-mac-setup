@@ -71,8 +71,16 @@ done
 # it inherited from us. It also discarded the producer's exit status, so a pool
 # that failed validation was reported as exhausted instead.
 candidates="$(herdr_alias_candidates "$seed")" || {
-  printf 'herdr-peer-alias: could not build the alias pool\n' >&2
-  exit 1
+  # Same degradation as herdr-child: the allocator is missing for a whole window
+  # on a clean machine, because chezmoi deploys this command before the package
+  # installs, and again after any failed install. Refusing to name a peer stops
+  # it from starting at all, which is a steep price for a decorative name. The
+  # placeholders keep the pool's name shape but pair a word no color list holds,
+  # so the package's reconciler can tell them from allocated names and rename
+  # them once it answers again.
+  printf 'herdr-peer-alias: alias allocator unavailable; using a placeholder name\n' >&2
+  candidates="$(printf 'unnamed-%s\n' alpha bravo charlie delta echo foxtrot golf hotel \
+    india juliet kilo lima mike november oscar papa quebec romeo sierra tango)"
 }
 
 if [ -n "$candidates" ]; then

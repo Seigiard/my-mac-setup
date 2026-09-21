@@ -6437,6 +6437,26 @@ SH
   printf '%s' "$stub"
 }
 
+# A peer that cannot be named does not start. The allocator is missing for a
+# whole window on a clean machine and after any failed package install, so the
+# command degrades to a placeholder instead of refusing to answer.
+function test_scripts_1405_herdr_peer_alias_falls_back_to_a_placeholder_alia() {
+  _bats_test_init 1405 'herdr-peer-alias falls back to a placeholder alias'
+  command -v jq >/dev/null || skip "jq not available"
+  local stub
+  stub="$(peer_alias_stub)"
+
+  run --separate-stderr env PATH="$stub:$PATH" \
+    HERDR_ALIAS_ALLOCATOR="$BATS_TEST_TMPDIR/absent-allocator" \
+    STUB_AGENT_LIST='{"result":{"agents":[{"name":"unnamed-alpha","pane_id":"wT:p1"}]}}' \
+    bash "$PEER_ALIAS_SCRIPT" peer-seed
+  assert_success
+  assert_stderr --partial 'alias allocator unavailable'
+  # unnamed-alpha is already held by a live agent, so the walk has to skip it
+  # rather than hand back a duplicate.
+  assert_output 'unnamed-bravo'
+}
+
 function test_scripts_1401_herdr_peer_alias_skips_live_and_reserved_aliase() {
   _bats_test_init 1401 'herdr-peer-alias skips live and reserved aliases'
   command -v jq >/dev/null || skip "jq not available"
@@ -6484,6 +6504,104 @@ function test_scripts_1402_herdr_peer_alias_fails_closed_on_an_incomplete_() {
 # ===========================================
 # herdr-integrations run-script
 # ===========================================
+
+# herdr-child alias degradation
+# ===========================================
+
+CHILD_LAUNCHER="$SOURCE_ROOT/dot_local/bin/executable_herdr-child"
+
+herdr_child_alias_stub() {
+  local work="$1"
+  local stub="$work/bin"
+  mkdir -p "$stub" "$work/tmp"
+  cat > "$stub/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "${1:-} ${2:-}" in
+  "agent list")
+    # Post-registration validation re-reads the list to confirm the alias it
+    # was given, so the child has to appear once agent start has accepted it.
+    if [ -f "$HCA_WORK/started-name" ]; then
+      printf '{"result":{"agents":[{"name":"parent","agent":"claude","pane_id":"wT:p0","terminal_id":"term-parent","revision":1,"state_change_seq":1,"agent_session":{"value":"parent-session"}},{"name":"%s","agent":"claude","pane_id":"wT:p9","terminal_id":"term-child","revision":1,"state_change_seq":10,"agent_session":{"value":"child-session"}}]}}\n' "$(cat "$HCA_WORK/started-name")"
+    else
+      printf '{"result":{"agents":[{"name":"parent","agent":"claude","pane_id":"wT:p0","terminal_id":"term-parent","revision":1,"state_change_seq":1,"agent_session":{"value":"parent-session"}}]}}\n'
+    fi
+    ;;
+  "pane split")
+    printf '{"result":{"pane":{"pane_id":"wT:p9","terminal_id":"term-child"}}}\n'
+    ;;
+  "agent start")
+    printf '%s' "$3" > "$HCA_WORK/started-name"
+    printf '{"result":{"agent":{"interactive_ready":true}}}\n'
+    ;;
+  "agent get")
+    printf '{"result":{"agent":{"name":"%s","pane_id":"wT:p9","terminal_id":"term-child","agent_session":{"value":"child-session"},"agent_status":"working","state_change_seq":10}}}\n' "$(cat "$HCA_WORK/started-name")"
+    ;;
+  "agent prompt")
+    printf '{"result":{"agent":{"agent_status":"working"}}}\n'
+    ;;
+  "pane report-metadata")
+    for arg in "$@"; do
+      case "$arg" in
+        supervision_generation=*) printf '%s' "${arg#*=}" > "$HCA_WORK/generation" ;;
+      esac
+    done
+    printf '{"result":{"type":"pane_metadata_reported"}}\n'
+    ;;
+  "pane get")
+    printf '{"result":{"pane":{"pane_id":"wT:p9","terminal_id":"term-child","agent_session":{"value":"child-session"},"tokens":{"supervision_generation":"%s"}}}}\n' "$(cat "$HCA_WORK/generation" 2>/dev/null || true)"
+    ;;
+  "pane close") : > "$HCA_WORK/pane-closed" ;;
+  *) exit 2 ;;
+esac
+SH
+  cat > "$stub/herdr-resource-tree" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" = record-child ] || exit 2
+printf '{"parent":{"presentation_name":"parent"},"child":{"presentation_name":"child"}}\n'
+SH
+  chmod +x "$stub/herdr" "$stub/herdr-resource-tree"
+  printf '%s' "$stub"
+}
+
+herdr_child_alias_launch() {
+  local work="$1" allocator="$2" stub="$3"
+  env PATH="$stub:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    HERDR_ALIAS_ALLOCATOR="$allocator" HCA_WORK="$work" TMPDIR="$work/tmp" \
+    HERDR_CHILD_STATE_DIR="$work/state" HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 \
+    bash "$CHILD_LAUNCHER" start --kind claude --detach --prompt 'alias degradation task'
+}
+
+# A silent allocator is the common state, not the rare one: chezmoi deploys this
+# launcher before the package installs, and every failed install leaves the same
+# gap. Losing the pane over a missing decorative name is the regression here.
+function test_scripts_1403_herdr_child_starts_with_a_placeholder_when_the_al() {
+  _bats_test_init 1403 'herdr-child starts with a placeholder when the alias allocator is silent'
+  local work="$BATS_TEST_TMPDIR/child-alias-absent"
+  local stub
+  stub="$(herdr_child_alias_stub "$work")"
+
+  run --separate-stderr herdr_child_alias_launch "$work" "$work/absent-allocator" "$stub"
+  assert_success
+  assert_stderr --partial 'alias allocator unavailable'
+  assert_file_contains "$work/started-name" '^unnamed-alpha$'
+}
+
+# The control: with a working allocator the placeholder path must not engage,
+# or the test above would pass for a launcher that ignores the allocator.
+function test_scripts_1404_herdr_child_uses_the_allocator_when_it_answers() {
+  _bats_test_init 1404 'herdr-child uses the allocator when it answers'
+  local work="$BATS_TEST_TMPDIR/child-alias-present"
+  local stub
+  stub="$(herdr_child_alias_stub "$work")"
+
+  run --separate-stderr herdr_child_alias_launch "$work" \
+    "$BATS_TEST_DIRNAME/helpers/herdr_alias_allocator" "$stub"
+  assert_success
+  refute_stderr --partial 'alias allocator unavailable'
+  assert_file_contains "$work/started-name" '^red-wolf$'
+}
+
 
 HERDR_INTEGRATIONS_TMPL="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_3-setup-herdr-integrations.sh.tmpl"
 

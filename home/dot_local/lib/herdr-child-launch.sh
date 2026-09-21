@@ -105,10 +105,18 @@ start_child() {
   }
   local candidate_file candidate occupied
   candidate_file="$(mktemp)"
+  # A silent allocator must not cost the user a pane. It is absent for a whole
+  # window on a clean machine -- chezmoi deploys this launcher before the
+  # package installs -- and again whenever that install fails, which is far
+  # more common than the rolled-back cutover. Alias policy still belongs to the
+  # package, so the placeholders below stay out of its pool: they keep the pool
+  # name shape but pair a word no color list contains, which lets the package's
+  # reconciler tell a placeholder from an allocated name and rename it once the
+  # allocator answers again.
   if ! herdr_alias_candidates "${HERDR_SOCKET_PATH:-no-socket}|$HERDR_PANE_ID|$kind|$cwd|$$|$(date +%s)-$RANDOM" > "$candidate_file"; then
-    rm -f "$candidate_file"
-    printf 'herdr-child: could not build alias candidates\n' >&2
-    return 1
+    printf 'herdr-child: alias allocator unavailable; starting with a placeholder name\n' >&2
+    printf 'unnamed-%s\n' alpha bravo charlie delta echo foxtrot golf hotel india juliet \
+      kilo lima mike november oscar papa quebec romeo sierra tango > "$candidate_file"
   fi
   # Walk the candidate file where it lies. Reading all 8064 entries into a
   # bash array first cost ~180ms per launch, and the walk stops at the first
