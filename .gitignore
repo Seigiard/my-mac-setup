@@ -16,4 +16,7 @@ tests/style-ab/runs/
 
 # revmux review archive: per-round prompts, agent streams and stage snapshots.
 # Local evidence for a review that already happened, ~0.5MB per round.
-.revmux/
+# The project profile is the exception — it is configuration, and revmux resolves
+# it from the process working directory, so it has to reach every worktree.
+.revmux/*
+!.revmux/profile.md
