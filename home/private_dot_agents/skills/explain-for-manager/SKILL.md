@@ -1,6 +1,6 @@
 ---
 name: explain-for-manager
-description: Write the non-technical summary of a code change or technical problem for a product owner or manager, in the shape problem, impact, what was done, what you will notice. Use when the user asks to explain a change or tech debt for non-engineers or stakeholders, asks in Russian ("объясни для менеджера", "как это продать продакту", "что это даёт бизнесу"), or when make-pr or explain-diff-html needs the stakeholder section.
+description: Explain a code change or tech-debt item to a product owner or manager, so they know why it mattered rather than what was done. Use when the user asks to explain something for non-engineers or stakeholders, asks in Russian ("объясни для менеджера", "как это продать продакту", "что это даёт бизнесу"), or when make-pr or explain-diff-html needs the stakeholder block.
 ---
 
 # Explain for a manager
@@ -36,4 +36,4 @@ One Markdown block, nothing before or after it:
 
 In Russian (`--lang ru`) the label is **Для нетехнических читателей.** and the slot names are Проблема, Влияние, Что сделано, Что вы заметите.
 
-Plain words throughout: no file names, class names, commands, or acronyms unless the reader already uses them daily. Domain terms come from the repository's own vocabulary (CONCEPTS.md or CONTEXT.md when present).
+Every word is one the reader already uses daily; the product's own vocabulary (CONCEPTS.md or CONTEXT.md when present) supplies the domain terms, and anything an engineer would call a component, command, or acronym is described by what it does for the reader.

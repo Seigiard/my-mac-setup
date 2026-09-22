@@ -6,6 +6,6 @@
 - Never reference plan unit IDs (U1, KTD-…), review runIds, or other session artifacts — the reviewer cannot interpret them.
 - Reference `docs/plans/`, `docs/ideation/`, `docs/brainstorms/` only when those files are committed in the repo (check with `git ls-files <path>`); where they are gitignored, the reviewer cannot open them.
 - Even when a plan link is valid, translate the plan's rationale into the description — the description must stand without the link.
-- The delivery flow (commit, body, publish, issue comment, explanation page, babysit checkpoint) lives in the `make-pr` skill; the body template is its `references/pr-body-template.md`.
+- The delivery flow and the body template live in the `make-pr` skill.
 
 </important>

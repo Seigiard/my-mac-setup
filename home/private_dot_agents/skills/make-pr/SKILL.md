@@ -1,6 +1,6 @@
 ---
 name: make-pr
-description: Ship the current branch as a pull request with a reviewer-first body: stakeholder summary, one-sentence why, door and warnings, show-me shape, evidence. Then post the summary to the related issue, open an explain-diff-html page, and run one ce-babysit-pr checkpoint. Use when the user asks to make, open, or ship a PR, or asks in Russian ("сделай PR", "открой пулл-реквест", "заливай").
+description: Ship the current branch as a pull request with a reviewer-first body and the follow-through (issue comment, explanation page, babysit checkpoint). Use when the user asks to make, open, or ship a PR, or asks in Russian ("сделай PR", "открой пулл-реквест", "заливай").
 ---
 
 # Make PR
@@ -30,12 +30,7 @@ Invoke the `explain-for-manager` skill for the resolved range. Keep its block ve
 
 ### 4. Compose title and body
 
-Read `references/pr-body-template.md` and fill every slot. The Shape section uses the `show-me` skill's view families. Then audit the draft against the contract in `~/.claude/rules/pull-requests.md` and these caps:
-
-- around 350 words outside code blocks;
-- at most two views in Shape;
-- Evidence names suites and outcomes, never individual test names;
-- every path mentioned is committed (`git ls-files <path>` returns it).
+Read `references/pr-body-template.md` and fill every slot; each slot carries its own cap. The Shape section uses the `show-me` skill's view families. Done when the draft passes the contract in `~/.claude/rules/pull-requests.md`, every slot cap, and `git ls-files <path>` returns every path the body mentions.
 
 Title: imperative, under 70 characters, the outcome rather than the mechanism.
 
@@ -67,7 +62,7 @@ Run the `explain-diff-html` skill in a subagent with the PR number. It opens the
 
 ### 8. One babysit checkpoint
 
-Invoke the `ce-babysit-pr` skill with `<PR number> checkpoint`. It runs one tick over CI, reviews, and conflicts and prints how to resume. Do not start watch mode; the user decides that.
+Invoke the `ce-babysit-pr` skill with `<PR number> checkpoint`. It runs one tick over CI, reviews, and conflicts and prints how to resume; switching to watch mode is the user's call.
 
 ## Report
 
