@@ -92,7 +92,7 @@ A blocked item stays unchecked and gains one line under it:
 4. Re-run the verification and commit the fixes.
 5. Report what landed, what stayed blocked, and what the review left open.
 
-Push and PR are a separate explicit request routed through `ce-commit-push-pr`.
+Push and PR are a separate explicit request routed through `make-pr`.
 
 ## Stop and put it to the user
 

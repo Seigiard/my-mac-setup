@@ -1,11 +1,18 @@
 ---
 name: make-pr
-description: Ship the current branch as a pull request with a reviewer-first body and the follow-through (issue comment, explanation page, babysit checkpoint). Use when the user asks to make, open, or ship a PR, or asks in Russian ("сделай PR", "открой пулл-реквест", "заливай").
+description: Ship the current branch as a pull request with a reviewer-first body and the follow-through (issue comment, explanation page, babysit checkpoint), or rewrite the description of an existing PR. Use when the user asks to make, open, or ship a PR, to write or rewrite a PR description, or asks in Russian ("сделай PR", "открой пулл-реквест", "заливай", "перепиши описание PR").
 ---
 
 # Make PR
 
 Commit, describe, publish, explain, check. The body follows `references/pr-body-template.md`; the contract it must satisfy is `~/.claude/rules/pull-requests.md`.
+
+## Modes
+
+| Invocation | Steps |
+|---|---|
+| none | Full flow, steps 1 to 8. |
+| `describe [PR number or URL]` | Description only: steps 1, 3, 4, then `gh pr edit` with the new body and the PR URL printed. The PR is the given one, else the open PR of the current branch; with neither, stop and say so. A `Fixes #N` or `Related:` line already in the body is kept verbatim. No commit, push, issue comment, explanation page, or babysit. |
 
 ## Workflow
 
