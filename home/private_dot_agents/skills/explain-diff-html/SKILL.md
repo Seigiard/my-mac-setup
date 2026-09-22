@@ -1,103 +1,88 @@
 ---
 name: explain-diff-html
-description: Produce a rich, self-contained HTML explanation of a code change (branch, PR, commit, or working tree) with a two-level background, a grouped code walkthrough, and review risks, then open it in the browser. Use when the user asks for a detailed explanation of a diff, branch, or PR, asks in Russian ("объясни диф", "объясни PR", "разбери ветку", "что поменялось и почему"), or when a PR workflow needs an explanation page for reviewers.
+description: Explain a code change (branch, PR, commit, or working tree) as one self-contained HTML page for reviewers. Use when the user asks for a detailed explanation of a diff, branch, or PR, including in Russian ("объясни диф", "разбери ветку", "что поменялось и почему"), or when a PR workflow needs an explanation page.
 ---
 
 # Explain Diff (HTML)
 
-Turn a code change into one self-contained HTML page a reviewer can read on a laptop or a phone. The page is written in Russian, keeps code and identifiers in English, and lands in `/tmp` with a date-prefixed name so it stays out of version control.
+Russian prose, English code and identifiers, one page built from `references/template.html`.
 
 ## Arguments
 
 | Argument | Meaning |
 |---|---|
-| none | Current branch against the default branch (`main` or `master`). |
+| none | Current branch against the default branch. |
 | `<number>` or a PR URL | That pull request, via `gh pr diff`. |
 | `<sha>` or `<sha>..<sha>` | That commit or range. |
 | `uncommitted` | Working tree against `HEAD`. |
-| `--no-open` | Write the file and print the path, but do not open a browser. A calling workflow passes this. |
+| `--no-open` | Print the path only; a calling workflow passes this and reads the final `Explanation:` line. |
 
 ## Workflow
 
 ### 1. Resolve the change
 
-Pick the diff source in this order: explicit argument, else the branch against the default branch.
+Explicit argument first, else the branch against the default branch:
 
 ```bash
 base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|origin/||'); base=${base:-main}
-git diff --stat "$(git merge-base "$base" HEAD)"..HEAD
 git log --oneline "$(git merge-base "$base" HEAD)"..HEAD
+git diff --stat "$(git merge-base "$base" HEAD)"..HEAD
 ```
 
-For a PR: `gh pr view <n> --json title,body,baseRefName,headRefName` and `gh pr diff <n>`. The PR body is input for Background and Risks, not a source of truth about what the code does.
+For a PR, `gh pr view <n> --json title,body,baseRefName,headRefName` supplies the author's intent for Background and Risks; the code stays the only source for what the change does.
 
-If the diff is empty, stop and say so. Do not explain nothing.
-
-State the resolved source in one line before doing anything else, so a wrong default is caught early.
+State the resolved source in one line before anything else, so a wrong default is caught early. An empty diff ends the run with that statement. When called from another workflow, resolve ambiguity yourself: compare against the default branch and say so in the page's lead.
 
 ### 2. Explore around the change
 
-The diff alone cannot produce Background. Before writing:
+The diff alone cannot produce Background. Done when:
 
-- Read every touched file in full, not only the hunks.
-- Follow the callers and callees of changed functions one level out.
-- Read the tests that cover the touched code, changed or not.
-- Note the domain terms the code uses. The page reuses them instead of inventing synonyms.
+- every touched file has been read in full, not only its hunks;
+- callers and callees of every changed function have been followed one level out;
+- the tests covering the touched code have been read, changed or not;
+- you hold the domain terms the code uses, for the page to reuse;
+- you hold two or three toy examples with concrete data: an input, the path it takes, the output. They feed the diagrams.
 
-Collect two or three toy examples with concrete data (an input, the path it takes, the output) while reading. They feed the diagrams.
+### 3. Fill the template
 
-### 3. Write the page from the template
+Copy `references/template.html` and fill each `<!-- slot: ... -->` in place; the template owns structure and styling. What each slot needs:
 
-Copy `references/template.html` from this skill's directory and fill the slots marked `<!-- slot: ... -->`. Do not restyle it. The template already carries the table of contents, callouts, collapsible blocks, light and dark themes, phone layout, and the Mermaid loader.
+- **Что изменилось**: three to five sentences on what the change does, why, and what the reader can judge after reading.
+- **Фон, для тех, кто впервые здесь**: the subsystem the change touches, told to a reader who has never seen the repository. Names the entities, where they live, how data flows between them.
+- **Фон, что важно для этого изменения**: the narrow context the change depends on, with a data-flow diagram carrying example data.
+- **Разбор кода**: hunks grouped by purpose, not file order. Per group: one paragraph of intent, the snippet in `<pre class="diff">`, what to notice. Mechanical changes (renames, imports, formatting) collapse into one short list at the end.
+- **Риски и на что смотреть ревьюеру**: a checklist of behaviour that changed for existing callers, edge cases handled or skipped, what tests cover and what they miss, migration or rollout concerns. Each item names a file or function.
 
-The page has exactly these sections, in this order:
+### 4. Prose
 
-1. **Что изменилось** (lead). Three to five sentences: what the change does, why, and what the reader will be able to judge after reading.
-2. **Фон**. Two levels:
-   - **Для тех, кто впервые здесь**: a `<details>` block, open by default, describing the subsystem the change touches as if the reader has never seen the repository. Names the entities, where they live, how data flows between them.
-   - **Что важно для этого изменения**: the narrow context the change depends on, with a data-flow diagram that carries example data.
-3. **Разбор кода**. Group the hunks by purpose, not by file order. For each group: one paragraph on intent, then the relevant snippet in a `<pre class="diff">` block, then what to notice. Small mechanical changes (renames, imports, formatting) go into one short list at the end.
-4. **Риски и на что смотреть ревьюеру**. A checklist: behaviour that changed for existing callers, edge cases the diff handles or skips, what tests cover and what they do not, migration or rollout concerns. Each item names a file or function so the reviewer can jump there.
+- Russian prose; identifiers, paths, commands, and error text in English inside `<code>` or `<pre>`.
+- Short sentences, one idea each, plain punctuation.
+- Lists for parallel things, prose for an argument.
+- A callout (`<aside class="callout">`) for a definition, an invariant, or an edge case that changes how the reader judges the code. At most one per screen.
+- Every claim about behaviour points at the code that shows it.
 
-### 4. Prose rules
+### 5. Diagrams
 
-- Russian prose. Identifiers, file paths, commands, and error text stay in English inside `<code>` or `<pre>`.
-- Short sentences, one idea each. No em-dashes, no parentheticals.
-- Lists for parallel things. Prose for an argument.
-- A callout (`<aside class="callout">`) for a definition, an invariant, or an edge case that changes how the reader judges the code. At most one callout per screen.
-- Every claim about behaviour points at the code that shows it. Do not describe what the PR body says the code does.
+Rendered diagrams only, from these families:
 
-### 5. Diagram rules
+- **UI mock** (`.ui` classes): the screen the user sees, for any visible change.
+- **Data flow with example data** (`.flow` classes): every box carries a concrete value from the toy examples, not a type name.
+- **Sequence or state**: a `<pre class="mermaid">` block. Mermaid loads from a CDN, so the page needs network to render it; the HTML families work offline.
 
-- Never ASCII art.
-- **UI mock**: simplified HTML of the screen the user sees, using the template's `.ui` classes. Use it for any change a user can see.
-- **Data flow with example data**: HTML boxes and arrows using the template's `.flow` classes. Every box carries a concrete value from the toy examples, not a type name.
-- **Sequence or state**: a Mermaid block (`<pre class="mermaid">`). Mermaid loads from a CDN, so these diagrams need network access to render. Prefer the HTML families when the page must work offline.
-- Pick at most two diagram families per page and reuse them for the "before" and "after" cases so the reader compares like with like.
+At most two families per page, reused for the before and after cases so the reader compares like with like.
 
 ### 6. Save, check, open
 
-File name: `/tmp/YYYY-MM-DD-explanation-<slug>.html`, where the date is today and the slug is the branch name or PR number in kebab-case.
+Path: `/tmp/YYYY-MM-DD-explanation-<slug>.html`, today's date, slug from the branch name or PR number in kebab-case.
 
-Before saving, run these checks against the HTML source and fix any failure:
+Before saving, confirm in the HTML source:
 
-- Every code block is a `<pre>`. A styled `<div>` with code needs `white-space: pre-wrap`, or the browser collapses the newlines.
-- Every `<h2>` has an `id` and appears in the table of contents.
-- No `<script src>` other than the Mermaid loader from the template.
-- The page contains no absolute paths from this machine except in the diff snippets.
+- every code block is a `<pre>`; a styled `<div>` holding code carries `white-space: pre-wrap`, otherwise the browser collapses its newlines;
+- the only `<script src>` is the template's Mermaid loader;
+- absolute paths from this machine appear only inside diff snippets.
 
-Then:
-
-```bash
-[ "$(uname)" = Darwin ] && [ "$no_open" != 1 ] && open "$file"
-```
-
-Finish with exactly one final line so a calling workflow can parse it:
+On macOS without `--no-open`, run `open "$file"`. Finish with exactly one final line:
 
 ```
 Explanation: /tmp/2026-09-22-explanation-<slug>.html
 ```
-
-## When called from another workflow
-
-A PR workflow calls this skill with the PR number or branch and `--no-open`. It needs only the final `Explanation:` line. Do not ask the user questions in that mode; when the change source is ambiguous, fall back to the default branch comparison and say so in the page's lead.
