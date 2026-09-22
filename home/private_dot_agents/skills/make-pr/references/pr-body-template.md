@@ -1,4 +1,4 @@
-<!-- Zero-context reviewer: they see only the diff. Around 350 words outside code blocks. Link only files committed in the repo; session artifacts, plan unit IDs, and review run IDs stay out. -->
+<!-- Zero-context reviewer: they see only the diff. Around 350 words outside code blocks. Link only files committed in the repo; session artifacts, plan unit IDs, and review run IDs stay out. When the repository defines its own PR sections, keep those headings and place each slot below under the section it belongs to; the slot rules still apply. -->
 
 {stakeholder block from explain-for-manager, verbatim, as the first paragraph}
 
@@ -8,7 +8,7 @@
 
 ## Watch out for
 
-**Door:** {one-way | two-way}. {One clause on why: what a revert leaves behind, or "a plain revert restores the previous state".}
+**Door:** {one-way | two-way}. {Always one sentence: what a plain revert restores and what it leaves behind. Rows, columns, sent messages, external registrations, or consumed migrations that a revert does not undo make it one-way. "two-way" with no sentence is not an answer.}
 
 - {1 to 3 bullets: reviewer warnings, migrations, compatibility constraints, deliberate omissions, surprising decisions. "None." when there are none.}
 
@@ -20,7 +20,8 @@
 
 - **Before:** {the failing test, output, or screenshot, named by suite or command}
 - **After:** {the passing run, named the same way}
+- **Visuals:** {`![caption](URL)` per frame from the evidence step, or the walkthrough link, or "no visible surface: see the run above"}
 
 {One line on what is CI-only or not run. Suites and outcomes, never a list of test names.}
 
-Related: {Fixes #N, ADR path, or omit this line}
+Related: {ticket key exactly as the repository writes it (ABC-123), then PR numbers (#N); omit the line when there is neither}

@@ -16,6 +16,7 @@ Russian prose, English code and identifiers, one page built from `references/tem
 | `<sha>` or `<sha>..<sha>` | That commit or range. |
 | `uncommitted` | Working tree against `HEAD`. |
 | `--no-open` | Print the path only; a calling workflow passes this and reads the final `Explanation:` line. |
+| `--evidence <dir>` | PNG frames captured by make-pr; each is embedded as a data URI in «Что изменилось», captioned from its file name. |
 
 ## Workflow
 
@@ -48,7 +49,7 @@ The diff alone cannot produce Background. Done when:
 Copy `references/template.html` and fill each `<!-- slot: ... -->` in place; the template owns structure and styling. What each slot needs:
 
 - **Для нетехнических читателей**: the stakeholder block. When the change is a PR whose body already opens with a `**For non-engineers.**` block, translate that block into Russian and keep its four slots; otherwise invoke the `explain-for-manager` skill with `--lang ru` for the resolved range. It sits first so a manager can stop reading after it.
-- **Что изменилось**: three to five sentences on what the change does, why, and what the reader can judge after reading.
+- **Что изменилось**: three to five sentences on what the change does, why, and what the reader can judge after reading. Frames from `--evidence` follow the sentences, one `<figure>` each. The page `<title>` and `<h1>` are the PR title, else the first commit subject of the range.
 - **Фон, для тех, кто впервые здесь**: the subsystem the change touches, told to a reader who has never seen the repository. Names the entities, where they live, how data flows between them.
 - **Фон, что важно для этого изменения**: the narrow context the change depends on, with a data-flow diagram carrying example data.
 - **Разбор кода**: hunks grouped by purpose, not file order. Per group: one paragraph of intent, the snippet in `<pre class="diff">`, what to notice. Mechanical changes (renames, imports, formatting) collapse into one short list at the end.
