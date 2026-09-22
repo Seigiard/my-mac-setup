@@ -77,7 +77,7 @@
         ]
       }{{ if lookPath "herdr" }},
       {{/* `herdr integration install claude` appends this entry to the live settings, so without it here every herdr upgrade puts the two owners back into conflict. herdr-resource-context.sh delegates to the same hook to guarantee identity is reported first and survives a missing jq; this entry is the redundant half, kept only to match what herdr writes. */}}{
-        "matcher": "*",
+        "matcher": "^(startup|resume|clear|compact|fork)$",
         "hooks": [
           {
             "type": "command",
