@@ -47,6 +47,7 @@ The diff alone cannot produce Background. Done when:
 
 Copy `references/template.html` and fill each `<!-- slot: ... -->` in place; the template owns structure and styling. What each slot needs:
 
+- **Для нетехнических читателей**: the stakeholder block. When the change is a PR whose body already opens with a `**For non-engineers.**` block, translate that block into Russian and keep its four slots; otherwise invoke the `explain-for-manager` skill with `--lang ru` for the resolved range. It sits first so a manager can stop reading after it.
 - **Что изменилось**: three to five sentences on what the change does, why, and what the reader can judge after reading.
 - **Фон, для тех, кто впервые здесь**: the subsystem the change touches, told to a reader who has never seen the repository. Names the entities, where they live, how data flows between them.
 - **Фон, что важно для этого изменения**: the narrow context the change depends on, with a data-flow diagram carrying example data.

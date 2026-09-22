@@ -46,6 +46,7 @@
     padding: .6rem .9rem; margin: 1.25rem 0; border-radius: 0 8px 8px 0;
   }
   aside.callout > strong { display: block; margin-bottom: .2rem; }
+  aside.stakeholder { border-left-color: var(--accent); }
   details { border: 1px solid var(--line); border-radius: 8px; padding: .5rem 1rem; margin: 1rem 0; }
   details > summary { cursor: pointer; font-weight: 600; }
   ul.checklist { list-style: none; padding-left: 0; }
@@ -85,6 +86,10 @@
   </nav>
 
   <h2 id="what">Что изменилось</h2>
+  <aside class="callout stakeholder">
+    <strong>Для нетехнических читателей</strong>
+    <!-- slot: stakeholder block from explain-for-manager (--lang ru): Проблема, Влияние, Что сделано, Что вы заметите -->
+  </aside>
   <!-- slot: lead, 3 to 5 sentences -->
 
   <h2 id="background">Фон</h2>
