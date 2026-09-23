@@ -17,6 +17,7 @@ setup() {
   unset HERDR_AGENT_INTERCOM_PANE
   unset HERDR_AGENT_INTERCOM_PI_LOAD
   unset HERDR_CHILD_NAME
+  unset HERDR_CHILD_LAUNCH
   unset HERDR_CHILD_PARENT_PANE
   unset HERDR_CHILD_STATE_DIR
   unset HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY
@@ -5175,7 +5176,7 @@ function test_scripts_047_herdr_child_detached_ask_follows_parent_identity() {
   printf 'wT:p7\n' > "$CHILD_STUB/parent-pane"
 
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
-    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_NAME="$(child_started_name)" \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_LAUNCH=1 \
     HERDR_CHILD_PARENT_PANE=wT:p0 HERDR_CHILD_PARENT_TERMINAL=term-parent \
     HERDR_CHILD_PARENT_SESSION=parent-session \
     bash "$HERDR_CHILD" ask "Which path?"
@@ -5198,7 +5199,7 @@ function test_scripts_048_herdr_child_attached_ask_follows_captured_parent() {
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"parent","agent":"claude","pane_id":"wT:p7","terminal_id":"term-parent","revision":1,"state_change_seq":1,"agent_session":{"value":"parent-session"}},{"name":"orange-panda","agent":"claude","pane_id":"wT:p9","terminal_id":"term-child","revision":1,"state_change_seq":10}]}}'
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 \
-    HERDR_PANE_ID=wT:p9 HERDR_CHILD_NAME=orange-panda HERDR_CHILD_PARENT_PANE=wT:p0 \
+    HERDR_PANE_ID=wT:p9 HERDR_CHILD_LAUNCH=1 HERDR_CHILD_PARENT_PANE=wT:p0 \
     HERDR_CHILD_LAUNCH_MODE=wait HERDR_CHILD_PARENT_TERMINAL=term-parent \
     HERDR_CHILD_PARENT_SESSION=parent-session \
     bash "$HERDR_CHILD" ask "Which path?"
@@ -5220,7 +5221,7 @@ function test_scripts_049_herdr_child_callback_intent_suppresses_blocked_w() {
   watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
 
   env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
-    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_NAME="$(child_started_name)" \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_LAUNCH=1 \
     HERDR_CHILD_PARENT_PANE=wT:p0 HERDR_CHILD_PARENT_TERMINAL=term-parent \
     HERDR_CHILD_PARENT_SESSION=parent-session \
     bash "$HERDR_CHILD" ask "Which path?" >"$CHILD_STUB/ask.out" 2>"$CHILD_STUB/ask.err" &
@@ -5260,7 +5261,7 @@ function test_scripts_050_herdr_child_callback_delivery_exhaustion_keeps_d() {
   run_dir="$CHILD_STUB/state/runs/$generation"
 
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
-    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_NAME="$(child_started_name)" \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_LAUNCH=1 \
     HERDR_CHILD_PARENT_PANE=wT:p0 HERDR_CHILD_PARENT_TERMINAL=term-parent \
     HERDR_CHILD_PARENT_SESSION=parent-session \
     bash "$HERDR_CHILD" ask "Which path?"
@@ -5288,7 +5289,7 @@ function test_scripts_051_herdr_child_detached_callbacks_fail_closed_when() {
   assert_success
   rm -f "$CHILD_STUB/generation"
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
-    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_NAME="$(child_started_name)" \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_LAUNCH=1 \
     HERDR_CHILD_PARENT_PANE=wT:p0 HERDR_CHILD_PARENT_TERMINAL=term-parent \
     HERDR_CHILD_PARENT_SESSION=parent-session \
     bash "$HERDR_CHILD" ask "Which path?"
@@ -5553,7 +5554,7 @@ function test_scripts_057_herdr_child_attached_child_promoted_to_detach_as() {
   printf 'wT:p7\n' > "$CHILD_STUB/parent-pane"
 
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
-    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_NAME=orange-panda \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_LAUNCH=1 \
     HERDR_CHILD_PARENT_PANE=wT:p0 HERDR_CHILD_LAUNCH_MODE=wait \
     HERDR_CHILD_PARENT_TERMINAL=term-parent HERDR_CHILD_PARENT_SESSION=parent-session \
     bash "$HERDR_CHILD" ask "Which promoted path?"
@@ -5605,7 +5606,7 @@ function test_scripts_058_herdr_child_markers_round_trip_documented_shape() {
     --supervision-timeout 5000 "detached task"
   assert_success
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
-    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_NAME=orange-panda \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_LAUNCH=1 \
     HERDR_CHILD_PARENT_PANE=wT:p0 HERDR_CHILD_LAUNCH_MODE=wait \
     HERDR_CHILD_PARENT_TERMINAL=term-parent HERDR_CHILD_PARENT_SESSION=parent-session \
     bash "$HERDR_CHILD" ask "Which path?"
@@ -5647,7 +5648,7 @@ function test_scripts_059_herdr_child_expires_an_abandoned_callback_claim() {
   watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
 
   env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
-    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_NAME="$(child_started_name)" \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_LAUNCH=1 \
     HERDR_CHILD_PARENT_PANE=wT:p0 HERDR_CHILD_PARENT_TERMINAL=term-parent \
     HERDR_CHILD_PARENT_SESSION=parent-session \
     bash "$HERDR_CHILD" ask "Which path?" >"$CHILD_STUB/ask.out" 2>"$CHILD_STUB/ask.err" &
@@ -5679,7 +5680,7 @@ function test_scripts_0592_herdr_child_callback_receipt_barrier_is_bounded() {
   assert_success
   local ask_pid ask_status attempt=0
   env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
-    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_NAME="$(child_started_name)" \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_LAUNCH=1 \
     HERDR_CHILD_PARENT_PANE=wT:p0 HERDR_CHILD_PARENT_TERMINAL=term-parent \
     HERDR_CHILD_PARENT_SESSION=parent-session \
     HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS=1 \
@@ -5848,7 +5849,7 @@ function test_scripts_064_herdr_child_splits_starts_and_prompts_in_order_w() {
   call5="$(sed -n '5p' "$CHILD_STUB/calls.log")"
   call6="$(sed -n '6p' "$CHILD_STUB/calls.log")"
   [[ "$call1" == agent\ list* ]] || fail "unexpected first herdr-child call: $call1"
-  [[ "$call2" == pane\ split*HERDR_CHILD_NAME="$child_name"*HERDR_CHILD_PARENT_PANE=wT:p0* ]] || fail "unexpected second herdr-child call: $call2"
+  [[ "$call2" == pane\ split*HERDR_CHILD_LAUNCH=1*HERDR_CHILD_PARENT_PANE=wT:p0* ]] || fail "unexpected second herdr-child call: $call2"
   [[ "$call3" == agent\ start* ]] || fail "unexpected third herdr-child call: $call3"
   [[ "$call4" == agent\ list* ]] || fail "unexpected fourth herdr-child call: $call4"
   [[ "$call5" == pane\ get*wT:p9* ]] || fail "unexpected fifth herdr-child call: $call5"
@@ -5862,8 +5863,7 @@ function test_scripts_065_herdr_child_tab_mode_records_ownership_before_st() {
     --kind claude --tab --label mylabel --wait
   assert_success
   assert_output "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\",\"tab\":\"wT:tA\"}"
-  local child_name call1 call2 call3 call4 call5 call6 call7
-  child_name="$(child_started_name)"
+  local call1 call2 call3 call4 call5 call6 call7
   call1="$(sed -n '1p' "$CHILD_STUB/calls.log")"
   call2="$(sed -n '2p' "$CHILD_STUB/calls.log")"
   call3="$(sed -n '3p' "$CHILD_STUB/calls.log")"
@@ -5872,7 +5872,7 @@ function test_scripts_065_herdr_child_tab_mode_records_ownership_before_st() {
   call6="$(sed -n '6p' "$CHILD_STUB/calls.log")"
   call7="$(sed -n '7p' "$CHILD_STUB/calls.log")"
   [[ "$call1" == agent\ list* ]] || fail "unexpected first tab-mode call: $call1"
-  [[ "$call2" == tab\ create*--workspace\ w1*HERDR_CHILD_NAME="$child_name"*HERDR_CHILD_PARENT_PANE=wT:p0*--label\ mylabel* ]] || fail "unexpected second tab-mode call: $call2"
+  [[ "$call2" == tab\ create*--workspace\ w1*HERDR_CHILD_LAUNCH=1*HERDR_CHILD_PARENT_PANE=wT:p0*--label\ mylabel* ]] || fail "unexpected second tab-mode call: $call2"
   [[ "$call3" == pane\ report-metadata\ wT:p9\ --source\ child-agent-tab*child-tab=wT:tA* ]] || fail "unexpected third tab-mode call: $call3"
   [[ "$call4" == agent\ start* ]] || fail "unexpected fourth tab-mode call: $call4"
   [[ "$call5" == agent\ list* ]] || fail "unexpected fifth tab-mode call: $call5"
@@ -6341,10 +6341,27 @@ function test_scripts_074_herdr_child_preserves_a_working_pane_when_the_wa() {
 function test_scripts_075_herdr_child_ask_requires_every_injected_child_co() {
   _bats_test_init 75 'herdr-child ask requires every injected child coordinate'
   child_stub_herdr
+  local marker
+  for marker in '' 0 invalid; do
+    run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
+      HERDR_CHILD_LAUNCH="$marker" HERDR_CHILD_NAME=upstream-name HERDR_CHILD_PARENT_PANE=wT:p0 \
+      bash "$HERDR_CHILD" ask question
+    assert_failure
+    assert_output --partial "HERDR_CHILD_LAUNCH must be 1"
+    [ ! -f "$CHILD_STUB/calls.log" ]
+  done
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
-    HERDR_CHILD_NAME=orange-panda bash "$HERDR_CHILD" ask question
+    HERDR_CHILD_PARENT_PANE=wT:p0 bash "$HERDR_CHILD" ask question
+  assert_failure
+  assert_output --partial "HERDR_CHILD_LAUNCH must be 1"
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
+    HERDR_CHILD_LAUNCH=1 bash "$HERDR_CHILD" ask question
   assert_failure
   assert_output --partial "HERDR_CHILD_PARENT_PANE is missing"
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 \
+    HERDR_CHILD_LAUNCH=1 HERDR_CHILD_PARENT_PANE=wT:p0 bash "$HERDR_CHILD" ask question
+  assert_failure
+  assert_output --partial "HERDR_PANE_ID is missing"
   [ ! -f "$CHILD_STUB/calls.log" ]
 }
 
@@ -6353,7 +6370,7 @@ function test_scripts_076_herdr_child_ask_publishes_before_delivery_and_us() {
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"parent","agent":"claude","pane_id":"wT:p0","terminal_id":"term-parent","revision":1,"state_change_seq":1},{"name":"orange-panda","agent":"claude","pane_id":"wT:p9","terminal_id":"term-child","revision":1,"state_change_seq":10}]}}'
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 \
-    HERDR_PANE_ID=wT:p9 HERDR_CHILD_NAME=orange-panda HERDR_CHILD_PARENT_PANE=wT:p0 \
+    HERDR_PANE_ID=wT:p9 HERDR_CHILD_LAUNCH=1 HERDR_CHILD_PARENT_PANE=wT:p0 \
     bash "$HERDR_CHILD" ask "Which path?"
   assert_success
   local call1 call2 call3 call4
@@ -6366,13 +6383,26 @@ function test_scripts_076_herdr_child_ask_publishes_before_delivery_and_us() {
   [[ "$call3" == pane\ get*wT:p9* ]] || fail "child metadata was not read third: $call3"
   [[ "$call4" == agent\ prompt*wT:p0*child-ask*agent=orange-panda*pane=wT:p9* ]] || fail "callback was not delivered fourth: $call4"
   [[ "$call4" != *--wait* ]] || fail "callback delivery unexpectedly waited: $call4"
+
+  # Raw upstream launches provide only the old name; its value is never a route.
+  # Managed launches may also inherit it from upstream, but use the new marker.
+  local marker
+  for marker in legacy managed; do
+    child_stub_herdr
+    if [ "$marker" = managed ]; then export HERDR_CHILD_LAUNCH=1; fi
+    run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 \
+      HERDR_PANE_ID=wT:p9 HERDR_CHILD_NAME=stale-launch-name HERDR_CHILD_PARENT_PANE=wT:p0 \
+      bash "$HERDR_CHILD" ask "Which path?"
+    assert_success
+    assert_file_contains "$CHILD_STUB/calls.log" 'agent prompt wT:p0.*agent=orange-panda'
+  done
 }
 
 function test_scripts_077_herdr_child_ask_leaves_the_label_when_parent_loo() {
   _bats_test_init 77 'herdr-child ask leaves the label when parent lookup or delivery fails'
   child_stub_herdr
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
-    HERDR_CHILD_NAME=orange-panda HERDR_CHILD_PARENT_PANE=wT:p0 \
+    HERDR_CHILD_LAUNCH=1 HERDR_CHILD_PARENT_PANE=wT:p0 \
     bash "$HERDR_CHILD" ask question
   assert_failure
   assert_file_contains "$CHILD_STUB/calls.log" '^pane report-metadata'
@@ -6382,7 +6412,7 @@ function test_scripts_077_herdr_child_ask_leaves_the_label_when_parent_loo() {
   child_stub_herdr
   local agents='{"result":{"agents":[{"name":"parent","pane_id":"wT:p0"}]}}'
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_PROMPT_FAIL=1 \
-    HERDR_ENV=1 HERDR_PANE_ID=wT:p9 HERDR_CHILD_NAME=orange-panda HERDR_CHILD_PARENT_PANE=wT:p0 \
+    HERDR_ENV=1 HERDR_PANE_ID=wT:p9 HERDR_CHILD_LAUNCH=1 HERDR_CHILD_PARENT_PANE=wT:p0 \
     bash "$HERDR_CHILD" ask question
   assert_failure
   assert_output --partial "waiting label remains published"
@@ -6425,7 +6455,7 @@ function test_scripts_079_herdr_child_ask_and_reply_publish_strictly_incre() {
   local parent_agents='{"result":{"agents":[{"name":"parent","agent":"claude","pane_id":"wT:p0","terminal_id":"term-parent","revision":1,"state_change_seq":1},{"name":"orange-panda","agent":"claude","pane_id":"wT:p9","terminal_id":"term-child","revision":1,"state_change_seq":10}]}}'
   env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$parent_agents" HERDR_ENV=1 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_TEST_NOW_SEQ=200 \
-    HERDR_PANE_ID=wT:p9 HERDR_CHILD_NAME=orange-panda HERDR_CHILD_PARENT_PANE=wT:p0 \
+    HERDR_PANE_ID=wT:p9 HERDR_CHILD_LAUNCH=1 HERDR_CHILD_PARENT_PANE=wT:p0 \
     bash "$HERDR_CHILD" ask question >/dev/null
   local child_agents='{"result":{"agents":[{"name":"orange-panda","agent":"claude","pane_id":"wT:p9","terminal_id":"term-child","revision":1,"state_change_seq":10}]}}'
   env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$child_agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \

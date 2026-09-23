@@ -219,7 +219,13 @@ event=$event"
 ask_parent() {
   require_herdr
   [ $# -eq 1 ] || fail_usage 'ask requires one question argument'
-  [ -n "${HERDR_CHILD_NAME:-}" ] || { printf 'herdr-child: HERDR_CHILD_NAME is missing\n' >&2; exit 1; }
+  # Upstream `herdr agent start` still injects HERDR_CHILD_NAME. Accept its
+  # presence only when our explicit marker is unset; never use it as an alias.
+  local child_launch="${HERDR_CHILD_LAUNCH-}"
+  if [ "${HERDR_CHILD_LAUNCH+x}" != x ] && [ -n "${HERDR_CHILD_NAME:-}" ]; then
+    child_launch=1
+  fi
+  [ "$child_launch" = 1 ] || { printf 'herdr-child: HERDR_CHILD_LAUNCH must be 1 (child-launch context is missing or invalid)\n' >&2; exit 1; }
   [ -n "${HERDR_CHILD_PARENT_PANE:-}" ] || { printf 'herdr-child: HERDR_CHILD_PARENT_PANE is missing\n' >&2; exit 1; }
   [ -n "${HERDR_PANE_ID:-}" ] || { printf 'herdr-child: HERDR_PANE_ID is missing\n' >&2; exit 1; }
 

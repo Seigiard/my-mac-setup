@@ -2,6 +2,14 @@
 
 This contract defines how a parent agent and a child agent communicate through herdr. The `herdr` skill and `ask-in-herdr` skill both use it.
 
+## Child-launch context and routing identity
+
+`herdr-child start` injects `HERDR_CHILD_LAUNCH=1` and `HERDR_CHILD_PARENT_PANE` when creating either a pane or a tab. The boolean marker identifies child-launch context; `HERDR_CHILD_LAUNCH_MODE` separately selects the attached or detached lifecycle. No launch-time name is needed in the managed environment.
+
+`herdr-child ask` requires that marker, the parent pane, and its own `HERDR_PANE_ID`. It resolves the callback alias from the current Herdr pane record, so reconciliation can change the alias without invalidating the launch context. Intercom also uses the pane's canonical alias, independently of the child-launch marker.
+
+**Upstream compatibility:** external `herdr agent start` still injects `HERDR_CHILD_NAME`. When `HERDR_CHILD_LAUNCH` is unset, `ask` accepts a nonempty legacy variable as child-launch context only. Its value is never a routing alias. An explicitly empty or non-`1` new marker is rejected even if the legacy variable is present. Direct upstream launches still need `HERDR_CHILD_PARENT_PANE` and `HERDR_PANE_ID`; new hand-assembled launches should pass `--env HERDR_CHILD_LAUNCH=1` when creating the pane. Keep the legacy read while this upstream launch path is supported.
+
 ## Herdr behaviour this contract depends on
 
 The following measurements used herdr 0.8.0 on 2026-08-18. Most ran in the isolated `childspike` session. The final claude mirror ran from the source checkout in a temporary child pane after the account limit reset.
@@ -58,6 +66,8 @@ The same start succeeded after a two-second delay. An opencode start with `--mod
 The pane showed that opencode had exited with a Bun trace trap. A launch retry must match `agent_pane_busy`; it must not retry a generic startup timeout.
 
 ### Pane environment reaches the child agent
+
+This historical probe used the legacy variable. Current managed launches use the marker described above.
 
 Commands:
 
