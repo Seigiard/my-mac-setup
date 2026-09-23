@@ -16,7 +16,7 @@ Russian prose, English code and identifiers, one page built from `references/tem
 | `<sha>` or `<sha>..<sha>` | That commit or range. |
 | `uncommitted` | Working tree against `HEAD`. |
 | `--no-open` | Print the path only; a calling workflow passes this and reads the final `Explanation:` line. |
-| `--evidence <dir>` | PNG frames captured by make-pr; each is embedded as a data URI in «Что изменилось», captioned from its file name. |
+| `--evidence <dir>` | PNG frames captured by make-pr, the first source for step 3. |
 
 ## Workflow
 
@@ -44,38 +44,50 @@ The diff alone cannot produce Background. Done when:
 - you hold the domain terms the code uses, for the page to reuse;
 - you hold two or three toy examples with concrete data: an input, the path it takes, the output. They feed the diagrams.
 
-### 3. Fill the template
+### 3. Collect frames
 
-Copy `references/template.html` and fill each `<!-- slot: ... -->` in place; the template owns structure and styling. What each slot needs:
+Real pixels beat drawings. Take the first source that yields frames, in this order:
 
-- **Для нетехнических читателей**: the stakeholder block. When the change is a PR whose body already opens with a `**For non-engineers.**` block, translate that block into Russian and keep its four slots; otherwise invoke the `explain-for-manager` skill with `--lang ru` for the resolved range. It sits first so a manager can stop reading after it.
-- **Что изменилось**: three to five sentences on what the change does, why, and what the reader can judge after reading. Frames from `--evidence` follow the sentences, one `<figure>` each. The page `<title>` and `<h1>` are the PR title, else the first commit subject of the range.
-- **Фон, для тех, кто впервые здесь**: the subsystem the change touches, told to a reader who has never seen the repository. Names the entities, where they live, how data flows between them.
-- **Фон, что важно для этого изменения**: the narrow context the change depends on, with a data-flow diagram carrying example data.
-- **Разбор кода**: hunks grouped by purpose, not file order. Per group: one paragraph of intent, the snippet in `<pre class="diff">`, what to notice. Mechanical changes (renames, imports, formatting) collapse into one short list at the end.
-- **Риски и на что смотреть ревьюеру**: a checklist of behaviour that changed for existing callers, edge cases handled or skipped, what tests cover and what they miss, migration or rollout concerns. Each item names a file or function.
+1. `--evidence <dir>`: every PNG there.
+2. Images already in the PR body (`![caption](url)`): download each and keep its caption.
+3. A visible surface with no frames yet: start the app or the affected Storybook stories the way the repository documents and capture with the Playwright tools, following `~/.agents/skills/make-pr/references/evidence.md`.
+4. Only when none of these produced a frame: a `.ui` mock, and the caption says it is a sketch.
 
-### 4. Prose
+Embed frames as data URIs so the page stays self-contained. Done when every visible state the reader must see has a frame or a labelled sketch.
+
+### 4. Fill the template
+
+Copy `references/template.html` and fill each `<!-- slot: ... -->` in place; the template owns structure and styling. The page `<title>` and `<h1>` are the PR title, else the first commit subject of the range. The whole page stays around 1200 words outside code and figures; each slot carries its cap. What each slot needs:
+
+- **Для нетехнических читателей**: the stakeholder block as four `<dt>`/`<dd>` rows. When the change is a PR whose body already opens with a `**For non-engineers.**` block, translate it and keep its four slots; otherwise invoke the `explain-for-manager` skill with `--lang ru` for the resolved range and continue here. It sits first so a manager can stop reading after it.
+- **Что изменилось**: three to five sentences on what the change does, why, and what the reader can judge after reading, then the frames from step 3 as `<figure>` elements with captions.
+- **Фон, для тех, кто впервые здесь**: the subsystem the change touches, told to a reader who has never seen the repository, in 250 words at most, collapsed by default. Names the entities, where they live, how data flows between them.
+- **Фон, что важно для этого изменения**: the narrow context the change depends on, 150 words at most, with one data-flow diagram carrying example data.
+- **Разбор кода**: the shape of the change, in the `show-me` skill's view families, 300 words at most. Up to three groups by purpose; per group one sentence of intent and one sketch (a `diff`-style call tree, file tree, or pseudocode in `<pre class="diff">`). The hunks themselves stay in the diff; mechanical changes (renames, imports, formatting) collapse into one line.
+- **Риски и на что смотреть ревьюеру**: up to six checklist items on behaviour that changed for existing callers, edge cases handled or skipped, what tests cover and what they miss, migration or rollout concerns. Each item names a file or function.
+
+### 5. Prose
 
 - Russian prose; identifiers, paths, commands, and error text in English inside `<code>` or `<pre>`.
 - Short sentences, one idea each, plain punctuation.
 - Lists for parallel things, prose for an argument.
 - A callout (`<aside class="callout">`) for a definition, an invariant, or an edge case that changes how the reader judges the code. At most one per screen.
 - Every claim about behaviour points at the code that shows it.
+- An editor pass at the end: a term the reader would have to look up (инвариант, идемпотентность, грант, миграция) is either replaced by what it means here or defined once in a callout at first use.
 
-### 5. Diagrams
+### 6. Diagrams
 
 Rendered diagrams only, from these families:
 
-- **UI mock** (`.ui` classes): the screen the user sees, for any visible change.
+- **Frames** from step 3 for anything the user sees; a `.ui` mock only as the labelled fallback there.
 - **Data flow with example data** (`.flow` classes): every box carries a concrete value from the toy examples, not a type name.
 - **Sequence or state**: a `<pre class="mermaid">` block. Mermaid loads from a CDN, so the page needs network to render it; the HTML families work offline.
 
 At most two families per page, reused for the before and after cases so the reader compares like with like.
 
-### 6. Save, check, open
+### 7. Save, check, open
 
-Path: `/tmp/YYYY-MM-DD-explanation-<slug>.html`, today's date, slug from the branch name or PR number in kebab-case.
+Path: `/tmp/YYYY-MM-DD-explanation-<slug>.html`, today's date, slug from the branch name or PR number in kebab-case. This path is fixed: a session's scratchpad or temp-directory guidance does not move it, because the user and calling workflows look here.
 
 Before saving, confirm in the HTML source:
 

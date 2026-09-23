@@ -44,9 +44,9 @@ Invoke the `explain-for-manager` skill for the resolved range, take its block ve
 
 ### 5. Compose title and body
 
-Read `references/pr-body-template.md` and fill every slot. With a repository contract from step 1, keep its headings and place each slot under the section it belongs to; the stakeholder block still comes first. Where the contract states a rule explicitly, that rule beats the slot's own: a mandated format, a forbidden section, a different cap. The Shape section uses the `show-me` skill's view families. Done when the draft passes the rule in `~/.claude/rules/pull-requests.md`, every slot cap, and `git ls-files <path>` returns every path the body mentions.
+Read `references/pr-body-template.md` and fill every slot. With a repository contract from step 1, keep its headings and place each slot under the section it belongs to; the stakeholder block still comes first. Where the contract states a rule explicitly, that rule beats the slot's own: a mandated format, a forbidden section, a different cap. The Shape section uses the `show-me` skill's view families. Done when the draft passes the rule in `~/.claude/rules/pull-requests.md`, every slot cap (the word cap counts the slots, not the sections a contract adds), and `git ls-files <path>` returns every path the body mentions.
 
-An existing body is rebuilt around three things kept verbatim: regions between paired HTML comment markers (`<!-- name --> … <!-- /name -->`, written by CI or a bot), existing `Fixes`/`Related` references, and evidence frames or links that are still true.
+An existing body is rebuilt around three things kept: regions between paired HTML comment markers (`<!-- name --> … <!-- /name -->`, written by CI or a bot) verbatim; existing `Fixes`/`Related` references, folded into the single `Related:` line; and evidence frames or links that are still true.
 
 Title: imperative, under 70 characters, the outcome rather than the mechanism, keeping the ticket key prefix (`ABC-123: …`) when step 1 resolved one.
 

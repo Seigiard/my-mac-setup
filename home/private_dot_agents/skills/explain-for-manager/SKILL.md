@@ -28,10 +28,14 @@ Translate one technical change into language a product owner reads at sprint pla
 
 ## Output
 
-The block, in this exact shape:
+The block, in this exact shape: a bold label line, then four bullets with bold slot names.
 
 ```markdown
-**For non-engineers.** Problem: … Impact: … What was done: … What you will notice: …
+**For non-engineers.**
+- **Problem:** …
+- **Impact:** …
+- **What was done:** …
+- **What you will notice:** …
 ```
 
 In Russian (`--lang ru`) the label is **Для нетехнических читателей.** and the slot names are Проблема, Влияние, Что сделано, Что вы заметите.
@@ -40,4 +44,8 @@ When another skill invoked this one (make-pr, explain-diff-html), the block is a
 
 Example, 96 words:
 
-> **For non-engineers.** Problem: A client saw every connection in their workspace, including the operator's own tools, and the operator's "No access" choice changed nothing. Impact: 117 of 178 live connections were set up by operators, so every client could read which tools their operator runs and no operator could keep one private. What was done: Visibility is now a per-connection choice: shared by default, withheld with "Only you", or private from the start. What you will notice: Withheld connections leave the client's list; existing ones stay visible until withheld.
+> **For non-engineers.**
+> - **Problem:** A client saw every connection in their workspace, including the operator's own tools, and the operator's "No access" choice changed nothing.
+> - **Impact:** 117 of 178 live connections were set up by operators, so every client could read which tools their operator runs and no operator could keep one private.
+> - **What was done:** Visibility is now a per-connection choice: shared by default, withheld with "Only you", or private from the start.
+> - **What you will notice:** Withheld connections leave the client's list; existing ones stay visible until withheld.

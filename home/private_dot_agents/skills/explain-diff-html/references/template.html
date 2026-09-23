@@ -47,6 +47,13 @@
   }
   aside.callout > strong { display: block; margin-bottom: .2rem; }
   aside.stakeholder { border-left-color: var(--accent); }
+  aside.stakeholder dl { display: grid; grid-template-columns: max-content 1fr; gap: .35rem .9rem; margin: .4rem 0 0; }
+  aside.stakeholder dt { font-weight: 600; color: var(--accent); }
+  aside.stakeholder dd { margin: 0; }
+  @media (max-width: 480px) { aside.stakeholder dl { grid-template-columns: 1fr; } aside.stakeholder dd { margin-bottom: .4rem; } }
+  figure { margin: 1rem 0; }
+  figure img { display: block; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; }
+  figcaption { font-size: .85rem; color: var(--muted); margin-top: .35rem; }
   details { border: 1px solid var(--line); border-radius: 8px; padding: .5rem 1rem; margin: 1rem 0; }
   details > summary { cursor: pointer; font-weight: 600; }
   ul.checklist { list-style: none; padding-left: 0; }
@@ -88,12 +95,18 @@
   <h2 id="what">Что изменилось</h2>
   <aside class="callout stakeholder">
     <strong>Для нетехнических читателей</strong>
-    <!-- slot: stakeholder block from explain-for-manager (--lang ru): Проблема, Влияние, Что сделано, Что вы заметите -->
+    <dl>
+      <dt>Проблема</dt><dd><!-- slot --></dd>
+      <dt>Влияние</dt><dd><!-- slot --></dd>
+      <dt>Что сделано</dt><dd><!-- slot --></dd>
+      <dt>Что вы заметите</dt><dd><!-- slot --></dd>
+    </dl>
   </aside>
   <!-- slot: lead, 3 to 5 sentences -->
+  <!-- slot: frames, one <figure><img src="data:image/png;base64,…" alt="…"><figcaption>…</figcaption></figure> each -->
 
   <h2 id="background">Фон</h2>
-  <details open>
+  <details>
     <summary>Для тех, кто впервые здесь</summary>
     <!-- slot: deep background for a newcomer -->
   </details>
