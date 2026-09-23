@@ -4,15 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title><!-- slot: title --></title>
-<!-- Pico styles bare semantic HTML and follows prefers-color-scheme; see references/pico.md for its components. -->
+<!-- Render kit, see references/render-kit.md: Pico styles bare semantic HTML, speed-highlight colours shj-lang-* blocks, both follow prefers-color-scheme. -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@speed-highlight/core@2.1.0/dist/themes/github-light.css" media="(prefers-color-scheme: light)">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@speed-highlight/core@2.1.0/dist/themes/github-dark.css" media="(prefers-color-scheme: dark)">
 <style>
-  /* Layer on top of Pico: reading width, our diagram families, diff colouring. Pico variables only, so both themes follow. */
+  /* Layer on top of Pico: reading width, code blocks in Pico's colours, our diagram families. Pico variables only, so both themes follow. */
   main.container { max-width: 52rem; }
   p, li { max-width: 44rem; }
-  pre { white-space: pre; }
-  pre.diff .add { display: block; background: color-mix(in srgb, var(--pico-ins-color) 18%, transparent); }
-  pre.diff .del { display: block; background: color-mix(in srgb, var(--pico-del-color) 18%, transparent); }
+  [class*="shj-lang-"] { background: var(--pico-code-background-color); color: var(--pico-code-color); border: 0; border-radius: var(--pico-border-radius); padding: var(--pico-spacing); margin: var(--pico-typography-spacing-vertical) 0; font: .875em/1.6 var(--pico-font-family-monospace); }
   pre.mermaid { background: var(--pico-card-background-color); text-align: center; }
   article.stakeholder dl { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1rem; margin: 0; }
   article.stakeholder dt { font-weight: 600; color: var(--pico-primary); }
@@ -41,7 +41,7 @@
 
   @media print {
     nav.toc { display: none; }
-    pre, figure, article, .flow, .ui { break-inside: avoid; }
+    pre, figure, article, .flow, .ui, [class*="shj-lang-"] { break-inside: avoid; }
     a[href^="http"]::after { content: " (" attr(href) ")"; font-size: .8em; }
   }
 </style>
@@ -84,7 +84,7 @@
   <!-- slot: narrow background with a .flow diagram carrying example data -->
 
   <h2 id="code">Разбор кода</h2>
-  <!-- slot: grouped walkthrough; each group = one sentence of intent, then <pre class="diff">; nothing after the sketch -->
+  <!-- slot: grouped walkthrough; each group = one sentence of intent, then a <div class="shj-lang-diff"> sketch with raw + and - lines; nothing after the sketch -->
 
   <h2 id="risks">Риски и на что смотреть ревьюеру</h2>
   <ul class="checklist">
@@ -92,7 +92,11 @@
   </ul>
 </main>
 
-<!-- Mermaid renders <pre class="mermaid"> blocks. Pico and Mermaid both load from the CDN; offline, the text and frames still read. -->
+<!-- speed-highlight colours every shj-lang-* block; Mermaid renders <pre class="mermaid"> blocks. Everything loads from the CDN; offline, the text and frames still read. -->
+<script type="module">
+  import { highlightAll } from "https://cdn.jsdelivr.net/npm/@speed-highlight/core@2.1.0/dist/index.js";
+  highlightAll();
+</script>
 <script type="module">
   import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
   const dark = matchMedia("(prefers-color-scheme: dark)").matches;

@@ -1,6 +1,13 @@
-# Pico on the explanation page
+# Render kit of the explanation page
 
-The template links `@picocss/pico@2.1.1/css/pico.min.css` from jsDelivr. Pico styles bare semantic HTML, so the page needs no classes beyond the layer in the template; it follows `prefers-color-scheme` on its own, and `<html data-theme="light|dark">` forces a theme.
+The template links two libraries from jsDelivr, both following `prefers-color-scheme`:
+
+- `@picocss/pico@2.1.1/css/pico.min.css` styles bare semantic HTML, so the page needs no classes beyond the layer in the template; `<html data-theme="light|dark">` forces a theme.
+- `@speed-highlight/core@2.1.0` colours every element whose class starts with `shj-lang-`, with the `github-light` and `github-dark` themes switched by a media query.
+
+## Code blocks
+
+A code block is a `<div class="shj-lang-<lang>">` holding the text with `<`, `>` and `&` escaped; the highlighter keeps whitespace and wraps the lines itself. Languages that matter here: `diff` for every sketch (lines starting with `+` or `-` turn green and red, `@@` lines and `---`/`+++` headers muted), `ts`, `js`, `bash`, `sql`, `yaml`, `json`, `py`, `go`, `rs`, `plain`. Inline code stays `<code>`, styled by Pico.
 
 ## Layout
 
@@ -29,4 +36,4 @@ Buttons and links take `class="secondary"`, `class="contrast"`, `class="outline"
 
 ## Our layer
 
-`pre.diff` with `.add` / `.del` lines, `.flow` boxes and arrows, the `.ui` mock, the stakeholder `dl` grid, and the risks checklist (`<li><label><input type="checkbox"> …</label></li>`, so the reviewer can tick items). The layer uses Pico variables (`--pico-primary`, `--pico-muted-color`, `--pico-muted-border-color`, `--pico-card-background-color`, `--pico-ins-color`, `--pico-del-color`, `--pico-border-radius`), so a new rule that uses them follows both themes.
+The `shj-lang-*` blocks recoloured to Pico's code background and font, `.flow` boxes and arrows, the `.ui` mock, the stakeholder `dl` grid, and the risks checklist (`<li><label><input type="checkbox"> …</label></li>`, so the reviewer can tick items). The layer uses Pico variables (`--pico-primary`, `--pico-muted-color`, `--pico-muted-border-color`, `--pico-card-background-color`, `--pico-ins-color`, `--pico-del-color`, `--pico-border-radius`), so a new rule that uses them follows both themes.
