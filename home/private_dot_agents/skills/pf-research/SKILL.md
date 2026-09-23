@@ -24,7 +24,7 @@ Gather wide, then keep only what shapes the narrative. Gathering is done when ev
 
 ## The narrative
 
-Structure the research narrative HTML (pf-cycle → artifact storage + HTML mechanics; visible text follows pf-cycle → Naming on public surfaces) in product order:
+Structure the research narrative HTML (pf-cycle → artifact storage + HTML mechanics + Language; visible text follows pf-cycle → Naming on public surfaces) in product order:
 
 1. **What is** — the current state, narrated over real screenshots of today's product; the entities/commands/pages involved as they exist now.
 2. **The gap** — why change: the user need, the broken seam, the opportunity; grounded in what Gather found, not asserted.
