@@ -95,7 +95,11 @@ Before saving, confirm in the HTML source:
 - the only external resources are the template's Pico stylesheet, the speed-highlight theme and loader, and the Mermaid loader;
 - absolute paths from this machine appear only inside diff snippets.
 
-On macOS without `--no-open`, run `open "$file"`. Finish with exactly one final line:
+On macOS without `--no-open`, run `open "$file"`.
+
+To publish the page as a Claude Artifact, publish the copy that `python3 scripts/inject-styles.py "$file" -o <copy>` writes: Artifacts block external stylesheets, so the copy carries Pico and the highlighter theme inside the file while the scripts stay external. The `/tmp` file itself keeps its links.
+
+Finish with exactly one final line:
 
 ```
 Explanation: /tmp/2026-09-22-explanation-<slug>.html

@@ -1,6 +1,6 @@
 # Render kit of the explanation page
 
-Write semantic HTML and let the kit style it. The template links two libraries from jsDelivr, both following `prefers-color-scheme`: Pico 2.1.1 styles every bare element (`hgroup`, `nav`, `article`, `details`, `blockquote`, `figure`, `table`, `kbd`, `mark`, `ins`, `del`, `progress`, `dialog`, forms), and speed-highlight 2.1.0 colours code blocks. The whole class vocabulary of the page is the two tables below; an element outside them carries no class.
+Write semantic HTML and let the kit style it. The libraries load from the CDN; for a host that blocks external stylesheets, such as Claude Artifacts, `scripts/inject-styles.py` writes a copy with the CSS inside the file. The template links two libraries from jsDelivr, both following `prefers-color-scheme`: Pico 2.1.1 styles every bare element (`hgroup`, `nav`, `article`, `details`, `blockquote`, `figure`, `table`, `kbd`, `mark`, `ins`, `del`, `progress`, `dialog`, forms), and speed-highlight 2.1.0 colours code blocks. The whole class vocabulary of the page is the two tables below; an element outside them carries no class.
 
 ## Pico's classes, all of them
 
