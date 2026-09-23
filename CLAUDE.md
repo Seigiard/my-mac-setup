@@ -124,7 +124,7 @@ Adding a managed config, step by step:
 
 <important if="you are adding or changing agent skills">
 
-- `home/private_dot_config/agent-skills/manifest` is the source of truth for selected upstream skills. Use `~/.local/bin/skills {add|remove|update|sync}` to manage the live global installation; `sync` reports drift but never removes it.
+- `home/private_dot_config/agent-skills/manifest` is the source of truth for selected upstream skills. Use `~/.local/bin/skills {add|remove|update|sync}` to manage the live global installation; `sync` applies declared wildcard exclusions but never removes other drift automatically.
 - `home/private_dot_agents/skills/` is chezmoi's canonical storage for repository-owned model-invocable skills. The Skills CLI owns separate children in `~/.agents/skills` and records their ownership in its global lock; do not let either owner claim the same effective skill name.
 - `open-questions` is an explicit-only Claude/Pi adapter with an OpenCode command adapter. Client plugins retain non-skill functionality only. Restart Claude Code, OpenCode, and Pi after deployment or discovery changes.
 

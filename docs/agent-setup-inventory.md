@@ -30,8 +30,12 @@ remove them or preserve them through `skills add`. Before a managed `add` or
 `remove`, the wrapper requires a clean chezmoi source branch, pulls it with
 `--ff-only`, and refreshes the live manifest. After the local operation, it
 captures the manifest with `chezmoi add`, commits only that file, and pushes the
-commit. Removing one skill from a wildcard source is rejected because the
-manifest cannot represent "all except this skill". `sync` never removes drift
+commit. A wildcard may be followed by path exclusions, for example
+`skills add mattpocock/skills '*' '!*/in-progress/*'`. After the wildcard
+installation, each `!<glob>` removes skills whose upstream `skillPath` matches;
+named skills still cannot be mixed with `*`. Removing one named skill from a
+wildcard source remains rejected because it cannot produce a durable path
+exclusion. `sync` applies declared exclusions but never removes other drift
 automatically. Restart Claude Code, OpenCode, and Pi after installation or
 discovery configuration changes.
 Successful upstream CLI output is hidden by default; use `skills --verbose

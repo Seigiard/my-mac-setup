@@ -1296,7 +1296,9 @@ function test_scripts_1186_worktree_identity_reconciles_terminal_workspace_to_th
   assert_equal "$(read_state_field "$state" outcome)" complete
   assert_equal "$(cat "$HWI_WORK/workspace.label")" "$branch"
   assert_equal "$(hwi_workspace_rename_count)" 1
-  assert_file_not_contains "$HWI_WORK/herdr.calls" '^(pane|tab|agent) rename '
+  assert_file_not_contains "$HWI_WORK/herdr.calls" 'pane rename '
+  assert_file_not_contains "$HWI_WORK/herdr.calls" 'tab rename '
+  assert_file_not_contains "$HWI_WORK/herdr.calls" 'agent rename '
 
   printf '%s' 'Legacy workspace title' > "$HWI_WORK/workspace.label"
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
@@ -7814,8 +7816,8 @@ function test_scripts_260_pinned_bashunit_survives_late_child_output_aft() {
   run env NO_COLOR=1 TMPDIR="$BATS_TEST_TMPDIR" \
     "$BATS_TEST_DIRNAME/lib/bashunit" -j 2 "$probe_file"
   assert_success
-  # Bashunit abbreviates long titles to the terminal width in Docker panes.
-  assert_output --partial "Passed: late child output"
+  # The title is terminal-width dependent; the single-test count proves the probe ran.
+  assert_output --partial "Tests:      1 passed, 1 total"
   assert_output --partial "Assertions: 1 passed, 1 total"
 
   # Sequential leg: extract_result_counts parses the captured execution
@@ -8372,6 +8374,65 @@ SH
   printf '%s' "$stub"
 }
 
+skills_exclusion_stub_npx() {
+  local stub="$BATS_TEST_TMPDIR/skills-exclusion-stub"
+  mkdir -p "$stub"
+  cat > "$stub/npx" <<'SH'
+#!/usr/bin/env bash
+printf 'ARGS=' >> "$TMPDIR/npx.log"
+printf '<%s>' "$@" >> "$TMPDIR/npx.log"
+printf '\n' >> "$TMPDIR/npx.log"
+case "$3" in
+  add)
+    source="$4"
+    if [ "$source" = mattpocock/skills ]; then
+      mkdir -p "$HOME/.agents/skills/pr"
+      printf '%s\n' pr > "$HOME/.agents/skills/pr/SKILL.md"
+    else
+      mkdir -p "$HOME/.agents/skills/stable" "$HOME/.agents/skills/draft"
+      printf '%s\n' stable > "$HOME/.agents/skills/stable/SKILL.md"
+      printf '%s\n' draft > "$HOME/.agents/skills/draft/SKILL.md"
+    fi
+    python3 - "$XDG_STATE_HOME/skills/.skill-lock.json" "$source" <<'PY'
+import json, sys
+path, source = sys.argv[1:]
+with open(path, encoding="utf-8") as stream:
+    data = json.load(stream)
+if source == "mattpocock/skills":
+    fixtures = {"pr": {"source": source, "skillPath": "skills/in-progress/pr/SKILL.md"}}
+else:
+    fixtures = {
+        "stable": {"source": source, "skillPath": "skills/stable/SKILL.md"},
+        "draft": {"source": source, "skillPath": "skills/in-progress/draft/SKILL.md"},
+    }
+data["skills"].update(fixtures)
+with open(path, "w", encoding="utf-8") as stream:
+    json.dump(data, stream)
+PY
+    ;;
+  remove)
+    [ ! -e "$TMPDIR/fail-remove" ] || exit 9
+    shift 3
+    for skill in "$@"; do
+      case "$skill" in --global|--yes) continue ;; esac
+      rm -rf "$HOME/.agents/skills/$skill"
+      python3 - "$XDG_STATE_HOME/skills/.skill-lock.json" "$skill" <<'PY'
+import json, sys
+path, skill = sys.argv[1:]
+with open(path, encoding="utf-8") as stream:
+    data = json.load(stream)
+data["skills"].pop(skill, None)
+with open(path, "w", encoding="utf-8") as stream:
+    json.dump(data, stream)
+PY
+    done
+    ;;
+esac
+SH
+  chmod +x "$stub/npx"
+  printf '%s' "$stub"
+}
+
 function test_scripts_272_skills_add_is_global_isolated_and_preserves_cwd() {
   _bats_test_init 272 'skills add invokes npx globally in an isolated temporary-directory subshell'
   local stub original
@@ -8798,12 +8859,41 @@ function test_scripts_276_skills_remove_uses_explicit_and_default_xdg_locks_iden
 }
 
 function test_scripts_277_skills_sync_restores_repository_owned_wildcard_collision() {
-  _bats_test_init 277 'skills sync restores a repository-owned wildcard collision and removes its lock claim'
+  _bats_test_init 277 'skills sync restores repository-owned wildcard collisions whether rejected or excluded'
   local stub manifest lock canonical
   stub="$(skills_stub_npx)"
   cat > "$stub/npx" <<'SH'
 #!/usr/bin/env bash
-printf '%s\n' upstream > "$HOME/.agents/skills/local-skill/SKILL.md"
+case "$3" in
+  add)
+    printf '%s\n' upstream > "$HOME/.agents/skills/local-skill/SKILL.md"
+    python3 - "$XDG_STATE_HOME/skills/.skill-lock.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+with open(path, encoding="utf-8") as stream:
+    data = json.load(stream)
+data["skills"]["local-skill"] = {
+    "source": "example/upstream-skills",
+    "skillPath": "skills/in-progress/local-skill/SKILL.md",
+}
+with open(path, "w", encoding="utf-8") as stream:
+    json.dump(data, stream)
+PY
+    ;;
+  remove)
+    [ ! -e "$TMPDIR/fail-remove" ] || exit 9
+    rm -rf "$HOME/.agents/skills/local-skill"
+    python3 - "$XDG_STATE_HOME/skills/.skill-lock.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+with open(path, encoding="utf-8") as stream:
+    data = json.load(stream)
+data["skills"].pop("local-skill", None)
+with open(path, "w", encoding="utf-8") as stream:
+    json.dump(data, stream)
+PY
+    ;;
+esac
 exit 0
 SH
   chmod +x "$stub/npx"
@@ -8813,7 +8903,7 @@ SH
   mkdir -p "$(dirname "$lock")" "$canonical/local-skill" "$BATS_TEST_TMPDIR/config/agent-skills"
   printf '%s\n' 'example/upstream-skills *' > "$manifest"
   printf '%s\n' local-skill > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
-  printf '%s\n' '{"version":3,"skills":{"local-skill":{"source":"example/upstream-skills"}}}' > "$lock"
+  printf '%s\n' '{"version":3,"skills":{}}' > "$lock"
   printf '%s\n' original > "$canonical/local-skill/SKILL.md"
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
@@ -8821,6 +8911,35 @@ SH
     SKILLS_MANIFEST="$manifest" bash "$SKILLS_WRAPPER" sync
   assert_failure
   run cat "$canonical/local-skill/SKILL.md"
+  assert_output original
+  run python3 - "$lock" <<'PY'
+import json, sys
+assert "local-skill" not in json.load(open(sys.argv[1]))["skills"]
+PY
+  assert_success
+
+  printf '%s\n' 'example/upstream-skills * !*/in-progress/*' > "$manifest"
+  printf '%s\n' '{"version":3,"skills":{}}' > "$lock"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$manifest" bash "$SKILLS_WRAPPER" sync
+  assert_success
+  run cat "$canonical/local-skill/SKILL.md"
+  assert_success
+  assert_output original
+  run python3 - "$lock" <<'PY'
+import json, sys
+assert "local-skill" not in json.load(open(sys.argv[1]))["skills"]
+PY
+  assert_success
+
+  : > "$BATS_TEST_TMPDIR/tmp/fail-remove"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$manifest" bash "$SKILLS_WRAPPER" sync
+  assert_failure 9
+  run cat "$canonical/local-skill/SKILL.md"
+  assert_success
   assert_output original
   run python3 - "$lock" <<'PY'
 import json, sys
@@ -8912,6 +9031,246 @@ function test_scripts_279_skills_sync_offers_to_remove_or_save_named_drift_but_n
   assert_output --partial 'drift: skills remove gone/repo orphan'
   assert_output --partial 'keep:  skills add gone/repo orphan'
   refute_output --partial 'drift: skills remove example/upstream-skills upstream-skill'
+}
+
+function test_scripts_307_skills_sync_removes_wildcard_path_exclusions() {
+  _bats_test_init 307 'skills sync removes wildcard exclusions by upstream path and reports their names'
+  local stub manifest lock canonical
+  stub="$(skills_exclusion_stub_npx)"
+  manifest="$BATS_TEST_TMPDIR/manifest"
+  lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
+  canonical="$BATS_TEST_TMPDIR/home/.agents/skills"
+  mkdir -p "$(dirname "$lock")" "$BATS_TEST_TMPDIR/config/agent-skills"
+  : > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
+  printf '%s\n' 'example/upstream-skills * !*/in-progress/*' > "$manifest"
+  printf '%s\n' '{"version":3,"skills":{}}' > "$lock"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$manifest" bash "$SKILLS_WRAPPER" sync
+  assert_success
+  assert_output --partial 'Excluded skills from example/upstream-skills: draft'
+  assert_dir_exists "$canonical/stable"
+  assert_dir_not_exists "$canonical/draft"
+  run python3 - "$lock" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    skills = json.load(stream)["skills"]
+assert set(skills) == {"stable"}
+PY
+  assert_success
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<add><example/upstream-skills><--skill><\*><--global>'
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<remove><--global><draft><--yes>$'
+}
+
+function test_scripts_3071_skills_add_persists_and_applies_wildcard_path_exclusions() {
+  _bats_test_init 3071 'skills add persists wildcard path exclusions and removes matching installed skills'
+  local stub manifest lock canonical
+  stub="$(skills_exclusion_stub_npx)"
+  manifest="$BATS_TEST_TMPDIR/manifest"
+  lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
+  canonical="$BATS_TEST_TMPDIR/home/.agents/skills"
+  mkdir -p "$(dirname "$lock")" "$canonical/draft" "$BATS_TEST_TMPDIR/config/agent-skills"
+  printf '%s\n' draft > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
+  printf '%s\n' original > "$canonical/draft/SKILL.md"
+  printf '%s\n' 'other/repo other-skill' > "$manifest"
+  printf '%s\n' '{"version":3,"skills":{}}' > "$lock"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$manifest" \
+    bash "$SKILLS_WRAPPER" --verbose add owner/repo '*' '!*/in-progress/*'
+  assert_success
+  assert_output --partial 'Excluded skills from owner/repo: draft'
+  assert_file_contains "$manifest" '^owner/repo \* !\*/in-progress/\*$'
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<add><owner/repo><--skill><\*><--global>'
+  assert_file_not_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<--skill><!*/in-progress/*>'
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<remove><--global><draft><--yes>$'
+  run python3 - "$lock" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    skills = json.load(stream)["skills"]
+assert set(skills) == {"stable"}
+PY
+  assert_success
+  run cat "$canonical/draft/SKILL.md"
+  assert_success
+  assert_output original
+
+  : > "$BATS_TEST_TMPDIR/tmp/fail-remove"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$manifest" \
+    bash "$SKILLS_WRAPPER" --verbose add owner/repo '*' '!*/in-progress/*'
+  assert_failure 9
+  run cat "$canonical/draft/SKILL.md"
+  assert_success
+  assert_output original
+  run python3 - "$lock" <<'PY'
+import json, sys
+assert "draft" not in json.load(open(sys.argv[1]))["skills"]
+PY
+  assert_success
+}
+
+function test_scripts_3072_skills_remove_points_wildcard_sources_to_exclusion_syntax() {
+  _bats_test_init 3072 'skills remove points wildcard sources to persistent path exclusion syntax'
+  local stub manifest lock
+  stub="$(skills_stub_npx)"
+  manifest="$BATS_TEST_TMPDIR/manifest"
+  lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
+  mkdir -p "$(dirname "$lock")"
+  printf '%s\n' 'owner/repo * !*/in-progress/*' > "$manifest"
+  printf '%s\n' '{"version":3,"skills":{"draft":{"source":"owner/repo","skillPath":"skills/in-progress/draft/SKILL.md"}}}' > "$lock"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" SKILLS_MANIFEST="$manifest" \
+    bash "$SKILLS_WRAPPER" remove owner/repo draft
+  assert_failure
+  assert_output --partial 'cannot persist removal from wildcard manifest source: owner/repo; use !<glob> after * to exclude upstream paths'
+  assert_file_not_exists "$BATS_TEST_TMPDIR/tmp/npx.log"
+}
+
+function test_scripts_3075_skills_add_preserves_existing_wildcard_exclusions() {
+  _bats_test_init 3075 'skills wildcard-only re-adds reapply stored exclusions'
+  local stub manifest lock canonical
+  stub="$(skills_exclusion_stub_npx)"
+  manifest="$BATS_TEST_TMPDIR/manifest"
+  lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
+  canonical="$BATS_TEST_TMPDIR/home/.agents/skills"
+  mkdir -p "$(dirname "$lock")" "$BATS_TEST_TMPDIR/config/agent-skills"
+  : > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
+  printf '%s\n' 'owner/repo * !*/in-progress/*' > "$manifest"
+  printf '%s\n' '{"version":3,"skills":{}}' > "$lock"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$manifest" \
+    bash "$SKILLS_WRAPPER" add owner/repo
+  assert_success
+  assert_output --partial 'Excluded skills from owner/repo: draft'
+  assert_file_contains "$manifest" '^owner/repo \* !\*/in-progress/\*$'
+  assert_dir_exists "$canonical/stable"
+  assert_dir_not_exists "$canonical/draft"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$manifest" \
+    bash "$SKILLS_WRAPPER" add owner/repo '*'
+  assert_success
+  assert_output --partial 'Excluded skills from owner/repo: draft'
+  assert_file_contains "$manifest" '^owner/repo \* !\*/in-progress/\*$'
+  assert_dir_not_exists "$canonical/draft"
+
+  run python3 - "$lock" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    skills = json.load(stream)["skills"]
+assert set(skills) == {"stable"}
+PY
+  assert_success
+}
+
+function test_scripts_3073_skills_add_rejects_named_or_unbound_exclusion_entries() {
+  _bats_test_init 3073 'skills add keeps named selections separate from wildcard exclusions'
+  local stub lock
+  stub="$(skills_stub_npx)"
+  lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
+  mkdir -p "$(dirname "$lock")"
+  printf '%s\n' '{"version":3,"skills":{}}' > "$lock"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" SKILLS_MANIFEST="$BATS_TEST_TMPDIR/manifest" \
+    bash "$SKILLS_WRAPPER" add owner/repo '*' named-skill
+  assert_failure
+  assert_output --partial 'wildcard cannot be mixed with named skills: owner/repo'
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" SKILLS_MANIFEST="$BATS_TEST_TMPDIR/manifest" \
+    bash "$SKILLS_WRAPPER" add owner/repo '!*/in-progress/*'
+  assert_failure
+  assert_output --partial 'invalid wildcard exclusion: owner/repo !*/in-progress/*'
+  assert_file_not_exists "$BATS_TEST_TMPDIR/tmp/npx.log"
+}
+
+function test_scripts_3074_skills_exclusion_fake_matches_the_real_lock_path_contract() {
+  _bats_test_init 3074 'skills exclusion fake matches the real Skills CLI lock path contract'
+  command_exists npx || skip 'npx is required as the Skills CLI oracle'
+  local real_home real_state real_paths stub fake_home fake_state
+  real_home="$BATS_TEST_TMPDIR/real-home"
+  real_state="$BATS_TEST_TMPDIR/real-state"
+  fake_home="$BATS_TEST_TMPDIR/fake-home"
+  fake_state="$BATS_TEST_TMPDIR/fake-state"
+  mkdir -p "$real_home" "$real_state/skills" "$fake_home" "$fake_state/skills" "$BATS_TEST_TMPDIR/tmp"
+
+  run python3 - "$real_home" "$real_state" "$BATS_TEST_TMPDIR" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+
+home, state, root = sys.argv[1:]
+env = os.environ.copy()
+env.update({
+    "HOME": home,
+    "TMPDIR": os.path.join(root, "tmp"),
+    "XDG_STATE_HOME": state,
+    "XDG_CONFIG_HOME": os.path.join(root, "real-config"),
+    "XDG_DATA_HOME": os.path.join(root, "real-data"),
+    "XDG_CACHE_HOME": os.path.join(root, "real-cache"),
+    "CI": "1",
+    "NO_COLOR": "1",
+})
+try:
+    process = subprocess.Popen(
+        ["npx", "--yes", "skills@latest", "add", "mattpocock/skills", "--skill", "pr",
+         "--global", "--agent", "claude-code", "--yes"],
+        cwd=env["TMPDIR"],
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    stdout, _ = process.communicate(timeout=60)
+except subprocess.TimeoutExpired as error:
+    os.killpg(process.pid, signal.SIGKILL)
+    stdout, _ = process.communicate()
+    sys.stdout.buffer.write(stdout)
+    print("real Skills CLI fixture timed out after %ss" % error.timeout)
+    sys.exit(124)
+sys.stdout.buffer.write(stdout)
+sys.exit(process.returncode)
+PY
+  [ "$status" -eq 0 ] || skip "real Skills CLI fixture is unavailable: $output"
+  run python3 - "$real_state/skills/.skill-lock.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    skills = json.load(stream)["skills"]
+print(json.dumps({
+    name: {"source": entry["source"], "skillPath": entry["skillPath"]}
+    for name, entry in skills.items()
+}, sort_keys=True))
+PY
+  assert_success
+  real_paths="$output"
+
+  stub="$(skills_exclusion_stub_npx)"
+  printf '%s\n' '{"version":3,"skills":{}}' > "$fake_state/skills/.skill-lock.json"
+  run env HOME="$fake_home" TMPDIR="$BATS_TEST_TMPDIR/tmp" XDG_STATE_HOME="$fake_state" \
+    "$stub/npx" --yes skills@latest add mattpocock/skills --skill pr --global --agent claude-code --yes
+  assert_success
+  run python3 - "$fake_state/skills/.skill-lock.json" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    skills = json.load(stream)["skills"]
+print(json.dumps({
+    name: {"source": entry["source"], "skillPath": entry["skillPath"]}
+    for name, entry in skills.items()
+}, sort_keys=True))
+PY
+  assert_success
+  assert_output "$real_paths"
 }
 
 # ===========================================

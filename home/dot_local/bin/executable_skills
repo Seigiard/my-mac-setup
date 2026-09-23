@@ -31,6 +31,9 @@ fail() {
 
 valid_source() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; }
 valid_skill() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; }
+valid_exclusion() {
+  [[ "$1" = !?* && "$1" != *[[:space:]#:]* ]]
+}
 
 lock_records() {
   [ -e "$LOCK_PATH" ] || return 3
@@ -123,7 +126,10 @@ run_npx() {
   fi
   local waited=0 started heartbeat_at="$SKILLS_HEARTBEAT" timed_out=0
   output="$(mktemp "$TMPDIR/skills-output.XXXXXX")" || return 1
-  trap 'status=$?; [ -z "$NPX_PID" ] || signal_tree TERM "$NPX_PID"; rm -f "$output"; trap - EXIT HUP INT TERM; exit "$status"' EXIT HUP INT TERM
+  trap 'status=$?; [ -z "$NPX_PID" ] || signal_tree TERM "$NPX_PID"; rm -f "$output"; trap - EXIT HUP INT TERM; exit "$status"' EXIT
+  trap 'status=129; [ -z "$NPX_PID" ] || signal_tree TERM "$NPX_PID"; rm -f "$output"; trap - EXIT HUP INT TERM; exit "$status"' HUP
+  trap 'status=130; [ -z "$NPX_PID" ] || signal_tree TERM "$NPX_PID"; rm -f "$output"; trap - EXIT HUP INT TERM; exit "$status"' INT
+  trap 'status=143; [ -z "$NPX_PID" ] || signal_tree TERM "$NPX_PID"; rm -f "$output"; trap - EXIT HUP INT TERM; exit "$status"' TERM
   # Captured output cannot render a prompt, so deny the child a terminal to
   # wait on. Upstream ignores CI=1 for its deleted-skill confirmation.
   invoke_npx "$@" </dev/null > "$output" 2>&1 &
@@ -252,7 +258,10 @@ for index, line in enumerate(lines):
     current = fields[1:]
     if action == "add":
         if "*" in skills:
-            current = ["*"]
+            incoming = list(dict.fromkeys(skills))
+            if not any(skill.startswith("!") for skill in incoming):
+                incoming.extend(skill for skill in current if skill.startswith("!"))
+            current = incoming
         elif "*" not in current:
             for skill in skills:
                 if skill not in current:
@@ -307,8 +316,60 @@ manifest_source_uses_wildcard() {
   return 1
 }
 
+exclude_source_skills() {
+  local source="$1" snapshot_root="$2" matches skill remove_status=0
+  shift 2
+  [ "$#" -gt 0 ] || return 0
+  matches="$(python3 - "$LOCK_PATH" "$source" "$@" <<'PY'
+import fnmatch
+import json
+import sys
+
+lock, source, *exclusions = sys.argv[1:]
+try:
+    with open(lock, encoding="utf-8") as stream:
+        data = json.load(stream)
+    for name, entry in data["skills"].items():
+        if entry.get("source") != source:
+            continue
+        skill_path = entry.get("skillPath")
+        if not isinstance(skill_path, str):
+            raise ValueError("lock entry for %s has no skillPath" % name)
+        if any(fnmatch.fnmatchcase(skill_path, pattern[1:]) for pattern in exclusions):
+            print(name)
+except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+    print("skills: cannot apply wildcard exclusions: %s" % error, file=sys.stderr)
+    sys.exit(2)
+PY
+  )" || return $?
+  [ -n "$matches" ] || return 0
+  local excluded=()
+  while IFS= read -r skill; do
+    [ -z "$skill" ] || excluded+=("$skill")
+  done <<< "$matches"
+  [ "${#excluded[@]}" -gt 0 ] || return 0
+  for skill in "${excluded[@]}"; do
+    valid_skill "$skill" || { fail "invalid skill name in global lock: $skill"; return 2; }
+  done
+  run_remove "${excluded[@]}" || remove_status=$?
+  for skill in "${excluded[@]}"; do
+    [ -n "$snapshot_root" ] && [ -d "$snapshot_root/$skill" ] || continue
+    rm -rf "${CANONICAL_ROOT:?}/$skill" || return 1
+    cp -pR "$snapshot_root/$skill" "$CANONICAL_ROOT/$skill" || {
+      fail "could not restore repository-owned skill after exclusion: $skill"
+      return 1
+    }
+    [ ! -e "$LOCK_PATH" ] || remove_lock_claim "$skill" || {
+      fail "could not remove conflicting lock claim after exclusion: $skill"
+      return 1
+    }
+  done
+  [ "$remove_status" -eq 0 ] || return "$remove_status"
+  printf 'Excluded skills from %s: %s\n' "$source" "${excluded[*]}"
+}
+
 parse_manifest() {
-  local line source skill count had_noglob=0
+  local line source skill count has_wildcard had_noglob=0
   MANIFEST_SOURCES=()
   MANIFEST_SKILLS=()
   [ -r "$MANIFEST" ] || { fail "cannot read manifest: $MANIFEST"; return 1; }
@@ -328,10 +389,21 @@ parse_manifest() {
       [ "$skill" != "$source" ] || { [ "$had_noglob" -eq 1 ] || set +f; fail "duplicate manifest source: $source"; return 1; }
     done
     count=0
+    has_wildcard=0
+    for skill in "$@"; do
+      [ "$skill" != '*' ] || has_wildcard=1
+    done
     for skill in "$@"; do
       if [ "$skill" = '*' ]; then
-        [ "$#" -eq 1 ] || { [ "$had_noglob" -eq 1 ] || set +f; fail "wildcard cannot be mixed with named skills: $source"; return 1; }
+        :
+      elif [[ "$skill" = !* ]]; then
+        [ "$has_wildcard" -eq 1 ] && valid_exclusion "$skill" || {
+          [ "$had_noglob" -eq 1 ] || set +f
+          fail "invalid wildcard exclusion: $source $skill"
+          return 1
+        }
       else
+        [ "$has_wildcard" -eq 0 ] || { [ "$had_noglob" -eq 1 ] || set +f; fail "wildcard cannot be mixed with named skills: $source"; return 1; }
         valid_skill "$skill" || { [ "$had_noglob" -eq 1 ] || set +f; fail "invalid manifest skill: $skill"; return 1; }
       fi
       case " ${MANIFEST_SKILLS[*]:-} " in
@@ -386,7 +458,7 @@ validate_manifest_collisions() {
   local entry skill
   for entry in "${MANIFEST_SKILLS[@]}"; do
     skill="${entry#*:}"
-    [ "$skill" = '*' ] && continue
+    case "$skill" in '*'|!*) continue ;; esac
     repository_owns "$skill" && { fail "manifest skill collides with repository-owned skill: $skill"; return 1; }
   done
   return 0
@@ -441,14 +513,22 @@ sync() {
     }
   done
   for source in "${MANIFEST_SOURCES[@]}"; do
-    for entry in "${MANIFEST_SKILLS[@]}"; do
-      [ "$entry" = "$source:*" ] || continue
-    done
     set --
+    local exclusions=()
     for entry in "${MANIFEST_SKILLS[@]}"; do
-      [ "${entry%%:*}" != "$source" ] || set -- "$@" "${entry#*:}"
+      [ "${entry%%:*}" = "$source" ] || continue
+      skill="${entry#*:}"
+      case "$skill" in
+        !*) exclusions+=("$skill") ;;
+        *) set -- "$@" "$skill" ;;
+      esac
     done
     run_add "$source" "$@" || { status=$?; rm -rf "$workdir"; return "$status"; }
+    if [ -n "${exclusions[*]:-}" ]; then
+      exclude_source_skills "$source" "$workdir/repository-owned" "${exclusions[@]}" || {
+        status=$?; rm -rf "$workdir"; return "$status"
+      }
+    fi
   done
   while IFS=$'\t' read -r name source; do
     repository_owns "$name" || continue
@@ -467,7 +547,8 @@ sync() {
   [ "$collision" -eq 0 ] || { rm -rf "$workdir"; return 1; }
   for entry in "${MANIFEST_SKILLS[@]}"; do
     skill="${entry#*:}"
-    [ "$skill" = '*' ] || validate_canonical_tree "$CANONICAL_ROOT/$skill" || { rm -rf "$workdir"; return 1; }
+    case "$skill" in '*'|!*) continue ;; esac
+    validate_canonical_tree "$CANONICAL_ROOT/$skill" || { rm -rf "$workdir"; return 1; }
   done
   validate_canonical_tree "$CANONICAL_ROOT" || { rm -rf "$workdir"; return 1; }
   report_drift
@@ -478,13 +559,65 @@ add() {
   local source="$1"; shift
   valid_source "$source" || { fail "invalid source: $source"; return 1; }
   if [ "$#" -eq 0 ]; then set -- '*'; fi
-  local skill
-  for skill in "$@"; do [ "$skill" = '*' ] || valid_skill "$skill" || { fail "invalid skill: $skill"; return 1; }; done
+  local skill entry has_wildcard=0 status exclusion_workdir=''
+  local requested=("$@") install_skills=() exclusions=()
+  for skill in "${requested[@]}"; do
+    [ "$skill" != '*' ] || has_wildcard=1
+  done
+  for skill in "${requested[@]}"; do
+    case "$skill" in
+      '*') install_skills+=("$skill") ;;
+      !*)
+        [ "$has_wildcard" -eq 1 ] && valid_exclusion "$skill" || {
+          fail "invalid wildcard exclusion: $source $skill"
+          return 1
+        }
+        exclusions+=("$skill")
+        ;;
+      *)
+        [ "$has_wildcard" -eq 0 ] || { fail "wildcard cannot be mixed with named skills: $source"; return 1; }
+        valid_skill "$skill" || { fail "invalid skill: $skill"; return 1; }
+        install_skills+=("$skill")
+        ;;
+    esac
+  done
   validate_live_lock || return 1
   prepare_managed_manifest || return 1
-  run_add "$source" "$@" || return "$?"
-  update_manifest_skills add "$source" "$@" || { fail "could not save skills in manifest: $MANIFEST"; return 1; }
-  publish_managed_manifest add "$@"
+  if [ "$has_wildcard" -eq 1 ] && [ "${#exclusions[@]}" -eq 0 ] && [ -s "$MANIFEST" ]; then
+    parse_manifest || return 1
+    for entry in "${MANIFEST_SKILLS[@]}"; do
+      [ "${entry%%:*}" = "$source" ] || continue
+      skill="${entry#*:}"
+      case "$skill" in
+        !*) requested+=("$skill"); exclusions+=("$skill") ;;
+      esac
+    done
+  fi
+  if [ -n "${exclusions[*]:-}" ]; then
+    load_repository_owned || return 1
+    mkdir -p "$TMPDIR" || return 1
+    exclusion_workdir="$(mktemp -d "$TMPDIR/skills-add.XXXXXX")" || return 1
+    mkdir -p "$exclusion_workdir/repository-owned" || { rm -rf "$exclusion_workdir"; return 1; }
+    snapshot_repository_trees "$exclusion_workdir/repository-owned" || {
+      rm -rf "$exclusion_workdir"
+      return 1
+    }
+  fi
+  run_add "$source" "${install_skills[@]}" || {
+    status=$?
+    [ -z "$exclusion_workdir" ] || rm -rf "$exclusion_workdir"
+    return "$status"
+  }
+  if [ -n "${exclusions[*]:-}" ]; then
+    exclude_source_skills "$source" "$exclusion_workdir/repository-owned" "${exclusions[@]}" || {
+      status=$?
+      rm -rf "$exclusion_workdir"
+      return "$status"
+    }
+    rm -rf "$exclusion_workdir"
+  fi
+  update_manifest_skills add "$source" "${requested[@]}" || { fail "could not save skills in manifest: $MANIFEST"; return 1; }
+  publish_managed_manifest add "${requested[@]}"
 }
 
 remove() {
@@ -501,7 +634,7 @@ remove() {
   prepare_managed_manifest || return 1
   parse_manifest || return 1
   manifest_source_uses_wildcard "$source" && {
-    fail "cannot persist removal from wildcard manifest source: $source"
+    fail "cannot persist removal from wildcard manifest source: $source; use !<glob> after * to exclude upstream paths"
     return 1
   }
   run_remove "$@" || return "$?"
