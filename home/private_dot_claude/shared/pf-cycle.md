@@ -28,10 +28,10 @@ The cycle's terms — research narrative, contract spec, epic PR, demo — are p
 
 Two audiences, one artifact each.
 
-- **The user's language** — the one the user is addressed in: what their instructions name for replies, else the one they write in. It covers everything said to the user (chat summaries, questions, decision briefs, recommendations, status reports) and the artifacts only the user reads before the fork: `/pf-issue`'s `issue.md`, `/pf-research`'s `research.md` and `research.html`.
-- **English** — everything a teammate, a reviewer, or another machine reads: every surface listed under **Naming on public surfaces**, plus `/pf-spec`'s `spec.md` and `spec.html`, `/pf-build`'s task files and demo, and every prompt to a subagent or an opencode session.
+- **English** — everything that leaves for the team or goes to a machine: every surface listed under **Naming on public surfaces**, the demo published to the team's host, `/pf-build`'s task files, and every prompt to a subagent or an opencode session.
+- **The user's language** — everything else the cycle writes, because the user is its only reader: chat, `/pf-issue`'s `issue.md`, `/pf-research`'s `research.md` and `research.html`, `/pf-spec`'s `spec.md` and `spec.html`. That language is the one the user is addressed in: what their instructions name for replies, else the one they write in.
 
-Nothing is translated: `/pf-spec` reads `research.md` and builds the spec narrative from what the PR actually changed. When the research narrative has to go to the team before a spec exists, build an English copy then, as a one-off.
+Nothing is translated. Each command reads its predecessor's file in the language it was written in, and writes contract deltas, PR text, task files and prompts as English from the start. When a narrative has to go to the team, build an English copy then, as a one-off.
 
 Identifiers, paths, commands, contract terms, error text and code stay in English inside any page, whatever the page's language.
 
