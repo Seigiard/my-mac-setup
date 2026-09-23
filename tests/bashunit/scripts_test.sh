@@ -24,6 +24,7 @@ setup() {
   unset HERDR_WORKSPACE_ID
   unset HERDR_PANE_ID
   unset OPENCODE_INTERCOM_NAME
+  unset INTERCOM_DIR
   unset HERDR_CHILD_MAX_DELIVERY_RETRIES
   unset HERDR_CHILD_TEST_RETRY_LOG
   unset HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER
@@ -139,6 +140,41 @@ function test_scripts_1331_agent_intercom_launcher_propagates_a_child_alias_to_e
     PATH="$stub:$PATH" bash "$launcher" pi --name wrong -n wrong-again -- --name message
   assert_success
   assert_output 'pi name=<> args= active=<1> pi_load=<self><--name><ochre-okapi><--><--name><message>'
+}
+
+function test_scripts_1905_agent_intercom_launcher_selects_shared_state_for_every_client() {
+  _bats_test_init 1905 'agent intercom launcher selects shared state for every client'
+  local launcher="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom"
+  local stub home="$BATS_TEST_TMPDIR/agent-intercom-home" client command
+  stub="$(agent_intercom_stub_bin)"
+  for command in claude opencode pi cci; do
+    cat > "$stub/$command" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "${INTERCOM_DIR-}"
+SH
+  done
+
+  for client in claude opencode pi; do
+    run env -u XDG_STATE_HOME HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
+      PATH="$stub:$PATH" bash "$launcher" "$client"
+    assert_success
+    assert_output "$home/.local/state/agent-intercom"
+
+    run env XDG_STATE_HOME="$home/custom state" HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
+      PATH="$stub:$PATH" bash "$launcher" "$client"
+    assert_success
+    assert_output "$home/custom state/agent-intercom"
+
+    run env INTERCOM_DIR="$home/explicit runtime" XDG_STATE_HOME="$home/custom state" \
+      HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" PATH="$stub:$PATH" \
+      bash "$launcher" "$client"
+    assert_success
+    assert_output "$home/explicit runtime"
+
+    run env -u HERDR_ENV HOME="$home" PATH="$stub:$PATH" bash "$launcher" "$client"
+    assert_success
+    assert_output ''
+  done
 }
 
 function test_scripts_1332_agent_intercom_launcher_resolves_the_current_pane_alias() {

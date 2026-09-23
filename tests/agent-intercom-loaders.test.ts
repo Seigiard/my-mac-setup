@@ -79,7 +79,8 @@ describe("Agent Intercom package pins", () => {
       "agent-intercom-pi",
     ]) {
       const entry = packages[`node_modules/@dataforxyz/${name}`];
-      expect(entry.resolved).toStartWith(`git+https://github.com/dataforxyz/${name}.git#`);
+      expect(entry.resolved).toStartWith("git+https://github.com/");
+      expect(entry.resolved).toMatch(/\.git#[0-9a-f]{40}$/);
     }
   });
 
