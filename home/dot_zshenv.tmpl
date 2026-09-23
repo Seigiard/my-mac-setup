@@ -115,6 +115,7 @@ export JINA_API_KEY={{ env "MMS_CHEZMOI_FIXTURE_JINA_API_KEY" | quote }}
 export CONTEXT7_API_KEY={{ env "MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY" | quote }}
 export VECTOR_PRIME_API_KEY={{ env "MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY" | quote }}
 export OPENROUTER_API_KEY={{ env "MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY" | quote }}
+export POSTHOG_PERSONAL_API_KEY={{ env "MMS_CHEZMOI_FIXTURE_POSTHOG_PERSONAL_API_KEY" | quote }}
 export VRT_R2_ACCESS_KEY_ID={{ env "MMS_CHEZMOI_FIXTURE_VRT_R2_ACCESS_KEY_ID" | quote }}
 export VRT_R2_SECRET_ACCESS_KEY={{ env "MMS_CHEZMOI_FIXTURE_VRT_R2_SECRET_ACCESS_KEY" | quote }}
 {{- else if and $unattended (eq $unattendedProfile "host-partial") }}
@@ -130,6 +131,7 @@ export JINA_API_KEY="{{ onepasswordRead "op://Private/Jina API Key/credential" "
 export CONTEXT7_API_KEY="{{ onepasswordRead "op://Private/Context7 API Key/credential" "my.1password.com" }}"
 export VECTOR_PRIME_API_KEY="{{ onepasswordRead "op://Private/VectorPrime API Key/credential" "my.1password.com" }}"
 export OPENROUTER_API_KEY="{{ onepasswordRead "op://Private/Openrouter API Key/credential" "my.1password.com" }}"
+export POSTHOG_PERSONAL_API_KEY="{{ onepasswordRead "op://Private/Posthog Readonly API Key/credential" "my.1password.com" }}"
 export VRT_R2_ACCESS_KEY_ID="{{ onepasswordRead "op://Development/su4smkegfrughklxze6gv2ly7a/Access Key ID" "getmembrane.1password.com" }}"
 export VRT_R2_SECRET_ACCESS_KEY="{{ onepasswordRead "op://Development/su4smkegfrughklxze6gv2ly7a/Secret Access Key" "getmembrane.1password.com" }}"
 {{- else if $unattended }}
@@ -147,6 +149,7 @@ export JINA_API_KEY="{{ onepasswordRead "op://Private/Jina API Key/credential" "
 export CONTEXT7_API_KEY="{{ onepasswordRead "op://Private/Context7 API Key/credential" "my.1password.com" }}"
 export VECTOR_PRIME_API_KEY="{{ onepasswordRead "op://Private/VectorPrime API Key/credential" "my.1password.com" }}"
 export OPENROUTER_API_KEY="{{ onepasswordRead "op://Private/Openrouter API Key/credential" "my.1password.com" }}"
+export POSTHOG_PERSONAL_API_KEY="{{ onepasswordRead "op://Private/Posthog Readonly API Key/credential" "my.1password.com" }}"
 export VRT_R2_ACCESS_KEY_ID="{{ onepasswordRead "op://Development/su4smkegfrughklxze6gv2ly7a/Access Key ID" "getmembrane.1password.com" }}"
 export VRT_R2_SECRET_ACCESS_KEY="{{ onepasswordRead "op://Development/su4smkegfrughklxze6gv2ly7a/Secret Access Key" "getmembrane.1password.com" }}"
 {{- end }}

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<title><!-- slot: title --></title>
+<!-- kit: head -->
+<!-- kit: components -->
+</head>
+<body>
+<main class="container">
+  <hgroup>
+    <h1><!-- slot: title --></h1>
+    <p><!-- slot: meta (branch or PR, base, date, file count) --></p>
+  </hgroup>
+
+  <nav class="toc" aria-label="Оглавление">
+    <ul>
+      <li><a href="#what">Что изменилось</a></li>
+      <li><a href="#background">Фон</a></li>
+      <li><a href="#code">Разбор кода</a></li>
+      <li><a href="#tests">Что проверяют тесты</a></li>
+      <li><a href="#risks">Риски и на что смотреть ревьюеру</a></li>
+    </ul>
+  </nav>
+
+  <h2 id="what">Что изменилось</h2>
+  <article>
+    <header><strong>Для нетехнических читателей</strong></header>
+    <dl class="rows">
+      <dt>Проблема</dt><dd><!-- slot --></dd>
+      <dt>Влияние</dt><dd><!-- slot --></dd>
+      <dt>Что сделано</dt><dd><!-- slot --></dd>
+      <dt>Что вы заметите</dt><dd><!-- slot --></dd>
+    </dl>
+  </article>
+  <!-- slot: lead, 3 to 5 sentences -->
+  <!-- slot: optional <blockquote> with the one rule the reader must hold to judge the code -->
+  <!-- slot: frames, one <figure><img src="data:image/png;base64,…" alt="…"><figcaption>… <small>story or route</small></figcaption></figure> each; two small frames side by side inside <div class="grid"> -->
+
+  <details id="background">
+    <summary role="button" class="secondary outline">Фон для тех, кто впервые здесь</summary>
+    <!-- slot: deep background for a newcomer -->
+  </details>
+
+  <h2 id="code">Разбор кода</h2>
+  <!-- slot: grouped walkthrough; a group per purpose, headed by that purpose; each group = one sentence of intent, then a <div class="shj-lang-diff"> sketch with raw + and - lines; nothing after the sketch -->
+
+  <h2 id="tests">Что проверяют тесты</h2>
+  <!-- slot: one paragraph per suite or test file: what it proves and why that matters here; a captured run as one <div class="shj-lang-plain"> of its closing lines -->
+
+  <h2 id="risks">Риски и на что смотреть ревьюеру</h2>
+  <ul class="checklist">
+    <!-- slot: one <li><label><input type="checkbox"> …</label></li> per risk, each naming a file or function -->
+  </ul>
+</main>
+
+<!-- kit: scripts -->
+<!-- Mermaid renders <pre class="mermaid"> blocks. Everything loads from the CDN; offline, the text and frames still read. -->
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  mermaid.initialize({ startOnLoad: true, theme: dark ? "dark" : "neutral" });
+</script>
+</body>
+</html>

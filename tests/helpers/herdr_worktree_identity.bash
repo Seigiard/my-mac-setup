@@ -3,8 +3,7 @@
 HWI_STATE_LIBRARY="${HWI_STATE_LIBRARY_OVERRIDE:-$SOURCE_ROOT/dot_local/lib/herdr-worktree-state.sh}"
 export HWI_STATE_LIBRARY
 HWI_ENGINE="$SOURCE_ROOT/dot_local/bin/executable_herdr-worktree-identity"
-HWI_WORKTREE_SETUP_PLUGIN="$SOURCE_ROOT/private_dot_config/herdr/plugins/worktree-setup/setup.ts"
-export HWI_ENGINE HWI_WORKTREE_SETUP_PLUGIN
+export HWI_ENGINE
 
 hwi_setup() {
   HWI_WORK="$(mktemp -d "${BATS_TMPDIR:-/tmp}/hwi.XXXXXX")"
@@ -98,15 +97,15 @@ hwi_write_snapshot_from_pane() {
   jq '{result:{snapshot:{panes:[.result.pane]}}}' "$HWI_PANE_JSON" > "$HWI_SNAPSHOT_JSON"
 }
 
-# Build a linked worktree and invoke the production plugin path that creates
-# the authorization marker. Tests must not synthesize that marker themselves.
+# Build a linked worktree and model the standalone plugin's documented marker
+# boundary. The package owns marker writing; this suite owns the identity
+# consumer and therefore supplies only the valid producer output as a fixture.
 hwi_create_generated_worktree() {
-  local root="$HWI_WORK/repository" main="$HWI_WORK/repository/main"
+  local root="$HWI_WORK/repository" main="$HWI_WORK/repository/main" marker
   HWI_MAIN="$main"
   HWI_CHECKOUT="$root/generated"
   HWI_BRANCH="worktree/quiet-stone-fd75"
-  HWI_PLUGIN_CONFIG="$HWI_WORK/plugin-config"
-  mkdir -p "$main" "$HWI_PLUGIN_CONFIG"
+  mkdir -p "$main"
   git -C "$main" init --quiet -b main
   git -C "$main" config user.email test@example.com
   git -C "$main" config user.name 'Test User'
@@ -115,14 +114,9 @@ hwi_create_generated_worktree() {
   git -C "$main" commit --quiet -m initial
   git -C "$main" remote add origin https://github.com/example/repository.git
   git -C "$main" worktree add --quiet -b "$HWI_BRANCH" "$HWI_CHECKOUT"
-  cat > "$HWI_PLUGIN_CONFIG/config.toml" <<'TOML'
-[projects."github.com/example/repository"]
-fresh-base = false
-TOML
-  HERDR_PLUGIN_CONFIG_DIR="$HWI_PLUGIN_CONFIG" \
-    HERDR_PLUGIN_EVENT_JSON="{\"data\":{\"worktree\":{\"path\":\"$HWI_CHECKOUT\",\"branch\":\"$HWI_BRANCH\"}}}" \
-    bun "$HWI_WORKTREE_SETUP_PLUGIN" >/dev/null
-  export HWI_MAIN HWI_CHECKOUT HWI_BRANCH HWI_PLUGIN_CONFIG
+  marker="$(git -C "$HWI_CHECKOUT" rev-parse --path-format=absolute --git-path herdr-generated-worktree)"
+  printf '%s\n' "$HWI_BRANCH" > "$marker"
+  export HWI_MAIN HWI_CHECKOUT HWI_BRANCH
 }
 
 hwi_identity_state_path() {
@@ -213,6 +207,6 @@ hwi_teardown() {
   fi
   [[ -n "${HWI_WORK:-}" ]] && rm -rf "$HWI_WORK" || true
   unset HWI_WORK HWI_STATE HWI_STUB HWI_PANE_JSON HWI_SNAPSHOT_JSON HWI_COMMAND_PATH HWI_REAL_GIT HWI_REAL_MV HWI_MAIN
-  unset HWI_CHECKOUT HWI_BRANCH HWI_PLUGIN_CONFIG HWI_HOLDER_PID HWI_HOLDER_READY HWI_HOLDER_RELEASE
+  unset HWI_CHECKOUT HWI_BRANCH HWI_HOLDER_PID HWI_HOLDER_READY HWI_HOLDER_RELEASE
   unset HERDR_WORKTREE_IDENTITY_STATE_DIR
 }

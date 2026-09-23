@@ -1904,7 +1904,8 @@ SH
 #!/usr/bin/env bash
 exec "$TREE_RESOURCE_CLI" "$@"
 SH
-  chmod +x "$front_bin/herdr" "$front_bin/herdr-resource-tree"
+  cp "$BATS_TEST_DIRNAME/helpers/herdr_alias_allocator" "$front_bin/herdr-pane-labels"
+  chmod +x "$front_bin/herdr" "$front_bin/herdr-resource-tree" "$front_bin/herdr-pane-labels"
 
   cat > "$native_bin/herdr" <<'SH'
 #!/usr/bin/env bash

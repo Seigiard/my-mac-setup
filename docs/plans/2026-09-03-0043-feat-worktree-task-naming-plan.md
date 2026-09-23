@@ -18,7 +18,7 @@ execution: code
 - **Product authority:** The user, per the 2026-09-02 debug session. The six failure findings from that session are binding requirements, not suggestions.
 - **Execution profile:** Interactive, human-reviewed, shipped as one PR. No autonomous apply.
 - **Tail ownership:** Agents never run `chezmoi apply` on the host. Deployment verification runs in Docker (`make test-ubuntu`); the user performs the live apply.
-- **Stop conditions:** Stop and ask if the marker contract in `home/private_dot_config/herdr/plugins/worktree-setup/setup.ts` must change, or if satisfying the contention requirement forces a second long-lived daemon.
+- **Stop conditions:** Stop and ask if the marker contract in the standalone [`herdr-worktree-setup` package](https://github.com/Seigiard/herdr-worktree-setup/blob/70048c616979719aa592df36f37ec076227b2ac8/README.md#generated-worktree-marker) must change, or if satisfying the contention requirement forces a second long-lived daemon.
 - **Open blockers:** None.
 
 ---
@@ -125,7 +125,7 @@ The old engine also failed intermittently, and the 2026-09-02 debug session diag
 - `docs/issues/2026-09-02-011-herdr-task-sync-gives-up-on-worktree-identity-after-a-200-ms-claim-bound-silently.md` — carries the measurement that rules out raising the claim ceiling (a 2000-attempt ceiling produced `elapsed_ms=8395 allowed_ms=8136` against the fail-open guard). Governs KTD3.
 - `docs/solutions/design-patterns/idle-machine-wall-clock-bounds-are-latent-flakes.md` — the causal-assertion rule this plan's concurrency and timing tests follow.
 - `docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md` — why herdr's own protocol semantics get no local oracle, and what pins the stub instead.
-- `home/private_dot_config/herdr/plugins/worktree-setup/setup.ts` — writes the marker as `<branch>\n` into the per-worktree admin dir. Its single-line format is what KTD5 appends to.
+- The standalone `herdr-worktree-setup` package writes the marker as `<branch>\n` into the per-worktree admin dir. Its single-line format is what KTD5 appends to.
 - `home/private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml` — the full herdr 0.8.2 plugin event set. No prompt event exists, which is what forces KTD2.
 - `home/dot_local/bin/executable_herdr-pane-labels` — the surviving implementations of the state, claim, and budgeted-command primitives this component mirrors.
 - `home/.chezmoiremove` and `tests/bashunit/smoke_test.sh` — the active retirement of the four `herdr-task-sync` paths, which forces KTD1.
@@ -240,7 +240,7 @@ stateDiagram-v2
 
 ### Assumptions
 
-- The generated-worktree marker's single-line format is stable; appending lines below line 1 does not break `home/private_dot_config/herdr/plugins/worktree-setup/setup.ts`, which only ever writes the file whole.
+- The generated-worktree marker's single-line format is stable; appending lines below line 1 does not break the standalone setup package, which only ever writes the file whole.
 - `herdr workspace rename` exists and is stable on herdr 0.8.2 (verified against the installed CLI).
 - A session that hits contention issues at least one further prompt, giving KTD3's retry a chance to fire. A session with exactly one prompt that is also contended ends without identity; the diagnostic records why.
 
@@ -437,7 +437,7 @@ U1 and U2 build the foundation. U3, U4, and U5 are the behavior and depend on U2
 
 ## Verification Contract
 
-**Declare the test oracle before the first test edit.** The independent oracles available here are: real `git` in a fixture repository (branch names, upstream, description, reflog), the marker file as written by `home/private_dot_config/herdr/plugins/worktree-setup/setup.ts` (a different owner), and the filesystem for claim and diagnostic behavior. herdr's own protocol semantics have no valid local oracle — assert that the component issued the right call, never what herdr does with it (see `docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md`).
+**Declare the test oracle before the first test edit.** The independent oracles available here are: real `git` in a fixture repository (branch names, upstream, description, reflog), the marker file as written by the standalone setup package (a different owner), and the filesystem for claim and diagnostic behavior. herdr's own protocol semantics have no valid local oracle — assert that the component issued the right call, never what herdr does with it (see `docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md`).
 
 | Command | Applies to | What it proves |
 |---|---|---|

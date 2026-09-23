@@ -13,3 +13,10 @@ home/private_dot_config/private_karabiner/automatic_backups/
 
 # style A/B harness output: generated responses are never committed (R32)
 tests/style-ab/runs/
+
+# revmux review archive: per-round prompts, agent streams and stage snapshots.
+# Local evidence for a review that already happened, ~0.5MB per round.
+# The project profile is the exception — it is configuration, and revmux resolves
+# it from the process working directory, so it has to reach every worktree.
+.revmux/*
+!.revmux/profile.md

@@ -75,7 +75,17 @@
             "timeout": 10
           }
         ]
-      }
+      }{{ if lookPath "herdr" }},
+      {{/* `herdr integration install claude` appends this entry to the live settings, so without it here every herdr upgrade puts the two owners back into conflict. herdr-resource-context.sh delegates to the same hook to guarantee identity is reported first and survives a missing jq; this entry is the redundant half, kept only to match what herdr writes. */}}{
+        "matcher": "^(startup|resume|clear|compact|fork)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/herdr-agent-state.sh' session",
+            "timeout": 10
+          }
+        ]
+      }{{ end }}
     ],
     "UserPromptSubmit": [
       {

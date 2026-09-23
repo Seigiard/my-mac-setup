@@ -7,10 +7,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/test-dsl.bash"
 _bats_file_init "${BASH_SOURCE[0]}"
 
 load 'helpers/common'
-load 'helpers/herdr_pane_labels'
 load 'helpers/herdr_worktree_identity'
 
 setup() {
+  export HERDR_ALIAS_ALLOCATOR="$BATS_TEST_DIRNAME/helpers/herdr_alias_allocator"
   unset HERDR_ENV
   unset HERDR_AGENT_INTERCOM_ACTIVE
   unset HERDR_AGENT_INTERCOM_NAME
@@ -32,6 +32,7 @@ setup() {
   unset HERDR_CHILD_TEST_NOW_SEQ
   unset HERDR_CHILD_TEST_TAKEOVER_METADATA_PUBLISHED
   unset CHILD_REAP_PID
+  CHILD_STUBS=()
   # U2 exercises authorization only. Do not let an installed local model CLI
   # turn those fixtures into live naming requests now that U3 derives names.
   export HERDR_WORKTREE_IDENTITY_DISABLE_ENGINES=1
@@ -328,48 +329,111 @@ SH
   assert_output '<private prompt><--plugin-dir></managed/intercom>'
 }
 
-teardown() {
-  hpl_teardown
-  hwi_teardown
-  if [[ -n "${CHILD_STUB:-}" ]]; then
-    if [[ -e "$CHILD_STUB/reap-invalidated.ready" ]]; then
-      : > "$CHILD_STUB/reap-invalidated.release"
-    fi
-    if [[ -n "${CHILD_REAP_PID:-}" ]]; then
-      local reap_attempt=0
-      while kill -0 "$CHILD_REAP_PID" 2>/dev/null && [[ "$reap_attempt" -lt 100 ]]; do
-        reap_attempt=$((reap_attempt + 1))
-        sleep 0.01
-      done
-      if kill -0 "$CHILD_REAP_PID" 2>/dev/null; then
-        kill -TERM "$CHILD_REAP_PID" 2>/dev/null || true
-      fi
-      wait "$CHILD_REAP_PID" 2>/dev/null || true
-      CHILD_REAP_PID=""
-    fi
-    [[ ! -e "$CHILD_STUB/release-watcher" ]] || true
-    : > "$CHILD_STUB/release-watcher" 2>/dev/null || true
-    local pid_file watcher_pid
-    for pid_file in watcher.pid new-watcher.pid reply.pid; do
-      [[ -s "$CHILD_STUB/$pid_file" ]] || continue
-      watcher_pid="$(cat "$CHILD_STUB/$pid_file" 2>/dev/null || true)"
-      if [[ -n "$watcher_pid" ]]; then
-        kill -TERM "$watcher_pid" 2>/dev/null || true
-        local attempt=0
-        while kill -0 "$watcher_pid" 2>/dev/null && [[ "$attempt" -lt 100 ]]; do
-          attempt=$((attempt + 1))
-          sleep 0.01
-        done
-        # A watcher that survives TERM (e.g., stuck publishing through a
-        # deleted stub) must not outlive the test (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
-        if kill -0 "$watcher_pid" 2>/dev/null; then
-          kill -KILL "$watcher_pid" 2>/dev/null || true
-        fi
-      fi
-    done
+# Mint every stub through here. A test that stubs herdr more than once
+# re-points CHILD_STUB, and teardown used to see only the last value, so each
+# earlier stub — and any watcher armed against it — was abandoned
+# (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
+child_new_stub() {
+  CHILD_STUB="$(mktemp -d)"
+  export CHILD_STUB
+  child_register_stub "$CHILD_STUB"
+}
+
+# For a directory the caller names itself rather than one minted above.
+child_register_stub() {
+  CHILD_STUBS+=("$1")
+}
+
+# A launch leaves its watcher armed on purpose and writes the pid to a path the
+# next launch may reuse, so a stub's pid files record what teardown happens to
+# have been told, not what is running. The watcher's --run-dir names its stub,
+# so ask the process table instead.
+# The whole identity -- watcher and stub -- never half of it.
+child_stub_pid_is_watcher() {
+  ps -o args= -p "$1" 2>/dev/null | grep -F 'herdr-child __watcher' \
+    | grep -Fq -- "--run-dir $2/"
+}
+
+child_stub_watcher_pids() {
+  local stub="$1" pid
+  for pid in $(ps -axo pid=,args= | awk -v marker="--run-dir $stub/" '
+    index($0, "herdr-child __watcher") && index($0, marker) { print $1 }'); do
+    # The snapshot is stale by the time it is read and pids get recycled.
+    child_stub_pid_is_watcher "$pid" "$stub" || continue
+    printf '%s\n' "$pid"
+  done
+}
+
+# A second argument re-verifies identity before the kill. Callers that read a
+# pid out of a file pass none: reply.pid holds a test's own process rather than
+# a watcher, so a watcher check there would stop reaping it altogether.
+child_stub_stop_pid() {
+  local pid="$1" stub="${2:-}" attempt=0
+  kill -TERM "$pid" 2>/dev/null || true
+  while kill -0 "$pid" 2>/dev/null && [[ "$attempt" -lt 100 ]]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  kill -0 "$pid" 2>/dev/null || return 0
+  # A watcher that survives TERM (e.g., stuck publishing through a deleted
+  # stub) must not outlive the test (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
+  # The scan proved this pid a watcher up to a second ago, not now, so prove it
+  # again before the kill -- tests/run-post-apply.sh re-verifies at both points
+  # for the same reason.
+  if [[ -n "$stub" ]]; then
+    child_stub_pid_is_watcher "$pid" "$stub" || return 0
   fi
+  kill -KILL "$pid" 2>/dev/null || true
+}
+
+# Reap before removing: rm -rf against a live writer is a race the writer wins.
+child_stub_reap() {
+  local stub="$1" pid_file pid
+  [[ -d "$stub" ]] || return 0
+  : > "$stub/release-watcher" 2>/dev/null || true
+  for pid_file in "$stub"/*.pid; do
+    [[ -s "$pid_file" ]] || continue
+    pid="$(cat "$pid_file" 2>/dev/null || true)"
+    [[ -n "$pid" ]] || continue
+    child_stub_stop_pid "$pid"
+  done
+  for pid in $(child_stub_watcher_pids "$stub"); do
+    child_stub_stop_pid "$pid" "$stub"
+  done
+  rm -rf "$stub"
+}
+
+child_reap_all_stubs() {
+  local stub
+  for stub in ${CHILD_STUBS[@]+"${CHILD_STUBS[@]}"}; do
+    child_stub_reap "$stub"
+  done
+  CHILD_STUBS=()
+  CHILD_STUB=""
+}
+
+teardown() {
+  hwi_teardown
+  local stub
+  for stub in ${CHILD_STUBS[@]+"${CHILD_STUBS[@]}"}; do
+    if [[ -e "$stub/reap-invalidated.ready" ]]; then
+      : > "$stub/reap-invalidated.release"
+    fi
+  done
+  if [[ -n "${CHILD_REAP_PID:-}" ]]; then
+    local reap_attempt=0
+    while kill -0 "$CHILD_REAP_PID" 2>/dev/null && [[ "$reap_attempt" -lt 100 ]]; do
+      reap_attempt=$((reap_attempt + 1))
+      sleep 0.01
+    done
+    if kill -0 "$CHILD_REAP_PID" 2>/dev/null; then
+      kill -TERM "$CHILD_REAP_PID" 2>/dev/null || true
+    fi
+    wait "$CHILD_REAP_PID" 2>/dev/null || true
+    CHILD_REAP_PID=""
+  fi
+  child_reap_all_stubs
   [[ -n "${BATS_TEST_TMPFILE:-}" ]] && rm -f "$BATS_TEST_TMPFILE" || true
-  [[ -n "${CHILD_STUB:-}" ]] && rm -rf "$CHILD_STUB" || true
   unset HERDR_WORKTREE_IDENTITY_DISABLE_ENGINES
 }
 
@@ -1689,9 +1753,8 @@ function test_scripts_1188_worktree_identity_declines_marker_and_retries_content
   assert_equal "$(hwi_workspace_rename_count)" 0
 
   rm "$state"
-  HERDR_PLUGIN_CONFIG_DIR="$HWI_PLUGIN_CONFIG" \
-    HERDR_PLUGIN_EVENT_JSON="{\"data\":{\"worktree\":{\"path\":\"$HWI_CHECKOUT\",\"branch\":\"$HWI_BRANCH\"}}}" \
-    bun "$HWI_WORKTREE_SETUP_PLUGIN" >/dev/null
+  marker="$(git -C "$HWI_CHECKOUT" rev-parse --path-format=absolute --git-path herdr-generated-worktree)"
+  printf '%s\n' "$HWI_BRANCH" > "$marker"
   hwi_write_pane pane-1 codex session-1 workspace-1 "$HWI_CHECKOUT"
   state="$(hwi_identity_state_path)"
   local lock="$(namespace_dir "$(git -C "$HWI_CHECKOUT" rev-parse --path-format=absolute --git-common-dir)")/branch-rename.claim"
@@ -1831,54 +1894,6 @@ function test_scripts_9_lint_input_set_excludes_agent_worktrees() {
   assert_file_contains "$invocations" 'home/dot_local/lib/herdr-process\.sh'
 }
 
-# Herdr alias allocator
-# ===========================================
-
-HERDR_ALIASES="$SOURCE_ROOT/dot_local/lib/herdr-aliases.sh"
-
-function test_scripts_1002_herdr_alias_grammar_validation_is_separate_from_exact_p() {
-  _bats_test_init 1002 'herdr alias grammar validation is separate from exact pool membership'
-  source "$HERDR_ALIASES"
-
-  run herdr_alias_is_valid red-wolf
-  assert_success
-  run herdr_alias_in_pool red-wolf
-  assert_success
-
-  run herdr_alias_is_valid chartreuse-wombat
-  assert_success
-  run herdr_alias_in_pool chartreuse-wombat
-  assert_failure
-
-  local alias
-  for alias in Red-wolf red_wolf red-wolf-extra red- 'abcdefghijklmnopqrstuvwxyzabcdefg-wolf'; do
-    run herdr_alias_is_valid "$alias"
-    assert_failure
-    run herdr_alias_in_pool "$alias"
-    assert_failure
-  done
-}
-
-function test_scripts_1003_herdr_alias_pool_has_at_least_1024_unique_grammar_safe_() {
-  _bats_test_init 1003 'herdr alias pool has at least 1024 unique grammar-safe candidates'
-  source "$HERDR_ALIASES"
-  run herdr_alias_validate_pool
-  assert_success
-
-  local pool_size=$((${#HERDR_ALIAS_COLORS[@]} * ${#HERDR_ALIAS_ANIMALS[@]}))
-  [ "$pool_size" -ge 1024 ]
-
-  local color animal
-  for color in "${HERDR_ALIAS_COLORS[@]}"; do
-    [[ "$color" =~ ^[a-z]+$ ]] || fail "invalid color word: $color"
-  done
-  for animal in "${HERDR_ALIAS_ANIMALS[@]}"; do
-    [[ "$animal" =~ ^[a-z]+$ ]] || fail "invalid animal word: $animal"
-  done
-}
-
-# ===========================================
-
 # ===========================================
 # install-packages script
 # ===========================================
@@ -2007,90 +2022,6 @@ function test_scripts_0081_retired_se_cleanup_migration_preserves_an_independent
   assert_dir_not_exists "$orphan_home/.claude/skills/se-cleanup"
 }
 
-function test_scripts_0082_worktree_setup_uses_one_repository_keyed_config() {
-  _bats_test_init 82 'worktree setup uses one repository-keyed config for copy and setup steps'
-  local plugin="$SOURCE_ROOT/private_dot_config/herdr/plugins/worktree-setup/setup.ts"
-  local root="$BATS_TEST_TMPDIR/worktree-setup" main worktree config marker
-  main="$root/main"
-  worktree="$root/feature"
-  config="$root/config"
-  mkdir -p "$main" "$config"
-  git -C "$main" init --quiet -b main
-  git -C "$main" config user.email test@example.com
-  git -C "$main" config user.name 'Test User'
-  printf '%s\n' tracked > "$main/tracked"
-  printf '%s\n' secret > "$main/.env"
-  git -C "$main" add tracked
-  git -C "$main" commit --quiet -m initial
-  git -C "$main" remote add origin git@github.com:membranehq/platform.git
-  git -C "$main" worktree add --quiet -b feature "$worktree"
-  cat > "$config/config.toml" <<'TOML'
-[projects."github.com/membranehq/platform"]
-fresh-base = false
-copy = [".env"]
-steps = ["printf '%s' \"$HERDR_BRANCH\" > setup-ran"]
-TOML
-
-  run env HERDR_PLUGIN_CONFIG_DIR="$config" \
-    HERDR_PLUGIN_EVENT_JSON="{\"data\":{\"worktree\":{\"path\":\"$worktree\",\"branch\":\"feature\"}}}" \
-    bun "$plugin"
-  assert_success
-  assert_file_contains "$worktree/.env" '^secret$'
-  assert_file_contains "$worktree/setup-ran" '^feature$'
-  marker="$(git -C "$worktree" rev-parse --path-format=absolute --git-path herdr-generated-worktree)"
-  assert_file_contains "$marker" '^feature$'
-}
-
-function test_scripts_0083_worktree_setup_refreshes_a_new_branch_from_origin_head() {
-  _bats_test_init 83 'worktree setup refreshes an untouched new branch from origin HEAD'
-  local plugin="$SOURCE_ROOT/private_dot_config/herdr/plugins/worktree-setup/setup.ts"
-  local root="$BATS_TEST_TMPDIR/worktree-fresh" origin main worktree dirty config expected old
-  origin="$root/origin.git"
-  main="$root/main"
-  worktree="$root/feature"
-  dirty="$root/dirty"
-  config="$root/config"
-  mkdir -p "$root" "$config"
-  git init --quiet --bare "$origin"
-  git -C "$origin" symbolic-ref HEAD refs/heads/main
-  git init --quiet -b main "$main"
-  git -C "$main" config user.email test@example.com
-  git -C "$main" config user.name 'Test User'
-  printf '%s\n' old > "$main/tracked"
-  git -C "$main" add tracked
-  git -C "$main" commit --quiet -m old
-  git -C "$main" remote add origin "$origin"
-  git -C "$main" push --quiet -u origin main
-  git -C "$main" worktree add --quiet -b feature "$worktree"
-  old="$(git -C "$worktree" rev-parse HEAD)"
-  git -C "$main" worktree add --quiet -b dirty "$dirty" "$old"
-  printf '%s\n' local > "$dirty/untracked"
-  printf '%s\n' new > "$main/tracked"
-  git -C "$main" commit --quiet -am new
-  git -C "$main" push --quiet
-  expected="$(git -C "$main" rev-parse HEAD)"
-  cat > "$config/config.toml" <<TOML
-[projects."${origin%.git}"]
-fresh-base = true
-TOML
-
-  run env HERDR_PLUGIN_CONFIG_DIR="$config" \
-    HERDR_PLUGIN_EVENT_JSON="{\"data\":{\"worktree\":{\"path\":\"$worktree\",\"branch\":\"feature\"}}}" \
-    bun "$plugin"
-  assert_success
-  run git -C "$worktree" rev-parse HEAD
-  assert_success
-  assert_output "$expected"
-
-  run env HERDR_PLUGIN_CONFIG_DIR="$config" \
-    HERDR_PLUGIN_EVENT_JSON="{\"data\":{\"worktree\":{\"path\":\"$dirty\",\"branch\":\"dirty\"}}}" \
-    bun "$plugin"
-  assert_success
-  run git -C "$dirty" rev-parse HEAD
-  assert_success
-  assert_output "$old"
-}
-
 function test_scripts_0084_retired_worktrunk_migration_removes_only_managed_files() {
   _bats_test_init 84 'retired Worktrunk migration removes only formerly managed files'
   local script="$SOURCE_ROOT/.chezmoiscripts/run_once_after_remove-retired-worktrunk.sh"
@@ -2112,42 +2043,6 @@ function test_scripts_0084_retired_worktrunk_migration_removes_only_managed_file
   assert_file_not_exists "$home/.config/herdr/plugins/command-palette/new_worktree.py"
   assert_file_not_exists "$home/.config/herdr/plugins/command-palette/open_new_worktree.py"
   assert_file_exists "$home/.config/worktrunk/user-note"
-}
-
-function test_scripts_0085_worktree_setup_relink_uses_the_herdr_cli_contract() {
-  _bats_test_init 85 'worktree setup relink uses the Herdr CLI contract'
-  command_exists chezmoi || skip "chezmoi not available"
-  # Rendered rather than run raw: the plugin-link guard reaches the script
-  # through a chezmoi include, so a raw run would leave it undefined.
-  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_4-link-herdr-worktree-setup.sh.tmpl"
-  local script="$BATS_TEST_TMPDIR/worktree-link.sh"
-  local home="$BATS_TEST_TMPDIR/worktree-link-home"
-  local stub="$BATS_TEST_TMPDIR/worktree-link-bin"
-  mkdir -p "$home/.config/herdr/plugins/worktree-setup" "$stub"
-  printf '%s\n' 'id = "seigi.worktree-setup"' \
-    > "$home/.config/herdr/plugins/worktree-setup/herdr-plugin.toml"
-  cat > "$stub/herdr" <<'SH'
-#!/bin/sh
-expected="$HOME/.config/herdr/plugins/worktree-setup"
-if [ "$#" -eq 1 ] && [ "$1" = --version ]; then
-  exit 0
-fi
-if [ "$#" -eq 3 ] && [ "$1" = plugin ] && [ "$2" = link ] && [ "$3" = "$expected" ]; then
-  : > "$HOME/plugin-linked"
-  exit 0
-fi
-exit 2
-SH
-  cat > "$stub/dscl" <<SH
-#!/bin/sh
-printf 'NFSHomeDirectory: %s\n' "$home"
-SH
-  chmod +x "$stub/herdr" "$stub/dscl"
-  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
-
-  run env -u MMS_DISPOSABLE_HOME HOME="$home" PATH="$stub:$PATH" bash "$script"
-  assert_success
-  assert_file_exists "$home/plugin-linked"
 }
 
 function test_scripts_0851_obsolete_plugin_removal_accepts_formatted_plugin_json() {
@@ -2202,7 +2097,17 @@ SH
   assert_success
   run grep -Fx "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y" "$calls"
   assert_success
+  run grep -Fx "plugin install Seigiard/herdr-pane-labels --ref aba61eb788c5fe0630dc570d96fd14683e2f63c7 -y" "$calls"
+  assert_success
+  run grep -Fx "plugin enable seigi.pane-labels" "$calls"
+  assert_success
   run grep -Fx "plugin enable seigi.command-palette" "$calls"
+  assert_success
+  run grep -Fx "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y" "$calls"
+  assert_success
+  run grep -Fx "plugin install Seigiard/herdr-pane-labels --ref aba61eb788c5fe0630dc570d96fd14683e2f63c7 -y" "$calls"
+  assert_success
+  run grep -Fx "plugin enable seigi.worktree-setup" "$calls"
   assert_success
   run grep -Fx "plugin install usrivastava92/herdr-wakeup/plugin --ref 43db0b9f88a4b1bc560593b0ce8f2a7d2a940f04 -y" "$calls"
   assert_success
@@ -2233,7 +2138,7 @@ SH
 #!/bin/sh
 printf '%s\n' "$*" >> "$HERDR_CALLS"
 if [ "$*" = "plugin list --json" ]; then
-  printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","source":{"kind":"github","owner":"Seigiard","repo":"herdr-command-palette"}}]}}'
+  printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","source":{"kind":"github","owner":"Seigiard","repo":"herdr-command-palette"}},{"plugin_id":"seigi.worktree-setup","source":{"kind":"github","owner":"Seigiard","repo":"herdr-worktree-setup"}}]}}'
 fi
 exit 0
 SH
@@ -2244,12 +2149,299 @@ SH
   assert_success
   run grep -Fx "plugin uninstall seigi.command-palette" "$calls"
   assert_failure
+  run grep -Fx "plugin uninstall seigi.worktree-setup" "$calls"
+  assert_failure
   run grep -Fx "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y" "$calls"
+  assert_success
+  run grep -Fx "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y" "$calls"
   assert_success
   run grep -F "herdr-focus-notify" "$calls"
   assert_failure
   run grep -F "herdr-auto-update" "$calls"
   assert_failure
+}
+
+function test_scripts_08513_github_plugin_install_accepts_an_enabled_offline_registry() {
+  _bats_test_init 8513 'GitHub plugin installation accepts an enabled local registry when Herdr is offline'
+  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local script="$BATS_TEST_TMPDIR/install-herdr-offline.sh"
+  local fake_bin="$BATS_TEST_TMPDIR/bin-herdr-offline"
+  local calls="$BATS_TEST_TMPDIR/herdr-offline.calls"
+  local home="$BATS_TEST_TMPDIR/herdr-offline-home"
+  mkdir -p "$fake_bin" "$home"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
+
+  cat > "$fake_bin/uname" <<'SH'
+#!/bin/sh
+printf 'Linux\n'
+SH
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+if [ "$1" = plugin ] && [ "$2" = link ]; then
+  : > "$HOME/local-plugin-restored"
+fi
+case "$*" in
+  "plugin list --json")
+    printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","enabled":true,"source":{"kind":"github"}},{"plugin_id":"seigi.pane-labels","enabled":true,"source":{"kind":"github"}},{"plugin_id":"seigi.worktree-setup","enabled":true,"source":{"kind":"github"}}]}}'
+    ;;
+  "plugin enable "*)
+    printf '%s\n' '{"id":"cli:plugin","error":{"code":"server_not_running","message":"offline"}}'
+    exit 1
+    ;;
+esac
+exit 0
+SH
+  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
+
+  run env HOME="$home" HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
+  assert_success
+  local result="$output"
+  [[ "$result" == *'registered enabled for the next start'* ]] || fail 'offline registration was not accepted'
+  [[ "$result" != *'Warning: failed to configure Herdr plugin'* ]] || fail 'offline registration was reported as failed'
+}
+
+function test_scripts_08514_github_plugin_install_rejects_an_disabled_offline_registry() {
+  _bats_test_init 8514 'GitHub plugin installation rejects a disabled local registry when Herdr is offline'
+  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
+  local script="$BATS_TEST_TMPDIR/install-herdr-offline-disabled.sh"
+  local fake_bin="$BATS_TEST_TMPDIR/bin-herdr-offline-disabled"
+  local calls="$BATS_TEST_TMPDIR/herdr-offline-disabled.calls"
+  local home="$BATS_TEST_TMPDIR/herdr-offline-disabled-home"
+  mkdir -p "$fake_bin" "$home"
+  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
+
+  cat > "$fake_bin/uname" <<'SH'
+#!/bin/sh
+printf 'Linux\n'
+SH
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+case "$*" in
+  "plugin list --json")
+    printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","enabled":false,"source":{"kind":"github"}},{"plugin_id":"seigi.worktree-setup","enabled":false,"source":{"kind":"github"}}]}}'
+    ;;
+  "plugin enable "*)
+    printf '%s\n' '{"id":"cli:plugin","error":{"code":"server_not_running","message":"offline"}}'
+    exit 1
+    ;;
+esac
+exit 0
+SH
+  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
+
+  run env HOME="$home" HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
+  assert_success
+  assert_output --partial 'Warning: failed to configure Herdr plugin'
+}
+
+worktree_migration_prepare() {
+  local work="$1"
+  local source="$work/source" home="$work/home" fake_bin="$work/bin"
+  mkdir -p "$source/.chezmoiscripts" "$source/.chezmoitemplates" \
+    "$home/.config/herdr/plugins/worktree-setup" "$fake_bin"
+  cp "$SOURCE_ROOT/.chezmoiscripts/run_once_after_4-migrate-herdr-worktree-setup.sh.tmpl" \
+    "$source/.chezmoiscripts/"
+  cp "$SOURCE_ROOT/.chezmoitemplates/herdr-plugin-link-guard.sh" "$source/.chezmoitemplates/"
+  printf 'legacy plugin\n' > "$home/.config/herdr/plugins/worktree-setup/setup.ts"
+  write_test_config "$work/chezmoi.yaml"
+
+  cat > "$fake_bin/herdr" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+case "$*" in
+  --version)
+    exit 0
+    ;;
+  "plugin list --json")
+    if [ "${HERDR_FAIL_STEP:-}" = malformed ]; then
+      printf '%s\n' '{"result":{"plugins":[null]}}'
+    elif [ "${HERDR_FAIL_STEP:-}" = refresh ] && [ "$(grep -Fc "plugin list --json" "$HERDR_CALLS")" -gt 1 ]; then
+      exit 1
+    else
+      printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.worktree-setup","source":{"kind":"local"}}]}}'
+    fi
+    ;;
+  "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y")
+    [ "${HERDR_FAIL_STEP:-}" != install ]
+    ;;
+  "plugin uninstall seigi.worktree-setup")
+    [ "${HERDR_FAIL_STEP:-}" != uninstall ]
+    ;;
+  "plugin enable seigi.worktree-setup")
+    [ "${HERDR_FAIL_STEP:-}" != enable ]
+    ;;
+  "plugin link "*)
+    [ "${HERDR_FAIL_STEP:-}" != link ]
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+SH
+  cat > "$fake_bin/getent" <<'SH'
+#!/bin/sh
+[ "${1:-}" = passwd ] || exit 1
+printf 'test:x:1000:1000:Test User:%s:/bin/bash\n' "$HOME"
+SH
+  cat > "$fake_bin/dscl" <<'SH'
+#!/bin/sh
+printf 'NFSHomeDirectory: %s\n' "$HOME"
+SH
+  chmod +x "$fake_bin/herdr" "$fake_bin/getent" "$fake_bin/dscl"
+}
+
+worktree_migration_apply() {
+  local work="$1" fail_step="${2:-}"
+  HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" \
+    PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
+    HERDR_FAIL_STEP="$fail_step" chezmoi_full_fixture apply \
+    --source "$work/source" --destination "$work/home" --config "$work/chezmoi.yaml"
+}
+
+worktree_migration_apply_custom_xdg() {
+  local work="$1"
+  HOME="$work/home" XDG_CONFIG_HOME="$work/home/custom-config" \
+    PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
+    HERDR_FAIL_STEP="" chezmoi_full_fixture apply \
+    --source "$work/source" --destination "$work/home" --config "$work/chezmoi.yaml"
+}
+
+worktree_migration_live_apply() {
+  local work="$1" fail_step="${2:-}"
+  chezmoi_full_fixture execute-template -S "$work/source" \
+    --file "$work/source/.chezmoiscripts/run_once_after_4-migrate-herdr-worktree-setup.sh.tmpl" \
+    > "$work/migration.sh"
+  env -u MMS_DISPOSABLE_HOME -u HERDR_SOCKET_PATH \
+    HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" \
+    PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
+    HERDR_FAIL_STEP="$fail_step" bash "$work/migration.sh"
+}
+
+function test_scripts_0853_worktree_setup_migration_retries_after_install_failure() {
+  _bats_test_init 853 'worktree setup migration retains local files and retries after install failure'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/worktree-migration"
+  worktree_migration_prepare "$work"
+
+  run worktree_migration_apply "$work" install
+  assert_failure
+  local migration_output="$output"
+  assert_dir_exists "$work/home/.config/herdr/plugins/worktree-setup"
+  run grep -Fx "plugin link $work/home/.config/herdr/plugins/worktree-setup --enabled" "$work/herdr.calls"
+  assert_failure
+  [[ "$migration_output" == *'MMS_DISPOSABLE_HOME=1'* ]] || fail 'rollback did not honor the disposable-home guard'
+
+  run worktree_migration_apply "$work"
+  assert_success
+  assert_dir_not_exists "$work/home/.config/herdr/plugins/worktree-setup"
+  run grep -Fc "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y" "$work/herdr.calls"
+  assert_success
+  assert_output "2"
+}
+
+function test_scripts_08531_worktree_setup_migration_retries_after_enable_failure() {
+  _bats_test_init 8531 'worktree setup migration restores local files and retries after enable failure'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/worktree-enable-migration"
+  worktree_migration_prepare "$work"
+
+  run worktree_migration_apply "$work" enable
+  assert_failure
+  local migration_output="$output"
+  assert_dir_exists "$work/home/.config/herdr/plugins/worktree-setup"
+  run grep -Fx "plugin uninstall seigi.worktree-setup" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin link $work/home/.config/herdr/plugins/worktree-setup --enabled" "$work/herdr.calls"
+  assert_failure
+  [[ "$migration_output" == *'MMS_DISPOSABLE_HOME=1'* ]] || fail 'rollback did not honor the disposable-home guard'
+
+  run worktree_migration_apply "$work"
+  assert_success
+  assert_dir_not_exists "$work/home/.config/herdr/plugins/worktree-setup"
+  run grep -Fc "plugin enable seigi.worktree-setup" "$work/herdr.calls"
+  assert_success
+  assert_output "2"
+}
+
+function test_scripts_08532_worktree_setup_migration_replaces_a_stale_local_registration() {
+  _bats_test_init 8532 'worktree setup migration replaces a stale local registration without legacy files'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/worktree-stale-migration"
+  worktree_migration_prepare "$work"
+  rm -rf "$work/home/.config/herdr/plugins/worktree-setup"
+
+  run worktree_migration_apply "$work"
+  assert_success
+  run grep -Fx "plugin uninstall seigi.worktree-setup" "$work/herdr.calls"
+  assert_success
+  run grep -Fx "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y" "$work/herdr.calls"
+  assert_success
+}
+
+function test_scripts_08536_worktree_setup_migration_rolls_back_after_registry_refresh_failure() {
+  _bats_test_init 8536 'worktree setup migration removes the new registration after registry refresh failure'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/worktree-refresh-failure"
+  worktree_migration_prepare "$work"
+
+  run worktree_migration_apply "$work" refresh
+  assert_failure
+  assert_dir_exists "$work/home/.config/herdr/plugins/worktree-setup"
+  run grep -Fc "plugin uninstall seigi.worktree-setup" "$work/herdr.calls"
+  assert_success
+  assert_output "2"
+}
+
+function test_scripts_08537_worktree_setup_migration_rejects_malformed_plugin_registry_data() {
+  _bats_test_init 8537 'worktree setup migration rejects malformed plugin registry data'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/worktree-malformed-registry"
+  worktree_migration_prepare "$work"
+
+  run worktree_migration_apply "$work" malformed
+  assert_failure
+  assert_dir_exists "$work/home/.config/herdr/plugins/worktree-setup"
+  run grep -F "plugin install Seigiard/herdr-worktree-setup" "$work/herdr.calls"
+  assert_failure
+}
+
+function test_scripts_08533_worktree_setup_migration_restores_a_local_plugin_from_a_live_home() {
+  _bats_test_init 8533 'worktree setup migration restores a local plugin when a live-home install fails'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/worktree-live-rollback"
+  worktree_migration_prepare "$work"
+
+  run worktree_migration_live_apply "$work" install
+  assert_failure
+  assert_dir_exists "$work/home/.config/herdr/plugins/worktree-setup"
+  run grep -Fx "plugin link $work/home/.config/herdr/plugins/worktree-setup --enabled" "$work/herdr.calls"
+  assert_success
+}
+
+function test_scripts_08534_worktree_setup_migration_preserves_unmanaged_legacy_files() {
+  _bats_test_init 8534 'worktree setup migration preserves unmanaged files in the legacy directory'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/worktree-unmanaged-legacy"
+  worktree_migration_prepare "$work"
+  printf 'keep me\n' > "$work/home/.config/herdr/plugins/worktree-setup/notes.txt"
+
+  run worktree_migration_apply "$work"
+  assert_success
+  assert_file_exists "$work/home/.config/herdr/plugins/worktree-setup/notes.txt"
+  assert_file_not_exists "$work/home/.config/herdr/plugins/worktree-setup/setup.ts"
+}
+
+function test_scripts_08535_worktree_setup_migration_finds_the_managed_path_with_custom_xdg() {
+  _bats_test_init 8535 'worktree setup migration finds the managed path when XDG_CONFIG_HOME is customized'
+  command_exists chezmoi || skip "chezmoi not available"
+  local work="$BATS_TEST_TMPDIR/worktree-custom-xdg"
+  worktree_migration_prepare "$work"
+
+  run worktree_migration_apply_custom_xdg "$work"
+  assert_success
+  assert_dir_not_exists "$work/home/.config/herdr/plugins/worktree-setup"
 }
 
 function test_scripts_08512_existing_herdr_wakeup_is_restored_when_managed_policy_linking_fails() {
@@ -2419,6 +2611,7 @@ assert plugins, "real herdr returned no plugins"
 kinds = set()
 for plugin in plugins:
     assert isinstance(plugin.get("plugin_id"), str), plugin
+    assert isinstance(plugin.get("enabled"), bool), plugin
     source = plugin.get("source")
     assert isinstance(source, dict) and isinstance(source.get("kind"), str), plugin
     kinds.add(source["kind"])
@@ -2428,6 +2621,51 @@ PY
   assert_success
   [[ " $output " == *" local "* && " $output " == *" github "* ]] \
     || skip "real registry does not currently expose both local and github source kinds: $output"
+
+  run env -i HOME="$HOME" PATH="$PATH" \
+    HERDR_SOCKET_PATH="/tmp/mms-herdr-plugin-contract-$$.sock" \
+    herdr plugin enable missing.plugin
+  assert_failure
+  local enable_error="$output"
+  run env ENABLE_ERROR="$enable_error" python3 - <<'PY'
+import json
+import os
+
+error = json.loads(os.environ["ENABLE_ERROR"])["error"]
+assert error["code"] == "server_not_running", error
+PY
+  assert_success
+}
+
+function test_scripts_08524_worktree_setup_is_installed_enabled_and_pinned() {
+  _bats_test_init 8524 'standalone Worktree Setup is installed enabled and pinned to the reviewed commit'
+  command_exists herdr && herdr --version >/dev/null 2>&1 \
+    || skip "a working upstream herdr is not installed"
+  [[ "${MMS_DISPOSABLE_HOME:-}" == 1 ]] || skip "requires the disposable post-apply registry"
+  local plugin_json
+  run env -i HOME="$HOME" PATH="$PATH" \
+    HERDR_SOCKET_PATH="/tmp/mms-herdr-worktree-setup-$$.sock" herdr plugin list --json
+  assert_success
+  plugin_json="$output"
+
+  run env PLUGIN_JSON="$plugin_json" python3 - <<'PY'
+import json
+import os
+
+plugins = json.loads(os.environ["PLUGIN_JSON"])["result"]["plugins"]
+matches = [
+    plugin for plugin in plugins
+    if plugin.get("plugin_id") == "seigi.worktree-setup"
+]
+assert len(matches) == 1, matches
+plugin = matches[0]
+source = plugin["source"]
+assert plugin["enabled"] is True, plugin
+assert source["kind"] == "github", source
+assert source["owner"] == "Seigiard" and source["repo"] == "herdr-worktree-setup", source
+assert source["resolved_commit"] == "70048c616979719aa592df36f37ec076227b2ac8", source
+PY
+  assert_success
 }
 
 caffeinate_migration_prepare() {
@@ -2615,94 +2853,6 @@ SH
   assert_success
 }
 
-# Herdr plugin link guard
-# ===========================================
-
-# plugin-link script template : the plugin directory it registers
-HERDR_LINK_GUARD_SCRIPTS=(
-  "run_onchange_after_4-link-herdr-worktree-setup.sh.tmpl:worktree-setup"
-)
-
-# Renders one link script into $work and gives it a $HOME carrying the plugin
-# manifest, a herdr stub that records every call, a dscl stub that reports
-# $login_home as this account's login home, and a uname stub so the macOS-only
-# script runs everywhere the suite does.
-herdr_link_guard_prepare() {
-  local template="$1" plugin="$2" login_home="$3" work="$4"
-  local home="$work/home" stub="$work/bin"
-  mkdir -p "$home/.config/herdr/plugins/$plugin" "$stub"
-  printf 'id = "%s"\n' "$plugin" > "$home/.config/herdr/plugins/$plugin/herdr-plugin.toml"
-  cat > "$stub/herdr" <<'SH'
-#!/bin/sh
-printf '%s\n' "$*" >> "$HERDR_CALLS"
-exit 0
-SH
-  cat > "$stub/dscl" <<SH
-#!/bin/sh
-printf 'NFSHomeDirectory: %s\n' "$login_home"
-SH
-  cat > "$stub/uname" <<'SH'
-#!/bin/sh
-printf 'Darwin\n'
-SH
-  chmod +x "$stub/herdr" "$stub/dscl" "$stub/uname"
-  : > "$work/herdr.calls"
-  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" \
-    --file "$SOURCE_ROOT/.chezmoiscripts/$template" > "$work/script.sh"
-}
-
-function test_scripts_0853_herdr_plugin_link_scripts_register_only_from_the_login_home() {
-  _bats_test_init 853 'herdr plugin link scripts register a plugin only from the login home'
-  command_exists chezmoi || skip "chezmoi not available"
-  # `herdr plugin link` stores the absolute path it is given in a registry the
-  # running server owns. Linking from a throwaway $HOME leaves that temp path in
-  # the live registry, and Herdr drops the plugin's actions once the directory
-  # is gone -- run_onchange will not rerun to repair it.
-  local entry template plugin work
-  for entry in "${HERDR_LINK_GUARD_SCRIPTS[@]}"; do
-    template="${entry%%:*}"
-    plugin="${entry##*:}"
-
-    work="$BATS_TEST_TMPDIR/foreign-$plugin"
-    herdr_link_guard_prepare "$template" "$plugin" "$HOME" "$work"
-    run env -u MMS_DISPOSABLE_HOME HOME="$work/home" HERDR_CALLS="$work/herdr.calls" \
-      PATH="$work/bin:$PATH" bash "$work/script.sh"
-    assert_success
-    assert_output --partial "is not the login home"
-    run cat "$work/herdr.calls"
-    assert_success
-    assert_output ""
-
-    # Control: the same script from a $HOME the account database calls the
-    # login home reaches the link.
-    work="$BATS_TEST_TMPDIR/live-$plugin"
-    mkdir -p "$work/home"
-    herdr_link_guard_prepare "$template" "$plugin" "$work/home" "$work"
-    run env -u MMS_DISPOSABLE_HOME HOME="$work/home" HERDR_CALLS="$work/herdr.calls" \
-      PATH="$work/bin:$PATH" bash "$work/script.sh"
-    assert_success
-    run grep -Fx "plugin link $work/home/.config/herdr/plugins/$plugin" "$work/herdr.calls"
-    assert_success
-  done
-}
-
-function test_scripts_0854_herdr_plugin_link_scripts_refuse_a_disposable_home() {
-  _bats_test_init 854 'herdr plugin link scripts refuse a $HOME declared disposable'
-  command_exists chezmoi || skip "chezmoi not available"
-  local work="$BATS_TEST_TMPDIR/disposable-worktree-setup"
-  mkdir -p "$work/home"
-  herdr_link_guard_prepare \
-    "run_onchange_after_4-link-herdr-worktree-setup.sh.tmpl" worktree-setup "$work/home" "$work"
-
-  run env MMS_DISPOSABLE_HOME=1 HOME="$work/home" HERDR_CALLS="$work/herdr.calls" \
-    PATH="$work/bin:$PATH" bash "$work/script.sh"
-  assert_success
-  assert_output --partial "MMS_DISPOSABLE_HOME=1"
-  run cat "$work/herdr.calls"
-  assert_success
-  assert_output ""
-}
-
 # ask-in-herdr skill script
 # ===========================================
 
@@ -2807,8 +2957,7 @@ SH
 }
 
 ask_live_stub() {
-  CHILD_STUB="$(mktemp -d)"
-  export CHILD_STUB
+  child_new_stub
   cat > "$CHILD_STUB/herdr-child" <<'SH'
 #!/usr/bin/env bash
 printf '%q ' "$@" >> "$CHILD_STUB/child.log"; printf '\n' >> "$CHILD_STUB/child.log"
@@ -3353,8 +3502,7 @@ HERDR_CHILD="$SOURCE_ROOT/dot_local/bin/executable_herdr-child"
 
 child_stub_herdr() {
   export HERDR_ALIAS_TEST_SEED=tests
-  CHILD_STUB="$(mktemp -d)"
-  export CHILD_STUB
+  child_new_stub
   cat > "$CHILD_STUB/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
@@ -6063,6 +6211,64 @@ SH
   assert_failure
 }
 
+function test_scripts_0732_stub_teardown_reaps_a_watcher_from_every_stub_a() {
+  _bats_test_init 0732 'stub teardown reaps a watcher from every stub a test created, not only the last'
+  local first second probe probe_pid attempt
+  child_stub_herdr
+  first="$CHILD_STUB"
+  probe="$first/state/runs/probe"
+  mkdir -p "$probe"
+  # Stands in for the watcher a detached launch arms: the same command line,
+  # so the same reap has to find it, without a launch's timing. It borrows the
+  # shipped descriptor hygiene, or a regression here would hold the runner's
+  # capture pipe and stall the suite instead of failing this case.
+  printf '#!/usr/bin/env bash\nsource %s\n' \
+    "$SOURCE_ROOT/dot_local/lib/herdr-process.sh" > "$probe/herdr-child"
+  cat >> "$probe/herdr-child" <<'SH'
+close_inherited_descriptors
+# Deliberately a hold that deleting the run directory does not end: that is
+# the shape teardown cannot reap by rm -rf alone (incident 4 in
+# docs/solutions/design-patterns/outliving-processes-hang-the-suite.md), so it
+# is the shape that holds the sweep to its job. The absolute bound keeps a red
+# run from leaking this for an hour.
+attempt=0
+while [ "$attempt" -lt 1200 ]; do
+  attempt=$((attempt + 1))
+  /bin/sleep 0.05
+done
+SH
+  chmod +x "$probe/herdr-child"
+  # Orphaned on purpose: a real watcher is nohup'd away from its launcher, and
+  # a child of this shell would still answer kill -0 as a zombie once dead.
+  # The pid lands outside *.pid so only the process-table sweep can find it.
+  ( bash "$probe/herdr-child" __watcher --run-dir "$probe" \
+      --pane wT:p9 --generation probe --timeout 3600000 --launcher-pid $$ \
+      </dev/null >/dev/null 2>&1 &
+    printf '%s\n' "$!" > "$first/probe.watcher" )
+  child_wait_for_file "$first/probe.watcher"
+  probe_pid="$(cat "$first/probe.watcher")"
+  kill -0 "$probe_pid" 2>/dev/null || fail 'the probe watcher never started'
+
+  # The next launch re-points CHILD_STUB away from the armed stub. What runs
+  # below is the suite's real teardown, called early so the case can hold it
+  # to its verdict; bashunit calling it again afterwards is a no-op.
+  child_stub_herdr
+  second="$CHILD_STUB"
+  [ "$first" != "$second" ] || fail 'the second stub reused the first directory'
+
+  teardown
+
+  attempt=0
+  while kill -0 "$probe_pid" 2>/dev/null && [ "$attempt" -lt 200 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  run kill -0 "$probe_pid"
+  assert_failure
+  assert_dir_not_exists "$first"
+  assert_dir_not_exists "$second"
+}
+
 function test_scripts_074_herdr_child_preserves_a_working_pane_when_the_wa() {
   _bats_test_init 74 'herdr-child preserves a working pane when the wait times out'
   child_stub_herdr
@@ -6334,12 +6540,8 @@ function test_scripts_092_herdr_child_tab_reap_invalidates_detached_superv() {
 # ===========================================
 
 PEER_ALIAS_SCRIPT="$SOURCE_ROOT/dot_local/bin/executable_herdr-peer-alias"
-ALIAS_LIB="$SOURCE_ROOT/dot_local/lib/herdr-aliases.sh"
-
-# The pool library owns the candidate order and the validity rule; the test
-# reads both from it so the expectation never comes from the allocator itself.
 peer_alias_candidate() {
-  bash -c 'source "$1"; herdr_alias_candidates "$2"' _ "$ALIAS_LIB" "$1" | sed -n "$2p"
+  "$HERDR_ALIAS_ALLOCATOR" --alias-candidates "$1" | sed -n "${2}p"
 }
 
 peer_alias_stub() {
@@ -6354,6 +6556,26 @@ esac
 SH
   chmod +x "$stub/herdr"
   printf '%s' "$stub"
+}
+
+# A peer that cannot be named does not start. The allocator is missing for a
+# whole window on a clean machine and after any failed package install, so the
+# command degrades to a placeholder instead of refusing to answer.
+function test_scripts_1405_herdr_peer_alias_falls_back_to_a_placeholder_alia() {
+  _bats_test_init 1405 'herdr-peer-alias falls back to a placeholder alias'
+  command -v jq >/dev/null || skip "jq not available"
+  local stub
+  stub="$(peer_alias_stub)"
+
+  run --separate-stderr env PATH="$stub:$PATH" \
+    HERDR_ALIAS_ALLOCATOR="$BATS_TEST_TMPDIR/absent-allocator" \
+    STUB_AGENT_LIST='{"result":{"agents":[{"name":"unnamed-alpha","pane_id":"wT:p1"}]}}' \
+    bash "$PEER_ALIAS_SCRIPT" peer-seed
+  assert_success
+  assert_stderr --partial 'alias allocator unavailable'
+  # unnamed-alpha is already held by a live agent, so the walk has to skip it
+  # rather than hand back a duplicate.
+  assert_output 'unnamed-bravo'
 }
 
 function test_scripts_1401_herdr_peer_alias_skips_live_and_reserved_aliase() {
@@ -6373,8 +6595,9 @@ function test_scripts_1401_herdr_peer_alias_skips_live_and_reserved_aliase() {
   assert_output "$expected"
   allocated="$output"
 
-  run bash -c 'source "$1"; herdr_alias_in_pool "$2"' _ "$ALIAS_LIB" "$allocated"
-  assert_success
+  if [[ ! "$allocated" =~ ^[a-z]+-[a-z]+$ ]]; then
+    fail "allocator returned an invalid alias: $allocated"
+  fi
 }
 
 # An agent record missing pane_id is a truncated list: its alias may be live
@@ -6398,6 +6621,112 @@ function test_scripts_1402_herdr_peer_alias_fails_closed_on_an_incomplete_() {
   assert_failure
   assert_output --partial "malformed herdr agent list"
 }
+
+# herdr-child alias degradation
+# ===========================================
+
+herdr_child_alias_stub() {
+  local work="$1"
+  # $work is what callers register with child_register_stub, so every teardown
+  # hook belongs under it: the state dir here, and the release barrier and pid
+  # file in herdr_child_alias_launch. Point one at this bin directory instead
+  # and that step goes silently inert, leaving the process-table sweep as the
+  # only thing still reaping these cases
+  # (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
+  local stub="$work/bin"
+  mkdir -p "$stub" "$work/tmp"
+  cat > "$stub/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "${1:-} ${2:-}" in
+  "agent list")
+    # Post-registration validation re-reads the list to confirm the alias it
+    # was given, so the child has to appear once agent start has accepted it.
+    if [ -f "$HCA_WORK/started-name" ]; then
+      printf '{"result":{"agents":[{"name":"parent","agent":"claude","pane_id":"wT:p0","terminal_id":"term-parent","revision":1,"state_change_seq":1,"agent_session":{"value":"parent-session"}},{"name":"%s","agent":"claude","pane_id":"wT:p9","terminal_id":"term-child","revision":1,"state_change_seq":10,"agent_session":{"value":"child-session"}}]}}\n' "$(cat "$HCA_WORK/started-name")"
+    else
+      printf '{"result":{"agents":[{"name":"parent","agent":"claude","pane_id":"wT:p0","terminal_id":"term-parent","revision":1,"state_change_seq":1,"agent_session":{"value":"parent-session"}}]}}\n'
+    fi
+    ;;
+  "pane split")
+    printf '{"result":{"pane":{"pane_id":"wT:p9","terminal_id":"term-child"}}}\n'
+    ;;
+  "agent start")
+    printf '%s' "$3" > "$HCA_WORK/started-name"
+    printf '{"result":{"agent":{"interactive_ready":true}}}\n'
+    ;;
+  "agent get")
+    printf '{"result":{"agent":{"name":"%s","pane_id":"wT:p9","terminal_id":"term-child","agent_session":{"value":"child-session"},"agent_status":"working","state_change_seq":10}}}\n' "$(cat "$HCA_WORK/started-name")"
+    ;;
+  "agent prompt")
+    printf '{"result":{"agent":{"agent_status":"working"}}}\n'
+    ;;
+  "pane report-metadata")
+    for arg in "$@"; do
+      case "$arg" in
+        supervision_generation=*) printf '%s' "${arg#*=}" > "$HCA_WORK/generation" ;;
+      esac
+    done
+    printf '{"result":{"type":"pane_metadata_reported"}}\n'
+    ;;
+  "pane get")
+    printf '{"result":{"pane":{"pane_id":"wT:p9","terminal_id":"term-child","agent_session":{"value":"child-session"},"tokens":{"supervision_generation":"%s"}}}}\n' "$(cat "$HCA_WORK/generation" 2>/dev/null || true)"
+    ;;
+  "pane close") : > "$HCA_WORK/pane-closed" ;;
+  *) exit 2 ;;
+esac
+SH
+  cat > "$stub/herdr-resource-tree" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" = record-child ] || exit 2
+printf '{"parent":{"presentation_name":"parent"},"child":{"presentation_name":"child"}}\n'
+SH
+  chmod +x "$stub/herdr" "$stub/herdr-resource-tree"
+  printf '%s' "$stub"
+}
+
+herdr_child_alias_launch() {
+  local work="$1" allocator="$2" stub="$3"
+  env PATH="$stub:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    HERDR_ALIAS_ALLOCATOR="$allocator" HCA_WORK="$work" TMPDIR="$work/tmp" \
+    HERDR_CHILD_STATE_DIR="$work/state" HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 \
+    HERDR_CHILD_TEST_WATCHER_PID_FILE="$work/watcher.pid" \
+    HERDR_CHILD_TEST_WATCHER_RELEASE="$work/release-watcher" \
+    bash "$HERDR_CHILD" start --kind claude --detach --prompt 'alias degradation task'
+}
+
+# A silent allocator is the common state, not the rare one: chezmoi deploys this
+# launcher before the package installs, and every failed install leaves the same
+# gap. Losing the pane over a missing decorative name is the regression here.
+function test_scripts_1403_herdr_child_starts_with_a_placeholder_when_the_al() {
+  _bats_test_init 1403 'herdr-child starts with a placeholder when the alias allocator is silent'
+  local work="$BATS_TEST_TMPDIR/child-alias-absent"
+  local stub
+  child_register_stub "$work"
+  stub="$(herdr_child_alias_stub "$work")"
+
+  run --separate-stderr herdr_child_alias_launch "$work" "$work/absent-allocator" "$stub"
+  assert_success
+  assert_stderr --partial 'alias allocator unavailable'
+  assert_file_contains "$work/started-name" '^unnamed-alpha$'
+}
+
+# The control: with a working allocator the placeholder path must not engage,
+# or the test above would pass for a launcher that ignores the allocator.
+function test_scripts_1404_herdr_child_uses_the_allocator_when_it_answers() {
+  _bats_test_init 1404 'herdr-child uses the allocator when it answers'
+  local work="$BATS_TEST_TMPDIR/child-alias-present"
+  local stub
+  child_register_stub "$work"
+  stub="$(herdr_child_alias_stub "$work")"
+
+  run --separate-stderr herdr_child_alias_launch "$work" \
+    "$BATS_TEST_DIRNAME/helpers/herdr_alias_allocator" "$stub"
+  assert_success
+  refute_stderr --partial 'alias allocator unavailable'
+  assert_file_contains "$work/started-name" '^red-wolf$'
+}
+
 
 # ===========================================
 # herdr-integrations run-script
@@ -6701,2859 +7030,271 @@ EOF
   assert_output ""
 }
 
-# herdr-pane-labels engine
+# Pane Labels package migration
 # ===========================================
 
-function test_scripts_1103_herdr_pane_labels_descriptor_probe_closes_worker_pipes() {
-  _bats_test_init 1103 'herdr-pane-labels descriptor probe closes detached worker pipes'
-  local probe_file="$BATS_TEST_DIRNAME/bashunit/herdr_pane_labels_descriptor_probe_test.sh"
-  local release_file="$BATS_TEST_TMPDIR/release-herdr"
-  local pid_file="$BATS_TEST_TMPDIR/descriptor-worker.pid"
-  local blocked_pid_file="$BATS_TEST_TMPDIR/blocked-herdr.pid"
-  assert_file_exists "$probe_file"
-
-  run env HPL_DESCRIPTOR_RELEASE_FILE="$release_file" \
-    HPL_DESCRIPTOR_PID_FILE="$pid_file" \
-    HPL_DESCRIPTOR_BLOCKED_PID_FILE="$blocked_pid_file" \
-    HPL_BLOCKED_HERDR_POLLS="$HPL_BLOCKED_HERDR_POLLS" \
-    TMPDIR="$BATS_TEST_TMPDIR" \
-    BASHUNIT_BIN="$BATS_TEST_DIRNAME/lib/bashunit" PROBE_FILE="$probe_file" \
-    python3 - <<'PY'
-import os
-from pathlib import Path
-import select
-import signal
-import subprocess
-import time
-
-release = Path(os.environ["HPL_DESCRIPTOR_RELEASE_FILE"])
-worker_file = Path(os.environ["HPL_DESCRIPTOR_PID_FILE"])
-blocked_file = Path(os.environ["HPL_DESCRIPTOR_BLOCKED_PID_FILE"])
-gave_up = Path(str(blocked_file) + ".gave-up")
-control_read, control_write = os.pipe()
-os.set_inheritable(control_write, True)
-proc = subprocess.Popen(
-    [os.environ["BASHUNIT_BIN"], os.environ["PROBE_FILE"], "--no-parallel"],
-    stdout=subprocess.PIPE,
-    stderr=subprocess.PIPE,
-    text=True,
-    env=os.environ.copy(),
-    pass_fds=(control_write,),
-)
-os.close(control_write)
-
-def read_pid(path):
-    try:
-        return int(path.read_text().strip())
-    except (FileNotFoundError, ValueError):
-        return None
-
-try:
-    deadline = time.monotonic() + int(os.environ["HPL_INNER_BATS_PROGRESS_SECONDS"])
-    worker_pid = None
-    while worker_pid is None and time.monotonic() < deadline:
-        worker_pid = read_pid(worker_file)
-        if worker_pid is None:
-            if proc.poll() is not None:
-                raise AssertionError("nested probe exited before publishing its worker pid")
-            time.sleep(0.02)
-    if worker_pid is None:
-        raise AssertionError("nested probe did not publish its worker pid")
-
-    blocked_pid = read_pid(blocked_file)
-    if gave_up.exists() or blocked_pid is None:
-        raise AssertionError("blocked Herdr fixture gave up before the EOF check")
-    os.kill(blocked_pid, 0)
-
-    try:
-        stdout, stderr = proc.communicate(timeout=int(os.environ["HPL_INNER_BATS_EXIT_SECONDS"]))
-    except subprocess.TimeoutExpired as error:
-        raise AssertionError("detached worker retained the nested runner output pipes") from error
-    if proc.returncode != 0:
-        raise AssertionError(f"nested probe failed: {stderr}\n{stdout}")
-    if "1 passed" not in stdout:
-        raise AssertionError(f"nested probe did not report its passing test: {stdout}")
-    readable, _, _ = select.select([control_read], [], [], 1)
-    if not readable or os.read(control_read, 1) != b"":
-        raise AssertionError("detached worker retained the inherited control pipe")
-
-    release.touch()
-    for _ in range(500):
-        try:
-            os.kill(worker_pid, 0)
-        except ProcessLookupError:
-            break
-        time.sleep(0.01)
-    else:
-        os.kill(worker_pid, signal.SIGKILL)
-        raise AssertionError("detached worker survived its release")
-finally:
-    os.close(control_read)
-    release.touch()
-    if proc.poll() is None:
-        proc.kill()
-        proc.wait()
-PY
-  assert_success
-}
-
-function test_scripts_1104_herdr_pane_labels_harness_fresh_reads_follow_pane_and_t() {
-  _bats_test_init 1104 'herdr-pane-labels harness fresh reads follow pane and tab mutations'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" \
-    '{"pane_id":"pane-1","tab_id":"tab-1","terminal_id":"term-1","cwd":"/repo/one","label":"old","tokens":{}}'
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" \
-    '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old-tab"}'
-
-  run hpl_socket_run "$HPL_DEFAULT_SOCKET" pane rename pane-1 new
-  assert_success
-  run hpl_socket_run "$HPL_DEFAULT_SOCKET" tab rename tab-1 new-tab
-  assert_success
-  run hpl_socket_run "$HPL_DEFAULT_SOCKET" pane get pane-1
-  assert_success
-  assert_output --partial '"label":"new"'
-  run hpl_socket_run "$HPL_DEFAULT_SOCKET" tab get tab-1
-  assert_success
-  assert_output --partial '"label":"new-tab"'
-  run hpl_socket_run "$HPL_DEFAULT_SOCKET" api snapshot
-  assert_success
-  assert_output --partial '"tabs":[{"tab_id":"tab-1"'
-
-  hpl_snapshot_complete "$HPL_DEFAULT_SOCKET" false
-  run hpl_socket_run "$HPL_DEFAULT_SOCKET" api snapshot
-  assert_success
-  refute_output --partial '"tabs"'
-}
-
-function test_scripts_1105_herdr_pane_labels_harness_isolates_colliding_sanitized_() {
-  _bats_test_init 1105 'herdr-pane-labels harness isolates colliding sanitized socket names'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  # a-b.sock and a_b.sock collided under the retired sanitized-name scheme;
-  # exact socket paths must now map to separate harness directories.
-  local socket_one="$HPL_WORK/a-b.sock" socket_two="$HPL_WORK/a_b.sock"
-  local dir_one dir_two
-  dir_one="$(hpl_socket_dir "$socket_one")"
-  dir_two="$(hpl_socket_dir "$socket_two")"
-  run test "$dir_one" != "$dir_two"
-  assert_success
-  hpl_set_pane "$socket_one" '{"pane_id":"pane-1","label":"one","tokens":{}}'
-  hpl_set_pane "$socket_two" '{"pane_id":"pane-1","label":"two","tokens":{}}'
-
-  run hpl_socket_run "$socket_one" api snapshot
-  assert_success
-  assert_output --partial '"label":"one"'
-  run hpl_socket_run "$socket_two" api snapshot
-  assert_success
-  assert_output --partial '"label":"two"'
-  hpl_wait_for_socket_call "$dir_one" 1
-  hpl_wait_for_socket_completion "$dir_one" 1
-  hpl_wait_for_socket_call "$dir_two" 1
-  hpl_wait_for_socket_completion "$dir_two" 1
-  # A failing mkdir trips the ERR trap, so this probes both independent locks
-  # parents without restating the resulting directory existence.
-  mkdir "$dir_one/locks/held" "$dir_two/locks/held"
-  assert_equal "$(wc -l < "$(hpl_socket_log "$socket_one")" | tr -d ' ')" 1
-  assert_equal "$(wc -l < "$(hpl_socket_log "$socket_two")" | tr -d ' ')" 1
-}
-
-function test_scripts_1106_herdr_pane_labels_harness_applies_source_metadata_seque() {
-  _bats_test_init 1106 'herdr-pane-labels harness applies source metadata sequence and clear rules'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" '{"pane_id":"pane-1","label":"agent","tokens":{}}'
-
-  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane report-metadata --source location pane-1 --seq 2 --token repo=alpha
-  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane report-metadata --source foreign pane-1 --seq 1 --token foreign=review
-  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane report-metadata --source location pane-1 --seq 1 --clear-token repo
-  local state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.metadata["pane-1"].location.tokens.repo' "$state")" alpha
-  assert_equal "$(jq -r '.panes[0].tokens.foreign' "$state")" review
-
-  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane report-metadata --source location pane-1 --seq 3 --clear-token repo
-  assert_equal "$(jq -r '.metadata["pane-1"].location.seq' "$state")" 3
-  assert_equal "$(jq -r '.metadata["pane-1"].location.tokens.repo // "cleared"' "$state")" cleared
-  assert_equal "$(jq -r '.panes[0].tokens.repo // "cleared"' "$state")" cleared
-  assert_equal "$(jq -r '.panes[0].tokens.foreign' "$state")" review
-}
-
-function test_scripts_1107_herdr_pane_labels_harness_models_target_loss_move_reuse() {
-  _bats_test_init 1107 'herdr-pane-labels harness models target loss move reuse and final-read change'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" \
-    '{"pane_id":"pane-1","tab_id":"tab-1","terminal_id":"term-1","cwd":"/repo/one","label":"one","tokens":{}}'
-  hpl_remove_pane "$HPL_DEFAULT_SOCKET" pane-1
-  run hpl_socket_run "$HPL_DEFAULT_SOCKET" pane get pane-1
-  assert_failure
-  run grep -q '^pane rename' "$HPL_LOG"
-  assert_failure
-
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" \
-    '{"pane_id":"pane-1","tab_id":"tab-2","terminal_id":"term-2","cwd":"/repo/two","label":"two","tokens":{}}'
-  run hpl_socket_run "$HPL_DEFAULT_SOCKET" pane get pane-1
-  assert_success
-  assert_output --partial '"tab_id":"tab-2"'
-  assert_output --partial '"terminal_id":"term-2"'
-
-  local state next_state
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  next_state="$(jq -c '.panes[0].terminal_id = "term-3" | .panes[0].cwd = "/repo/three" | .panes[0].label = "three"' "$state")"
-  hpl_after_next_call_state "$HPL_DEFAULT_SOCKET" "$next_state"
-  run hpl_socket_run "$HPL_DEFAULT_SOCKET" pane get pane-1
-  assert_success
-  assert_output --partial '"terminal_id":"term-2"'
-  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane rename pane-1 stale-write
-  run hpl_socket_run "$HPL_DEFAULT_SOCKET" pane get pane-1
-  assert_success
-  assert_output --partial '"terminal_id":"term-3"'
-  assert_output --partial '"label":"stale-write"'
-  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane rename pane-1 converged
-  run hpl_socket_run "$HPL_DEFAULT_SOCKET" pane get pane-1
-  assert_success
-  assert_output --partial '"label":"converged"'
-}
-
-function test_scripts_1108_herdr_pane_labels_assigns_distinct_aliases_and_renders_() {
-  _bats_test_init 1108 'herdr-pane-labels assigns distinct aliases and renders known and fallback runtime prefixes'
-  command -v jq >/dev/null || skip "jq not available"
-  source "$HERDR_ALIASES"
-  hpl_setup
-  export HERDR_ALIAS_TEST_SEED=u2-prefixes
-  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude review-auth
-  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-2 tab-1 ws-1 term-2 opencode CORE-42
-  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-3 tab-1 ws-1 term-3 pi consult-pi
-  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-4 tab-1 ws-1 term-4 codex manual-name
-  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-5 tab-1 ws-1 term-5 gemini tracker-name
-
-  hpl_request_only
-  hpl_presentation_run
-
-  local state names aliases alias
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  names="$(jq -r '.agents[].name' "$state")"
-  aliases=0
-  while IFS= read -r alias; do
-    herdr_alias_in_pool "$alias"
-    aliases=$((aliases + 1))
-  done <<EOF
-$names
-EOF
-  assert_equal "$aliases" 5
-  assert_equal "$(printf '%s\n' "$names" | sort -u | wc -l | tr -d ' ')" 5
-  assert_equal "$(jq -r '[.panes[].label] | join("|")' "$state")" \
-    "cc:$(jq -r '.agents[] | select(.pane_id == "pane-1").name' "$state")|oc:$(jq -r '.agents[] | select(.pane_id == "pane-2").name' "$state")|pi:$(jq -r '.agents[] | select(.pane_id == "pane-3").name' "$state")|cx:$(jq -r '.agents[] | select(.pane_id == "pane-4").name' "$state")|g:$(jq -r '.agents[] | select(.pane_id == "pane-5").name' "$state")"
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" "$(jq -r '[.panes[].label] | join(" · ")' "$state")"
-  unset HERDR_ALIAS_TEST_SEED
-}
-
-function test_scripts_1109_herdr_pane_labels_preserves_a_unique_pool_alias_across_() {
-  _bats_test_init 1109 'herdr-pane-labels preserves a unique pool alias across events and sweeps'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude red-wolf
-  hpl_sweep_run --sweep
-  assert_equal "$(jq -r '.agents[0].name' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" red-wolf
-  assert_equal "$(jq -r '.panes[0].label' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" cc:red-wolf
-
-  : > "$HPL_LOG"
-  hpl_sweep_run --sweep
-  run grep -E '^(agent|pane|tab) rename' "$HPL_LOG"
-  assert_failure
-}
-
-function test_scripts_1110_herdr_pane_labels_accepts_independent_pane_and_agent_re() {
-  _bats_test_init 1110 'herdr-pane-labels accepts independent pane and agent revisions in a complete join'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude red-wolf
-  hpl_transform_state "$HPL_DEFAULT_SOCKET" '.panes[0].revision = 7 | .agents[0].revision = 42'
-
-  hpl_sweep_run --sweep
-
-  local state
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].revision' "$state")" 7
-  assert_equal "$(jq -r '.agents[0].revision' "$state")" 42
-  assert_equal "$(jq -r '.panes[0].label' "$state")" cc:red-wolf
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" cc:red-wolf
-  run grep '^agent rename' "$HPL_LOG"
-  assert_failure
-}
-
-function test_scripts_1111_herdr_pane_labels_rejects_unsafe_snapshot_strings_befor() {
-  _bats_test_init 1111 'herdr-pane-labels rejects unsafe snapshot strings before every write'
-  command -v jq >/dev/null || skip "jq not available"
-  local mutation namespace pending completed
-  for mutation in \
-    '.panes[0].pane_id = "bad\npane" | .agents[0].pane_id = "bad\npane"' \
-    '.panes[0].terminal_id = "bad\u001fterminal" | .agents[0].terminal_id = "bad\u001fterminal"' \
-    '.panes[0].tab_id = "bad\ntab" | .agents[0].tab_id = "bad\ntab" | .tabs[0].tab_id = "bad\ntab"' \
-    '.panes[0].workspace_id = "bad\u001fworkspace" | .agents[0].workspace_id = "bad\u001fworkspace" | .tabs[0].workspace_id = "bad\u001fworkspace" | .workspaces[0].workspace_id = "bad\u001fworkspace"' \
-    '.panes[0].agent = "bad\nruntime" | .agents[0].agent = "bad\nruntime"' \
-    '.panes[0].label = "bad\u001flabel"' \
-    '.panes[0].tokens = {repo:"bad\nrepo",worktree:"bad\u001fworktree",branch:"bad\nbranch",location_status:"bad\u001fstatus",git_ref:"bad\nref",location_label:"bad\u001flocation"}' \
-    '.tabs[0].label = "bad\nlabel"' \
-    '.workspaces[0].label = "bad\u001flabel"' \
-    '.agents[0].name = "bad\nalias"' \
-    '({source:"bad\u001fsource",agent:"claude",kind:"id",value:"session"}) as $session | .panes[0].agent_session = $session | .agents[0].agent_session = $session'; do
-    hpl_setup
-    hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude red-wolf
-    hpl_transform_state "$HPL_DEFAULT_SOCKET" "$mutation"
-    run hpl_sweep_run --sweep
-    assert_failure
-
-    run grep -E '^(agent|pane|tab) rename|^pane report-metadata' "$HPL_LOG"
-    assert_failure
-    namespace="$(hpl_namespace "$HPL_DEFAULT_SOCKET")"
-    pending="$(hpl_record_number "$namespace/reconcile.state" pending_generation)"
-    completed="$(hpl_record_number "$namespace/reconcile.state" completed_generation)"
-    run test "$pending" -gt "$completed"
-    assert_success
-    run find "$namespace/panes" -name location.state -print
-    assert_output ""
-    hpl_teardown
-  done
-}
-
-function test_scripts_1112_herdr_pane_labels_sources_the_alias_library_relative_to() {
-  _bats_test_init 1112 'herdr-pane-labels sources the alias library relative to its deployed path'
-  local deployed="$BATS_TEST_TMPDIR/deployed-herdr-pane-labels"
-  mkdir -p "$deployed/bin" "$deployed/lib"
-  cp "$HPL_ENGINE" "$deployed/bin/herdr-pane-labels"
-  cp "$HERDR_ALIASES" "$deployed/lib/herdr-aliases.sh"
-  cp "$SOURCE_ROOT/dot_local/lib/herdr-process.sh" "$deployed/lib/herdr-process.sh"
-
-  run env PATH="$deployed/bin:/usr/bin:/bin" bash "$deployed/bin/herdr-pane-labels" --help
-  assert_success
-  assert_output --partial 'Usage: herdr-pane-labels'
-}
-
-function test_scripts_1114_herdr_pane_labels_retries_only_an_exact_confirmed_agent() {
-  _bats_test_init 1114 'herdr-pane-labels retries only an exact confirmed agent_name_taken conflict'
-  command -v jq >/dev/null || skip "jq not available"
-  source "$HERDR_ALIASES"
-  hpl_setup
-  export HERDR_ALIAS_TEST_SEED=u2-conflict
-  local first second occupied state raced
-  first="$(herdr_alias_candidates ignored | sed -n '1p')"
-  second="$(herdr_alias_candidates ignored | sed -n '2p')"
-  occupied=red-wolf
-  [[ "$occupied" != "$first" && "$occupied" != "$second" ]] || occupied=blue-otter
-  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude semantic-name
-  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-2 tab-1 ws-1 term-2 pi "$occupied"
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  raced="$(jq -c --arg candidate "$first" '.agents |= map(if .pane_id == "pane-2" then .name = $candidate else . end)' "$state")"
-  hpl_after_call_state "$HPL_DEFAULT_SOCKET" 3 "$raced"
-  hpl_fail_next_agent_rename "$HPL_DEFAULT_SOCKET" agent_name_taken
-
-  hpl_request_only
-  hpl_presentation_run
-
-  assert_equal "$(jq -r '.agents[] | select(.pane_id == "pane-1").name' "$state")" "$second"
-  assert_equal "$(jq -r '.agents[] | select(.pane_id == "pane-2").name' "$state")" "$first"
-  assert_file_contains "$HPL_LOG" "^agent rename pane-1 $first$"
-  assert_file_contains "$HPL_LOG" "^agent rename pane-1 $second$"
-
-  hpl_teardown
-  hpl_setup
-  export HERDR_ALIAS_TEST_SEED=u2-generic
-  first="$(herdr_alias_candidates ignored | sed -n '1p')"
-  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude semantic-name
-  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-2 tab-1 ws-1 term-2 pi red-wolf
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  raced="$(jq -c --arg candidate "$first" '.agents |= map(if .pane_id == "pane-2" then .name = $candidate else . end)' "$state")"
-  hpl_after_call_state "$HPL_DEFAULT_SOCKET" 3 "$raced"
-  hpl_fail_next_agent_rename "$HPL_DEFAULT_SOCKET" internal_error
-  hpl_request_only
-  hpl_presentation_run
-  assert_equal "$(jq -r '.agents[] | select(.pane_id == "pane-1").name' "$state")" semantic-name
-  assert_equal "$(grep -c '^agent rename pane-1' "$HPL_LOG")" 1
-  run grep -E '^(pane|tab) rename|^pane report-metadata' "$HPL_LOG"
-  assert_failure
-  unset HERDR_ALIAS_TEST_SEED
-}
-
-function test_scripts_1115_herdr_pane_labels_never_renames_a_stale_target_that_exi() {
-  _bats_test_init 1115 'herdr-pane-labels never renames a stale target that exits moves or changes before validation'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude semantic-name
-  local state changed
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  changed="$(jq -c '.panes = [] | .agents = []' "$state")"
-  hpl_after_call_state "$HPL_DEFAULT_SOCKET" 1 "$changed"
-  hpl_request_only
-  hpl_presentation_run
-  run grep '^agent rename' "$HPL_LOG"
-  assert_failure
-
-  hpl_teardown
-  hpl_setup
-  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude semantic-name
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  changed="$(jq -c '
-    .panes[0].pane_id = "pane-2" | .panes[0].terminal_id = "term-2"
-    | .panes[0].revision = 2
-    | .agents[0].pane_id = "pane-2" | .agents[0].terminal_id = "term-2"
-    | .agents[0].revision = 2 | .agents[0].state_change_seq = 2' "$state")"
-  hpl_after_call_state "$HPL_DEFAULT_SOCKET" 1 "$changed"
-  hpl_request_only
-  hpl_presentation_run
-  run grep '^agent rename pane-1' "$HPL_LOG"
-  assert_failure
-  run cat "$HPL_WORK/presentation.trace"
-  assert_output --partial retry-stale-generation
-  run cat "$HPL_LOG"
-  assert_output --partial 'agent rename pane-2 '
-
-  hpl_teardown
-  hpl_setup
-  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude semantic-name
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  changed="$(jq -c '
-    .panes[0].agent = "opencode" | .panes[0].revision = 2
-    | .agents[0].agent = "opencode" | .agents[0].revision = 2 | .agents[0].state_change_seq = 2' "$state")"
-  hpl_after_call_state "$HPL_DEFAULT_SOCKET" 1 "$changed"
-  hpl_request_only
-  hpl_presentation_run
-  run grep -c '^agent rename pane-1' "$HPL_LOG"
-  assert_output 1
-  assert_equal "$(jq -r '.panes[0].label' "$state")" "oc:$(jq -r '.agents[0].name' "$state")"
-}
-
-function test_scripts_1116_herdr_pane_labels_accepts_a_same_pane_replacement_in_th() {
-  _bats_test_init 1116 'herdr-pane-labels accepts a same-pane replacement in the rename command interval'
-  command -v jq >/dev/null || skip "jq not available"
-  source "$HERDR_ALIASES"
-  hpl_setup
-  export HERDR_ALIAS_TEST_SEED=u2-command-interval
-  local candidate state replacement
-  candidate="$(herdr_alias_candidates ignored | sed -n '1p')"
-  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude semantic-name
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  replacement="$(jq -c --arg candidate "$candidate" '
-    .panes[0].agent = "pi" | .panes[0].revision = 2
-    | .agents[0].agent = "pi" | .agents[0].revision = 2
-    | .agents[0].state_change_seq = 2 | .agents[0].name = $candidate' "$state")"
-  hpl_after_call_state "$HPL_DEFAULT_SOCKET" 3 "$replacement"
-  hpl_request_only
-  hpl_presentation_run
-  assert_equal "$(jq -r '.agents[0].name' "$state")" "$candidate"
-  assert_equal "$(jq -r '.panes[0].label' "$state")" "pi:$candidate"
-  run grep -c '^agent rename pane-1' "$HPL_LOG"
-  assert_output 1
-  unset HERDR_ALIAS_TEST_SEED
-}
-
-function test_scripts_1117_herdr_pane_labels_rejects_incomplete_malformed_duplicat() {
-  _bats_test_init 1117 'herdr-pane-labels rejects incomplete malformed duplicate and contradictory snapshots before writes'
-  command -v jq >/dev/null || skip "jq not available"
-  local mutation baseline state
-  for mutation in \
-    'del(.agents[0].revision)' \
-    '.panes[0].terminal_id = 7' \
-    '.agents += [(.agents[0] | .name = "blue-otter")]' \
-    '.agents[0].terminal_id = "contradiction"' \
-    '.agents[0].tab_id = "other-tab"'; do
-    hpl_setup
-    hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude semantic-name
-    state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-    baseline="$(jq -c . "$state")"
-    hpl_transform_state "$HPL_DEFAULT_SOCKET" "$mutation"
-    run hpl_sweep_run --sweep
-    assert_failure
-    run grep -E '^(agent|pane|tab) rename|^pane report-metadata' "$HPL_LOG"
-    assert_failure
-
-    hpl_replace_state "$HPL_DEFAULT_SOCKET" "$baseline"
-    : > "$HPL_LOG"
-    hpl_sweep_run --sweep
-    assert_file_contains "$HPL_LOG" '^agent rename pane-1 '
-    hpl_teardown
-  done
-
-  hpl_setup
-  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude red-wolf
-  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-2 tab-1 ws-1 term-2 pi red-wolf
-  run hpl_sweep_run --sweep
-  assert_failure
-  run grep -E '^(agent|pane|tab) rename|^pane report-metadata' "$HPL_LOG"
-  assert_failure
-  hpl_transform_state "$HPL_DEFAULT_SOCKET" '.agents[1].name = "blue-otter"'
-  : > "$HPL_LOG"
-  run hpl_sweep_run --sweep
-  assert_success
-  assert_file_contains "$HPL_LOG" '^pane rename pane-1 cc:red-wolf$'
-  assert_file_contains "$HPL_LOG" '^pane rename pane-2 pi:blue-otter$'
-
-  hpl_setup
-  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude semantic-name
-  hpl_snapshot_complete "$HPL_DEFAULT_SOCKET" false
-  run hpl_sweep_run --sweep
-  assert_failure
-  run grep -E '^(agent|pane|tab) rename|^pane report-metadata' "$HPL_LOG"
-  assert_failure
-
-  hpl_snapshot_complete "$HPL_DEFAULT_SOCKET" true
-  : > "$HPL_LOG"
-  : > "$(hpl_socket_dir "$HPL_DEFAULT_SOCKET")/malformed-next-snapshot"
-  run hpl_sweep_run --sweep
-  assert_failure
-  run grep -E '^(agent|pane|tab) rename|^pane report-metadata' "$HPL_LOG"
-  assert_failure
-  : > "$HPL_LOG"
-  hpl_sweep_run --sweep
-  assert_file_contains "$HPL_LOG" '^agent rename pane-1 '
-}
-
-function test_scripts_1118_herdr_pane_labels_rejects_a_complete_stale_post_rename_() {
-  _bats_test_init 1118 'herdr-pane-labels rejects a complete stale post-rename snapshot and converges later'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude semantic-name
-  local state stale
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  stale="$(jq -c '.agents[0].name = "stale-result"' "$state")"
-  hpl_after_call_state "$HPL_DEFAULT_SOCKET" 3 "$stale"
-  hpl_request_only
-  hpl_presentation_run
-  assert_equal "$(jq -r '.panes[0].label' "$state")" old
-  run grep -E '^(pane|tab) rename|^pane report-metadata' "$HPL_LOG"
-  assert_failure
-
-  : > "$HPL_LOG"
-  hpl_request_only
-  hpl_presentation_run
-  assert_file_contains "$HPL_LOG" '^agent rename pane-1 '
-  run grep -q '^cc:' <<<"$(jq -r '.panes[0].label' "$state")"
-  assert_success
-}
-
-function test_scripts_1119_herdr_pane_labels_contains_no_semantic_naming_or_retire() {
-  _bats_test_init 1119 'herdr-pane-labels contains no semantic naming or retired worker interface'
-  local retired
-  for retired in --agent --session --transcript --set --worker; do
-    run bash "$HPL_ENGINE" "$retired"
-    assert_failure 2
-    assert_output --partial 'Usage: herdr-pane-labels'
-  done
-}
-
-
-function test_scripts_1121_herdr_pane_labels_presentation_coalesces_event_bursts_i() {
-  _bats_test_init 1121 'herdr-pane-labels presentation coalesces event bursts into an active pass and rerun'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"old","tokens":{}}'
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old"}'
-  hpl_proc_info pane-1 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
-  : > "$HPL_WORK/block-herdr"
-  hpl_event_run
-  hpl_wait_for_file "$HPL_WORK/herdr-blocked"
-  hpl_event_run
-  hpl_event_run
-  hpl_event_run
-  : > "$HPL_WORK/release-herdr"
-  hpl_wait_for_presentation_quiescence "$HPL_DEFAULT_SOCKET"
-
-  run grep -c '^api snapshot' "$HPL_LOG"
-  # One read belongs to the generation invalidated by the burst; the latest
-  # generation then performs its required initial and final complete reads.
-  assert_output "3"
-  run grep -c '^pane rename pane-1 btop$' "$HPL_LOG"
-  assert_output "1"
-  run grep -c '^tab rename tab-1 btop$' "$HPL_LOG"
-  assert_output "1"
-}
-
-function test_scripts_1122_herdr_pane_labels_presentation_retries_a_newer_invalida() {
-  _bats_test_init 1122 'herdr-pane-labels presentation retries a newer invalidation after transient pass failure'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"old","tokens":{}}'
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old"}'
-  hpl_proc_info pane-1 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
-  local dir="$(hpl_socket_dir "$HPL_DEFAULT_SOCKET")"
-  : > "$dir/fail-next-snapshot"
-  : > "$HPL_WORK/block-herdr"
-  hpl_event_run
-  hpl_wait_for_file "$HPL_WORK/herdr-blocked"
-  HERDR_PANE_LABELS_TEST_NO_PRESENTATION=1 hpl_event_run
-  : > "$HPL_WORK/release-herdr"
-  hpl_wait_for_presentation_quiescence "$HPL_DEFAULT_SOCKET"
-  run grep -c '^api snapshot' "$HPL_LOG"
-  # The failed read is followed by initial and final complete reads.
-  assert_output "3"
-  assert_equal "$(jq -r '.panes[0].label' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" btop
-}
-
-function test_scripts_1123_herdr_pane_labels_presentation_release_recheck_does_not() {
-  _bats_test_init 1123 'herdr-pane-labels presentation release recheck does not lose a pending invalidation'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"old","tokens":{}}'
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old"}'
-  hpl_proc_info pane-1 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
-  local pause="$HPL_WORK/release-edge"
-  HERDR_PANE_LABELS_TEST_PAUSE_BEFORE_RELEASE="$pause" hpl_event_run
-  hpl_wait_for_file "$pause.reached"
-  # The second event only has to make an invalidation pending; letting it also
-  # start a presentation of its own races the paused pass under load, which
-  # adds a third snapshot and reads as a lost invalidation when it is not.
-  # Suppressing it keeps the recheck the only route to the second snapshot, so
-  # the exact count below still means what the test name says.
-  HERDR_PANE_LABELS_TEST_NO_PRESENTATION=1 hpl_event_run
-  : > "$pause.release"
-  hpl_wait_for_presentation_quiescence "$HPL_DEFAULT_SOCKET"
-  run grep -c '^api snapshot' "$HPL_LOG"
-  # Both successful generations perform initial and final complete reads.
-  assert_output "4"
-}
-
-function test_scripts_1124_herdr_pane_labels_event_presentation_leaves_the_hook_pr() {
-  _bats_test_init 1124 'herdr-pane-labels event presentation leaves the hook process group'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"old","tokens":{}}'
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old"}'
-  hpl_proc_info pane-1 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
-  local pause="$HPL_WORK/process-group" claim worker_pid worker_pgid hook_pgid
-
-  HERDR_PANE_LABELS_TEST_PAUSE_BEFORE_RELEASE="$pause" hpl_event_run
-  hpl_wait_for_file "$pause.reached"
-  claim="$(hpl_namespace "$HPL_DEFAULT_SOCKET")/presentation.claim/owner"
-  worker_pid="$(hpl_record_number "$claim" pid)"
-  worker_pgid="$(ps -p "$worker_pid" -o pgid= | tr -d '[:space:]')"
-  hook_pgid="$(ps -p "$$" -o pgid= | tr -d '[:space:]')"
-  : > "$pause.release"
-  hpl_wait_for_presentation_quiescence "$HPL_DEFAULT_SOCKET"
-
-  run test -n "$worker_pgid"
-  assert_success
-  run test "$worker_pgid" != "$hook_pgid"
-  assert_success
-}
-
-function test_scripts_1125_herdr_pane_labels_presentation_automatically_corrects_d() {
-  _bats_test_init 1125 'herdr-pane-labels presentation automatically corrects divergent pane and tab labels'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude red-wolf
-  hpl_sweep_run --sweep
-  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane rename pane-1 divergent-pane
-  : > "$HPL_LOG"
-  hpl_event_run
-  hpl_wait_for_presentation_quiescence "$HPL_DEFAULT_SOCKET"
-  run grep '^pane rename' "$HPL_LOG"
-  assert_output "pane rename pane-1 cc:red-wolf"
-  run grep -c '^tab rename' "$HPL_LOG"
-  assert_failure
-
-  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane rename pane-1 divergent-again
-  hpl_socket_run "$HPL_DEFAULT_SOCKET" tab rename tab-1 divergent-tab
-  : > "$HPL_LOG"
-  hpl_event_run
-  hpl_wait_for_presentation_quiescence "$HPL_DEFAULT_SOCKET"
-  assert_file_contains "$HPL_LOG" '^pane rename pane-1 cc:red-wolf$'
-  assert_file_contains "$HPL_LOG" '^tab rename tab-1 cc:red-wolf$'
-  run grep -E 'owner|reclaim|notification' "$HPL_LOG"
-  assert_failure
-}
-
-function test_scripts_1126_herdr_pane_labels_presentation_rejects_an_unsafe_row_wi() {
-  _bats_test_init 1126 'herdr-pane-labels presentation rejects an unsafe row without reducing pass scope'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  # A FIELD_SEPARATOR in one pane must abort the whole pass. Labeling only the
-  # other pane would turn malformed data into an apparently successful pass.
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"bad\u001flabel","tokens":{}}'
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" '{"pane_id":"pane-2","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-2","agent":null,"label":"old","tokens":{}}'
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old-tab"}'
-  hpl_proc_info pane-2 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
-  hpl_request_only
-  hpl_presentation_run
-  local state namespace pending completed
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .label' "$state")" old
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" old-tab
-  run grep -E '^(agent|pane|tab) rename|^pane report-metadata' "$HPL_LOG"
-  assert_failure
-  namespace="$(hpl_namespace "$HPL_DEFAULT_SOCKET")"
-  pending="$(hpl_record_number "$namespace/reconcile.state" pending_generation)"
-  completed="$(hpl_record_number "$namespace/reconcile.state" completed_generation)"
-  run test "$pending" -gt "$completed"
-  assert_success
-}
-
-function test_scripts_1127_herdr_pane_labels_aborts_unsafe_process_and_git_derived() {
-  _bats_test_init 1127 'herdr-pane-labels aborts unsafe process and Git-derived positional rows'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_set_process_pane pane-1 tab-1 ws-1 term-1 /tmp old
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old-tab"}'
-  hpl_proc_info pane-1 '{"result":{"process_info":{"shell_pid":1,"foreground_process_group_id":2,"foreground_processes":[{"pid":2,"argv":["bad\u001fcommand"]}]}}}'
-  hpl_request_only
-  hpl_presentation_run
-
-  local namespace pending completed root common unsafe_root
-  namespace="$(hpl_namespace "$HPL_DEFAULT_SOCKET")"
-  pending="$(hpl_record_number "$namespace/reconcile.state" pending_generation)"
-  completed="$(hpl_record_number "$namespace/reconcile.state" completed_generation)"
-  run test "$pending" -gt "$completed"
-  assert_success
-  run grep -E '^(agent|pane|tab) rename|^pane report-metadata' "$HPL_LOG"
-  assert_failure
-  run find "$namespace/panes" -name location.state -print
-  assert_output ""
-
-  hpl_teardown
-  hpl_setup
-  root="$HPL_WORK/repository"
-  common="$root/.git"
-  unsafe_root="bad$(printf '\037')root"
-  mkdir -p "$root" "$common"
-  hpl_git_location_fixture "$root" "$unsafe_root" "$common" refs/heads/main
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old-tab"}'
-  hpl_set_process_label pane-1 worker
-  hpl_request_only
-  HERDR_PANE_LABELS_GIT_BUDGET="$HPL_GIT_BUDGET" hpl_presentation_run
-
-  namespace="$(hpl_namespace "$HPL_DEFAULT_SOCKET")"
-  pending="$(hpl_record_number "$namespace/reconcile.state" pending_generation)"
-  completed="$(hpl_record_number "$namespace/reconcile.state" completed_generation)"
-  run test "$pending" -gt "$completed"
-  assert_success
-  run grep -E '^(agent|pane|tab) rename|^pane report-metadata' "$HPL_LOG"
-  assert_failure
-  run find "$namespace/panes" -name location.state -print
-  assert_output ""
-}
-
-function test_scripts_1128_herdr_pane_labels_presentation_skips_pre_read_deletion_() {
-  _bats_test_init 1128 'herdr-pane-labels presentation skips pre-read deletion and repairs the post-read race next pass'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"old","tokens":{}}'
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old"}'
-  hpl_proc_info pane-1 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
-  local state missing next dir
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  missing="$(jq -c '.panes = []' "$state")"
-  hpl_after_next_call_state "$HPL_DEFAULT_SOCKET" "$missing"
-  hpl_request_only
-  hpl_presentation_run
-  run grep -c '^pane rename' "$HPL_LOG"
-  assert_failure
-
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-2","agent":null,"label":"wrong","tokens":{}}'
-  : > "$HPL_LOG"
-  dir="$(hpl_socket_dir "$HPL_DEFAULT_SOCKET")"
-  next=$(( $(cat "$dir/call-seq") + 3 ))
-  hpl_after_call_script "$HPL_DEFAULT_SOCKET" "$next" "printf '%s' '{\"result\":{\"process_info\":{\"shell_pid\":100,\"foreground_process_group_id\":300,\"foreground_processes\":[{\"pid\":300,\"name\":\"cargo\",\"argv0\":\"cargo\",\"argv\":[\"cargo\",\"test\"]}]}}}' > '$dir/proc-pane-1.json'"
-  hpl_request_only
-  hpl_presentation_run
-  assert_equal "$(jq -r '.panes[0].label' "$state")" btop
-  hpl_request_only
-  hpl_presentation_run
-  assert_equal "$(jq -r '.panes[0].label' "$state")" "cargo test"
-}
-
-function test_scripts_1129_herdr_pane_labels_presentation_skips_reused_pane_and_ta() {
-  _bats_test_init 1129 'herdr-pane-labels presentation skips reused pane and tab identities at the final read'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"old-pane","tokens":{}}'
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old-tab"}'
-  hpl_proc_info pane-1 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[{"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
-  local state next_state
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  next_state="$(jq -c '
-    .panes[0].terminal_id = "term-2"
-    | .panes[0].workspace_id = "ws-2"
-    | .panes[0].label = "reused-pane"
-    | .tabs[0].workspace_id = "ws-2"
-    | .tabs[0].label = "reused-tab"
-    | .workspaces += [{"workspace_id":"ws-2","label":"ws-2"}]
-  ' "$state")"
-  hpl_after_next_call_state "$HPL_DEFAULT_SOCKET" "$next_state"
-
-  hpl_request_only
-  hpl_presentation_run
-  assert_equal "$(jq -r '.panes[0].label' "$state")" reused-pane
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" reused-tab
-  run grep -E '^(pane|tab) rename' "$HPL_LOG"
-  assert_failure
-
-  hpl_request_only
-  hpl_presentation_run
-  assert_equal "$(jq -r '.panes[0].label' "$state")" btop
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" btop
-}
-
-function test_scripts_1130_herdr_pane_labels_presentation_isolates_exact_colliding() {
-  _bats_test_init 1130 'herdr-pane-labels presentation isolates exact colliding socket identities'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local socket_one="$HPL_WORK/a-b.sock" socket_two="$HPL_WORK/a_b.sock"
-  hpl_set_pane "$socket_one" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1a","agent":null,"label":"old-one","tokens":{}}'
-  hpl_set_tab "$socket_one" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old-one"}'
-  hpl_set_pane "$socket_two" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1b","agent":null,"label":"old-two","tokens":{}}'
-  hpl_set_tab "$socket_two" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"old-two"}'
-  hpl_proc_info_for_socket "$socket_one" pane-1 '{"result":{"process_info":{"shell_pid":1,"foreground_process_group_id":2,"foreground_processes":[{"pid":2,"argv":["one"]}]}}}'
-  hpl_proc_info_for_socket "$socket_two" pane-1 '{"result":{"process_info":{"shell_pid":1,"foreground_process_group_id":2,"foreground_processes":[{"pid":2,"argv":["two"]}]}}}'
-  hpl_event_run_for_socket "$socket_one"
-  hpl_event_run_for_socket "$socket_two"
-  hpl_wait_for_presentation_quiescence "$socket_one"
-  hpl_wait_for_presentation_quiescence "$socket_two"
-  assert_equal "$(jq -r '.panes[0].label' "$(hpl_socket_state "$socket_one")")" one
-  assert_equal "$(jq -r '.panes[0].label' "$(hpl_socket_state "$socket_two")")" two
-  run test "$(hpl_namespace "$socket_one")" != "$(hpl_namespace "$socket_two")"
-  assert_success
-}
-
-function test_scripts_1131_herdr_pane_labels_presentation_fails_closed_without_an_() {
-  _bats_test_init 1131 'herdr-pane-labels presentation fails closed without an exact socket'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" '{"pane_id":"pane-1","tab_id":"tab-1","workspace_id":"ws-1","terminal_id":"term-1","agent":null,"label":"unchanged","tokens":{}}'
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":"unchanged"}'
-  hpl_proc_info pane-1 '{"result":{"process_info":{"shell_pid":1,"foreground_process_group_id":2,"foreground_processes":[{"pid":2,"argv":["changed"]}]}}}'
-  run env -u HERDR_SOCKET_PATH PATH="$HPL_STUB:/usr/bin:/bin" HERDR_PANE_LABELS_STATE_DIR="$HPL_STATE" bash "$HPL_ENGINE" --event
-  assert_success
-  run env -u HERDR_SOCKET_PATH PATH="$HPL_STUB:/usr/bin:/bin" HERDR_PANE_LABELS_STATE_DIR="$HPL_STATE" bash "$HPL_ENGINE" --sweep
-  assert_success
-  assert_equal "$(cat "$HPL_LOG")" ""
-  assert_equal "$(jq -r '.panes[0].label' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" unchanged
-}
-
-function test_scripts_1132_herdr_pane_labels_location_resolves_main_linked_nested_() {
-  _bats_test_init 1132 'herdr-pane-labels location resolves main linked nested and administrative paths with strict foreground semantics'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local main="$HPL_WORK/checkouts/repository" linked="$HPL_WORK/linked/feature"
-  local common="$main/.git" nongit="$HPL_WORK/outside" state
-  mkdir -p "$main/src/nested" "$common/objects" "$common/worktrees/feature/logs" "$linked/deep/path" "$nongit"
-  hpl_mark_linked_worktree "$linked" "$common/worktrees/feature"
-  printf '%s/.git\n' "$linked" > "$common/worktrees/feature/gitdir"
-  hpl_git_location_fixture "$main/src/nested" "$main" "$common" refs/heads/main
-  hpl_git_location_fixture "$main" "$main" "$common" refs/heads/main
-  hpl_git_location_fixture "$linked" "$linked" "$common" refs/heads/feature
-  hpl_git_location_fixture "$linked/deep/path" "$linked" "$common" refs/heads/feature
-  hpl_git_fixture "$nongit" "" 1 ready 'fatal: not a git repository'
-
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json main-nested tab-1 "$main" present "$main/src/nested")"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json main-admin tab-1 "$main" present "$common/objects")"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json linked-admin tab-1 "$linked" present "$common/worktrees/feature/logs")"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json fallback tab-1 "$linked/deep/path" absent)"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json foreground-wins tab-1 "$linked/deep/path" present "$nongit")"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json agent-ignores-foreground tab-1 "$linked/deep/path" present "$nongit" | jq -c '.agent = "pi"')"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repository"}'
-  for pane_id in main-nested main-admin linked-admin fallback foreground-wins agent-ignores-foreground; do hpl_set_process_label "$pane_id" "$pane_id"; done
-  LANG=fr_FR.UTF-8 LC_ALL= hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "main-nested" or .pane_id == "main-admin") | .tokens.repo' "$state" | sort -u)" repository
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "main-nested" or .pane_id == "main-admin") | .tokens.worktree' "$state" | sort -u)" repository
-  # Main checkout: branch icon and the ref, nothing else — a pane with a ref
-  # never carries a folder qualifier.
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "main-nested" or .pane_id == "main-admin") | .tokens.git_ref' "$state" | sort -u)" "$HPL_ICON_BRANCH main"
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "linked-admin" or .pane_id == "fallback") | .tokens.branch' "$state" | sort -u)" feature
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "linked-admin" or .pane_id == "fallback") | .tokens.worktree' "$state" | sort -u)" feature
-  # Linked worktree (.git file at root): worktree icon and the ref; the
-  # directory the worktree occupies stays out of the row.
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "linked-admin" or .pane_id == "fallback") | .tokens.git_ref' "$state" | sort -u)" "$HPL_ICON_WORKTREE feature"
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "agent-ignores-foreground") | .tokens.branch' "$state")" feature
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "agent-ignores-foreground") | .tokens.worktree' "$state")" feature
-  # Foreground cwd outside any checkout: no Git tokens at all, and the folder
-  # name is the whole row.
-  run jq -e --arg ref "$HPL_ICON_FOLDER outside" '.panes[] | select(.pane_id == "foreground-wins") | (.tokens.repo == null and .tokens.worktree == null and .tokens.branch == null and .tokens.git_ref == $ref)' "$state"
-  assert_success
-  assert_equal "$(cat "$(hpl_git_fixture_dir "$nongit")/locale")" C
-}
-
-function test_scripts_1133_herdr_pane_labels_dangling_administrative_gitdir_retain() {
-  _bats_test_init 1133 'herdr-pane-labels dangling administrative gitdir retains stale location'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local main="$HPL_WORK/checkouts/repository" linked="$HPL_WORK/linked/feature"
-  local common="$main/.git" admin="$common/worktrees/feature/logs" state
-  mkdir -p "$common/worktrees/feature/logs" "$linked"
-  hpl_mark_linked_worktree "$linked" "$common/worktrees/feature"
-  printf '%s/.git\n' "$linked" > "$common/worktrees/feature/gitdir"
-  hpl_git_location_fixture "$linked" "$linked" "$common" refs/heads/feature
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$linked" present "$linked")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_process_label pane-1 worker
-  hpl_location_pass
-
-  printf '%s\n' "$HPL_WORK/missing/.git" > "$common/worktrees/feature/gitdir"
-  hpl_set_pane_location "$HPL_DEFAULT_SOCKET" pane-1 "$linked" "$admin"
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.worktree' "$state")" feature
-  assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" feature
-  assert_equal "$(jq -r '.panes[0].tokens.location_status' "$state")" stale
-  # Retained stale evidence keeps the worktree place icon and renders stale
-  # as a suffix icon on $git_ref, not as a separate row or text marker.
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_WORKTREE feature $HPL_ICON_STALE"
-}
-
-function test_scripts_1134_herdr_pane_labels_location_detached_publishes_a_commit_() {
-  _bats_test_init 1134 'herdr-pane-labels location detached publishes a commit ref and non-Git clears are source-local with monotonic restart high-water'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local root="$HPL_WORK/repo" common="$HPL_WORK/repo.git"
-  local branch="$root/branch" detached="$root/detached" nongit="$HPL_WORK/non-git" state first_seq second_seq
-  mkdir -p "$branch" "$detached" "$nongit" "$common" "$root/.git"
-  hpl_git_location_fixture "$branch" "$root" "$common" refs/heads/topic
-  hpl_git_location_fixture "$detached" "$root" "$common" HEAD a1b2c3d
-  hpl_git_fixture "$nongit" "" 1 ready 'fatal: not a git repository'
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$branch")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
-  hpl_set_process_label pane-1 worker
-  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane report-metadata pane-1 --source foreign-source --token foreign=kept --seq 900
-
-  HERDR_PANE_LABELS_TEST_NOW_SEQ=1000 hpl_location_pass
-  first_seq="$(hpl_location_source_seq "$HPL_DEFAULT_SOCKET" pane-1)"
-  hpl_set_pane_location "$HPL_DEFAULT_SOCKET" pane-1 "$detached" "$detached"
-  HERDR_PANE_LABELS_TEST_NOW_SEQ=1 hpl_location_pass
-  second_seq="$(hpl_location_source_seq "$HPL_DEFAULT_SOCKET" pane-1)"
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  run test "$second_seq" -gt "$first_seq"
-  assert_success
-  assert_equal "$(jq -r '.panes[0].tokens.repo' "$state")" repo.git
-  assert_equal "$(jq -r '.panes[0].tokens.worktree' "$state")" repo
-  # Detached HEAD keeps the location: commit icon plus 7-char short SHA, no
-  # stale marker, and no branch token.
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_COMMIT a1b2c3d"
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" worker
-  run jq -e '.panes[0].tokens.branch == null and .panes[0].tokens.location_status == null and .panes[0].tokens.foreign == "kept"' "$state"
-  assert_success
-
-  hpl_set_pane_location "$HPL_DEFAULT_SOCKET" pane-1 "$nongit" "$nongit"
-  HERDR_PANE_LABELS_TEST_NOW_SEQ=0 hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  # The non-Git arm clears every Git token, keeps a foreign source's token, and
-  # publishes the directory name as the only thing this pane can report.
-  assert_equal "$(jq -c '.panes[0].tokens' "$state")" "$(jq -nc --arg ref "$HPL_ICON_FOLDER non-git" '{foreign:"kept",git_ref:$ref}')"
-  run test "$(hpl_location_source_seq "$HPL_DEFAULT_SOCKET" pane-1)" -gt "$second_seq"
-  assert_success
-}
-
-function test_scripts_1135_herdr_pane_labels_location_real_probe_shape_pays_the_se() {
-  _bats_test_init 1135 'herdr-pane-labels location real probe shape pays the second sha call only when detached'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local root="$HPL_WORK/repo" common="$HPL_WORK/repo.git"
-  local branch="$root/branch" detached="$root/detached" state branch_fixture detached_fixture
-  mkdir -p "$branch" "$detached" "$common" "$root/.git"
-  # given: real-git probe shape — three lines from the first call, the short
-  # SHA only from a separate `rev-parse --short=7 HEAD` answered via the
-  # stub's stdout.short selector.
-  hpl_git_fixture "$branch" "$(printf '%s\n%s\n%s' "$root" "$common" refs/heads/topic)"
-  hpl_git_fixture "$detached" "$(printf '%s\n%s\n%s' "$root" "$common" HEAD)"
-  branch_fixture="$(hpl_git_fixture_dir "$branch")"
-  detached_fixture="$(hpl_git_fixture_dir "$detached")"
-  printf 'e4f5a6b\n' > "$branch_fixture/stdout.short"
-  printf 'e4f5a6b\n' > "$detached_fixture/stdout.short"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$branch")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
-  hpl_set_process_label pane-1 worker
-
-  # when: a branch pane resolves
-  HERDR_PANE_LABELS_TEST_NOW_SEQ=1000 hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  # then: the ref came from the 3-line probe alone — no --short call fired
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_BRANCH topic"
-  run grep -c -- '--short=7' "$branch_fixture/calls"
-  assert_failure
-
-  # when: the same pane moves to a detached checkout
-  hpl_set_pane_location "$HPL_DEFAULT_SOCKET" pane-1 "$detached" "$detached"
-  HERDR_PANE_LABELS_TEST_NOW_SEQ=1001 hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  # then: exactly one second budgeted call fetched the SHA
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_COMMIT e4f5a6b"
-  assert_equal "$(grep -c -- '--short=7' "$detached_fixture/calls")" 1
-}
-
-function test_scripts_1136_herdr_pane_labels_location_detached_sha_failure_retains() {
-  _bats_test_init 1136 'herdr-pane-labels location detached sha failure retains prior identity as stale and never publishes a malformed git_ref'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local root="$HPL_WORK/repo" common="$HPL_WORK/repo.git"
-  local branch="$root/branch" empty_sha="$root/empty-sha" bad_sha="$root/bad-sha" state target fixture
-  mkdir -p "$branch" "$empty_sha" "$bad_sha" "$common" "$root/.git"
-  # given: real-git probe shape — the detached probes answer 3 lines, and the
-  # second `rev-parse --short=7` call yields an empty or non-hex SHA.
-  hpl_git_fixture "$branch" "$(printf '%s\n%s\n%s' "$root" "$common" refs/heads/topic)"
-  hpl_git_fixture "$empty_sha" "$(printf '%s\n%s\n%s' "$root" "$common" HEAD)"
-  hpl_git_fixture "$bad_sha" "$(printf '%s\n%s\n%s' "$root" "$common" HEAD)"
-  : > "$(hpl_git_fixture_dir "$empty_sha")/stdout.short"
-  printf 'not-a-sha\n' > "$(hpl_git_fixture_dir "$bad_sha")/stdout.short"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$branch")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
-  hpl_set_process_label pane-1 worker
-  # given: prior canonical identity from a healthy branch resolve
-  hpl_location_pass
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" "$HPL_ICON_BRANCH topic"
-
-  for target in "$empty_sha" "$bad_sha"; do
-    # when: the pane moves to a detached checkout whose SHA fetch fails
-    hpl_set_pane_location "$HPL_DEFAULT_SOCKET" pane-1 "$target" "$target"
-    hpl_location_pass
-    state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-    # then: the second call fired, and the pane retains the prior branch
-    # identity as stale — no commit ref built from a malformed SHA.
-    fixture="$(hpl_git_fixture_dir "$target")"
-    assert_equal "$(grep -c -- '--short=7' "$fixture/calls")" 1
-    assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_BRANCH topic $HPL_ICON_STALE"
-    assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" topic
-    assert_equal "$(jq -r '.panes[0].tokens.location_status' "$state")" stale
-  done
-}
-
-function test_scripts_1137_herdr_pane_labels_location_detached_sha_budget_failure_() {
-  _bats_test_init 1137 'herdr-pane-labels location detached sha budget failure with no prior state renders no git location and self-heals'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local root="$HPL_WORK/repo" common="$HPL_WORK/repo.git"
-  local detached="$root/detached" fixture state
-  mkdir -p "$detached" "$common" "$root/.git"
-  # given: real-git probe shape — the first call answers 3 lines in budget,
-  # and block.short stalls the second --short=7 call past LOCATION_GIT_BUDGET.
-  hpl_git_fixture "$detached" "$(printf '%s\n%s\n%s' "$root" "$common" HEAD)"
-  fixture="$(hpl_git_fixture_dir "$detached")"
-  printf 'e4f5a6b\n' > "$fixture/stdout.short"
-  : > "$fixture/block.short"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$detached")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
-  hpl_set_process_label pane-1 worker
-  # when: the very first pass for this pane — no prior location state exists
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  # then: the SHA probe fired, its budget failure discarded the freshly
-  # resolved root, and with nothing prior to retain the pane renders with no
-  # git location this pass — no half-built commit ref, no stale marker.
-  assert_equal "$(grep -c -- '--short=7' "$fixture/calls")" 1
-  run jq -e '.panes[0].tokens | (.repo == null and .worktree == null and .branch == null and .location_status == null and .git_ref == null)' "$state"
-  assert_success
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" worker
-  # when: the next sweep finds a responsive SHA probe
-  : > "$fixture/release"
-  hpl_location_pass
-  # then: the pane self-heals to the commit ref without manual repair
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" "$HPL_ICON_COMMIT e4f5a6b"
-}
-
-function test_scripts_1138_herdr_pane_labels_location_clears_the_retired_location_() {
-  _bats_test_init 1138 'herdr-pane-labels location clears the retired location_label token on both publish and non-git clear paths'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local root="$HPL_WORK/repo" common="$HPL_WORK/repo.git" nongit="$HPL_WORK/non-git" state
-  mkdir -p "$root" "$common" "$nongit"
-  hpl_git_location_fixture "$root" "$root" "$common" refs/heads/topic
-  hpl_git_fixture "$nongit" "" 1 ready 'fatal: not a git repository'
-  # given: panes still carrying the legacy location_label token published by
-  # the previously deployed version
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root" | jq -c '.tokens.location_label = "legacy label"')"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$nongit" | jq -c '.tokens = {location_label:"legacy label", git_ref:"stale ref"}')"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repo"}'
-  hpl_set_process_label pane-1 worker
-  hpl_set_process_label pane-2 shell
-  # when: one location/presentation pass runs
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  # then: the Git publish path sheds the legacy token while publishing git_ref
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.git_ref' "$state")" "$HPL_ICON_BRANCH topic"
-  run jq -e '.panes[] | select(.pane_id == "pane-1") | .tokens.location_label == null' "$state"
-  assert_success
-  # then: the non-Git path sheds the legacy token and overwrites the stale
-  # git_ref it was carrying with this pane's own directory name
-  run jq -e --arg ref "$HPL_ICON_FOLDER non-git" '.panes[] | select(.pane_id == "pane-2") | (.tokens.location_label == null and .tokens.git_ref == $ref)' "$state"
-  assert_success
-}
-
-function test_scripts_1139_herdr_pane_labels_location_transient_modes_retain_ident() {
-  _bats_test_init 1139 'herdr-pane-labels location transient modes retain identity as stale without foreground fallback'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local root="$HPL_WORK/repo" common="$HPL_WORK/repo.git"
-  local fallback="$root/fallback" fresh="$root/fresh" permission="$HPL_WORK/permission" unavailable="$HPL_WORK/unavailable"
-  local malformed="$HPL_WORK/malformed" blocked="$HPL_WORK/blocked" missing="$HPL_WORK/missing" state
-  mkdir -p "$fresh" "$fallback" "$permission" "$unavailable" "$malformed" "$blocked" "$common"
-  hpl_git_location_fixture "$fresh" "$root" "$common" refs/heads/main
-  hpl_git_location_fixture "$fallback" "$root" "$common" refs/heads/main
-  hpl_git_fixture "$permission" "denied" 126
-  hpl_git_fixture "$unavailable" "missing" 127
-  hpl_git_fixture "$malformed" "only-one-line" 0
-  hpl_git_fixture "$blocked" "never" 0 block
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$fallback" present "$fresh")"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$fallback" present "$fresh")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_process_label pane-1 primary
-  hpl_set_process_label pane-2 repaired
-  hpl_location_pass
-
-  local transient
-  for transient in "$missing" "$permission" "$unavailable" "$malformed"; do
-    hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$fallback" present "$transient")"
-    hpl_location_pass
-    state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-    assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.worktree' "$state")" repo
-    assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.location_status' "$state")" stale
-  done
-
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$fallback" present "")"
-  hpl_location_pass
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.location_status' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" stale
-
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$fallback" present "$blocked")"
-  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane rename pane-2 externally-wrong
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.location_status' "$state")" stale
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .label' "$state")" repaired
-
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$fallback" present "$fresh")"
-  hpl_location_pass
-  run jq -e '.panes[] | select(.pane_id == "pane-1") | .tokens.location_status == null' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_success
-}
-
-function test_scripts_1140_herdr_pane_labels_coordinator_resolves_eight_pane_locat() {
-  _bats_test_init 1140 'herdr-pane-labels coordinator resolves eight pane locations concurrently within one event envelope'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local i root common cwd fixture blocked_fixture state pane stale_label
-  local reconcile pending completed coordinator_pid deadline_pid deadline="$HPL_WORK/coordinator-deadline"
-  for i in $(seq 1 8); do
-    root="$HPL_WORK/repos/repo-$i"
-    common="$HPL_WORK/repos/repo-$i.git"
-    cwd="$root/work"
-    mkdir -p "$cwd" "$common" "$root/.git"
-    if [ "$i" -eq 1 ]; then
-      hpl_git_location_fixture "$cwd" "$root" "$common" refs/heads/initial-1
+pane_labels_migration_prepare() {
+  local work="$1"
+  local home="$work/home" bin="$work/bin"
+  mkdir -p "$home/.local/bin" "$home/.local/lib" \
+    "$home/.config/herdr/plugins/herdr-pane-labels" "$bin"
+  printf 'legacy-engine\n' > "$home/.local/bin/herdr-pane-labels"
+  printf 'legacy-aliases\n' > "$home/.local/lib/herdr-aliases.sh"
+  printf 'legacy-process\n' > "$home/.local/lib/herdr-process.sh"
+  printf 'legacy-child\n' > "$home/.local/bin/herdr-child"
+  chmod +x "$home/.local/bin/herdr-pane-labels" "$home/.local/bin/herdr-child"
+  printf 'legacy-plugin\n' > "$home/.config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml"
+  # The real machine has the local plugin registered, which is what makes
+  # local_plugin_registered 1 and puts the uninstall on the cutover path.
+  : > "$work/registry-local"
+
+  cat > "$bin/herdr" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HERDR_CALLS"
+# Socket-scoped calls carry their target in the environment, not in the
+# argument list, so the plain call log cannot show that the per-socket loops
+# ran at all.
+[ -n "${HERDR_SOCKET_PATH:-}" ] && printf '%s %s\n' "$HERDR_SOCKET_PATH" "$*" >> "$HERDR_CALLS.sockets"
+case "$*" in
+  'session list --json') printf '%s\n' "$STUB_SESSIONS" ;;
+  'plugin list --json')
+    if [ -f "$HERDR_REGISTRY/registry-github" ]; then
+      printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.pane-labels","source":{"kind":"github","repo":"herdr-pane-labels"},"enabled":true}]}}'
+    elif [ -f "$HERDR_REGISTRY/registry-local" ]; then
+      printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.pane-labels","source":{"kind":"local"},"enabled":true}]}}'
     else
-      hpl_git_fixture "$cwd" "" 1 ready 'fatal: not a git repository'
+      printf '%s\n' '{"result":{"plugins":[]}}'
     fi
-    pane="$(hpl_process_pane_json "pane-$i" tab-1 "$cwd")"
-    pane="$(jq -c --arg label "stable-$i" '.agent = "claude" | .label = $label' <<< "$pane")"
-    hpl_set_pane "$HPL_DEFAULT_SOCKET" "$pane"
-  done
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_location_pass
+    ;;
+  'plugin disable seigi.pane-labels')
+    # Herdr refuses to disable an id it does not know, and an aborted attempt
+    # leaves exactly that state.
+    if [ ! -f "$HERDR_REGISTRY/registry-local" ] && [ ! -f "$HERDR_REGISTRY/registry-github" ]; then
+      printf 'plugin_not_found\n' >&2
+      exit 1
+    fi
+    ;;
+  'plugin uninstall seigi.pane-labels')
+    rm -f "$HERDR_REGISTRY/registry-local" "$HERDR_REGISTRY/registry-github"
+    ;;
+  'plugin install Seigiard/herdr-pane-labels --ref aba61eb788c5fe0630dc570d96fd14683e2f63c7 -y')
+    # A real install can prompt. Record whatever it could read, so a caller that
+    # leaves stdin open is visible instead of merely lucky.
+    IFS= read -r -t 1 stdin_line < /dev/stdin 2>/dev/null || stdin_line=''
+    printf '%s' "$stdin_line" > "$HERDR_INSTALL_STDIN"
+    [ "${HERDR_FAIL_STEP:-}" = install ] && exit 1
+    cat > "$HOME/.local/bin/herdr-pane-labels" <<'ENGINE'
+#!/bin/sh
+# The reconciliation loop drives the engine, not herdr, so its calls land in a
+# log of their own.
+printf '%s %s\n' "${HERDR_SOCKET_PATH:-none}" "$*" >> "$HERDR_ENGINE_CALLS"
+case "${1:-}" in --sweep|--ensure-sweep-daemon) exit 0 ;; esac
+ENGINE
+    chmod +x "$HOME/.local/bin/herdr-pane-labels"
+    printf 'package-aliases\n' > "$HOME/.local/lib/herdr-aliases.sh"
+    printf 'package-process\n' > "$HOME/.local/lib/herdr-process.sh"
+    printf '0.2.3\n' > "$HOME/.local/lib/herdr-pane-labels.version"
+    : > "$HERDR_REGISTRY/registry-github"
+    ;;
+  'plugin enable seigi.pane-labels'|'server reload-config')
+    if [ "${HERDR_FAIL_STEP:-}" = enable ] && [ "$*" = 'plugin enable seigi.pane-labels' ]; then
+      exit 1
+    fi
+    :
+    ;;
+esac
+SH
+  chmod +x "$bin/herdr"
+}
 
-  rm -f "$HPL_WORK/git-started"/*
-  for i in $(seq 1 8); do
-    root="$HPL_WORK/repos/repo-$i"
-    common="$HPL_WORK/repos/repo-$i.git"
-    cwd="$root/work"
-    fixture="$(hpl_git_fixture_dir "$cwd")"
-    rm -f "$fixture/started" "$fixture/completed"
-    if [ "$i" -eq 1 ]; then
-      : > "$fixture/block"
-      blocked_fixture="$fixture"
-    fi
-  done
+pane_labels_migration_apply() {
+  local work="$1" fail_step="${2:-}" sessions="${3:-}"
+  [ -n "$sessions" ] || sessions='{"result":{"sessions":[]}}'
+  HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
+    HERDR_ENGINE_CALLS="$work/engine.calls" HERDR_INSTALL_STDIN="$work/install.stdin" \
+    HERDR_REGISTRY="$work" \
+    HERDR_FAIL_STEP="$fail_step" STUB_SESSIONS="$sessions" bash \
+    "$SOURCE_ROOT/.chezmoiscripts/run_once_after_6-migrate-herdr-pane-labels.sh.tmpl"
+}
 
-  stale_label="$HPL_ICON_BRANCH initial-1 $HPL_ICON_STALE stable-1"
-  for i in $(seq 2 8); do stale_label="$stale_label · stable-$i"; done
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" "$(jq -cn --arg label "$stale_label" \
-    '{tab_id:"tab-1",workspace_id:"ws-1",label:$label}')"
-  HERDR_PANE_LABELS_TEST_NO_PRESENTATION=1 hpl_event_run
-  reconcile="$(hpl_namespace "$HPL_DEFAULT_SOCKET")/reconcile.state"
-  pending="$(hpl_record_number "$reconcile" pending_generation)"
-  export HERDR_PANE_LABELS_TEST_LOCATION_BARRIER="$HPL_WORK/location-probes-started"
-  export HERDR_PANE_LABELS_TEST_LOCATION_BARRIER_COUNT=8
-  export HERDR_PANE_LABELS_TEST_LOCATION_BARRIER_RELEASE="$HPL_WORK/location-probes-release"
-  export HERDR_PANE_LABELS_GIT_BUDGET=$HPL_GIT_BUDGET
-  hpl_presentation_run &
-  coordinator_pid=$!
-  # The barrier is what proves concurrency: every probe publishes its marker and then
-  # spins until all eight exist, so serial probes deadlock on the first one and this
-  # wait fails the test before the release below ever happens. The deadline is only a
-  # hang guard for that release path, never a performance budget -- a wall-clock bound
-  # here measured the serial presentation tail after the probes (~78% of the window),
-  # so it went red on slower CI runners without any regression behind it.
-  for i in $(seq 1 8); do
-    hpl_wait_for_file "$HERDR_PANE_LABELS_TEST_LOCATION_BARRIER/$(hpl_key "pane-$i")"
-  done
-  (sleep 30; : > "$deadline") &
-  deadline_pid=$!
-  : > "$HERDR_PANE_LABELS_TEST_LOCATION_BARRIER_RELEASE"
-  while :; do
-    completed="$(hpl_record_number "$reconcile" completed_generation 2>/dev/null || true)"
-    if [ "$completed" = "$pending" ]; then
-      break
-    fi
-    if [ -e "$deadline" ]; then
-      kill "$coordinator_pid" 2>/dev/null || true
-      wait "$coordinator_pid" 2>/dev/null || true
-      fail "coordinator generation did not complete within 30s"
-    fi
-    sleep 0.005
-  done
-  kill "$deadline_pid" 2>/dev/null || true
-  wait "$deadline_pid" 2>/dev/null || true
-  wait "$coordinator_pid"
-  unset HERDR_PANE_LABELS_TEST_LOCATION_BARRIER \
-    HERDR_PANE_LABELS_TEST_LOCATION_BARRIER_COUNT \
-    HERDR_PANE_LABELS_TEST_LOCATION_BARRIER_RELEASE HERDR_PANE_LABELS_GIT_BUDGET
+function test_scripts_1337_pane_labels_migration_activates_and_removes_the_legacy() {
+  _bats_test_init 1337 'pane labels migration activates the package before removing the legacy layout'
+  local work="$BATS_TEST_TMPDIR/pane-labels-migration"
+  pane_labels_migration_prepare "$work"
 
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  run jq -e '.panes[] | select(.pane_id == "pane-1") | .tokens.branch == "initial-1" and .tokens.location_status == "stale"' "$state"
+  run pane_labels_migration_apply "$work"
   assert_success
-  for i in $(seq 2 8); do
-    # Non-Git panes publish no Git token at all. Their directories all end in
-    # "work", so the folder row carries the disambiguating path suffix the
-    # token builder assigns, exactly as it does for same-named checkouts.
-    run jq -e --arg pane "pane-$i" --arg ref "$HPL_ICON_FOLDER repo-$i/work" \
-      '.panes[] | select(.pane_id == $pane) | (.tokens.repo == null and .tokens.worktree == null and .tokens.branch == null and .tokens.location_status == null and .tokens.git_ref == $ref)' "$state"
+  assert_dir_not_exists "$work/home/.config/herdr/plugins/herdr-pane-labels"
+  assert_file_contains "$work/home/.local/bin/herdr-pane-labels" '^#!/bin/sh$'
+  assert_file_contains "$work/home/.local/lib/herdr-aliases.sh" '^package-aliases$'
+  assert_file_contains "$work/home/.local/lib/herdr-process.sh" '^package-process$'
+  assert_file_contains "$work/home/.local/bin/herdr-child" '^legacy-child$'
+  assert_file_contains "$work/herdr.calls" '^plugin install Seigiard/herdr-pane-labels --ref aba61eb788c5fe0630dc570d96fd14683e2f63c7 -y$'
+  assert_file_exists "$work/home/.local/lib/herdr-pane-labels.version"
+}
+
+# A failed cutover does not restore the old writer -- that implementation is
+# gone from source and a restored copy would be an orphan. What it must leave
+# is a machine that can still launch panes and a next apply that actually
+# retries instead of reading the half-finished install as a finished cutover.
+function test_scripts_1338_pane_labels_migration_aborts_a_partial_install_cl() {
+  _bats_test_init 1338 'pane labels migration aborts a partial package install cleanly'
+  local work="$BATS_TEST_TMPDIR/pane-labels-migration-failure"
+  pane_labels_migration_prepare "$work"
+
+  run pane_labels_migration_apply "$work" install
+  assert_failure
+  # The freeze stub is the one edit that would otherwise brick pane launches.
+  assert_file_contains "$work/home/.local/bin/herdr-child" '^legacy-child$'
+  # Nothing may claim a finished cutover on the next run.
+  run grep -Fx "plugin uninstall seigi.pane-labels" "$work/herdr.calls"
+  assert_success
+  # And nothing re-registers a local plugin the source no longer carries.
+  run grep -F 'plugin link ' "$work/herdr.calls"
+  assert_failure
+}
+
+# Failing at enable means the install already succeeded and wrote the boundary
+# marker. Leaving that marker behind is what would make package_already_installed
+# report a finished cutover and skip the retry for good.
+function test_scripts_1342_pane_labels_migration_clears_the_boundary_marker_() {
+  _bats_test_init 1342 'pane labels migration clears the boundary marker when it aborts after install'
+  local work="$BATS_TEST_TMPDIR/pane-labels-migration-enable-failure"
+  pane_labels_migration_prepare "$work"
+
+  run pane_labels_migration_apply "$work" enable
+  assert_failure
+  # The control the sibling test cannot give: install ran, so the marker existed.
+  run grep -Fx 'plugin install Seigiard/herdr-pane-labels --ref aba61eb788c5fe0630dc570d96fd14683e2f63c7 -y' "$work/herdr.calls"
+  assert_success
+  assert_file_not_exists "$work/home/.local/lib/herdr-pane-labels.version"
+  run grep -Fx "plugin uninstall seigi.pane-labels" "$work/herdr.calls"
+  assert_success
+  assert_file_contains "$work/home/.local/bin/herdr-child" '^legacy-child$'
+}
+
+# running_sockets gates every destructive step on knowing which sessions are
+# live. A payload it cannot parse must stop the cutover, not read as "no
+# sessions" and let the migration proceed past the point of no return.
+function test_scripts_1339_pane_labels_migration_stops_on_an_unparseable_ses() {
+  _bats_test_init 1339 'pane labels migration stops on an unparseable session list'
+  local work="$BATS_TEST_TMPDIR/pane-labels-migration-malformed"
+  pane_labels_migration_prepare "$work"
+
+  run pane_labels_migration_apply "$work" '' '{"unexpected":true}'
+  assert_failure
+  assert_output --partial 'could not inspect running Herdr sessions'
+  assert_dir_exists "$work/home/.config/herdr/plugins/herdr-pane-labels"
+  assert_file_contains "$work/home/.local/bin/herdr-pane-labels" '^legacy-engine$'
+  run grep -F 'plugin install' "$work/herdr.calls"
+  assert_failure
+}
+
+# An empty socket_path is discarded by every consumer loop, so accepting it
+# would silently reduce a live session to no session at all.
+function test_scripts_1340_pane_labels_migration_stops_on_a_running_session_() {
+  _bats_test_init 1340 'pane labels migration stops on a running session without a socket path'
+  local work="$BATS_TEST_TMPDIR/pane-labels-migration-no-socket"
+  pane_labels_migration_prepare "$work"
+
+  run pane_labels_migration_apply "$work" '' '{"result":{"sessions":[{"running":true,"socket_path":""}]}}'
+  assert_failure
+  assert_output --partial 'could not inspect running Herdr sessions'
+  assert_dir_exists "$work/home/.config/herdr/plugins/herdr-pane-labels"
+  run grep -F 'plugin install' "$work/herdr.calls"
+  assert_failure
+}
+
+# With every session list empty, the socket-driven half of the cutover never
+# executes and could be deleted outright without a test noticing.
+function test_scripts_1341_pane_labels_migration_drives_each_running_session() {
+  _bats_test_init 1341 'pane labels migration drives each running session socket'
+  local work="$BATS_TEST_TMPDIR/pane-labels-migration-sessions"
+  local socket="$BATS_TEST_TMPDIR/session-a.sock"
+  pane_labels_migration_prepare "$work"
+
+  local second="$BATS_TEST_TMPDIR/session-b.sock"
+  run pane_labels_migration_apply "$work" '' \
+    "{\"result\":{\"sessions\":[{\"running\":true,\"socket_path\":\"$socket\"},{\"running\":true,\"socket_path\":\"$second\"},{\"running\":false,\"socket_path\":\"$BATS_TEST_TMPDIR/stopped.sock\"}]}}"
+  assert_success
+  local sock
+  for sock in "$socket" "$second"; do
+    run grep -Fx "$sock plugin disable seigi.pane-labels" "$work/herdr.calls.sockets"
     assert_success
-    fixture="$(hpl_git_fixture_dir "$HPL_WORK/repos/repo-$i/work")"
-    assert_file_exists "$fixture/started"
-    assert_file_exists "$fixture/completed"
+    run grep -Fx "$sock plugin enable seigi.pane-labels" "$work/herdr.calls.sockets"
+    assert_success
+    run grep -Fx "$sock server reload-config" "$work/herdr.calls.sockets"
+    assert_success
+    run grep -Fx "$sock --sweep" "$work/engine.calls"
+    assert_success
+    run grep -Fx "$sock --ensure-sweep-daemon" "$work/engine.calls"
+    assert_success
   done
-  assert_file_exists "$blocked_fixture/started"
-  assert_file_not_exists "$blocked_fixture/completed"
-}
-
-function test_scripts_1141_herdr_pane_labels_no_op_location_event_preserves_the_st() {
-  _bats_test_init 1141 'herdr-pane-labels no-op location event preserves the state file'
-  command -v jq >/dev/null || skip "jq not available"
-  command -v perl >/dev/null || skip "perl not available"
-  hpl_setup
-  local root="$HPL_WORK/repo" common="$HPL_WORK/repo.git" cwd="$HPL_WORK/repo/work"
-  local location_file before_link before_mtime after_mtime
-  mkdir -p "$cwd" "$common"
-  hpl_git_location_fixture "$cwd" "$root" "$common" refs/heads/main
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$cwd")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_process_label pane-1 task
-  hpl_location_pass
-
-  location_file="$(hpl_pane_state_dir "$HPL_DEFAULT_SOCKET" pane-1)/location.state"
-  before_link="$HPL_WORK/location-before.state"
-  touch -t 200001010000 "$location_file"
-  ln "$location_file" "$before_link"
-  before_mtime="$(perl -e 'print((stat shift)[9])' "$location_file")"
-  hpl_location_pass
-  after_mtime="$(perl -e 'print((stat shift)[9])' "$location_file")"
-
-  [ "$location_file" -ef "$before_link" ]
-  assert_equal "$after_mtime" "$before_mtime"
-}
-
-function test_scripts_1142_herdr_pane_labels_transient_location_preserves_live_tok() {
-  _bats_test_init 1142 'herdr-pane-labels transient location preserves live token-only identity when retained state is unavailable'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local missing_one="$HPL_WORK/missing-one" unavailable="$HPL_WORK/unavailable"
-  local outside="$HPL_WORK/outside" pane_one pane_two location_two state
-  mkdir -p "$outside" "$unavailable"
-  hpl_git_fixture "$outside" "" 1 ready 'fatal: not a git repository'
-  hpl_git_fixture "$unavailable" unavailable 127
-  pane_one="$(hpl_process_pane_json pane-1 tab-1 "$missing_one")"
-  pane_one="$(jq -c '.tokens = {repo:"live-repo",worktree:"live-token",branch:"topic-one",pane_inline:"· one"}' <<< "$pane_one")"
-  pane_two="$(hpl_process_pane_json pane-2 tab-1 "$unavailable")"
-  pane_two="$(jq -c '.tokens = {repo:"live-repo",worktree:"live-token",location_status:"current"}' <<< "$pane_two")"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$pane_one"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$pane_two"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-3 tab-1 "$outside")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_process_label pane-1 one
-  hpl_set_process_label pane-2 two
-  hpl_set_process_label pane-3 three
-  location_two="$(hpl_pane_state_dir "$HPL_DEFAULT_SOCKET" pane-2)/location.state"
-  mkdir -p "$(dirname "$location_two")"
-  printf '%s\n' not-a-location-record > "$location_two"
-
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  # Token-only evidence carries no is_linked proof, so the place icon falls
-  # back to the branch icon. Pane one has a ref, so the ref is the whole row;
-  # pane two has none, and there the folder icon plus worktree token is all
-  # $git_ref can say.
-  run jq -e \
-    --arg ref_one "$HPL_ICON_BRANCH topic-one $HPL_ICON_STALE" \
-    --arg ref_two "$HPL_ICON_FOLDER live-token $HPL_ICON_STALE" '
-    (.panes[] | select(.pane_id == "pane-1") | .tokens == {repo:"live-repo",worktree:"live-token",branch:"topic-one",location_status:"stale",git_ref:$ref_one})
-    and (.panes[] | select(.pane_id == "pane-2") | .tokens == {repo:"live-repo",worktree:"live-token",location_status:"stale",git_ref:$ref_two})
-  ' "$state"
-  assert_success
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" "one · two · three"
-  assert_file_not_exists "$(hpl_pane_state_dir "$HPL_DEFAULT_SOCKET" pane-1)/location.state"
-  assert_equal "$(cat "$location_two")" not-a-location-record
-}
-
-function test_scripts_1143_herdr_pane_labels_location_authoritative_worktree_delet() {
-  _bats_test_init 1143 'herdr-pane-labels location authoritative worktree deletion clears retained evidence'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local root="$HPL_WORK/linked/deleted" common="$HPL_WORK/main/.git"
-  local live="$root/live" missing="$root/gone"
-  mkdir -p "$live" "$common"
-  hpl_git_location_fixture "$live" "$root" "$common" refs/heads/deleted
-  hpl_git_fixture "gitdir:$common" "worktree $HPL_WORK/main\nHEAD 123456\nbranch refs/heads/main" 0
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$live")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_process_label pane-1 worker
-  hpl_location_pass
-  assert_equal "$(jq -r '.panes[0].tokens.worktree' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" deleted
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$missing")"
-  hpl_location_pass
-  run jq -e '.panes[0].tokens.repo == null and .panes[0].tokens.worktree == null and .panes[0].tokens.branch == null and .panes[0].tokens.location_status == null and .panes[0].tokens.git_ref == null' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_success
-}
-
-function test_scripts_1144_herdr_pane_labels_formatter_keeps_git_refs_in_metadata_() {
-  _bats_test_init 1144 'herdr-pane-labels formatter keeps Git refs in metadata and tab labels names-only'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local root="$HPL_WORK/project" common="$HPL_WORK/project/.git"
-  local one="$root/one" two="$root/two" missing="$root/missing" outside="$HPL_WORK/outside" state
-  mkdir -p "$one" "$two" "$outside" "$common"
-  hpl_git_location_fixture "$one" "$root" "$common" refs/heads/main
-  hpl_git_location_fixture "$two" "$root" "$common" refs/heads/main
-  hpl_git_fixture "$outside" "" 1 ready 'fatal: not a git repository'
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$one")"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$two")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"project"}'
-  hpl_set_process_label pane-1 alpha
-  hpl_set_process_label pane-2 beta
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" "alpha · beta"
-  assert_equal "$(jq -r '.panes[] | .tokens.git_ref' "$state" | sort -u)" "$HPL_ICON_BRANCH main"
-
-  # Stale state changes only the sidebar metadata, not the tab identity.
-  hpl_set_pane_location "$HPL_DEFAULT_SOCKET" pane-2 "$two" "$missing"
-  hpl_location_pass
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" "alpha · beta"
-
-  hpl_set_pane_location "$HPL_DEFAULT_SOCKET" pane-1 "$outside" "$outside"
-  hpl_set_pane_location "$HPL_DEFAULT_SOCKET" pane-2 "$outside" "$outside"
-  hpl_location_pass
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" "alpha · beta"
-}
-
-function test_scripts_1145_herdr_pane_labels_formatter_renders_a_main_checkout_ref() {
-  _bats_test_init 1145 'herdr-pane-labels formatter renders a main checkout ref in metadata only'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  # Main checkout (.git directory at the root), branch main, and checkout
-  # folder equal to the Herdr workspace name.
-  local root="$HPL_WORK/my-mac-setup" state
-  mkdir -p "$root/.git"
-  hpl_git_location_fixture "$root" "$root" "$root/.git" refs/heads/main
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"my-mac-setup"}'
-  hpl_set_process_label pane-1 task
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_BRANCH main"
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" task
-}
-
-function test_scripts_1146_herdr_pane_labels_formatter_renders_a_worktree_ref_in_m() {
-  _bats_test_init 1146 'herdr-pane-labels formatter renders a worktree ref in metadata only'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  # A linked worktree in a folder named exactly like its branch. The worktree
-  # icon alone carries the place; a folder qualifier would only repeat the ref.
-  local root="$HPL_WORK/feature" common="$HPL_WORK/repository/.git" state
-  mkdir -p "$root" "$common"
-  hpl_mark_linked_worktree "$root" "$common/worktrees/feature"
-  hpl_git_location_fixture "$root" "$root" "$common" refs/heads/feature
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"my-mac-setup"}'
-  hpl_set_process_label pane-1 task
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_WORKTREE feature"
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" task
-}
-
-function test_scripts_1147_herdr_pane_labels_formatter_keeps_a_git_backed_all_idle() {
-  _bats_test_init 1147 'herdr-pane-labels formatter keeps a Git-backed all-idle tab names-only'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local root="$HPL_WORK/repository" state
-  mkdir -p "$root/.git"
-  hpl_git_location_fixture "$root" "$root" "$root/.git" refs/heads/main
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$root")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_proc_info pane-1 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}'
-  hpl_proc_info pane-2 '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}'
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" "~ 1"
-  assert_equal "$(jq -r '.panes[] | .label' "$state" | sort -u)" "~"
-  assert_equal "$(jq -r '.panes[] | .tokens.git_ref' "$state" | sort -u)" "$HPL_ICON_BRANCH main"
-}
-
-function test_scripts_1148_herdr_pane_labels_git_only_location_changes_do_not_rena() {
-  _bats_test_init 1148 'herdr-pane-labels Git-only location changes do not rename a names-only tab'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local one="$HPL_WORK/one" two="$HPL_WORK/two" state
-  mkdir -p "$one/.git" "$two/.git"
-  hpl_git_location_fixture "$one" "$one" "$one/.git" refs/heads/one
-  hpl_git_location_fixture "$two" "$two" "$two/.git" refs/heads/two
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$one")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_process_label pane-1 worker
-  hpl_location_pass
-  : > "$HPL_LOG"
-
-  hpl_set_pane_location "$HPL_DEFAULT_SOCKET" pane-1 "$two" "$two"
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" worker
-  assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" two
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_BRANCH two"
-  run grep '^tab rename' "$HPL_LOG"
+  run grep -F "$BATS_TEST_TMPDIR/stopped.sock" "$work/herdr.calls.sockets"
   assert_failure
-}
-
-function test_scripts_1149_herdr_pane_labels_formatter_keeps_the_folder_qualifier_() {
-  _bats_test_init 1149 'herdr-pane-labels formatter keeps the folder qualifier on a main checkout in a differently-named folder'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  # Plan decision 5 describes the typical main checkout, whose folder repeats
-  # the branch or the workspace name. When the folder differs from BOTH it is
-  # real location information, so the sidebar qualifier stays — the same
-  # suppression rule as every other checkout, no main-checkout special case.
-  local root="$HPL_WORK/setup-copy" state
-  mkdir -p "$root/.git"
-  hpl_git_location_fixture "$root" "$root" "$root/.git" refs/heads/main
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"my-mac-setup"}'
-  hpl_set_process_label pane-1 task
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_BRANCH main"
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" task
-}
-
-function test_scripts_1150_herdr_pane_labels_formatter_reads_the_workspace_display() {
-  _bats_test_init 1150 'herdr-pane-labels formatter reads the workspace display name from the legacy name field when label is absent'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  # Older snapshot shapes carry the workspace display name as `name`; the
-  # (.label // .name // "") read must still suppress the folder qualifier when
-  # the worktree token merely repeats that name.
-  local root="$HPL_WORK/legacy-ws" state
-  mkdir -p "$root/.git"
-  hpl_git_location_fixture "$root" "$root" "$root/.git" refs/heads/topic
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","name":"legacy-ws"}'
-  hpl_set_process_label pane-1 task
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_BRANCH topic"
-}
-
-function test_scripts_1151_herdr_pane_labels_formatter_gives_a_detached_head_insid() {
-  _bats_test_init 1151 'herdr-pane-labels formatter gives a detached HEAD inside a linked worktree the commit icon'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  # The commit place deliberately wins over the worktree place: the detached
-  # short SHA locates the pane more precisely than worktree-ness does, and the
-  # folder qualifier still names the linked worktree in the sidebar.
-  local root="$HPL_WORK/wt-detached" common="$HPL_WORK/repository/.git" state
-  mkdir -p "$root" "$common"
-  hpl_mark_linked_worktree "$root" "$common/worktrees/wt-detached"
-  hpl_git_location_fixture "$root" "$root" "$common" HEAD a1b2c3d
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"repository"}'
-  hpl_set_process_label pane-1 task
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_COMMIT a1b2c3d"
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" task
-}
-
-function test_scripts_1152_herdr_pane_labels_formatter_qualifies_a_divergent_workt() {
-  _bats_test_init 1152 'herdr-pane-labels formatter qualifies a divergent worktree folder in metadata only'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  # A divergent folder remains useful in the sidebar while the tab stays
-  # limited to the two pane labels.
-  local root="$HPL_WORK/wt-hotfix" common="$HPL_WORK/repository/.git" state
-  mkdir -p "$root" "$common"
-  hpl_mark_linked_worktree "$root" "$common/worktrees/wt-hotfix"
-  hpl_git_location_fixture "$root" "$root" "$common" refs/heads/fix-login
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$root")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"my-mac-setup"}'
-  hpl_set_process_label pane-1 alpha
-  hpl_set_process_label pane-2 beta
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[] | .tokens.git_ref' "$state" | sort -u)" "$HPL_ICON_WORKTREE fix-login"
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" "alpha · beta"
-}
-
-function test_scripts_1206_herdr_pane_labels_names_the_space_a_worktree_space_ca() {
-  _bats_test_init 1206 'herdr-pane-labels names the space a worktree space came from, and only when it adds something'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  # given: a worktree space labelled by its task, a worktree space whose label
-  # already is the repository name, and a space herdr reports no worktree for
-  local work="$HPL_WORK/work" state
-  mkdir -p "$work"
-  hpl_git_fixture "$work" "" 1 ready 'fatal: not a git repository'
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$work")"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-2 "$work" | jq -c '.workspace_id = "ws-2"')"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-3 tab-3 "$work" | jq -c '.workspace_id = "ws-3"')"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-2","workspace_id":"ws-2","label":""}'
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-3","workspace_id":"ws-3","label":""}'
-  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"Task Name","worktree":{"repo_name":"repository","is_linked_worktree":true}}'
-  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-2","label":"repository","worktree":{"repo_name":"repository","is_linked_worktree":false}}'
-  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-3","label":"IronVault"}'
-  hpl_set_process_label pane-1 one
-  hpl_set_process_label pane-2 two
-  hpl_set_process_label pane-3 three
-
-  # when: one location/presentation pass runs
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-
-  # then: only the space whose label differs from its repository names the parent
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.space_origin' "$state")" repository
-  run jq -e '.panes[] | select(.pane_id == "pane-2") | .tokens.space_origin == null' "$state"
-  assert_success
-  run jq -e '.panes[] | select(.pane_id == "pane-3") | .tokens.space_origin == null' "$state"
-  assert_success
-}
-
-function test_scripts_1207_herdr_pane_labels_reports_branch_and_counts_as_space_() {
-  _bats_test_init 1207 'herdr-pane-labels reports branch and status counts as space metadata, and clears them off a non-Git space'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  # given: a worktree checkout whose status carries every category, and a
-  # second space whose pane sits outside any checkout
-  local root="$HPL_WORK/wt" common="$HPL_WORK/repository/.git" outside="$HPL_WORK/outside" state
-  mkdir -p "$root" "$common" "$outside"
-  hpl_mark_linked_worktree "$root" "$common/worktrees/wt"
-  hpl_git_location_fixture "$root" "$root" "$common" refs/heads/feature
-  hpl_git_status_fixture "$root" '# branch.oid abc
-# branch.head feature
-# branch.upstream origin/feature
-# branch.ab +2 -1
-1 M. N... 100644 100644 100644 aaa bbb staged-only.txt
-1 .M N... 100644 100644 100644 aaa bbb unstaged-only.txt
-1 MM N... 100644 100644 100644 aaa bbb both.txt
-u UU N... 100644 100644 100644 100644 aaa bbb ccc conflicted.txt
-? untracked.txt'
-  hpl_git_fixture "$outside" "" 1 ready 'fatal: not a git repository'
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-2 "$outside" | jq -c '.workspace_id = "ws-2"')"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-2","workspace_id":"ws-2","label":""}'
-  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-1","label":"Task Name"}'
-  hpl_set_workspace "$HPL_DEFAULT_SOCKET" '{"workspace_id":"ws-2","label":"Elsewhere","tokens":{"branch":"stale","git_status":"stale"}}'
-  hpl_set_process_label pane-1 one
-  hpl_set_process_label pane-2 two
-
-  # when: one location/presentation pass runs
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-
-  # then: the worktree space carries its branch and one count per category,
-  # ordered pull, push, conflicts, staged, unstaged, untracked
-  assert_equal "$(jq -r '.workspaces[] | select(.workspace_id == "ws-1") | .tokens.branch' "$state")" feature
-  assert_equal "$(jq -r '.workspaces[] | select(.workspace_id == "ws-1") | .tokens.git_status' "$state")" \
-    "${HPL_ICON_PULL}1 ${HPL_ICON_PUSH}2 ~1 +2 !2 ?1"
-  # then: the space with no checkout sheds the tokens it was carrying
-  run jq -e '.workspaces[] | select(.workspace_id == "ws-2") | (.tokens // {}) == {}' "$state"
-  assert_success
-}
-
-function test_scripts_1153_herdr_pane_labels_formatter_keeps_mixed_git_identities_() {
-  _bats_test_init 1153 'herdr-pane-labels formatter keeps mixed Git identities out of tabs and repairs external labels'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local root_a="$HPL_WORK/a" root_b="$HPL_WORK/b" common_a="$HPL_WORK/a/.git" common_b="$HPL_WORK/b/.git"
-  local cwd_a="$root_a/work" cwd_b="$root_b/work" outside="$HPL_WORK/outside" missing="$root_b/missing" state
-  mkdir -p "$cwd_a" "$cwd_b" "$outside" "$common_a" "$common_b"
-  hpl_git_location_fixture "$cwd_a" "$root_a" "$common_a" refs/heads/dev
-  hpl_git_location_fixture "$cwd_b" "$root_b" "$common_b" refs/heads/main
-  hpl_git_fixture "$outside" "" 1 ready 'fatal: not a git repository'
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$cwd_a")"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$cwd_b")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_process_label pane-1 first
-  hpl_set_process_label pane-2 second
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" "first · second"
-
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$cwd_b" present "$missing")"
-  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane rename pane-1 divergent-pane
-  hpl_socket_run "$HPL_DEFAULT_SOCKET" tab rename tab-1 divergent-tab
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .label' "$state")" first
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" "first · second"
-
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$outside")"
-  hpl_location_pass
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" "first · second"
-}
-
-function test_scripts_1154_herdr_pane_labels_formatter_joins_only_pane_labels_when() {
-  _bats_test_init 1154 'herdr-pane-labels formatter joins only pane labels when three panes span two repositories'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local root_a="$HPL_WORK/a" root_b="$HPL_WORK/b" state
-  mkdir -p "$root_a/.git" "$root_b/.git"
-  hpl_git_location_fixture "$root_a" "$root_a" "$root_a/.git" refs/heads/dev
-  hpl_git_location_fixture "$root_b" "$root_b" "$root_b/.git" refs/heads/main
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root_a")"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$root_a")"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-3 tab-1 "$root_b")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_process_label pane-1 one
-  hpl_set_process_label pane-2 two
-  hpl_set_process_label pane-3 three
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" \
-    "one · two · three"
-}
-
-function test_scripts_1155_herdr_pane_labels_worktree_tokens_use_shortest_unique_s() {
-  _bats_test_init 1155 'herdr-pane-labels worktree tokens use shortest unique slash suffixes for basename collisions'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local one="$HPL_WORK/team/feature" two="$HPL_WORK/release/feature" common="$HPL_WORK/repository/.git" state
-  mkdir -p "$one" "$two" "$common"
-  hpl_mark_linked_worktree "$one" "$common/worktrees/one"
-  hpl_mark_linked_worktree "$two" "$common/worktrees/two"
-  hpl_git_location_fixture "$one" "$one" "$common" refs/heads/one
-  hpl_git_location_fixture "$two" "$two" "$common" refs/heads/two
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$one")"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$two")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_process_label pane-1 alpha
-  hpl_set_process_label pane-2 beta
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.worktree' "$state")" team/feature
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.worktree' "$state")" release/feature
-  # The slash-suffix folder token appears only in the sidebar qualifier.
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-1") | .tokens.git_ref' "$state")" "$HPL_ICON_WORKTREE one"
-  assert_equal "$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.git_ref' "$state")" "$HPL_ICON_WORKTREE two"
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" "alpha · beta"
-}
-
-function test_scripts_1156_herdr_pane_labels_worktree_tokens_digest_overlong_roots() {
-  _bats_test_init 1156 'herdr-pane-labels worktree tokens digest overlong roots and extend colliding digest prefixes'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local unique="$HPL_WORK/extraordinarily-long-worktree"
-  local one="$HPL_WORK/parent-component-that-is-long-one/shared-overlong-name"
-  local two="$HPL_WORK/parent-component-that-is-long-two/shared-overlong-name"
-  local common="$HPL_WORK/repository/.git" digests="$HPL_WORK/digests" state token_one token_two
-  mkdir -p "$unique" "$one" "$two" "$common"
-  hpl_git_location_fixture "$unique" "$unique" "$common" refs/heads/unique
-  hpl_git_location_fixture "$one" "$one" "$common" refs/heads/one
-  hpl_git_location_fixture "$two" "$two" "$common" refs/heads/two
-  printf '%s\037%s\n%s\037%s\n' "$one" abcdef00000000000000000000000000 "$two" abcdef10000000000000000000000000 > "$digests"
-  export HERDR_PANE_LABELS_TEST_DIGEST_FILE="$digests"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$unique")"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$one")"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-3 tab-1 "$two")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  for pane_id in pane-1 pane-2 pane-3; do hpl_set_process_label "$pane_id" task; done
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  run jq -e '[.panes[].tokens.worktree | select(length <= 18 and test("^[A-Za-z0-9._/-]+~[0-9a-f]{6,}$"))] | length == 3' "$state"
-  assert_success
-  token_one="$(jq -r '.panes[] | select(.pane_id == "pane-2") | .tokens.worktree' "$state")"
-  token_two="$(jq -r '.panes[] | select(.pane_id == "pane-3") | .tokens.worktree' "$state")"
-  run test "$token_one" != "$token_two"
-  assert_success
-  run grep -Eq 'abcdef$' <<<"$token_one
-$token_two"
-  assert_success
-  run grep -Eq 'abcdef[01]$' <<<"$token_one
-$token_two"
-  assert_success
-}
-
-function test_scripts_1157_herdr_pane_labels_worktree_token_ordinal_fallback_is_un() {
-  _bats_test_init 1157 'herdr-pane-labels worktree token ordinal fallback is unique and stable under pane reordering'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local common="$HPL_WORK/repository/.git" digests="$HPL_WORK/digests" panes='[]' before after i root
-  mkdir -p "$common"
-  : > "$digests"
-  for i in $(seq 1 12); do
-    root="$HPL_WORK/parent-component-that-is-deliberately-long-$i/shared-overlong-name"
-    mkdir -p "$root"
-    hpl_git_location_fixture "$root" "$root" "$common" "refs/heads/b$i"
-    printf '%s\037%s\n' "$root" ffffffffffffffffffffffffffffffff >> "$digests"
-    panes="$(jq -c --argjson pane "$(hpl_process_pane_json "pane-$i" tab-1 "$root")" '. + [$pane]' <<< "$panes")"
-    hpl_set_process_label "pane-$i" task
-  done
-  export HERDR_PANE_LABELS_TEST_DIGEST_FILE="$digests"
-  hpl_pane_list "$(jq -cn --argjson panes "$panes" '{result:{panes:$panes}}')"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_location_pass
-  before="$(jq -c '[.panes | sort_by(.pane_id)[] | [.pane_id,.tokens.worktree]]' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")"
-  run jq -e '[.panes[].tokens.worktree] | length == 12 and (unique | length == 12) and all(.[]; length <= 18)' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_success
-  local state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")" tmp="$HPL_WORK/reversed.json"
-  jq '.panes |= reverse' "$state" > "$tmp" && mv "$tmp" "$state"
-  hpl_location_pass
-  after="$(jq -c '[.panes | sort_by(.pane_id)[] | [.pane_id,.tokens.worktree]]' "$state")"
-  assert_equal "$after" "$before"
-}
-
-function test_scripts_1158_herdr_pane_labels_long_branch_refs_stay_in_metadata_and() {
-  _bats_test_init 1158 'herdr-pane-labels long branch refs stay in metadata and do not alter the tab label'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local root="$HPL_WORK/worktree" common="$HPL_WORK/repository/.git" state
-  local long_ref="feature/very-long-branch-name-that-overflows"
-  mkdir -p "$root" "$common"
-  hpl_mark_linked_worktree "$root" "$common/worktrees/one"
-  hpl_git_location_fixture "$root" "$root" "$common" "refs/heads/$long_ref"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_process_label pane-1 task
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" task
-  assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" "$long_ref"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_WORKTREE $long_ref"
-}
-
-function test_scripts_1159_herdr_pane_labels_long_repository_names_do_not_alter_a_() {
-  _bats_test_init 1159 'herdr-pane-labels long repository names do not alter a multi-repo tab label'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local one="$HPL_WORK/integration-platform-connectors"
-  local two="$HPL_WORK/internal-developer-tooling"
-  local common_one="$one/.git" common_two="$two/.git" state
-  mkdir -p "$common_one" "$common_two"
-  hpl_git_location_fixture "$one" "$one" "$common_one" refs/heads/feat/connector-runtime-rewrite
-  hpl_git_location_fixture "$two" "$two" "$common_two" refs/heads/fix/oauth-refresh-loop-retry
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$one")"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-2 tab-1 "$two")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_process_label pane-1 first
-  hpl_set_process_label pane-2 second
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" "first · second"
-  assert_equal "$(jq -r '.panes[] | .tokens.repo' "$state" | sort)" $'integration-platform-connectors\ninternal-developer-tooling'
-}
-
-function test_scripts_1160_herdr_pane_labels_location_clears_a_retired_location_la() {
-  _bats_test_init 1160 'herdr-pane-labels location clears a retired location_label even when every published token already matches'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local root="$HPL_WORK/repository" common="$HPL_WORK/repository/.git" state
-  mkdir -p "$common"
-  hpl_git_location_fixture "$root" "$root" "$common" refs/heads/topic
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_process_label pane-1 worker
-  # given: one pass has already published every current token
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_BRANCH topic"
-  assert_equal "$(jq -r '.panes[0].tokens.location_label // ""' "$state")" ""
-  # given: a stale daemon of the retired version puts location_label back while
-  # leaving every token this version compares untouched. It reports under the
-  # same source at the sequence the last pass used, which is what an old daemon
-  # sharing the generation counter does.
-  local legacy_seq
-  legacy_seq="$(jq -r '.metadata["pane-1"]["location-sync"].seq' "$state")"
-  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane report-metadata pane-1 \
-    --source location-sync --seq "$legacy_seq" --token 'location_label=repository/topic'
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.location_label' "$state")" repository/topic
-  # when: the next pass computes identical tokens and would otherwise skip
-  hpl_location_pass
-  # then: the legacy token is gone and the live tokens are unharmed
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].tokens.location_label // ""' "$state")" ""
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_BRANCH topic"
-  assert_equal "$(jq -r '.panes[0].tokens.branch' "$state")" topic
-}
-
-function test_scripts_1161_herdr_pane_labels_location_and_formatter_add_only_appro() {
-  _bats_test_init 1161 'herdr-pane-labels location and formatter add only approved static icon glyphs and no forbidden ownership state'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local root="$HPL_WORK/plain-worktree" common="$HPL_WORK/repository/.git" state
-  mkdir -p "$root" "$common"
-  hpl_mark_linked_worktree "$root" "$common/worktrees/plain"
-  hpl_git_location_fixture "$root" "$root" "$common" refs/heads/plain
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$root")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_set_process_label pane-1 plain-task
-  hpl_location_pass
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  run grep -ER 'manual_owner|reclaim|label_ledger|server_epoch|takeover|prepare_rollback' "$(hpl_namespace "$HPL_DEFAULT_SOCKET")"
-  assert_failure
-  # After removing every approved codicon glyph, only plain ASCII (plus the
-  # label separator and ellipsis) may remain in published labels and tokens.
-  run jq -e --arg icons "$HPL_ICON_BRANCH$HPL_ICON_WORKTREE$HPL_ICON_COMMIT$HPL_ICON_FOLDER$HPL_ICON_STALE" '
-    [.panes[0].label, .tabs[0].label, .panes[0].tokens.worktree, .panes[0].tokens.git_ref]
-    | all(.[]; (. // "") | explode - ($icons | explode) | implode | test("^[A-Za-z0-9._:/ ~\u00b7\u2026-]*$"))
-  ' "$state"
-  assert_success
-  assert_equal "$(jq -r '.tabs[0].label' "$state")" plain-task
-  assert_equal "$(jq -r '.panes[0].tokens.git_ref' "$state")" "$HPL_ICON_WORKTREE plain"
-  # pane_inline stays deferred per the label-system plan: no pass publishes it.
-  assert_equal "$(jq -r '.panes[0].tokens.pane_inline // ""' "$state")" ""
-}
-
-function test_scripts_1208_herdr_pane_labels_icon_constants_stay_independent_of_th() {
-  _bats_test_init 1208 'herdr-pane-labels icon constants stay independent of the engine glyph table'
-  # Every HPL_ICON_* comparison above is only a test while its expected bytes
-  # come from somewhere the engine cannot reach. A harness that read the ICON_
-  # table out of the engine was removed once and then carried back in by a
-  # rename, and while it was in place a changed codepoint moved both sides at
-  # once and every icon assertion stayed green. Load the harness against a source
-  # tree whose engine declares a different ICON_BRANCH: a derived constant
-  # follows the mutation, a pinned one does not. Rewriting the whole assignment
-  # keeps this test independent of whichever codepoint ICON_BRANCH holds today.
-  local root="$BATS_TEST_TMPDIR/mutated-engine" harness
-  harness="$BATS_TEST_DIRNAME/helpers/herdr_pane_labels.bash"
-  mkdir -p "$root/dot_local/bin"
-  # U+2714 heavy check mark — a glyph the pane-label grammar never uses.
-  sed "s|^ICON_BRANCH=.*|ICON_BRANCH=\"\$(printf '\\\\342\\\\234\\\\224')\"|" \
-    "$HPL_ENGINE" > "$root/dot_local/bin/executable_herdr-pane-labels"
-  assert_file_contains "$root/dot_local/bin/executable_herdr-pane-labels" \
-    'ICON_BRANCH=.*\\342\\234\\224'
-
-  run env SOURCE_ROOT="$root" bash -c 'source "$1"; printf %s "$HPL_ICON_BRANCH"' _ "$harness"
-  assert_success
-  assert_output "$HPL_ICON_BRANCH"
-}
-
-# Gate for the stub-conformance tests. Their oracle is a working upstream herdr
-# binary (docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md),
-# not the managed provenance wrapper, and each environment answers its absence
-# differently:
-# - workstation without herdr: a missing developer tool -- visible skip;
-# - disposable home under MMS_CI_MINIMAL: push/PR CI renders the CI-minimal
-#   Brewfile, which deliberately guards out `brew "herdr"`
-#   (home/private_dot_config/brewfiles/Brewfile.tmpl), so absence there is
-#   configured, not broken -- visible skip naming that configuration;
-# - disposable home on the full render (nightly / Brewfile-editing runs): the
-#   full Brewfile declares herdr, so absence is a broken environment, and a
-#   skip would silently drop the stubs' only tether to the real binary --
-#   hard fail, the test_scripts_100 bun pattern.
-# The second oracle precondition, a *running* herdr server, stays a visible
-# per-test skip everywhere: the full-render Docker home installs the binary
-# but cannot host a herdr server (herdr is an interactive terminal
-# multiplexer and this suite runs headless under chezmoi apply), so that
-# skip is irreducible there and never a fail.
-require_real_herdr_oracle() {
-  command_exists herdr && herdr --version >/dev/null 2>&1 && return 0
-  case "$(mms_disposable_home_verdict)" in
-    run)
-      if [ -n "${MMS_CI_MINIMAL:-}" ]; then
-        skip "herdr is guarded out of the CI-minimal Brewfile render"
-      fi
-      fail "a working upstream herdr is unavailable inside a disposable-home gate, where the full Brewfile declares it (home/private_dot_config/brewfiles/Brewfile.tmpl). The stub-conformance tests cannot skip here -- this environment owns the dependency, and a skip drops the stubs' only tether to the real binary."
-      return 1
-      ;;
-    *) skip "a working upstream herdr is not installed" ;;
-  esac
-}
-
-function test_scripts_1209_pane_label_stub_snapshot_envelope_matches_real_herdr() {
-  _bats_test_init 1209 'pane-label stub api snapshot envelope matches the installed herdr'
-  require_real_herdr_oracle
-  # The stub herdr in helpers/herdr_pane_labels.bash fakes an upstream contract,
-  # so nothing written here can say whether it still matches -- only the binary
-  # it impersonates can, and it is the oracle for this test. Compare the two at
-  # the boundary the engine consumes, the top-level result keys of
-  # `api snapshot`. Everything below that key set belongs to herdr; restating it
-  # here would be reimplementing upstream semantics locally, which is the
-  # failure mode this test exists to avoid rather than repeat.
-  local herdr_bin real_snapshot real_keys
-  herdr_bin="$(command -v herdr)"
-  # A real snapshot needs a running herdr server. Without one there is no
-  # oracle, so say why instead of falling back to a locally invented shape.
-  real_snapshot="$("$herdr_bin" api snapshot 2>&1)" \
-    || skip "real herdr returned no snapshot: $real_snapshot"
-  run jq -S -c '.result | keys' <<<"$real_snapshot"
-  assert_success
-  real_keys="$output"
-
-  hpl_setup
-  run env PATH="$HPL_STUB:/usr/bin:/bin" herdr api snapshot
-  assert_success
-  run jq -S -c '.result | keys' <<<"$output"
-  assert_success
-  assert_output "$real_keys"
-}
-
-# Sorted subset of the given keys that every object selected by the jq
-# expression carries. Key sets, not values: values are machine-specific, the
-# key shape is the upstream contract the stubs impersonate.
-_herdr_consumed_key_subset() {
-  local expr="$1" json="$2"
-  shift 2
-  jq -c "[\$ARGS.positional[] as \$key | select([$expr | has(\$key)] | all) | \$key] | sort" \
-    --args "$@" <<<"$json"
-}
-
-# One herdr reply, three sides: the installed binary must still carry every
-# consumed key (a deployed reader breaks when upstream renames one while this
-# suite stays green), and each stub must then agree with the real binary on
-# exactly that set. The expected side of the stub comparisons is captured
-# from the real binary in the same run, never written here.
-_assert_herdr_consumed_parity() {
-  local expr="$1" real_json="$2" stub_json="$3" lifecycle_json="$4"
-  shift 4
-  local real_keys
-  run _herdr_consumed_key_subset "$expr" "$real_json" "$@"
-  assert_success
-  assert_output "$(jq -n -c '$ARGS.positional | sort' --args "$@")"
-  real_keys="$output"
-  run _herdr_consumed_key_subset "$expr" "$stub_json" "$@"
-  assert_success
-  assert_output "$real_keys"
-  run _herdr_consumed_key_subset "$expr" "$lifecycle_json" "$@"
-  assert_success
-  assert_output "$real_keys"
-}
-
-function test_scripts_2846_child_stub_agent_pane_envelopes_match_real_herdr() {
-  _bats_test_init 2846 'child-agent stub agent list/get and pane get envelopes match the installed herdr'
-  require_real_herdr_oracle
-
-  # child_stub_herdr and child_lifecycle_stub_herdr back the herdr-child
-  # suite, and nothing written in this file can say whether their envelopes
-  # still match the binary they impersonate -- only the binary can
-  # (docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md).
-  # Real captures come first, before any stub directory exists.
-  local herdr_bin real_list real_get real_pane real_name real_pane_id
-  herdr_bin="$(command -v herdr)"
-  # A live server is the second oracle precondition; without one there is no
-  # oracle, so say why instead of falling back to a locally invented shape.
-  real_list="$("$herdr_bin" agent list 2>&1)" \
-    || skip "real herdr answered no agent list (no running server): $real_list"
-  real_name="$(jq -r '.result.agents[0].name // empty' <<<"$real_list")"
-  real_pane_id="$(jq -r '.result.agents[0].pane_id // empty' <<<"$real_list")"
-  if [ -z "$real_name" ] || [ -z "$real_pane_id" ]; then
-    skip "real herdr reports no running agent, so agent get and pane get have no target"
-  fi
-  real_get="$("$herdr_bin" agent get "$real_name" 2>&1)" \
-    || skip "real herdr answered no agent get for $real_name: $real_get"
-  real_pane="$("$herdr_bin" pane get "$real_pane_id" 2>&1)" \
-    || skip "real herdr answered no pane get for $real_pane_id: $real_pane"
-
-  local stub_list stub_get stub_pane lc_list lc_get lc_pane
-  child_stub_herdr
-  # START_CONTEXT makes the launch-contract stub list its parent agent; the
-  # bare default is an empty agents array with no object to compare.
-  stub_list="$(STUB_START_CONTEXT=1 "$CHILD_STUB/herdr" agent list)"
-  stub_get="$("$CHILD_STUB/herdr" agent get child)"
-  stub_pane="$("$CHILD_STUB/herdr" pane get wT:p9)"
-  child_lifecycle_stub_herdr
-  lc_list="$("$CHILD_STUB/herdr" agent list)"
-  lc_get="$("$CHILD_STUB/herdr" agent get child)"
-  lc_pane="$("$CHILD_STUB/herdr" pane get wT:p9)"
-
-  # Comparison depth: exactly the keys the deployed herdr-child modules read
-  # from each reply, nothing deeper -- everything below that belongs to herdr,
-  # and restating it here would reimplement upstream semantics locally, the
-  # failure mode this test exists to avoid. Keys those modules read only via
-  # .get-with-default stay out of the pinned set when real herdr legitimately
-  # omits them: agent_session (absent without a session), focused and
-  # agent_status on list entries, and the pane's tokens / state_labels /
-  # tab_id (a live pane answers with no state_labels key at all). The real
-  # .result also carries a sibling "type" key no script reads; the container
-  # key is the pinned envelope boundary, so "type" stays out too.
-
-  # agent list: json_validate_agents_and_list_names
-  # (home/dot_local/lib/herdr-child-runtime.sh) hard-requires pane_id, agent,
-  # terminal_id, revision, state_change_seq on every agent; name is what
-  # json_has_name/json_has_pair match pairs by, and herdr names every agent
-  # it detects (its CLI addresses agents by name).
-  _assert_herdr_consumed_parity '.result' "$real_list" "$stub_list" "$lc_list" agents
-  _assert_herdr_consumed_parity '.result.agents[]' "$real_list" "$stub_list" "$lc_list" \
-    agent name pane_id revision state_change_seq terminal_id
-
-  # agent get: json_agent_snapshot hard-indexes agent_status,
-  # state_change_seq, terminal_id, pane_id.
-  _assert_herdr_consumed_parity '.result' "$real_get" "$stub_get" "$lc_get" agent
-  _assert_herdr_consumed_parity '.result.agent' "$real_get" "$stub_get" "$lc_get" \
-    agent_status pane_id state_change_seq terminal_id
-
-  # pane get: json_pane_identity hard-indexes pane_id and terminal_id, and
-  # the reap identity check (herdr-child-reap.sh) compares the same two.
-  _assert_herdr_consumed_parity '.result' "$real_pane" "$stub_pane" "$lc_pane" pane
-  _assert_herdr_consumed_parity '.result.pane' "$real_pane" "$stub_pane" "$lc_pane" \
-    pane_id terminal_id
-}
-
-function test_scripts_2847_child_state_label_keys_are_ones_the_installed_() {
-  _bats_test_init 2847 'every state-label key the child scripts send is one the installed herdr accepts'
-  require_real_herdr_oracle
-
-  # child_stub_herdr logs the report-metadata calls it is handed and never
-  # judges them, so the whole child suite stayed green while real herdr
-  # refused `--state-label supervised=` outright and published nothing from
-  # those calls -- tokens included. Only the binary owns the key vocabulary
-  # (docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md).
-  #
-  # herdr validates the key in the CLI before it opens the socket, so this
-  # needs the binary and no session. The pane id is not a real pane, so an
-  # accepted key fails on the pane instead and nothing can mutate. The keys
-  # come from the scripts and the verdict comes from herdr; this file writes
-  # neither side.
-  local probe_pane='wZZ:pZZZ' herdr_bin
-  herdr_bin="$(command -v herdr)"
-
-  # Control first. Without it a probe that rejected every key, or a key list
-  # that came back empty, would both read as a clean pass.
-  run "$herdr_bin" pane report-metadata "$probe_pane" --source child-agent-conformance \
-    --state-label 'definitely-not-a-status=probe' --seq 1
-  assert_failure
-  assert_output --partial 'unknown state label'
-
-  local keys key
-  keys="$(grep -ho -e "--state-label '[a-z ]*=" -e '--state-label "[a-z ]*=' \
-    "$SOURCE_ROOT"/dot_local/lib/herdr-child-*.sh "$HERDR_CHILD" \
-    | sed -e "s/--state-label ['\"]//" -e 's/=$//' | sort -u)"
-  [ -n "$keys" ] || fail 'no --state-label key was found in the child scripts'
-
-  while IFS= read -r key; do
-    [ -n "$key" ] || continue
-    run "$herdr_bin" pane report-metadata "$probe_pane" --source child-agent-conformance \
-      --state-label "$key=probe" --seq 1
-    assert_failure
-    case "$output" in
-      *'unknown state label'*)
-        fail "the child scripts send --state-label $key=, which herdr rejects: $output"
-        ;;
-    esac
-  done <<< "$keys"
-}
-
-function test_scripts_1162_herdr_pane_labels_plugin_exposes_only_the_approved_pane() {
-  _bats_test_init 1162 'herdr-pane-labels plugin exposes only the approved pane and tab invalidations'
-  local manifest="$HPL_PLUGIN_DIR/herdr-plugin.toml"
-  run awk '
-    /^on = "/ {
-      event = $0
-      sub(/^on = "/, "", event)
-      sub(/"$/, "", event)
-      next
-    }
-    /^command = / && event != "" {
-      command = $0
-      sub(/^command = /, "", command)
-      print event "|" command
-      event = ""
-    }
-  ' "$manifest"
-  assert_success
-  assert_output $'pane.created|["sh", "ensure.sh", "--event"]\npane.moved|["sh", "ensure.sh", "--event"]\npane.exited|["sh", "ensure.sh", "--event"]\npane.closed|["sh", "ensure.sh", "--event"]\npane.agent_detected|["sh", "ensure.sh", "--event"]\npane.agent_status_changed|["sh", "ensure.sh", "--event"]\ntab.created|["sh", "ensure.sh", "--event"]\ntab.closed|["sh", "ensure.sh", "--event"]\ntab.moved|["sh", "ensure.sh", "--event"]\ntab.renamed|["sh", "ensure.sh", "--event"]\nworktree.created|["sh", "ensure.sh", "--event"]\nworktree.opened|["sh", "ensure.sh", "--event"]'
-  assert_file_contains "$manifest" '^min_herdr_version = "0\.8\.2"$'
-  assert_file_contains "$manifest" '^id = "sweep"$'
-  assert_file_contains "$manifest" '^title = "Pane labels: refresh now"$'
-  assert_file_contains "$manifest" '^command = \["sh", "sweep\.sh"\]$'
-  run grep -E '^on = ".*\*|^on = "(pane\.updated|workspace\.focused|tab\.focused|pane\.focused)"|reclaim' "$manifest"
-  assert_failure
-}
-
-function test_scripts_1163_herdr_pane_labels_plugin_wrappers_invoke_one_engine_mod() {
-  _bats_test_init 1163 'herdr-pane-labels plugin wrappers invoke one engine mode and isolate failures'
-  local home="$BATS_TEST_TMPDIR/home" engine_log="$BATS_TEST_TMPDIR/plugin-engine.log"
-  mkdir -p "$home/.local/bin"
-  cat > "$home/.local/bin/herdr-pane-labels" <<'SH'
-#!/bin/sh
-printf '%s|%s|%s\n' "${HPL_PLUGIN_CASE:-}" "$1" "${HERDR_SOCKET_PATH:-}" >> "$HPL_PLUGIN_ENGINE_LOG"
-printf 'unexpected stdout\n'
-printf 'unexpected stderr\n' >&2
-[ "${HPL_PLUGIN_FAIL_ARG:-}" != "$1" ] || exit 23
-exit 0
-SH
-  chmod +x "$home/.local/bin/herdr-pane-labels"
-
-  run env HOME="$home" HERDR_SOCKET_PATH=/tmp/u5.sock \
-    HPL_PLUGIN_ENGINE_LOG="$engine_log" HPL_PLUGIN_CASE=startup \
-    HPL_PLUGIN_FAIL_ARG=--ensure-sweep-daemon sh "$HPL_PLUGIN_DIR/ensure.sh"
-  assert_success
-  assert_output ""
-  run env HOME="$home" HERDR_SOCKET_PATH=/tmp/u5.sock \
-    HPL_PLUGIN_ENGINE_LOG="$engine_log" HPL_PLUGIN_CASE=event-fails \
-    HPL_PLUGIN_FAIL_ARG=--event sh "$HPL_PLUGIN_DIR/ensure.sh" --event
-  assert_success
-  assert_output ""
-  run env HOME="$home" HERDR_SOCKET_PATH=/tmp/u5.sock \
-    HPL_PLUGIN_ENGINE_LOG="$engine_log" HPL_PLUGIN_CASE=sweep \
-    HPL_PLUGIN_FAIL_ARG=--sweep sh "$HPL_PLUGIN_DIR/sweep.sh"
-  assert_success
-  assert_output ""
-  run cat "$engine_log"
-  assert_output $'startup|--ensure-sweep-daemon|/tmp/u5.sock\nevent-fails|--event|/tmp/u5.sock\nsweep|--sweep|/tmp/u5.sock'
-}
-
-function test_scripts_1164_herdr_pane_labels_event_requests_reconciliation_and_ens() {
-  _bats_test_init 1164 'herdr-pane-labels event requests reconciliation and ensures the daemon fail-open'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local namespace reconcile sweep_lock pending pid owner start socket_record
-  namespace="$(hpl_namespace "$HPL_DEFAULT_SOCKET")"
-  reconcile="$namespace/reconcile.state"
-  sweep_lock="$namespace/sweep.lock"
-
-  HERDR_PANE_LABELS_TEST_NO_PRESENTATION=1 hpl_event_run
-  pending="$(hpl_record_number "$reconcile" pending_generation)"
-  mkdir "$namespace/presentation-inbox.lock"
-  owner="event-test-owner"
-  start="$(ps -p "$$" -o lstart= | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-  socket_record="owner_id=$(printf '%s' "$owner" | base64 | tr -d '\n')
-pid=$$
-process_start=$(printf '%s' "$start" | base64 | tr -d '\n')
-socket_path=$(printf '%s' "$HPL_DEFAULT_SOCKET" | base64 | tr -d '\n')"
-  printf '%s\n' "$socket_record" > "$namespace/presentation-inbox.lock/owner"
-
-  export HERDR_PANE_LABELS_TEST_NO_DAEMON=
-  export HERDR_PANE_LABELS_LOCK_ATTEMPTS=1
-  run hpl_event_run
-  unset HERDR_PANE_LABELS_TEST_NO_DAEMON HERDR_PANE_LABELS_LOCK_ATTEMPTS
-  assert_success
-  hpl_wait_for_file "$sweep_lock/pid"
-  assert_equal "$(hpl_record_number "$reconcile" pending_generation)" "$pending"
-  pid="$(cat "$sweep_lock/pid")"
-  kill "$pid" 2>/dev/null || true
-  rm -f "$namespace/presentation-inbox.lock/owner"
-  rmdir "$namespace/presentation-inbox.lock"
-
-}
-
-function test_scripts_1165_herdr_pane_labels_sweep_repairs_an_external_pane_rename() {
-  _bats_test_init 1165 'herdr-pane-labels sweep repairs an external pane rename without pane.updated'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude red-wolf
-  hpl_sweep_run --sweep
-  hpl_socket_run "$HPL_DEFAULT_SOCKET" pane rename pane-1 external-label
-  assert_equal "$(jq -r '.panes[0].label' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" external-label
-
-  : > "$HPL_LOG"
-  run hpl_sweep_run --sweep
-  assert_success
-  assert_equal "$(jq -r '.panes[0].label' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" cc:red-wolf
-  assert_file_contains "$HPL_LOG" '^pane rename pane-1 cc:red-wolf$'
-}
-
-function test_scripts_1166_herdr_pane_labels_sweep_repairs_process_and_cwd_changes() {
-  _bats_test_init 1166 'herdr-pane-labels sweep repairs process and CWD changes through the presentation coordinator'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local old="$HPL_WORK/repos/old" new="$HPL_WORK/repos/new-worktree" common="$HPL_WORK/repos/.git"
-  mkdir -p "$old" "$new" "$common"
-  hpl_set_pane "$HPL_DEFAULT_SOCKET" "$(hpl_process_pane_json pane-1 tab-1 "$old" present "$old")"
-  hpl_set_tab "$HPL_DEFAULT_SOCKET" '{"tab_id":"tab-1","workspace_id":"ws-1","label":""}'
-  hpl_git_location_fixture "$old" "$old" "$common" refs/heads/old
-  hpl_set_process_label pane-1 btop
-  # hpl_location_pass, not bare hpl_event_run: this pass asserts a worktree
-  # token, so its git probe needs the calibrated HPL_GIT_BUDGET instead of the
-  # shipped 75 ms bound (killed probe -> tokens.worktree null under load).
-  hpl_location_pass
-  assert_equal "$(jq -r '.panes[0].label' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" btop
-  assert_equal "$(jq -r '.panes[0].tokens.worktree' "$(hpl_socket_state "$HPL_DEFAULT_SOCKET")")" old
-
-  hpl_git_location_fixture "$new" "$new" "$common" refs/heads/new-branch
-  hpl_set_pane_location "$HPL_DEFAULT_SOCKET" pane-1 "$new" "$new"
-  hpl_set_process_label pane-1 'cargo test'
-  : > "$HPL_LOG"
-  run hpl_sweep_run --sweep
-  assert_success
-
-  local state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  assert_equal "$(jq -r '.panes[0].label' "$state")" "cargo test"
-  assert_equal "$(jq -r '.panes[0].tokens.worktree' "$state")" new-worktree
-  assert_file_contains "$HPL_LOG" '^api snapshot$'
-  assert_file_contains "$HPL_LOG" '^pane rename pane-1 cargo test$'
-}
-
-function test_scripts_1167_herdr_pane_labels_names_a_command_pane_after_the_proces() {
-  _bats_test_init 1167 'herdr-pane-labels names a command pane after the process group leader'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_pane_list '{"result":{"panes":[
-    {"pane_id":"pane-1","tab_id":"tab-1","agent":"claude","name":"red-wolf","label":"agent-label"},
-    {"pane_id":"pane-2","tab_id":"tab-1","agent":null,"label":null}]}}'
-  hpl_proc_info pane-2 '{"result":{"process_info":{
-    "shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[
-      {"pid":201,"name":"node","argv0":"node","argv":["node","-e","timer"]},
-      {"pid":200,"name":"bun","argv0":"bun","argv":["bun","run","dev"]}]}}}'
-  hpl_sweep_run --sweep
-  assert_equal "$(hpl_pane_label pane-2)" "bun run dev"
-  run grep -m1 '^tab rename' "$HPL_LOG"
-  assert_output "tab rename tab-1 cc:red-wolf · bun run dev"
-}
-
-# A pane whose foreground process group is its own shell runs nothing. It keeps
-# its slot in the tab label under a placeholder instead of disappearing.
-function test_scripts_1168_herdr_pane_labels_names_an_idle_pane_with_the_placehold() {
-  _bats_test_init 1168 'herdr-pane-labels names an idle pane with the placeholder'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_pane_list '{"result":{"panes":[
-    {"pane_id":"pane-1","tab_id":"tab-1","agent":"claude","name":"red-wolf","label":"agent-label"},
-    {"pane_id":"pane-2","tab_id":"tab-1","agent":null,"label":"btop"}]}}'
-  hpl_proc_info pane-2 '{"result":{"process_info":{
-    "shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[
-      {"pid":100,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}'
-  hpl_sweep_run --sweep
-  assert_equal "$(hpl_pane_label pane-2)" "~"
-  run grep -m1 '^tab rename' "$HPL_LOG"
-  assert_output "tab rename tab-1 cc:red-wolf · ~"
-}
-
-# The session coordinator knows tab position, so task invalidation and sweeps
-# use the same numbered placeholder for an all-idle tab.
-function test_scripts_1169_herdr_pane_labels_presentation_numbers_an_all_idle_tab() {
-  _bats_test_init 1169 'herdr-pane-labels presentation numbers an all-idle tab'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_pane_list '{"result":{"panes":[
-    {"pane_id":"pane-1","tab_id":"tab-1","agent":null,"label":null}]}}'
-  hpl_proc_info pane-1 '{"result":{"process_info":{
-    "shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[
-      {"pid":100,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}'
-  hpl_sweep_run --sweep
-  assert_equal "$(hpl_pane_label pane-1)" "~"
-}
-
-# One pane must not eat the whole tab label, so a long command name is cut to
-# 24 characters with a trailing ellipsis. Flags and paths drop out entirely.
-function test_scripts_1170_herdr_pane_labels_truncates_a_long_command_name() {
-  _bats_test_init 1170 'herdr-pane-labels truncates a long command name'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_pane_list '{"result":{"panes":[
-    {"pane_id":"pane-1","tab_id":"tab-1","agent":null,"label":null}]}}'
-  hpl_proc_info pane-1 '{"result":{"process_info":{
-    "shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[
-      {"pid":200,"name":"long","argv0":"/opt/bin/averyveryverylongcommandname",
-       "argv":["/opt/bin/averyveryverylongcommandname","--flag","/tmp/path","sub"]}]}}}'
-  hpl_sweep_run --sweep
-  run grep -m1 '^tab rename' "$HPL_LOG"
-  assert_output "tab rename tab-1 averyveryverylongcomman…"
-}
-
-# A naming call refreshes only its own tab, so a command that ends and an agent
-# that quits leave a stale label behind. The sweep is the observer for both: it
-# walks every tab herdr knows, not just the one that triggered it.
-function test_scripts_1171_herdr_pane_labels_sweep_relabels_every_tab() {
-  _bats_test_init 1171 'herdr-pane-labels --sweep relabels every tab'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_tab_list '{"result":{"tabs":[
-    {"tab_id":"tab-1","label":"1"},
-    {"tab_id":"tab-2","label":"2"}]}}'
-  hpl_pane_list '{"result":{"panes":[
-    {"pane_id":"pane-1","tab_id":"tab-1","agent":"claude","label":"agent-label"},
-    {"pane_id":"pane-2","tab_id":"tab-2","agent":null,"label":null}]}}'
-  hpl_proc_info pane-2 '{"result":{"process_info":{
-    "shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[
-      {"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
-  run hpl_sweep_run --sweep
-  assert_success
-  run grep -c '^tab rename' "$HPL_LOG"
-  assert_output "2"
-  run grep '^tab rename tab-2' "$HPL_LOG"
-  assert_output "tab rename tab-2 btop"
-}
-
-function test_scripts_1172_herdr_pane_labels_sweep_reports_a_failed_reconciliation() {
-  _bats_test_init 1172 'herdr-pane-labels --sweep reports a failed reconciliation'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local dir
-  dir="$(hpl_socket_dir "$HPL_DEFAULT_SOCKET")"
-  : > "$dir/fail-snapshot"
-
-  run hpl_sweep_run --sweep
-
-  assert_failure
-}
-
-function test_scripts_1173_herdr_pane_labels_strict_sweep_rejects_failed_and_unapp() {
-  _bats_test_init 1173 'herdr-pane-labels strict sweep rejects failed and unapplied presentation writes'
-  command -v jq >/dev/null || skip "jq not available"
-  local marker
-  for marker in fail-pane-rename drop-pane-rename fail-tab-rename drop-tab-rename; do
-    hpl_setup
-    hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude red-wolf
-    : > "$HPL_WORK/$marker"
-    export HERDR_PANE_LABELS_STRICT_SWEEP=1
-
-    run hpl_sweep_run --sweep
-
-    assert_failure
-    unset HERDR_PANE_LABELS_STRICT_SWEEP
-    hpl_teardown
-  done
-
-  hpl_setup
-  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude red-wolf
-  hpl_transform_state "$HPL_DEFAULT_SOCKET" '.panes[0].tokens = {repo:"repo",worktree:"main",branch:"main",git_ref:"main",location_label:"legacy"}'
-  : > "$HPL_WORK/fail-pane-report"
-  export HERDR_PANE_LABELS_STRICT_SWEEP=1
-  run hpl_sweep_run --sweep
-  assert_failure
-  unset HERDR_PANE_LABELS_STRICT_SWEEP
-}
-
-# The daemon sweeps every few seconds. Renaming a tab to the label it already
-# carries would churn the tab row and the socket for nothing.
-function test_scripts_1174_herdr_pane_labels_sweep_leaves_an_unchanged_tab_label_a() {
-  _bats_test_init 1174 'herdr-pane-labels --sweep leaves an unchanged tab label alone'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_tab_list '{"result":{"tabs":[{"tab_id":"tab-1","label":"btop"}]}}'
-  hpl_pane_list '{"result":{"panes":[
-    {"pane_id":"pane-1","tab_id":"tab-1","agent":null,"label":"btop"}]}}'
-  hpl_proc_info pane-1 '{"result":{"process_info":{
-    "shell_pid":100,"foreground_process_group_id":200,"foreground_processes":[
-      {"pid":200,"name":"btop","argv0":"btop","argv":["btop"]}]}}}'
-  run hpl_sweep_run --sweep
-  assert_success
-  run cat "$HPL_LOG"
-  refute_output --partial "tab rename"
-  refute_output --partial "pane rename"
-}
-
-# An all-idle tab is numbered instead of skipped, or its last composed label
-# would outlive the pane that produced it. The number counts tabs inside one
-# workspace, because a tab row shows one workspace at a time.
-function test_scripts_1175_herdr_pane_labels_sweep_numbers_all_idle_tabs_per_works() {
-  _bats_test_init 1175 'herdr-pane-labels --sweep numbers all-idle tabs per workspace'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_tab_list '{"result":{"tabs":[
-    {"tab_id":"tab-1","workspace_id":"ws-1","label":"1"},
-    {"tab_id":"tab-2","workspace_id":"ws-1","label":"stale name"},
-    {"tab_id":"tab-3","workspace_id":"ws-2","label":"2"}]}}'
-  hpl_pane_list '{"result":{"panes":[
-    {"pane_id":"pane-1","tab_id":"tab-1","agent":null,"label":null},
-    {"pane_id":"pane-2","tab_id":"tab-2","agent":null,"label":null},
-    {"pane_id":"pane-3","tab_id":"tab-3","workspace_id":"ws-2","agent":null,"label":null}]}}'
-  hpl_proc_info pane-1 '{"result":{"process_info":{
-    "shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[
-      {"pid":100,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}'
-  hpl_proc_info pane-2 '{"result":{"process_info":{
-    "shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[
-      {"pid":100,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}'
-  hpl_proc_info pane-3 '{"result":{"process_info":{
-    "shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[
-      {"pid":100,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}'
-  run hpl_sweep_run --sweep
-  assert_success
-  run grep '^tab rename' "$HPL_LOG"
-  assert_line "tab rename tab-1 ~ 1"
-  assert_line "tab rename tab-2 ~ 2"
-  assert_line "tab rename tab-3 ~ 1"
-}
-
-# herdr fires the plugin hook on every agent state change, so the guard has to
-# be cheap and exact: one daemon per machine, however often it is called.
-function test_scripts_1176_herdr_pane_labels_ensure_sweep_daemon_keeps_a_single_da() {
-  _bats_test_init 1176 'herdr-pane-labels --ensure-sweep-daemon keeps a single daemon'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  sleep 30 &
-  local live=$! sweep_lock="$(hpl_namespace "$HPL_DEFAULT_SOCKET")/sweep.lock"
-  mkdir -p "$sweep_lock"
-  printf '%s' "$live" > "$sweep_lock/pid"
-  ps -p "$live" -o lstart= | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' > "$sweep_lock/start"
-  run hpl_sweep_run --ensure-sweep-daemon
-  assert_success
-  assert_equal "$(cat "$sweep_lock/pid")" "$live"
-  cat > "$HPL_STUB/ps" <<'SH'
-#!/bin/sh
-exit 1
-SH
-  chmod +x "$HPL_STUB/ps"
-  run hpl_sweep_run --ensure-sweep-daemon
-  assert_success
-  assert_equal "$(cat "$sweep_lock/pid")" "$live"
-  kill "$live" 2>/dev/null || true
-}
-
-# A daemon killed with its herdr session leaves the lock behind. The next hook
-# must clear it and start a new daemon, or labels stay frozen until a restart.
-function test_scripts_1177_herdr_pane_labels_ensure_sweep_daemon_replaces_a_dead_d() {
-  _bats_test_init 1177 'herdr-pane-labels --ensure-sweep-daemon replaces a dead daemon'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  hpl_tab_list '{"result":{"tabs":[{"tab_id":"tab-1","label":"1"}]}}'
-  hpl_pane_list '{"result":{"panes":[
-    {"pane_id":"pane-1","tab_id":"tab-1","agent":"claude","label":"agent-label"}]}}'
-  local sweep_lock="$(hpl_namespace "$HPL_DEFAULT_SOCKET")/sweep.lock"
-  mkdir -p "$sweep_lock"
-  # A pid that cannot be running: process ids are allocated from 1 upwards.
-  printf '%s' "999999" > "$sweep_lock/pid"
-  run hpl_sweep_run --ensure-sweep-daemon
-  assert_success
-  hpl_wait_for_call 'tab rename'
-  local pid; pid="$(cat "$sweep_lock/pid" 2>/dev/null)"
-  [ -n "$pid" ] && [ "$pid" != "999999" ]
-  kill "$pid" 2>/dev/null || true
-}
-
-function test_scripts_1178_herdr_pane_labels_sweep_daemon_exits_after_three_unreac() {
-  _bats_test_init 1178 'herdr-pane-labels sweep daemon exits after three unreachable snapshots'
-  command -v jq >/dev/null || skip "jq not available"
-  hpl_setup
-  local dir daemon_pid i ps_attempts="$HPL_WORK/ps-attempts"
-  dir="$(hpl_socket_dir "$HPL_DEFAULT_SOCKET")"
-  : > "$dir/fail-snapshot"
-  cat > "$HPL_STUB/ps" <<'SH'
-#!/usr/bin/env bash
-attempt=0
-[ ! -f "$HPL_PS_ATTEMPTS" ] || attempt="$(cat "$HPL_PS_ATTEMPTS")"
-attempt=$((attempt + 1))
-printf '%s' "$attempt" > "$HPL_PS_ATTEMPTS"
-[ "$attempt" -ne 1 ] || exit 1
-exec /bin/ps "$@"
-SH
-  chmod +x "$HPL_STUB/ps"
-  HPL_PS_ATTEMPTS="$ps_attempts" HPL_SWEEP_INTERVAL=0.01 \
-    hpl_sweep_run --sweep-daemon &
-  daemon_pid=$!
-  for i in $(seq 1 $HPL_WAIT_POLLS); do
-    kill -0 "$daemon_pid" 2>/dev/null || break
-    sleep 0.01
-  done
-  if kill -0 "$daemon_pid" 2>/dev/null; then
-    kill "$daemon_pid" 2>/dev/null || true
-    wait "$daemon_pid" 2>/dev/null || true
-    fail "sweep daemon kept polling an unreachable socket"
-  fi
-  wait "$daemon_pid"
-  run test "$(cat "$ps_attempts")" -ge 2
-  assert_success
-  run grep -c '^api snapshot$' "$HPL_LOG"
-  assert_output "3"
-  assert_dir_not_exists "$(hpl_namespace "$HPL_DEFAULT_SOCKET")/sweep.lock"
-}
-
-function test_scripts_1179_herdr_pane_labels_names_an_agent_whose_fresh_pane_repor() {
-  _bats_test_init 1179 'herdr-pane-labels names an agent whose fresh pane reports no label yet'
-  command -v jq >/dev/null || skip "jq not available"
-  source "$HERDR_ALIASES"
-  hpl_setup
-  hpl_set_agent_pane "$HPL_DEFAULT_SOCKET" pane-1 tab-1 ws-1 term-1 claude
-  # herdr 0.8.2 omits `label` from a pane that has never been renamed. The
-  # engine must read that as an empty label, not reject the snapshot: rejecting
-  # deadlocks the pipeline, because this engine is the only label writer.
-  hpl_transform_state "$HPL_DEFAULT_SOCKET" 'del(.panes[0].label)'
-
-  run hpl_sweep_run --sweep
-  assert_success
-
-  local state alias
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  alias="$(jq -r '.agents[0].name // ""' "$state")"
-  run herdr_alias_in_pool "$alias"
-  assert_success
-  assert_equal "$(jq -r '.panes[0].label' "$state")" "cc:$alias"
-}
-
-# herdr pane-label cutover (U5)
-# ===========================================
-
-function test_scripts_1301_herdr_pane_label_cutover_selects_modes_only_for_the_con() {
-  _bats_test_init 1301 'herdr pane-label cutover selects modes only for the configured engine paths'
-  local library="$SOURCE_ROOT/.chezmoitemplates/herdr-pane-labels-cutover-lib.sh"
-  run env HOME="$BATS_TEST_TMPDIR/cutover-mode-home" bash -c '
-    source "$1"
-    [ "$(hpl_cutover_mode_for_engine "$HPL_CUTOVER_OLD_ENGINE")" = --ensure-daemon ]
-    [ "$(hpl_cutover_mode_for_engine "$HPL_CUTOVER_NEW_ENGINE")" = --ensure-sweep-daemon ]
-    ! hpl_cutover_mode_for_engine "$HOME/.local/bin/unknown-engine"
-  ' _ "$library"
-  assert_success
-}
-
-function test_scripts_1302_herdr_pane_label_cutover_accepts_unlabeled_fresh_panes() {
-  _bats_test_init 1302 'herdr pane-label cutover accepts unlabeled fresh panes but still rejects unsafe labels'
-  command -v jq >/dev/null || skip "jq not available"
-  local library="$SOURCE_ROOT/.chezmoitemplates/herdr-pane-labels-cutover-lib.sh"
-  local script="$BATS_TEST_TMPDIR/cutover-label-check.sh"
-  # herdr 0.8.2 omits `label` from a pane that has never been renamed. The
-  # cutover validator must accept that shape, or the before-script blocks every
-  # apply for as long as one fresh pane exists.
-  cat > "$script" <<'CHECK'
-source "$1"
-pane_snapshot() {
-  jq -c --argjson pane "$1" '{result:{snapshot:{
-    panes:[$pane],
-    tabs:[{tab_id:"tab1",workspace_id:"ws1",label:"1"}],
-    agents:[],layouts:[],workspaces:[{workspace_id:"ws1"}]}}}' <<< '{}'
-}
-base='{"pane_id":"p1","terminal_id":"t1","tab_id":"tab1","workspace_id":"ws1","revision":1}'
-pane_snapshot "$(jq -c 'del(.label)' <<< "$base")" | hpl_cutover_snapshot_is_complete || exit 1
-pane_snapshot "$(jq -c '.label = null' <<< "$base")" | hpl_cutover_snapshot_is_complete || exit 1
-pane_snapshot "$(jq -c '.label = "cc:red-wolf"' <<< "$base")" | hpl_cutover_snapshot_is_complete || exit 1
-pane_snapshot "$(jq -c '.label = "badlabel"' <<< "$base")" | hpl_cutover_snapshot_is_complete && exit 1
-exit 0
-CHECK
-  run env HOME="$BATS_TEST_TMPDIR/cutover-label-home" bash "$script" "$library"
-  assert_success
-}
-
-function test_scripts_1303_herdr_pane_label_cutover_drains_canonical_claims_under_localized_callers() {
-  _bats_test_init 1303 'herdr pane-label cutover drains canonical claims under localized callers'
-  local library="$SOURCE_ROOT/.chezmoitemplates/herdr-pane-labels-cutover-lib.sh"
-  local lock="$BATS_TEST_TMPDIR/canonical-claim/presentation.claim"
-  mkdir -p "$lock"
-  printf 'owner_id=%s\npid=42\nprocess_start=%s\nsocket_path=%s\n' \
-    "$(printf owner | base64 | tr -d '\n')" \
-    "$(printf 'Sat Sep 12 06:18:05 2026' | base64 | tr -d '\n')" \
-    "$(printf /tmp/localized.sock | base64 | tr -d '\n')" > "$lock/owner"
-
-  run env HOME="$BATS_TEST_TMPDIR/cutover-claim-home" bash -c '
-    source "$1"
-    hpl_cutover_pid_is_live() { return 0; }
-    hpl_cutover_process_start() {
-      if [ "${LC_ALL:-}" = C ]; then
-        printf %s "Sat Sep 12 06:18:05 2026"
-      else
-        printf %s "sam 12 sep 2026 06:18:05 UTC"
-      fi
-    }
-    hpl_cutover_process_command() { printf %s "bash /tmp/engine --presentation-worker"; }
-    hpl_cutover_socket_for_namespace() { printf %s /tmp/localized.sock; }
-    hpl_cutover_command_matches() { return 0; }
-    hpl_cutover_hook() { return 0; }
-    hpl_cutover_wait_pid_gone() { return 0; }
-    kill() { return 0; }
-    hpl_cutover_drain_claim "$2" /tmp/engine new "$3"
-    [ "$?" -eq 10 ]
-  ' _ "$library" "$lock" "${lock%/presentation.claim}"
-
-  assert_success
-}
-
-
-
-
-
-
-
-
-
-
-
-function test_scripts_1312_herdr_pane_label_cutover_rejects_an_incomplete_cleanup_() {
-  _bats_test_init 1312 'herdr pane-label cutover rejects an incomplete cleanup snapshot'
-  command -v jq >/dev/null || skip "jq not available"
-  skip_if_no_chezmoi
-  hpl_cutover_setup
-  local state tmp
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  tmp="$state.tmp"
-  jq '.complete=false' "$state" > "$tmp" && mv "$tmp" "$state"
-
-  run hpl_cutover_run "$HPL_CUTOVER_BEFORE"
-
-  assert_failure
-  run grep -q '^pane report-metadata.*--clear-token task' "$HPL_LOG"
+  run grep -F "$BATS_TEST_TMPDIR/stopped.sock" "$work/engine.calls"
   assert_failure
 }
 
 
+# A running flag that is not a boolean is a schema the script cannot read. The
+# same filter already carries a // fallback because the shape moved once, and
+# guessing "stopped" would skip a live session the cutover has to reconcile.
+function test_scripts_1343_pane_labels_migration_stops_on_a_non_boolean_runn() {
+  _bats_test_init 1343 'pane labels migration stops on a non-boolean running flag'
+  local work="$BATS_TEST_TMPDIR/pane-labels-migration-running-shape"
+  pane_labels_migration_prepare "$work"
 
+  run pane_labels_migration_apply "$work" '' \
+    '{"result":{"sessions":[{"running":"true","socket_path":"/tmp/shape.sock"}]}}'
+  assert_failure
+  assert_output --partial 'could not inspect running Herdr sessions'
+  run grep -F 'plugin install' "$work/herdr.calls"
+  assert_failure
+}
 
-function test_scripts_1316_herdr_pane_label_after_script_links_offline_without_liv() {
-  _bats_test_init 1316 'herdr pane-label after script links offline without live-only commands'
-  skip_if_no_chezmoi
-  hpl_cutover_setup
-  hpl_cutover_sessions
-  : > "$HPL_WORK/fail-live-plugin-command-without-sessions"
+# Two sibling installers close stdin and say why: an unseen upstream prompt must
+# fail rather than hang chezmoi apply, and here it would hang with herdr-child
+# already replaced by the freeze stub.
+function test_scripts_1344_pane_labels_migration_closes_stdin_for_the_packag() {
+  _bats_test_init 1344 'pane labels migration closes stdin for the package install'
+  local work="$BATS_TEST_TMPDIR/pane-labels-migration-stdin"
+  pane_labels_migration_prepare "$work"
 
-  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
-
+  run pane_labels_migration_apply "$work" <<'STDIN'
+SHOULD-NOT-REACH-THE-INSTALLER
+STDIN
   assert_success
-  assert_file_contains "$HPL_WORK/plugin.log" '^plugin link '
-  assert_output --partial "no running Herdr sessions require verification"
-  run grep -E '^plugin enable |^server reload-config$' "$HPL_WORK/plugin.log"
+  assert_file_exists "$work/install.stdin"
+  run grep -F 'SHOULD-NOT-REACH-THE-INSTALLER' "$work/install.stdin"
   assert_failure
 }
 
-function test_scripts_1317_herdr_pane_label_after_script_catches_a_session_created() {
-  _bats_test_init 1317 'herdr pane-label after script catches a session created during plugin linking'
-  command -v jq >/dev/null || skip "jq not available"
-  skip_if_no_chezmoi
-  hpl_cutover_setup
-  local late_socket="$HPL_WORK/late-start.sock"
-  hpl_cutover_sessions
-  : > "$HPL_WORK/require-live-plugin-command-socket"
-  hpl_set_agent_pane "$late_socket" pane-late tab-late ws-late term-late claude red-wolf
-  printf '%s\n' '{"result":{"sessions":[{"running":true,"socket_path":"'"$late_socket"'"}]}}' \
-    > "$HPL_WORK/sessions-after-link.json"
 
-  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
+# The abort path drops the local registration and nothing puts it back, so the
+# next run meets an id Herdr does not know. Treating that as a quiesce failure
+# made the cutover unrepeatable: every later apply died at the gate while the
+# labels it had already killed stayed dead.
+function test_scripts_1345_pane_labels_migration_retries_after_an_abort() {
+  _bats_test_init 1345 'pane labels migration retries after an abort'
+  local work="$BATS_TEST_TMPDIR/pane-labels-migration-retry"
+  local sessions='{"result":{"sessions":[{"running":true,"socket_path":"/tmp/retry.sock"}]}}'
+  pane_labels_migration_prepare "$work"
 
+  run pane_labels_migration_apply "$work" install "$sessions"
+  assert_failure
+  # The abort names the command that brings labels back before the next apply.
+  assert_output --partial 'herdr plugin link '
+  # The registration is gone, which is the state the retry has to tolerate.
+  assert_file_not_exists "$work/registry-local"
+
+  run pane_labels_migration_apply "$work" '' "$sessions"
   assert_success
-  grep -Fxq "$late_socket|plugin enable seigi.pane-labels" "$HPL_WORK/plugin-sockets.log"
-  grep -Fxq "$late_socket|server reload-config" "$HPL_WORK/plugin-sockets.log"
-  run grep -Fx "$HPL_DEFAULT_SOCKET|plugin enable seigi.pane-labels" "$HPL_WORK/plugin-sockets.log"
-  assert_failure
-  run grep -Fx "$HPL_DEFAULT_SOCKET|server reload-config" "$HPL_WORK/plugin-sockets.log"
-  assert_failure
-  assert_file_contains "$HPL_CUTOVER_TRACE" "^first-pass:$late_socket$"
-  assert_file_contains "$HPL_CUTOVER_TRACE" "^daemon-verified:$late_socket:"
-}
-
-function test_scripts_1318_herdr_pane_label_after_script_disables_known_sessions_w() {
-  _bats_test_init 1318 'herdr pane-label after script disables known sessions when post-link discovery fails'
-  command -v jq >/dev/null || skip "jq not available"
-  skip_if_no_chezmoi
-  hpl_cutover_setup
-  local saved_socket="$HPL_WORK/saved.sock"
-  hpl_cutover_sessions "$saved_socket"
-  : > "$HPL_WORK/require-live-plugin-command-socket"
-  printf '%s\n' 2 > "$HPL_WORK/fail-session-list-at"
-
-  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
-
-  assert_failure
-  assert_output --partial "cannot inspect running Herdr sessions"
-  grep -Fxq "$saved_socket|plugin disable seigi.pane-labels" "$HPL_WORK/plugin-sockets.log"
-  assert_file_contains "$HPL_WORK/plugin.log" '^plugin link .* --disabled$'
-  run grep -Fx "$HPL_DEFAULT_SOCKET|plugin disable seigi.pane-labels" "$HPL_WORK/plugin-sockets.log"
-  assert_failure
-}
-
-function test_scripts_1319_herdr_pane_label_post_link_discovery_failure_disables_t() {
-  _bats_test_init 1319 'herdr pane-label post-link discovery failure disables the offline registry without sessions'
-  skip_if_no_chezmoi
-  hpl_cutover_setup
-  hpl_cutover_sessions
-  printf '%s\n' 2 > "$HPL_WORK/fail-session-list-at"
-
-  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
-
-  assert_failure
-  assert_output --partial "cannot inspect running Herdr sessions"
-  assert_file_contains "$HPL_WORK/plugin.log" '^plugin link .* --disabled$'
-  run grep -E '^plugin enable |^plugin disable |^server reload-config$' "$HPL_WORK/plugin.log"
-  assert_failure
-}
-
-function test_scripts_1320_herdr_pane_label_activation_failure_still_disables_ever() {
-  _bats_test_init 1320 'herdr pane-label activation failure still disables every remaining live session'
-  command -v jq >/dev/null || skip "jq not available"
-  skip_if_no_chezmoi
-  hpl_cutover_setup
-  local stale_socket="$HPL_WORK/a-stale.sock" live_socket="$HPL_WORK/z-live.sock"
-  hpl_cutover_sessions "$stale_socket" "$live_socket"
-  hpl_set_agent_pane "$stale_socket" pane-stale tab-stale ws-stale term-stale claude red-wolf
-  hpl_set_agent_pane "$live_socket" pane-live tab-live ws-live term-live opencode blue-fox
-  : > "$HPL_WORK/require-live-plugin-command-socket"
-  printf '%s\n' '{"result":{"sessions":[{"running":true,"socket_path":"'"$live_socket"'"}]}}' \
-    > "$HPL_WORK/sessions-before-enable.json"
-
-  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
-
-  assert_failure
-  assert_output --partial "failed to enable or reload seigi.pane-labels"
-  grep -Fxq "$live_socket|plugin enable seigi.pane-labels" "$HPL_WORK/plugin-sockets.log"
-  grep -Fxq "$live_socket|plugin disable seigi.pane-labels" "$HPL_WORK/plugin-sockets.log"
-}
-
-function test_scripts_1321_herdr_pane_label_after_script_rejects_a_failed_first_sw() {
-  _bats_test_init 1321 'herdr pane-label after script rejects a failed first sweep'
-  command -v jq >/dev/null || skip "jq not available"
-  skip_if_no_chezmoi
-  hpl_cutover_setup
-  local state tmp
-  state="$(hpl_socket_state "$HPL_DEFAULT_SOCKET")"
-  tmp="$state.tmp"
-  jq '.complete=false' "$state" > "$tmp" && mv "$tmp" "$state"
-
-  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
-
-  assert_failure
-  assert_file_contains "$HPL_WORK/plugin.log" '^plugin disable seigi\.pane-labels$'
-  refute_output --partial "linked and verified"
+  assert_file_exists "$work/registry-github"
+  assert_dir_not_exists "$work/home/.config/herdr/plugins/herdr-pane-labels"
 }
 
 
-# A live machine changes agent state while the sweep runs, and the strict pass
-# compares the whole snapshot identity, so the first attempt can fail with every
-# label already converged. Aborting the apply there disables pane labels for a
-# condition that clears itself.
-function test_scripts_1322_herdr_pane_label_after_script_retries_a_transiently_fai() {
-  _bats_test_init 1322 'herdr pane-label after script retries a transiently failed first sweep'
-  command -v jq >/dev/null || skip "jq not available"
-  skip_if_no_chezmoi
-  hpl_cutover_setup
-  hpl_cutover_sessions "$HPL_DEFAULT_SOCKET"
-  printf '%s\n' 1 > "$HPL_WORK/sweep-failures"
-  cat > "$HPL_CUTOVER_HOME/.local/bin/herdr-pane-labels" <<'SH'
-#!/usr/bin/env bash
-set -u
-socket="${HERDR_SOCKET_PATH:-}"
-namespace="$HOME/.cache/herdr-pane-labels/sockets/$(printf '%s' "$socket" | base64 | tr '/+' '_-' | tr -d '=\n')"
-write_socket() {
-  mkdir -p "$namespace"
-  printf 'socket_path=%s\n' "$(printf '%s' "$socket" | base64 | tr -d '\n')" > "$namespace/socket.state"
-}
-case "${1:-}" in
-  --sweep)
-    count=0
-    [ ! -f "$HPL_WORK/sweep-count" ] || read -r count < "$HPL_WORK/sweep-count"
-    count=$((count + 1))
-    printf '%s\n' "$count" > "$HPL_WORK/sweep-count"
-    failures=0
-    [ ! -f "$HPL_WORK/sweep-failures" ] || read -r failures < "$HPL_WORK/sweep-failures"
-    if [ "$count" -le "$failures" ]; then
-      printf 'herdr-pane-labels: strict sweep identity changed before verification\n' >&2
-      exit 1
-    fi
-    ;;
-  --ensure-sweep-daemon)
-    write_socket
-    if [ -f "$namespace/sweep.lock/pid" ] && kill -0 "$(cat "$namespace/sweep.lock/pid")" 2>/dev/null; then exit 0; fi
-    mkdir -p "$namespace/sweep.lock"
-    nohup bash "$0" --sweep-daemon </dev/null >/dev/null 2>&1 &
-    ;;
-  --sweep-daemon)
-    write_socket
-    mkdir -p "$namespace/sweep.lock"
-    printf '%s' "$$" > "$namespace/sweep.lock/pid"
-    LC_ALL=C ps -p "$$" -o lstart= | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' > "$namespace/sweep.lock/start"
-    trap 'rm -f "$namespace/sweep.lock/pid" "$namespace/sweep.lock/start"; rmdir "$namespace/sweep.lock" 2>/dev/null || true; exit 0' INT TERM EXIT
-    while :; do sleep 1; done
-    ;;
-esac
-SH
-  chmod +x "$HPL_CUTOVER_HOME/.local/bin/herdr-pane-labels"
-
-  export HERDR_PANE_LABELS_CUTOVER_SWEEP_PAUSE=0
-  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
-  unset HERDR_PANE_LABELS_CUTOVER_SWEEP_PAUSE
-
-  assert_success
-  assert_output --partial "linked and verified"
-  assert_file_contains "$HPL_CUTOVER_TRACE" "^strict-sweep-retry:$HPL_DEFAULT_SOCKET:1$"
-  assert_file_contains "$HPL_CUTOVER_TRACE" "^first-pass:$HPL_DEFAULT_SOCKET$"
-  assert_dir_not_exists "$HPL_CUTOVER_HOME/.cache/herdr-pane-labels/cutover-rollback"
-}
-
-# The same retry must not paper over a sweep that never converges: every attempt
-# fails, so the cutover still disables the plugin and reports the failure.
-function test_scripts_1315_herdr_pane_label_after_script_still_fails_a_sweep_that_() {
-  _bats_test_init 1315 'herdr pane-label after script still fails a sweep that never converges'
-  command -v jq >/dev/null || skip "jq not available"
-  skip_if_no_chezmoi
-  hpl_cutover_setup
-  hpl_cutover_sessions "$HPL_DEFAULT_SOCKET"
-  printf '%s\n' 99 > "$HPL_WORK/sweep-failures"
-  cat > "$HPL_CUTOVER_HOME/.local/bin/herdr-pane-labels" <<'SH'
-#!/usr/bin/env bash
-set -u
-socket="${HERDR_SOCKET_PATH:-}"
-namespace="$HOME/.cache/herdr-pane-labels/sockets/$(printf '%s' "$socket" | base64 | tr '/+' '_-' | tr -d '=\n')"
-case "${1:-}" in
-  --sweep)
-    count=0
-    [ ! -f "$HPL_WORK/sweep-count" ] || read -r count < "$HPL_WORK/sweep-count"
-    count=$((count + 1))
-    printf '%s\n' "$count" > "$HPL_WORK/sweep-count"
-    failures=0
-    [ ! -f "$HPL_WORK/sweep-failures" ] || read -r failures < "$HPL_WORK/sweep-failures"
-    if [ "$count" -le "$failures" ]; then
-      printf 'herdr-pane-labels: strict sweep identity changed before verification\n' >&2
-      exit 1
-    fi
-    ;;
-  --ensure-sweep-daemon)
-    mkdir -p "$namespace"
-    printf 'socket_path=%s\n' "$(printf '%s' "$socket" | base64 | tr -d '\n')" > "$namespace/socket.state"
-    ;;
-esac
-SH
-  chmod +x "$HPL_CUTOVER_HOME/.local/bin/herdr-pane-labels"
-
-  export HERDR_PANE_LABELS_CUTOVER_SWEEP_PAUSE=0 HERDR_PANE_LABELS_CUTOVER_SWEEP_ATTEMPTS=2
-  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
-  unset HERDR_PANE_LABELS_CUTOVER_SWEEP_PAUSE HERDR_PANE_LABELS_CUTOVER_SWEEP_ATTEMPTS
-
-  assert_failure
-  assert_output --partial "strict pane-label sweep did not converge"
-  assert_file_contains "$HPL_WORK/plugin.log" '^plugin disable seigi\.pane-labels$'
-  run cat "$HPL_WORK/sweep-count"
-  assert_output 2
-}
-
-function test_scripts_1323_herdr_pane_label_after_script_skips_missing_herdr_witho() {
-  _bats_test_init 1323 'herdr pane-label after script skips missing herdr without a transaction'
-  skip_if_no_chezmoi
-  hpl_cutover_setup
-  mv "$HPL_STUB/herdr" "$HPL_STUB/herdr.unavailable"
-
-  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
-
-  assert_success
-  assert_output --partial "herdr not found; skipping pane-labels plugin link"
-  assert_dir_not_exists "$HPL_CUTOVER_HOME/.cache/herdr-pane-labels/cutover-rollback"
-}
-
-function test_scripts_1327_herdr_pane_label_after_script_skips_a_broken_wrapper_() {
-  _bats_test_init 1327 'herdr pane-label after script skips a broken wrapper without a transaction'
-  skip_if_no_chezmoi
-  hpl_cutover_setup
-  rm "$HPL_STUB/herdr"
-  cat > "$HPL_STUB/herdr" <<'SH'
-#!/bin/sh
-exit 127
-SH
-  chmod +x "$HPL_STUB/herdr"
-
-  run hpl_cutover_run "$HPL_CUTOVER_AFTER"
-
-  assert_success
-  assert_output --partial "herdr not found; skipping pane-labels plugin link"
-  assert_dir_not_exists "$HPL_CUTOVER_HOME/.cache/herdr-pane-labels/cutover-rollback"
-}
-
-
-
-# ===========================================
 # Claude settings modifier
 # ===========================================
 
@@ -10413,7 +8154,13 @@ function test_scripts_2701_herdr_child_reap_owner_guard_stops_when_run_dir() {
 function test_scripts_271_herdr_child_shared_lifecycle_primitives_keep_con() {
   _bats_test_init 271 'herdr-child shared lifecycle primitives keep polling and launch-state contracts'
   local work_dir runtime supervision
-  work_dir="$(mktemp -d)"
+  # Not a bare mktemp -d: the case keeps launch.state to read it back, and an
+  # assertion failing before the last line exits the test (_bats_assert_fail),
+  # so a trailing rm never runs on exactly the runs worth repeating. Under
+  # BATS_TEST_TMPDIR the file tmproot reaps it either way
+  # (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
+  work_dir="$BATS_TEST_TMPDIR/child-lifecycle"
+  mkdir -p "$work_dir"
   runtime="$SOURCE_ROOT/dot_local/lib/herdr-child-runtime.sh"
   supervision="$SOURCE_ROOT/dot_local/lib/herdr-child-supervision.sh"
 
@@ -11144,11 +8891,10 @@ SH
 }
 
 function set_up_before_script() {
-  hpl_setup_assets
+  :
 }
 
 function tear_down_after_script() {
-  hpl_teardown_assets
   _bats_file_cleanup
 }
 

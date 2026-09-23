@@ -87,6 +87,24 @@ at a reviewed commit. Personal commands stay in the managed
 new package release and changing the commit pin in
 `run_onchange_after_7-install-herdr-github-plugins.sh.tmpl`.
 
+Worktree preparation is provided by the standalone
+[`Seigiard/herdr-worktree-setup`](https://github.com/Seigiard/herdr-worktree-setup)
+package. This repository retains its repository-keyed copy, setup-step, and
+fresh-base policy in
+`~/.config/herdr/plugins/config/seigi.worktree-setup/config.toml`; the package
+owns the event handler, manifest, implementation tests, documentation, CI, and
+releases. The generated-worktree marker written by the package is the
+authorization boundary consumed by `herdr-worktree-identity`.
+
+Pane and tab labels, agent aliases, workspace origin, and Git location/status
+metadata are provided by the standalone
+[`Seigiard/herdr-pane-labels`](https://github.com/Seigiard/herdr-pane-labels)
+package. It owns the reconciler, alias policy, sweep daemon, manifest,
+diagnostics, lifecycle, implementation tests, documentation, CI, and releases.
+This repository retains only the sidebar rows and personal presentation
+settings in `~/.config/herdr/config.toml`; `herdr-child` and `herdr-peer-alias`
+consume the package's `herdr-pane-labels --alias-candidates` interface.
+
 On macOS, chezmoi also installs
 [`usrivastava92/herdr-wakeup`](https://github.com/usrivastava92/herdr-wakeup)
 at a reviewed commit. Its managed policy keeps the Mac and display awake while
