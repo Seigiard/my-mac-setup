@@ -147,6 +147,7 @@ function test_scripts_1905_agent_intercom_launcher_selects_shared_state_for_ever
   local launcher="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom"
   local stub home="$BATS_TEST_TMPDIR/agent-intercom-home" client command
   stub="$(agent_intercom_stub_bin)"
+  export HERDR_PANE_ID=w1:p2 HERDR_ALIAS_ALLOCATOR="$stub/allocator"
   for command in claude opencode pi cci; do
     cat > "$stub/$command" <<'SH'
 #!/usr/bin/env bash
@@ -6380,7 +6381,7 @@ function test_scripts_075_herdr_child_ask_requires_every_injected_child_co() {
   local marker
   for marker in '' 0 invalid; do
     run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
-      HERDR_CHILD_LAUNCH="$marker" HERDR_CHILD_NAME=upstream-name HERDR_CHILD_PARENT_PANE=wT:p0 \
+      HERDR_CHILD_LAUNCH="$marker" HERDR_CHILD_NAME=legacy-name HERDR_CHILD_PARENT_PANE=wT:p0 \
       bash "$HERDR_CHILD" ask question
     assert_failure
     assert_output --partial "HERDR_CHILD_LAUNCH must be 1"
@@ -6420,13 +6421,15 @@ function test_scripts_076_herdr_child_ask_publishes_before_delivery_and_us() {
   [[ "$call4" == agent\ prompt*wT:p0*child-ask*agent=orange-panda*pane=wT:p9* ]] || fail "callback was not delivered fourth: $call4"
   [[ "$call4" != *--wait* ]] || fail "callback delivery unexpectedly waited: $call4"
 
-  # Raw upstream launches provide only the old name; its value is never a route.
-  # Managed launches may also inherit it from upstream, but use the new marker.
+  # Pre-migration managed children retain the old name; its value is never a route.
+  # A new managed child may inherit it too, but uses the explicit marker.
   local marker
-  for marker in legacy managed; do
+  local -a launch_env
+  for marker in managed legacy; do
     child_stub_herdr
-    if [ "$marker" = managed ]; then export HERDR_CHILD_LAUNCH=1; fi
-    run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 \
+    launch_env=(-u HERDR_CHILD_LAUNCH)
+    [ "$marker" != managed ] || launch_env=(HERDR_CHILD_LAUNCH=1)
+    run env "${launch_env[@]}" PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 \
       HERDR_PANE_ID=wT:p9 HERDR_CHILD_NAME=stale-launch-name HERDR_CHILD_PARENT_PANE=wT:p0 \
       bash "$HERDR_CHILD" ask "Which path?"
     assert_success

@@ -219,8 +219,8 @@ event=$event"
 ask_parent() {
   require_herdr
   [ $# -eq 1 ] || fail_usage 'ask requires one question argument'
-  # Upstream `herdr agent start` still injects HERDR_CHILD_NAME. Accept its
-  # presence only when our explicit marker is unset; never use it as an alias.
+  # Children from the pre-migration managed launcher retain HERDR_CHILD_NAME.
+  # Accept it only when the explicit marker is unset; never use it as an alias.
   local child_launch="${HERDR_CHILD_LAUNCH-}"
   if [ "${HERDR_CHILD_LAUNCH+x}" != x ] && [ -n "${HERDR_CHILD_NAME:-}" ]; then
     child_launch=1
