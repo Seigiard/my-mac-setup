@@ -2,7 +2,7 @@
 
 Agent intercom lets a coding-agent session message another agent session running on the same machine, without either one having launched the other. The `herdr` skill points here, and so does the inbound-message trigger in `~/.claude/CLAUDE.md`.
 
-Everything below was measured against the deployed slice in Herdr panes on one host: Claude Code and OpenCode on 2026-09-21, restart and offline behavior across Claude Code, OpenCode, and Pi on 2026-09-23. The pinned package commits are in `~/.local/share/agent-intercom/package.json`.
+Everything below was measured against the deployed slice in Herdr panes on one host: Claude Code and OpenCode on 2026-09-21, restart and offline behavior across Claude Code, OpenCode, and Pi on 2026-09-23. Those runs predate the launcher's move to canonical pane aliases, so the identity rules here follow the launcher as it now stands rather than what the probes saw. The pinned package commits are in `~/.local/share/agent-intercom/package.json`.
 
 ## Are you connected
 
@@ -10,11 +10,13 @@ Everything below was measured against the deployed slice in Herdr panes on one h
 printf '%s\n' "${HERDR_AGENT_INTERCOM_NAME:-<not connected>}"
 ```
 
-**That check only settles the negative.** An empty result means no intercom tool will work, and it costs no tool call, so it is worth making first. A name does **not** prove you are connected: the launcher exports `HERDR_AGENT_INTERCOM_ACTIVE` and `HERDR_AGENT_INTERCOM_NAME` before any per-client wiring, so every descendant inherits them — including a nested session the launcher deliberately passed through, and a session whose intercom runtime was incomplete and fell back to launching the bare agent. Both states carry a name and load no adapter, and the name they carry belongs to the session above.
+**That check only settles the negative.** An empty result means no intercom tool will work, and it costs no tool call, so it is worth making first. A name does **not** prove you are connected. The launcher exports `HERDR_AGENT_INTERCOM_ACTIVE`, `HERDR_AGENT_INTERCOM_NAME` and `HERDR_AGENT_INTERCOM_PANE` before it wires any client, so two states carry a name and load no adapter: a nested launch inside an already-enrolled pane, which the launcher passes straight through, and a session whose intercom runtime was incomplete, which falls back to the bare agent after those exports.
+
+A new pane cannot inherit the wrong identity — the launcher clears all five adapter variables before resolving its own alias — so the name you see is at worst your pane's, never a stranger's. But a name with no tools behind it is still a session that cannot answer.
 
 Only a tool settles the positive, and which tool depends on the client. On Claude and OpenCode, call the one whose name ends in `intercom_whoami`. On Pi, which has no `whoami`, call `intercom_list` — it opens with your own row. Either way the name it reports is yours, and it is the only name worth quoting when telling anyone how to reach you: publishing an inherited `$HERDR_AGENT_INTERCOM_NAME` sends your peers to a different session, which then answers for you.
 
-The launcher registers the canonical alias from your current Herdr pane record. If that alias is unavailable or provisional, it starts the client without Intercom and prints a warning. Child-launch environment variables do not select an Intercom address; their compatibility rules live in `~/.claude/shared/child-agent-contract.md`.
+Your registered name **is** the alias `herdr agent list` reports for your pane. The launcher reads it from the pane record and from nowhere else, so a peer's Herdr alias is a valid recipient and the two names cannot diverge. Child-launch environment variables do not select an Intercom address; `~/.claude/shared/child-agent-contract.md` owns their rules.
 
 Intercom's own session IDs are transport detail, and they are per-process: a session that restarts keeps its name and gets a new ID. Address peers by name and never cache an ID — the old one returns `Session not found` the moment the peer restarts. Reply selectors are separate from all of this: Claude and OpenCode select by sender, and Pi additionally hands out a stable receiver-local `askId`. None of them is a wire message or thread ID.
 
@@ -61,10 +63,11 @@ Those two are authoritative for their own content. This file covers what they le
 
 ## Reachable is narrower than open
 
-An open pane and a reachable session are different states. A session registers with the broker only when `herdr-agent-intercom` launched it, which excludes three ordinary cases:
+An open pane and a reachable session are different states. A session registers with the broker only when `herdr-agent-intercom` launched it **and** resolved a canonical alias for its pane, which excludes four ordinary cases:
 
+- **its pane alias is not one the allocator handed out.** The launcher validates the pane's alias against the pane-labels pool and starts the client without Intercom when it does not match, printing `canonical pane alias unavailable` to stderr. A `herdr agent start` under a name you chose yourself, or a client launched straight from a plain shell in a pane that has no canonical record yet, both land here. This is the ordinary case, not an error: enrollment requires allocating the alias first.
 - it started before the wrapper was deployed, or outside Herdr;
-- it is a nested session the launcher deliberately passes through;
+- it is a nested launch inside a pane that is already enrolled, which the launcher passes through on purpose;
 - it is a client the wrapper does not cover. Claude Code, OpenCode, and Pi participate. Codex does not — see [#296](https://github.com/Seigiard/my-mac-setup/issues/296).
 
 So a peer missing from `intercom_list` is usually unwrapped, not broken. Confirm with `herdr agent list`, which shows panes regardless of registration, before reporting a fault.
@@ -77,11 +80,11 @@ Being listed is not the same as being able to answer, either: a Pi session that 
 
 `intercom_ask` blocks for 45 seconds on Claude and OpenCode, 30 on Pi. Both Claude and OpenCode accept `timeout_ms` up to 120000 to widen it; Pi has no timeout parameter.
 
-The clients disagree on how expiry is reported. Claude and OpenCode return an error naming the timeout; Pi returns a **success** whose text says the ask was delivered but went unanswered, sometimes naming a closed peer connection outright. Read the text, not the status.
+The clients disagree on how expiry is reported. Claude and OpenCode return an error naming the timeout. Pi returns a **success** whose text says the ask was delivered but went unanswered, and adds whether the broker confirmed keeping it open for a late reply — that clause is about Pi's own control call to the broker, not about your recipient. Read the text, not the status.
 
 Expiry does not mean the peer never got the message. It means you stopped waiting. The ask stays unresolved in the recipient's `intercom_pending`, and for work that will outlast the window the honest shape is `intercom_send` plus a later `intercom_pending`, not a wider timeout.
 
-A recipient that dies mid-ask looks exactly like a slow one on Claude and OpenCode: no disconnect reaches the blocked sender, so it waits out the full window and reports a plain timeout. Pi is the exception that names the closed connection. Never read a timeout as proof the peer refused or failed — check `intercom_list` before concluding anything.
+A recipient that dies mid-ask looks exactly like a slow one. No disconnect reaches the blocked sender on any of the three clients: the window runs out and the result reads the same as it would for a peer that was merely thinking. Never take an expiry as proof the peer refused, failed, or received nothing — check `intercom_list` before concluding anything.
 
 Neither endpoint can restart through an ask. The recipient's restart drops the message from its pending list; the sender's restart orphans the ask permanently, because a reply routes to the sender's **session ID** and no restart preserves that. The recipient is then left holding an ask it cannot resolve, and those accumulate — an `intercom_reply` with no selector eventually fails with `Multiple pending asks`. When more than one is outstanding, select: on Pi pass the `askId` that `intercom_pending` returned, which addresses an exact ask; on Claude and OpenCode the only selectors are `to` plus `which: oldest|latest`, so the middle of three from one sender is unreachable until the ones around it resolve.
 

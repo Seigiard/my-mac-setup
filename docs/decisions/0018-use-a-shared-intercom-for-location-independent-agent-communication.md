@@ -126,13 +126,19 @@ the full 45-second default window, and returned `No reply from
 session ID rather than the name the caller addressed, so a dead peer and a slow
 peer are indistinguishable from the sender's side.
 
-The Pi adapter behaves differently in the same situation and is the better
-model for later semantics. Pi asked the same busy OpenCode session, the
-receiver was terminated 8.6 seconds in, and Pi returned a success result after
-its 30-second window: `Ask delivered to i295-rx, but no reply arrived within 30
+The Pi adapter reports the same situation differently, though not by detecting
+the disconnect. Pi asked the same busy OpenCode session, the receiver was
+terminated 8.6 seconds in, and Pi returned a success result after its
+30-second window: `Ask delivered to i295-rx, but no reply arrived within 30
 seconds. Continuing without waiting; the connection closed before asynchronous
-deferral could be confirmed.` Pi both surfaced the closed connection and
-declined to report a plain timeout.
+deferral could be confirmed.` The closing clause reports that Pi's own
+`deferAsk` control call to the broker went unconfirmed; it carries no
+information about the recipient. That probe terminated the receiver's whole
+process group rather than a single process, so the broker may have died with
+it, which would explain the failed control call and leaves the observation
+confounded. What the run does establish is the result shape: Pi returns success
+and keeps the ask open where Claude and OpenCode return an error. No adapter
+was observed telling a blocked sender that its recipient had disconnected.
 
 An in-flight ask does not survive either endpoint restarting, and the two ends
 fail asymmetrically. After the recipient restarted in the same pane under the
