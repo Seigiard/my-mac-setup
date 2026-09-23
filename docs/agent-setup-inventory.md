@@ -72,3 +72,29 @@ OpenCode loads only the server plugin, so the Intercom `/intercom`, `Alt+M`, and
 `Alt+I` TUI conveniences are intentionally absent. Pi loads the native extension.
 Codex remains outside this slice because its tested wakeable and proactive-tool
 paths register separate Intercom identities.
+
+### Runtime storage
+
+The launcher exports `INTERCOM_DIR`, defaulting to
+`${XDG_STATE_HOME:-$HOME/.local/state}/agent-intercom`; an explicit nonempty
+`INTERCOM_DIR` takes precedence. This shared directory holds the broker sockets,
+credentials, Intercom configuration, and message state for all three clients.
+It is separate from the managed Pi configuration tree and the installed package
+root. Upstream creates the directory with mode `0700` and credential files with
+mode `0600`.
+
+The adapters are temporarily pinned to exact commits in `Seigiard` forks for
+runtime-directory support: [Pi #23][intercom-pi-dir],
+[Claude #9][intercom-claude-dir], and [OpenCode #12][intercom-opencode-dir]. Core
+remains pinned upstream. Once these changes land, replace the fork pins with
+upstream commits containing the override and regenerate the lockfile.
+
+Restart participating clients after deployment so they use the same directory.
+This rollout starts with fresh state; the old `~/.pi/agent/intercom` manual-test
+data is neither migrated nor deleted. Without the launcher or an explicit
+override, upstream still uses its original Pi-relative default. Standalone
+clients must receive the same `INTERCOM_DIR` to join the relocated broker.
+
+[intercom-pi-dir]: https://github.com/dataforxyz/agent-intercom-pi/pull/23
+[intercom-claude-dir]: https://github.com/dataforxyz/agent-intercom-claude/pull/9
+[intercom-opencode-dir]: https://github.com/dataforxyz/agent-intercom-opencode/pull/12

@@ -116,6 +116,8 @@ if [[ -z "$intercom_name" ]]; then
 fi
 
 intercom_root="$HOME/.local/share/agent-intercom"
+# Shared durable state belongs to Intercom, not to any client's config tree.
+export INTERCOM_DIR="${INTERCOM_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-intercom}"
 export HERDR_AGENT_INTERCOM_ACTIVE=1
 export HERDR_AGENT_INTERCOM_NAME="$intercom_name"
 case "$agent" in
