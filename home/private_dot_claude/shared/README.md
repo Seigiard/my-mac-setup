@@ -12,6 +12,8 @@ Count the readers, and note when they read it.
 | Two or more skills, or one pointer from an always-loaded document | **here**, `~/.claude/shared/<name>.md` | `pf-cycle.md`, `herdr-peer-launch.md`, `child-agent-contract.md`, `long-running-work.md` |
 | Exactly one skill | that skill's own `references/` | `pf-build/references/implementer-prompt.md`, `pf-build/references/demo.md` |
 
+The writing-style output style is listed above as a home, not as content. `dfd01db` stripped its body and kept the wiring, so it currently carries nothing in any of the three clients that include it. That is deliberate, not a missing file.
+
 A document with no reader at all does not get created.
 
 When a second skill starts reading something out of a skill's `references/`, that is the moment it moves here — not later.
