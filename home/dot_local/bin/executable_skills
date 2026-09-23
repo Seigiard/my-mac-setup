@@ -126,7 +126,10 @@ run_npx() {
   fi
   local waited=0 started heartbeat_at="$SKILLS_HEARTBEAT" timed_out=0
   output="$(mktemp "$TMPDIR/skills-output.XXXXXX")" || return 1
-  trap 'status=$?; [ -z "$NPX_PID" ] || signal_tree TERM "$NPX_PID"; rm -f "$output"; trap - EXIT HUP INT TERM; exit "$status"' EXIT HUP INT TERM
+  trap 'status=$?; [ -z "$NPX_PID" ] || signal_tree TERM "$NPX_PID"; rm -f "$output"; trap - EXIT HUP INT TERM; exit "$status"' EXIT
+  trap 'status=129; [ -z "$NPX_PID" ] || signal_tree TERM "$NPX_PID"; rm -f "$output"; trap - EXIT HUP INT TERM; exit "$status"' HUP
+  trap 'status=130; [ -z "$NPX_PID" ] || signal_tree TERM "$NPX_PID"; rm -f "$output"; trap - EXIT HUP INT TERM; exit "$status"' INT
+  trap 'status=143; [ -z "$NPX_PID" ] || signal_tree TERM "$NPX_PID"; rm -f "$output"; trap - EXIT HUP INT TERM; exit "$status"' TERM
   # Captured output cannot render a prompt, so deny the child a terminal to
   # wait on. Upstream ignores CI=1 for its deleted-skill confirmation.
   invoke_npx "$@" </dev/null > "$output" 2>&1 &
@@ -255,7 +258,10 @@ for index, line in enumerate(lines):
     current = fields[1:]
     if action == "add":
         if "*" in skills:
-            current = list(dict.fromkeys(skills))
+            incoming = list(dict.fromkeys(skills))
+            if not any(skill.startswith("!") for skill in incoming):
+                incoming.extend(skill for skill in current if skill.startswith("!"))
+            current = incoming
         elif "*" not in current:
             for skill in skills:
                 if skill not in current:
@@ -359,7 +365,7 @@ PY
     }
   done
   [ "$remove_status" -eq 0 ] || return "$remove_status"
-  [ "$SKILLS_VERBOSE" != 1 ] || printf 'Excluded skills from %s: %s\n' "$source" "${excluded[*]}"
+  printf 'Excluded skills from %s: %s\n' "$source" "${excluded[*]}"
 }
 
 parse_manifest() {

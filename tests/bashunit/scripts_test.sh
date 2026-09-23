@@ -1296,7 +1296,9 @@ function test_scripts_1186_worktree_identity_reconciles_terminal_workspace_to_th
   assert_equal "$(read_state_field "$state" outcome)" complete
   assert_equal "$(cat "$HWI_WORK/workspace.label")" "$branch"
   assert_equal "$(hwi_workspace_rename_count)" 1
-  assert_file_not_contains "$HWI_WORK/herdr.calls" '^(pane|tab|agent) rename '
+  assert_file_not_contains "$HWI_WORK/herdr.calls" 'pane rename '
+  assert_file_not_contains "$HWI_WORK/herdr.calls" 'tab rename '
+  assert_file_not_contains "$HWI_WORK/herdr.calls" 'agent rename '
 
   printf '%s' 'Legacy workspace title' > "$HWI_WORK/workspace.label"
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
@@ -9032,7 +9034,7 @@ function test_scripts_279_skills_sync_offers_to_remove_or_save_named_drift_but_n
 }
 
 function test_scripts_307_skills_sync_removes_wildcard_path_exclusions() {
-  _bats_test_init 307 'skills sync removes wildcard exclusions by upstream path and reports their names in verbose mode'
+  _bats_test_init 307 'skills sync removes wildcard exclusions by upstream path and reports their names'
   local stub manifest lock canonical
   stub="$(skills_exclusion_stub_npx)"
   manifest="$BATS_TEST_TMPDIR/manifest"
@@ -9045,7 +9047,7 @@ function test_scripts_307_skills_sync_removes_wildcard_path_exclusions() {
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
-    SKILLS_MANIFEST="$manifest" bash "$SKILLS_WRAPPER" --verbose sync
+    SKILLS_MANIFEST="$manifest" bash "$SKILLS_WRAPPER" sync
   assert_success
   assert_output --partial 'Excluded skills from example/upstream-skills: draft'
   assert_dir_exists "$canonical/stable"
@@ -9082,7 +9084,7 @@ function test_scripts_3071_skills_add_persists_and_applies_wildcard_path_exclusi
   assert_output --partial 'Excluded skills from owner/repo: draft'
   assert_file_contains "$manifest" '^owner/repo \* !\*/in-progress/\*$'
   assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<add><owner/repo><--skill><\*><--global>'
-  assert_file_not_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<--skill><!\*/in-progress/\*>'
+  assert_file_not_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<--skill><!*/in-progress/*>'
   assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<remove><--global><draft><--yes>$'
   run python3 - "$lock" <<'PY'
 import json, sys
@@ -9129,6 +9131,23 @@ function test_scripts_3072_skills_remove_points_wildcard_sources_to_exclusion_sy
   assert_file_not_exists "$BATS_TEST_TMPDIR/tmp/npx.log"
 }
 
+function test_scripts_3075_skills_add_preserves_existing_wildcard_exclusions() {
+  _bats_test_init 3075 'skills add without an explicit selection preserves wildcard exclusions'
+  local stub manifest lock
+  stub="$(skills_stub_npx)"
+  manifest="$BATS_TEST_TMPDIR/manifest"
+  lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
+  mkdir -p "$(dirname "$lock")"
+  printf '%s\n' 'owner/repo * !*/in-progress/*' > "$manifest"
+  printf '%s\n' '{"version":3,"skills":{}}' > "$lock"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" SKILLS_MANIFEST="$manifest" \
+    bash "$SKILLS_WRAPPER" add owner/repo
+  assert_success
+  assert_file_contains "$manifest" '^owner/repo \* !\*/in-progress/\*$'
+}
+
 function test_scripts_3073_skills_add_rejects_named_or_unbound_exclusion_entries() {
   _bats_test_init 3073 'skills add keeps named selections separate from wildcard exclusions'
   local stub lock
@@ -9163,6 +9182,7 @@ function test_scripts_3074_skills_exclusion_fake_matches_the_real_lock_path_cont
 
   run python3 - "$real_home" "$real_state" "$BATS_TEST_TMPDIR" <<'PY'
 import os
+import signal
 import subprocess
 import sys
 
@@ -9179,7 +9199,7 @@ env.update({
     "NO_COLOR": "1",
 })
 try:
-    result = subprocess.run(
+    process = subprocess.Popen(
         ["npx", "--yes", "skills@latest", "add", "mattpocock/skills", "--skill", "pr",
          "--global", "--agent", "claude-code", "--yes"],
         cwd=env["TMPDIR"],
@@ -9188,14 +9208,16 @@ try:
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         start_new_session=True,
-        timeout=60,
-        check=False,
     )
+    stdout, _ = process.communicate(timeout=60)
 except subprocess.TimeoutExpired as error:
+    os.killpg(process.pid, signal.SIGKILL)
+    stdout, _ = process.communicate()
+    sys.stdout.buffer.write(stdout)
     print("real Skills CLI fixture timed out after %ss" % error.timeout)
     sys.exit(124)
-sys.stdout.buffer.write(result.stdout)
-sys.exit(result.returncode)
+sys.stdout.buffer.write(stdout)
+sys.exit(process.returncode)
 PY
   [ "$status" -eq 0 ] || skip "real Skills CLI fixture is unavailable: $output"
   run python3 - "$real_state/skills/.skill-lock.json" <<'PY'
