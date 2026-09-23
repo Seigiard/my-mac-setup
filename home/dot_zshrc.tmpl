@@ -132,6 +132,36 @@ export PATH="$HOME/.bun/bin:$PATH"
 
 
 # -------------------------------------------
+# herdr: report this machine's sidebar glyph
+# -------------------------------------------
+# The sidebar's built-in `machine` token is client-side: it labels the saved
+# SSH endpoints and always renders the machine you are attached from as
+# "Local", which no setting can rename, so it cannot say which machine a pane
+# actually runs on. Sidebar rows also accept no literal text, only token
+# values. So each shell reports a glyph for its own pane and
+# [ui.sidebar.agents] in ~/.config/herdr/config.toml reads it as $machine:
+# briefcase for the work laptop, house for the personal one, rack for the home
+# server. Deferred past the first prompt — the value is presentation only and
+# has no business delaying a prompt. Panes whose shell has not reported yet
+# render without a glyph.
+{{- $machineGlyph := dict "mbp2026" "\U000F00D6" "mbp2021" "\U000F02DC" "server" "\U000F048B" }}
+
+if [[ -n "$HERDR_PANE_ID" ]]; then
+  _herdr_report_machine() {
+    local herdr_bin="${HERDR_BIN_PATH:-$(command -v herdr)}"
+    [[ -x "$herdr_bin" ]] || return 0
+    "$herdr_bin" pane report-metadata "$HERDR_PANE_ID" \
+      --source mms.machine \
+      --token 'machine={{ index $machineGlyph .machine_role }}' > /dev/null 2>&1
+  }
+  if (( $+functions[zsh-defer] )); then
+    zsh-defer _herdr_report_machine
+  else
+    _herdr_report_machine
+  fi
+fi
+
+# -------------------------------------------
 # Deferred plugin loading — activates after the first prompt is drawn so
 # the prompt appears sooner; functionality kicks in within ~10ms after.
 # -------------------------------------------

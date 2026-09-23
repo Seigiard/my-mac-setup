@@ -102,31 +102,37 @@ rows = [["state_icon", "workspace"], [{ token = "$branch", dim = false }, "$git_
 # Keep workspace and pane as separate built-in tokens so Herdr preserves their
 # distinct styles. herdr-pane-labels assigns `<agent-prefix>:<color-animal>`
 # labels, rebuilds tab labels, and publishes the Git location tokens.
-# The first row pairs the space with `$space_origin`, the space a worktree
-# space was cut from, so an agent reads "Git Branch Sidebar <sep> my-mac-setup"
-# above its own alias. A space whose label already is the repository name
-# publishes no origin and the label stands alone. The branch itself lives in
-# the space rows below, so it is not repeated here.
+# The second row pairs the alias with `$space_origin`, the space a worktree
+# space was cut from, so an agent reads "platform <sep> oc:navy-loach" below
+# the worktree name. A space whose label already is the repository name
+# publishes no origin and the alias stands alone. The branch lives in the
+# space rows above, so it is not repeated here.
 # herdr dims an agent's secondary row by default; `dim = false` lifts that,
-# and the explicit base-400 fg separates the alias row from the names above
-# it (workspace tx-black > machine gray > alias base-400). Inline token
-# styles accept only strict #RGB/#RRGGBB (the binary rejects anything else
-# with "sidebar token fg must be #RGB or #RRGGBB"), so this hex is
-# Light-specific like the [theme.custom] values below and shares their fate
-# on a dark-theme switch.
-# `machine` renders only when the client has multiple machines and disappears
-# entirely on a solo Local setup; custom rows suppress the default layout's
-# machine label, so without this token remote agents are indistinguishable
-# from local ones. Bold rather than a color so it survives theme switches.
+# and the explicit hexes set the reading order: workspace tx-black > origin
+# base-500 > alias base-400. Inline token styles accept only strict
+# #RGB/#RRGGBB (the binary rejects anything else with "sidebar token fg must
+# be #RGB or #RRGGBB"), so these hexes are Light-specific like the
+# [theme.custom] values below and share their fate on a dark-theme switch.
+# `$machine` is a machine glyph each shell reports for its own pane from
+# `~/.zshrc`, which also owns the role-to-glyph mapping. The built-in
+# `machine` token cannot carry it: it labels the *client's* endpoints, so the
+# machine you are sitting at always reads "Local" with no way to rename it,
+# and rows accept no literal text — only token values. A pane whose shell has
+# not reported yet, or one on a machine without this dotfiles checkout, simply
+# shows no glyph and the row still renders.
 [ui.sidebar.agents]
+# Agents are the one sidebar section where entries are read one at a time
+# rather than scanned as a list, so they get the blank separator row that
+# [ui.sidebar.spaces] deliberately does not.
+row_gap = 1
 rows = [
   [
     "state_icon",
-    { token = "machine", bold = true },
-    "workspace",
+    "$machine",
+    { token = "workspace", dim = false },
   ],
   [
-    { token = "$space_origin", dim = false, fg = "#9F9D96" },
+    { token = "$space_origin", dim = false, fg = "#878580" },
     { token = "pane", dim = false, fg = "#9F9D96" },
   ],
 ]
