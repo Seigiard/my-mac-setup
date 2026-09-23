@@ -229,6 +229,22 @@ at the launcher boundary and loads only its server plugin. Codex is deferred
 because its tested wakeable worker and proactive MCP surface register separate
 Intercom identities.
 
+The launcher owns the host runtime location through `INTERCOM_DIR`, defaulting to
+`${XDG_STATE_HOME:-$HOME/.local/state}/agent-intercom` while honoring an explicit
+override. The runtime contains durable credentials and message state as well as
+sockets, so a temporary/cache directory is unsuitable. Keeping the upstream
+Pi-relative default would couple all clients' state to Pi configuration resets;
+a compatibility symlink would retain that path dependency. Use the upstream
+runtime-only override instead of changing `PI_CODING_AGENT_DIR`, which also moves
+Pi's own configuration.
+
+Until the coordinated Pi, Claude, and OpenCode PRs land, pin their small fork
+patches by exact commit; see the [runtime storage inventory](../agent-setup-inventory.md#runtime-storage)
+for PR links and removal instructions. Core and the transport protocol remain
+unchanged. The initial rollout starts fresh because the existing state belongs
+only to manual testing; it does not migrate or delete that state. Upstream keeps
+ownership of restrictive directory and credential file modes (`0700`/`0600`).
+
 ## Consequences
 
 The implementation must prove each supported placement with real agents rather
