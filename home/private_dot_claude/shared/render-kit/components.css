@@ -1,4 +1,4 @@
-/* Render kit components, see ~/.claude/shared/render-kit.md. Copied into a page's <style> after the head snippet's base layer. Pico variables only, so both themes follow. */
+/* Render kit components, see ~/.claude/shared/render-kit.md. Placed by assemble.py at the kit components marker, after the head's base layer. Pico variables only, so both themes follow. */
 
 /* Labelled rows: a dl as a two-column grid, labels in the accent colour, one column on phones. */
 dl.rows { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1rem; margin: 0; }

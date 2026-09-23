@@ -4,9 +4,15 @@ Reached from `~/.claude/rules/artifacts.md` for any HTML page or Claude Artifact
 
 Write semantic HTML and let the kit style it. Two libraries load from jsDelivr, both following `prefers-color-scheme`: Pico 2.1.1 styles every bare element (`hgroup`, `nav`, `article`, `details`, `blockquote`, `figure`, `table`, `kbd`, `mark`, `ins`, `del`, `progress`, `dialog`, forms), and speed-highlight 2.1.0 colours code blocks. The class vocabulary is Pico's table below plus the kit's own components; an element outside those carries no class.
 
-## Head snippet
+## Assembling a page
 
-`~/.claude/shared/render-kit/head.html` is the head of every page: charset and viewport, the three stylesheet links, and a base layer with three rules and the reason for each (body font stated against host resets, a side gutter on `main.container`, code blocks in Pico's colours). Copy it into a new page, then `~/.claude/shared/render-kit/components.css` as a second `<style>`; the `highlightAll` script at the end of `head.html` goes at the end of `<body>`. A page's own rules, when it needs any, go in a third `<style>` and use Pico's variables (`--pico-primary`, `--pico-muted-color`, `--pico-muted-border-color`, `--pico-card-background-color`, `--pico-code-background-color`, `--pico-border-radius`, `--pico-spacing`) so both themes follow.
+A draft carries three markers and `python3 ~/.claude/shared/render-kit/assemble.py <draft> -o <page>` replaces them with the kit's files, so the page carries the kit inside itself and works from disk, by mail, or on a host:
+
+- `<!-- kit: head -->` inside `<head>`, after `<title>`: `head.html`, with charset and viewport, the three stylesheet links, and a base layer of four rules with the reason for each (body font stated against host resets, a side gutter on `main.container`, a reading measure on `p` and `li`, code blocks in Pico's colours).
+- `<!-- kit: components -->` right after it: `components.css` in a `<style>`.
+- `<!-- kit: scripts -->` at the end of `<body>`: `scripts.html`, the highlighter loader.
+
+A page's own rules, when it needs any, go in a `<style>` after the components marker and use Pico's variables (`--pico-primary`, `--pico-muted-color`, `--pico-muted-border-color`, `--pico-card-background-color`, `--pico-code-background-color`, `--pico-border-radius`, `--pico-spacing`) so both themes follow.
 
 ## Publishing as a Claude Artifact
 

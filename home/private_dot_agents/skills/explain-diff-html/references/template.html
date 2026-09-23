@@ -1,73 +1,9 @@
 <!doctype html>
 <html lang="ru">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
 <title><!-- slot: title --></title>
-<!-- Head from ~/.claude/shared/render-kit/head.html, components from components.css (see ~/.claude/shared/render-kit.md). -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@speed-highlight/core@2.1.0/dist/themes/github-light.css" media="(prefers-color-scheme: light)">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@speed-highlight/core@2.1.0/dist/themes/github-dark.css" media="(prefers-color-scheme: dark)">
-<style>
-  /* Stated on body, not inherited from html: a host page (Claude Artifacts) resets body to its own 14px font and colours. */
-  body { font-size: 1rem; line-height: var(--pico-line-height); font-family: var(--pico-font-family); background: var(--pico-background-color); color: var(--pico-color); }
-  /* Pico drops the container's side padding above 576px; a reading page keeps a gutter at every width. */
-  main.container { max-width: 52rem; padding-inline: var(--pico-spacing); }
-  /* Code blocks take Pico's code colours and font instead of the highlighter theme's own box. */
-  [class*="shj-lang-"] { background: var(--pico-code-background-color); color: var(--pico-code-color); border: 0; border-radius: var(--pico-border-radius); padding: var(--pico-spacing); margin: var(--pico-typography-spacing-vertical) 0; font: .875em/1.6 var(--pico-font-family-monospace); }
-
-  /* Page layer: reading width. */
-  p, li { max-width: 44rem; }
-</style>
-<!-- Components from ~/.claude/shared/render-kit/components.css -->
-<style>
-/* Render kit components, see ~/.claude/shared/render-kit.md. Copied into a page's <style> after the head snippet's base layer. Pico variables only, so both themes follow. */
-
-/* Labelled rows: a dl as a two-column grid, labels in the accent colour, one column on phones. */
-dl.rows { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1rem; margin: 0; }
-dl.rows dt { font-weight: 600; color: var(--pico-primary); }
-dl.rows dd { margin: 0; }
-@media (max-width: 480px) { dl.rows { grid-template-columns: 1fr; } dl.rows dd { margin-bottom: .5rem; } }
-
-/* A frame is a card: the image, then a numbered caption under a rule, so the caption belongs to its frame and not to the prose around it. */
-main { counter-reset: frame; }
-figure { counter-increment: frame; margin: var(--pico-typography-spacing-vertical) 0; padding: .5rem; background: var(--pico-card-background-color); border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius); }
-figure img { display: block; max-width: 100%; border-radius: calc(var(--pico-border-radius) - 2px); }
-figcaption { margin-top: .5rem; padding-top: .5rem; border-top: 1px solid var(--pico-muted-border-color); font-size: .9rem; }
-figcaption::before { content: "Кадр " counter(frame) ". "; font-weight: 600; color: var(--pico-primary); }
-.grid figure { margin: 0; }
-
-/* Checklist: items the reader can tick; each li holds <label><input type="checkbox"> …</label>. */
-ul.checklist { list-style: none; padding-left: 0; }
-ul.checklist li { list-style: none; margin: .4rem 0; }
-ul.checklist label { font-weight: normal; }
-
-/* Mermaid block: <pre class="mermaid"> rendered by the Mermaid loader. */
-pre.mermaid { background: var(--pico-card-background-color); text-align: center; }
-
-/* Diagram family: data flow with example data. Boxes in a row with arrows between, stacked on phones; <b> is a box's label, <code> its example value. */
-.flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: .5rem; margin: var(--pico-typography-spacing-vertical) 0; }
-.flow .box { flex: 1 1 9rem; min-width: 9rem; background: var(--pico-card-background-color); border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius); padding: .5rem .7rem; font-size: .9rem; }
-.flow .box b { display: block; font-size: .75rem; color: var(--pico-muted-color); text-transform: uppercase; letter-spacing: .03em; }
-.flow .box code { display: block; margin-top: .3rem; white-space: pre-wrap; }
-.flow .arrow { align-self: center; color: var(--pico-muted-color); font-size: 1.4rem; padding: 0 .2rem; }
-@media (max-width: 480px) { .flow { flex-direction: column; } .flow .arrow { transform: rotate(90deg); text-align: center; } }
-
-/* Diagram family: simplified UI sketch, the labelled fallback when no frame exists. A title bar, rows, buttons, and an accent outline on what is new. */
-.ui { background: var(--pico-card-background-color); border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius); padding: .75rem; margin: var(--pico-typography-spacing-vertical) 0; font-size: .9rem; max-width: 26rem; }
-.ui .bar { border-bottom: 1px solid var(--pico-muted-border-color); padding-bottom: .4rem; margin-bottom: .6rem; color: var(--pico-muted-color); font-size: .8rem; }
-.ui .row { display: flex; justify-content: space-between; gap: .5rem; padding: .3rem 0; border-bottom: 1px dashed var(--pico-muted-border-color); }
-.ui .row:last-child { border-bottom: 0; }
-.ui .btn { display: inline-block; border: 1px solid var(--pico-primary); color: var(--pico-primary); border-radius: 6px; padding: .1rem .5rem; }
-.ui .new { outline: 2px solid var(--pico-primary); outline-offset: 2px; border-radius: 4px; }
-
-/* Print: the table of contents (nav.toc) is navigation only; blocks stay whole; external links show their address. */
-@media print {
-  nav.toc { display: none; }
-  pre, figure, article, .flow, .ui, [class*="shj-lang-"] { break-inside: avoid; }
-  a[href^="http"]::after { content: " (" attr(href) ")"; font-size: .8em; }
-}
-</style>
+<!-- kit: head -->
+<!-- kit: components -->
 </head>
 <body>
 <main class="container">
@@ -113,11 +49,8 @@ pre.mermaid { background: var(--pico-card-background-color); text-align: center;
   </ul>
 </main>
 
-<!-- speed-highlight colours every shj-lang-* block; Mermaid renders <pre class="mermaid"> blocks. Everything loads from the CDN; offline, the text and frames still read. -->
-<script type="module">
-  import { highlightAll } from "https://cdn.jsdelivr.net/npm/@speed-highlight/core@2.1.0/dist/index.js";
-  highlightAll();
-</script>
+<!-- kit: scripts -->
+<!-- Mermaid renders <pre class="mermaid"> blocks. Everything loads from the CDN; offline, the text and frames still read. -->
 <script type="module">
   import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
   const dark = matchMedia("(prefers-color-scheme: dark)").matches;

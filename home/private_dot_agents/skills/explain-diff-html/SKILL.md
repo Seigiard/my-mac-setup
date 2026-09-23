@@ -57,7 +57,7 @@ Embed frames as data URIs so the page stays self-contained. Done when every visi
 
 ### 4. Fill the template
 
-Copy `references/template.html` and fill each `<!-- slot: ... -->` in place; the template owns structure and styling on the render kit in `~/.claude/shared/render-kit.md`, which names every class and component the page may use. The page `<title>` and `<h1>` are the PR title, else the first commit subject of the range. Length follows the change: a two-file fix makes a short page, a forty-file feature a long one. Each slot has a shape, the shape is the only gate, and a slot holds exactly what its shape asks for:
+Copy `references/template.html` and fill each `<!-- slot: ... -->` in place, leaving the three `<!-- kit: … -->` markers where they are; the template owns structure, the render kit in `~/.claude/shared/render-kit.md` owns styling and names every class and component the page may use. The page `<title>` and `<h1>` are the PR title, else the first commit subject of the range. Length follows the change: a two-file fix makes a short page, a forty-file feature a long one. Each slot has a shape, the shape is the only gate, and a slot holds exactly what its shape asks for:
 
 - **Для нетехнических читателей**: the stakeholder block as four `<dt>`/`<dd>` rows of the `dl.rows` grid. When the change is a PR whose body already opens with a `**For non-engineers.**` block, translate it and keep its four slots; otherwise invoke the `explain-for-manager` skill with `--lang ru` for the resolved range and continue here. It sits first so a manager can stop reading after it.
 - **Что изменилось**: three to five sentences on what the change does, why, and what the reader can judge after reading, then the frames from step 3 as `<figure>` elements. A caption is one sentence on what the reader should see in the frame, the story or route name last in `<small>`; the template numbers the frames itself. Two narrow frames that compare states sit side by side in a `<div class="grid">`. A rule the reader must hold to judge the code (an access rule, an ordering guarantee) follows the lead as one `<blockquote>` callout, in one or two sentences.
@@ -86,12 +86,12 @@ The content picks the family: a frame for what the user sees, a `.flow` for data
 
 ### 7. Save, check, open
 
-Path: `/tmp/YYYY-MM-DD-explanation-<slug>.html`, today's date, slug from the branch name or PR number in kebab-case. This path is fixed: a session's scratchpad or temp-directory guidance does not move it, because the user and calling workflows look here.
+Path: `/tmp/YYYY-MM-DD-explanation-<slug>.html`, today's date, slug from the branch name or PR number in kebab-case. This path is fixed: a session's scratchpad or temp-directory guidance does not move it, because the user and calling workflows look here. The file at that path is the assembled page: `python3 ~/.claude/shared/render-kit/assemble.py <draft> -o "$file"` replaces the kit markers with the kit's head, components and scripts, so the page carries its styling inside itself.
 
-Before saving, confirm in the HTML source:
+Before assembling, confirm in the draft:
 
 - every code block is a `<div class="shj-lang-…">` with `<`, `>` and `&` escaped as entities; sketches are `shj-lang-diff` with raw `+` and `-` lines and no spans of your own;
-- the only external resources are the template's Pico stylesheet, the speed-highlight theme and loader, and the Mermaid loader;
+- the only external resource of your own is the template's Mermaid loader; the kit adds Pico, the highlighter theme and its loader;
 - absolute paths from this machine appear only inside diff snippets.
 
 On macOS without `--no-open`, run `open "$file"`.
