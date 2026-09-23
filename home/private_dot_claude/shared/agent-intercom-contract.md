@@ -16,7 +16,7 @@ A new pane cannot inherit the wrong identity — the launcher clears all five ad
 
 Only a tool settles the positive, and which tool depends on the client. On Claude and OpenCode, call the one whose name ends in `intercom_whoami`. On Pi, which has no `whoami`, call `intercom_list` — it opens with your own row. Either way the name it reports is yours, and it is the only name worth quoting when telling anyone how to reach you: publishing an inherited `$HERDR_AGENT_INTERCOM_NAME` sends your peers to a different session, which then answers for you.
 
-Your registered name **is** the alias `herdr agent list` reports for your pane. The launcher reads it from the pane record and from nowhere else — `HERDR_CHILD_NAME` is child-launch context and is never an Intercom address. So a peer's Herdr alias is a valid recipient, and the two names cannot diverge.
+Your registered name **is** the alias `herdr agent list` reports for your pane. The launcher reads it from the pane record and from nowhere else, so a peer's Herdr alias is a valid recipient and the two names cannot diverge. Child-launch environment variables do not select an Intercom address; `~/.claude/shared/child-agent-contract.md` owns their rules.
 
 Intercom's own session IDs are transport detail, and they are per-process: a session that restarts keeps its name and gets a new ID. Address peers by name and never cache an ID — the old one returns `Session not found` the moment the peer restarts. Reply selectors are separate from all of this: Claude and OpenCode select by sender, and Pi additionally hands out a stable receiver-local `askId`. None of them is a wire message or thread ID.
 

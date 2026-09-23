@@ -167,12 +167,12 @@ EOF
 
   if [ "$tab_mode" -eq 1 ]; then
     split_args=(tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$cwd" --no-focus
-      --env "HERDR_CHILD_NAME=$name" --env "HERDR_CHILD_PARENT_PANE=$HERDR_PANE_ID"
+      --env HERDR_CHILD_LAUNCH=1 --env "HERDR_CHILD_PARENT_PANE=$HERDR_PANE_ID"
       --env "HERDR_CHILD_LAUNCH_MODE=$mode")
     [ -z "$label" ] || split_args+=(--label "$label")
   else
     split_args=(pane split "$HERDR_PANE_ID" --direction "$direction" --cwd "$cwd" --no-focus
-      --env "HERDR_CHILD_NAME=$name" --env "HERDR_CHILD_PARENT_PANE=$HERDR_PANE_ID"
+      --env HERDR_CHILD_LAUNCH=1 --env "HERDR_CHILD_PARENT_PANE=$HERDR_PANE_ID"
       --env "HERDR_CHILD_LAUNCH_MODE=$mode")
   fi
   if [ -n "$parent_terminal" ] && [ -n "$parent_session" ]; then

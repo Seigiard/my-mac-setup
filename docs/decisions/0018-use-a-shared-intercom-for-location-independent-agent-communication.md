@@ -216,8 +216,10 @@ commits in one package root under `~/.local/share/agent-intercom`. A Herdr-only
 launcher derives the public name only from the current pane record and verifies
 membership in the pane-labels package's alias pool. Managed callers select a
 free pool alias before `herdr agent start`; the pending pane record already
-exposes that name, and later reconciliation retains it. `HERDR_CHILD_NAME` is
-child-launch context, not an Intercom address. A missing record, provisional
+exposes that name, and later reconciliation retains it. `HERDR_CHILD_LAUNCH=1`
+marks managed child-launch context, not an Intercom address. The legacy
+`HERDR_CHILD_NAME` migration fallback and explicit context required for direct
+upstream launches are documented in the child-agent contract. A missing record, provisional
 name, or unavailable allocator produces a warning and starts the client without
 Intercom. The launcher never waits for reconciliation while blocking client
 startup: Herdr forbids renaming a pending launch. Fresh plain-shell launches
