@@ -2,6 +2,16 @@
 
 This contract defines how a parent agent and a child agent communicate through herdr. The `herdr` skill and `ask-in-herdr` skill both use it.
 
+## Child-launch context and routing identity
+
+`herdr-child start` injects `HERDR_CHILD_LAUNCH=1` and `HERDR_CHILD_PARENT_PANE` when creating either a pane or a tab. The boolean marker identifies child-launch context; `HERDR_CHILD_LAUNCH_MODE` separately selects the attached or detached lifecycle. No launch-time name is needed in the managed environment.
+
+`herdr-child ask` requires that marker, the parent pane, and its own `HERDR_PANE_ID`. It resolves the callback alias from the current Herdr pane record, so reconciliation can change the alias without invalidating the launch context. Intercom also uses the pane's canonical alias, independently of the child-launch marker.
+
+**Migration compatibility:** children created by the previous managed launcher carry `HERDR_CHILD_NAME` without `HERDR_CHILD_LAUNCH`. When the new marker is unset, `ask` accepts a nonempty legacy variable as child-launch context only, keeping those in-flight children working across deployment. Its value is never a routing alias. An explicitly empty or non-`1` new marker is rejected even if the legacy variable is present. The fallback can be removed once no pre-migration child panes remain.
+
+**Direct upstream launches:** Herdr 0.9.1's `herdr agent start` does not inject `HERDR_CHILD_NAME` or the new marker. Hand-assembled child launches must pass `--env HERDR_CHILD_LAUNCH=1 --env HERDR_CHILD_PARENT_PANE=<parent-pane>` when creating the pane; Herdr supplies `HERDR_PANE_ID`. Launching the agent alone does not establish the parent callback context.
+
 ## Herdr behaviour this contract depends on
 
 The following measurements used herdr 0.8.0 on 2026-08-18. Most ran in the isolated `childspike` session. The final claude mirror ran from the source checkout in a temporary child pane after the account limit reset.
@@ -58,6 +68,8 @@ The same start succeeded after a two-second delay. An opencode start with `--mod
 The pane showed that opencode had exited with a Bun trace trap. A launch retry must match `agent_pane_busy`; it must not retry a generic startup timeout.
 
 ### Pane environment reaches the child agent
+
+This historical probe used the legacy variable. Current managed launches use the marker described above.
 
 Commands:
 
