@@ -37,7 +37,7 @@ One PR, base `main`, branch named for the change. **Name the PR for what it will
 
 ## Step 3 — Generate the narrative from the artifacts
 
-Build the spec narrative HTML (pf-cycle → artifact storage + HTML mechanics; visible text follows pf-cycle → Naming on public surfaces — the page presents itself as the epic's contract spec) from what the PR actually changed — never from intentions:
+Build the spec narrative HTML (pf-cycle → artifact storage + HTML mechanics + Language; visible text follows pf-cycle → Naming on public surfaces — the page presents itself as the epic's contract spec) from what the PR actually changed — never from intentions:
 
 - **Purpose** — what the change is for, carried over from the research narrative in a paragraph.
 - **The results** — per contract: the rendered diff (pf-cycle → rendering contract diffs) with its computed impact label, and for UX every new/changed story captured as a real render. Product-order flow sections, exactly as the change will be experienced.

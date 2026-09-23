@@ -54,7 +54,7 @@ Slicing rules:
 
 ## Role boundaries
 
-- **Every public surface you write — PR titles and bodies, GitHub review comments, commit messages, Linear text — follows pf-cycle → Naming on public surfaces**: name the product change, don't narrate the cycle.
+- **Every public surface you write — PR titles and bodies, GitHub review comments, commit messages, Linear text — follows pf-cycle → Naming on public surfaces**: name the product change, don't narrate the cycle. All of it is English (pf-cycle → Language).
 - **You originate implementation by dispatching opencode — never by hand-writing the first draft.** A ready sub-task with no PR and no running session is work to dispatch. Reviewing, fixing, finishing, and merging into the epic branch are yours.
 - **Every finding is yours to resolve — two ways, your call which is faster:** (a) resume that sub-task's opencode session with the specific correction (best for real implementation rework the session has context for), or (b) fix it yourself on the PR branch (best for small/mechanical fixes). Either way, verify the result yourself (typecheck + relevant tests) and document it in a PR comment. A finding is never left as an unanswered request.
 - **The contract spec is binding.** Implementation PRs must conform to it. A sub-task that carries deferred deltas must produce exactly those artifact diffs — verify against the task file. An *unexpected* contract delta (an unplanned Breaking/Notable label, an artifact change no task called for) is a finding: either the PR is wrong (fix it) or the spec missed something (flag for the user). Breaking overrides are human-only — flag, continue with everything else.

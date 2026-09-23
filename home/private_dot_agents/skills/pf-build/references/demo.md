@@ -1,5 +1,7 @@
 # The demo — proof it works live
 
+The demo goes to the team's host, so it is written in English (pf-cycle → Language), unlike the cycle's other narratives.
+
 **The standing rule: every PR whose base is `main` ships with a recorded demo — the big PR of an epic-PR-based build and every direct-build PR alike, no exceptions and no waiting to be asked. Nested PRs (base = another PR's branch) skip visuals entirely.** The demo is both *output* (presented in chat with the final report) and *attached to the PR* (published to hosting, linked in the PR body with key frames embedded).
 
 When every child is merged and the big PR is green, prove the change in the **real product** — as real as possible: full dev stack (`bun run dev` in the epic's worktree on the epic branch, then `bun run dev:wait` for a ready-or-failed signal), seeded auth, and the dev-stack helpers in `internal-dev-doc/browser-automation.md` (`dev:token` to inspect workspace state instead of reading Postgres, `seed:demo-job` for a launchable job, `?noAutoLogin` to reach the login screen).

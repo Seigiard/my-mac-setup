@@ -6,11 +6,11 @@ argument-hint: "<issue URL or ID>"
 
 # /pf-issue — audit a tracker issue against contracts and code
 
-The defect entry to the pf cycle: `/pf-research` starts from a product change, `/pf-issue` starts from a reported issue. Both end at the same fork — `/pf-spec` when the fix changes a contract, `/to-spec` or `/implement` when it stays inside the contracts. Shared mechanics (artifact storage, Linear as opt-in, naming on public surfaces, missing-prior analysis): read `~/.claude/shared/pf-cycle.md` first. This step changes nothing in the repo and writes nothing to the tracker.
+The defect entry to the pf cycle: `/pf-research` starts from a product change, `/pf-issue` starts from a reported issue. Both end at the same fork — `/pf-spec` when the fix changes a contract, `/to-spec` or `/implement` when it stays inside the contracts. Shared mechanics (artifact storage, Linear as opt-in, naming on public surfaces, language, missing-prior analysis): read `~/.claude/shared/pf-cycle.md` first. This step changes nothing in the repo and writes nothing to the tracker.
 
 Authority runs contracts → code → issue. Past audits confirmed the issue's complaint every time and found it incomplete every time: a stale number, a second symmetric leak, a wrong mechanism, a premise the contract itself contradicts. The audit's value is what the issue did not say and the fix direction it got wrong.
 
-The report is written in the user's language. Subagent prompts are English. The artifact directory `~/.claude/artifacts/<ISSUE-ID>/` carries the state between steps — `issue.md` for the fetched issue, `context.md` for verified facts, `candidates.md` for the options — and subagents read those files instead of re-researching.
+The artifact directory `~/.claude/artifacts/<ISSUE-ID>/` carries the state between steps — `issue.md` for the fetched issue, `context.md` for verified facts, `candidates.md` for the options — and subagents read those files instead of re-researching.
 
 ## 1. Anchor
 

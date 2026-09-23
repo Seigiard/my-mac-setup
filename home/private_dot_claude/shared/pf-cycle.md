@@ -24,6 +24,17 @@ The cycle's terms — research narrative, contract spec, epic PR, demo — are p
 - **Name the product change, not the process stage.** The epic PR is named for what it will contain when it merges: "PRD-1234: Deliverable views" passes; "Contract spec for deliverable views" fails. The same applies to Linear epic titles and published page titles.
 - **Don't narrate the cycle.** Public text describes the product and the change; which command of the cycle produced it is irrelevant to the reader and never appears.
 
+## Language
+
+Two audiences, one artifact each.
+
+- **English** — everything that leaves for the team or goes to a machine: every surface listed under **Naming on public surfaces**, the demo published to the team's host, `/pf-build`'s task files, and every prompt to a subagent or an opencode session.
+- **The user's language** — everything else the cycle writes, because the user is its only reader: chat, `/pf-issue`'s `issue.md`, `/pf-research`'s `research.md` and `research.html`, `/pf-spec`'s `spec.md` and `spec.html`. That language is the one the user is addressed in: what their instructions name for replies, else the one they write in.
+
+Nothing is translated. Each command reads its predecessor's file in the language it was written in, and writes contract deltas, PR text, task files and prompts as English from the start. When a narrative has to go to the team, build an English copy then, as a one-off.
+
+Identifiers, paths, commands, contract terms, error text and code stay in English inside any page, whatever the page's language.
+
 ## Artifact storage
 
 Every cycle's narratives live in `~/.claude/artifacts/<id>/` — never committed to the product repo. `<id>` is a short kebab topic slug by default; when a Linear epic or issue exists (pre-existing, or created on explicit request), use its id instead and rename a slug-named directory to it.
@@ -31,7 +42,7 @@ Every cycle's narratives live in `~/.claude/artifacts/<id>/` — never committed
 - Canonical sources: `issue.md` (with its `issue-source.md`, `context.md`, `candidates.md` working files), `research.md`, `spec.md`, `demo.md` (or a step-manifest in `build.ts`) plus captured images and `/pf-build`'s sub-task files under `tasks/`. **A later command reads the canonical source, not the built HTML** — keep sources current. Directories from cycles before 2026-08 may use the older names `divination.md` / `inscription.md` — read those when the new name is absent.
 - Built pages: `research.html`, `spec.html`, `demo.html`.
 - Publish `research.html` and `spec.html` with the Artifact tool and **republish the same file path every iteration** so the shared link stays current; label versions. The raw file doubles as a Slack/Linear attachment when a snapshot is wanted. The demo is the exception: it publishes to the VRT host the team can already see (`/pf-build` → The demo).
-- The built pages get shared beyond this chat, so their visible text — `<title>`, headings, badges, prose — follows **Naming on public surfaces** above.
+- The built pages get shared beyond this chat, so their visible text — `<title>`, headings, badges, prose — follows **Naming on public surfaces** and **Language** above.
 
 ## Screenshot mechanics
 
