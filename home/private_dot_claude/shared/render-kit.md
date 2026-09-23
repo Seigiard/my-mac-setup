@@ -2,15 +2,27 @@
 
 Reached from `~/.claude/rules/artifacts.md` for any HTML page or Claude Artifact, and from the `explain-diff-html` skill, whose template is built on it.
 
-Write semantic HTML and let the kit style it. Two libraries load from jsDelivr, both following `prefers-color-scheme`: Pico 2.1.1 styles every bare element (`hgroup`, `nav`, `article`, `details`, `blockquote`, `figure`, `table`, `kbd`, `mark`, `ins`, `del`, `progress`, `dialog`, forms), and speed-highlight 2.1.0 colours code blocks. The class vocabulary is the table below plus whatever a page's own layer declares; an element outside those carries no class.
+Write semantic HTML and let the kit style it. Two libraries load from jsDelivr, both following `prefers-color-scheme`: Pico 2.1.1 styles every bare element (`hgroup`, `nav`, `article`, `details`, `blockquote`, `figure`, `table`, `kbd`, `mark`, `ins`, `del`, `progress`, `dialog`, forms), and speed-highlight 2.1.0 colours code blocks. The class vocabulary is Pico's table below plus the kit's own components; an element outside those carries no class.
 
 ## Head snippet
 
-`~/.claude/shared/render-kit/head.html` is the head of every page: charset and viewport, the three stylesheet links, and a base layer with three rules and the reason for each (body font stated against host resets, a side gutter on `main.container`, code blocks in Pico's colours). Copy it into a new page; the `highlightAll` script at its end goes at the end of `<body>`. A page's own rules go in a second `<style>` after it and use Pico's variables (`--pico-primary`, `--pico-muted-color`, `--pico-muted-border-color`, `--pico-card-background-color`, `--pico-code-background-color`, `--pico-border-radius`, `--pico-spacing`) so both themes follow.
+`~/.claude/shared/render-kit/head.html` is the head of every page: charset and viewport, the three stylesheet links, and a base layer with three rules and the reason for each (body font stated against host resets, a side gutter on `main.container`, code blocks in Pico's colours). Copy it into a new page, then `~/.claude/shared/render-kit/components.css` as a second `<style>`; the `highlightAll` script at the end of `head.html` goes at the end of `<body>`. A page's own rules, when it needs any, go in a third `<style>` and use Pico's variables (`--pico-primary`, `--pico-muted-color`, `--pico-muted-border-color`, `--pico-card-background-color`, `--pico-code-background-color`, `--pico-border-radius`, `--pico-spacing`) so both themes follow.
 
 ## Publishing as a Claude Artifact
 
 Artifacts load scripts from a few CDNs and no external stylesheet. `python3 ~/.claude/shared/render-kit/inject-styles.py <page> -o <copy>` rewrites each `<link rel="stylesheet">` into a `<style>` with the fetched CSS, media attributes kept, and exits 1 naming any sheet it could not fetch. Publish the copy; the original keeps its links. The Artifact host wraps the file in its own skeleton, so a page may start at `<title>` without `<html>`, `<head>` or `<body>`; the head snippet's `<meta charset>` still matters when the same file is opened from disk.
+
+## The kit's components
+
+| Class | On | Markup | Effect |
+|---|---|---|---|
+| `rows` | `dl` | `<dl class="rows"><dt>Label</dt><dd>…</dd>…</dl>`, inside an `<article>` when it needs a title band | two-column grid, labels in the accent colour, one column on phones |
+| (none) | `figure` | `<figure><img …><figcaption>… <small>source</small></figcaption></figure>`; two side by side inside `<div class="grid">` | a card with the caption under a rule, numbered «Кадр N.» by a CSS counter |
+| `checklist` | `ul` | `<li><label><input type="checkbox"> …</label></li>` | items the reader can tick, no bullets |
+| `toc` | `nav` | `<nav class="toc"><ul><li><a href="#…">…</a></li></ul></nav>` | a row of section links, hidden in print |
+| `mermaid` | `pre` | `<pre class="mermaid">sequenceDiagram …</pre>` plus the Mermaid loader script | a sequence or state diagram |
+| `flow` | `div` | `<div class="flow"><div class="box"><b>Label</b><code>value</code></div><div class="arrow">→</div>…</div>` | data flow with example data: boxes in a row, stacked on phones |
+| `ui` | `div` | `<div class="ui"><div class="bar">title</div><div class="row"><span>…</span><span class="btn new">…</span></div></div>` | a labelled sketch of a screen, the fallback when no frame exists |
 
 ## Pico's classes, all of them
 
