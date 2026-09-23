@@ -108,6 +108,54 @@ No adapter stores messages for a recipient that is fully offline. Do not turn
 these differences into new requirements until real communication flows show
 which ones matter.
 
+Restart and offline behavior was then observed on the deployed slice on
+2026-09-23, with Claude Code 2.1.267, OpenCode 1.18.30, and Pi 0.86.1 launched
+through `herdr-agent-intercom` in Herdr panes on one host. Five results matter
+for later lifecycle semantics.
+
+An unknown recipient fails fast rather than consuming the blocking window. Both
+the Claude and Pi adapters returned `Message to "<name>" was not delivered:
+Session not found` within a second of the call. Claude returned it as an error
+result; nothing queued.
+
+A recipient adapter that dies mid-ask is invisible to a Claude sender. Claude
+issued a blocking ask to a busy OpenCode session and the OpenCode process was
+terminated 9.8 seconds later. The sender received no disconnect signal, blocked
+the full 45-second default window, and returned `No reply from
+"opencode-98292-a6748612" within 45 seconds`. The message names the resolved
+session ID rather than the name the caller addressed, so a dead peer and a slow
+peer are indistinguishable from the sender's side.
+
+The Pi adapter behaves differently in the same situation and is the better
+model for later semantics. Pi asked the same busy OpenCode session, the
+receiver was terminated 8.6 seconds in, and Pi returned a success result after
+its 30-second window: `Ask delivered to i295-rx, but no reply arrived within 30
+seconds. Continuing without waiting; the connection closed before asynchronous
+deferral could be confirmed.` Pi both surfaced the closed connection and
+declined to report a plain timeout.
+
+An in-flight ask does not survive either endpoint restarting, and the two ends
+fail asymmetrically. After the recipient restarted in the same pane under the
+same launch name, its `intercom_pending` reported no unread messages and the
+dead session left no entry in `intercom_list`; addressing the restarted peer by
+name succeeded immediately with a correlated reply, while its previous session
+ID returned `Session not found`. After the *sender* was terminated mid-ask and
+restarted under the same name, the receiver had already queued the message, and
+its `intercom_reply` failed with `Message to
+"claude-my-mac-setup-main-02dbc5e7-60244" was not delivered: Session not
+found`. Replies route to the original sender's session ID, which no restart
+preserves, so the ask remains unresolvable in the receiver's pending list while
+the restarted sender sees an empty `intercom_pending`. Unresolved asks
+accumulate there: a later unselected `intercom_reply` failed with `Multiple
+pending asks — specify to using a sender from intercom_pending`. The name is
+the durable address; a session ID is per-process and must not be cached.
+
+Registration is not readiness. One Pi session appeared in every other session's
+`intercom_list` while reporting that its intercom tools were unavailable, after
+Pi announced `Pi extensions updated. Restart Pi to use them.` A peer listed as
+present may still be unable to answer. Pi's `intercom_list` also includes the
+calling session, which Claude's excludes by default.
+
 A real cross-harness probe used Claude Code 2.1.236 as the sender and OpenCode
 1.18.30 with the current OpenCode adapter as the receiver. Claude issued a
 blocking ask while OpenCode was busy in a 60-second tool call. OpenCode accepted
