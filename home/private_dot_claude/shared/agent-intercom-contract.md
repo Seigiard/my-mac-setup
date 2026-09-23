@@ -2,7 +2,7 @@
 
 Agent intercom lets a coding-agent session message another agent session running on the same machine, without either one having launched the other. The `herdr` skill points here, and so does the inbound-message trigger in `~/.claude/CLAUDE.md`.
 
-Everything below was measured on 2026-09-21 against the deployed slice, Claude Code talking to OpenCode across two Herdr panes. The pinned package commits are in `~/.local/share/agent-intercom/package.json`.
+Everything below was measured against the deployed slice in Herdr panes on one host: Claude Code and OpenCode on 2026-09-21, restart and offline behavior across Claude Code, OpenCode, and Pi on 2026-09-23. The pinned package commits are in `~/.local/share/agent-intercom/package.json`.
 
 ## Are you connected
 
@@ -14,7 +14,7 @@ printf '%s\n' "${HERDR_AGENT_INTERCOM_NAME:-<not connected>}"
 
 `HERDR_AGENT_INTERCOM_NAME` is the name peers address you by. It is **not** necessarily the alias `herdr agent list` reports for your pane: the launcher registers `HERDR_CHILD_NAME` when the caller supplied one, and that name outranks the pane record. A session can therefore carry two public names at once. Quote `$HERDR_AGENT_INTERCOM_NAME` when telling anyone how to reach you, and expect a peer's Herdr alias to fail as a recipient. Tracked in [#304](https://github.com/Seigiard/my-mac-setup/issues/304).
 
-Intercom's own session IDs are transport detail. No tool takes one as a recipient, and no reply selector exposes a wire message or thread ID.
+Intercom's own session IDs are transport detail, and they are per-process: a session that restarts keeps its name and gets a new ID. Address peers by name and never cache an ID — the old one returns `Session not found` the moment the peer restarts. No reply selector exposes a wire message or thread ID either.
 
 ## Intercom or herdr-child
 
@@ -26,7 +26,7 @@ Intercom's own session IDs are transport detail. No tool takes one as a recipien
 
 `herdr-child` carries launch, tool posture, supervision, settlement, and reap. Intercom carries none of that: it moves messages between sessions that already exist and keeps no lifecycle claim over either end. A peer that stops answering is just a peer that stops answering.
 
-Only host-to-host is proven. The container and `nono` profiles in [ADR-0018](https://github.com/Seigiard/my-mac-setup/blob/main/docs/decisions/0018-use-a-shared-intercom-for-location-independent-agent-communication.md) are designed, not measured.
+[ADR-0018](https://github.com/Seigiard/my-mac-setup/blob/main/docs/decisions/0018-use-a-shared-intercom-for-location-independent-agent-communication.md) records working probes under `nono` and inside a container, but those ran against hand-assembled launches. What the deployed `herdr-agent-intercom` wrapper is proven to carry is host-to-host.
 
 ## The tools
 
@@ -67,19 +67,27 @@ An open pane and a reachable session are different states. A session registers w
 
 So a peer missing from `intercom_list` is usually unwrapped, not broken. Confirm with `herdr agent list`, which shows panes regardless of registration, before reporting a fault.
 
-`intercom_list` defaults to every registered session on the machine and omits the caller. Discovery is flat: there is no parent-and-siblings restriction, because the launch relationship graph ADR-0018 describes is deferred. Peers carry `"trustedLocal":true,"origin":"local"` on this host; `origin: "remote"` marks a peer that reached the broker across hosts and holds a lower rate limit.
+Being listed is not the same as being able to answer, either: a Pi session that had its extension files change underneath it stayed in every peer's `intercom_list` while its own intercom tools were gone. Treat the list as who registered, not as who will reply.
+
+`intercom_list` covers every registered session on the machine. Claude omits the caller by default and takes `include_self`; Pi always lists itself. Discovery is flat: there is no parent-and-siblings restriction, because the launch relationship graph ADR-0018 describes is deferred. Peers carry `"trustedLocal":true,"origin":"local"` on this host; `origin: "remote"` marks a peer that reached the broker across hosts and holds a lower rate limit.
 
 ## The window
 
-`intercom_ask` blocks for 45 seconds by default. Claude accepts `timeout_ms` up to 120000 to widen it.
+`intercom_ask` blocks for 45 seconds on Claude and OpenCode, 30 on Pi. Claude accepts `timeout_ms` up to 120000 to widen it.
 
-On expiry the tool returns an error naming the timeout, and the sender's turn resumes. Do not count on a late reply finding its way back to an expired ask — the adapter defers and then cancels it, and which of those two the broker acts on last is unobserved ([#295](https://github.com/Seigiard/my-mac-setup/issues/295)). For work that will outlast the window, send instead of asking, and collect with `intercom_pending`.
+The two clients disagree on how expiry is reported. Claude returns an error naming the timeout; Pi returns a **success** whose text says the ask was delivered but went unanswered, sometimes naming a closed peer connection outright. Read the text, not the status.
+
+Expiry does not mean the peer never got the message. It means you stopped waiting. The ask stays unresolved in the recipient's `intercom_pending`, and for work that will outlast the window the honest shape is `intercom_send` plus a later `intercom_pending`, not a wider timeout.
+
+A recipient that dies mid-ask looks exactly like a slow one on Claude: no disconnect reaches the blocked sender, so it waits out the full window and reports a plain timeout. Pi is the exception that names the closed connection. Never read a timeout as proof the peer refused or failed — check `intercom_list` before concluding anything.
+
+Neither endpoint can restart through an ask. The recipient's restart drops the message from its pending list; the sender's restart orphans the ask permanently, because a reply routes to the sender's **session ID** and no restart preserves that. The recipient is then left holding an ask it cannot resolve, and those accumulate — an `intercom_reply` with no selector eventually fails with `Multiple pending asks`. Reply with `to` and `which` when more than one is outstanding.
 
 Measured against a recipient mid-way through a 110-second shell command: the ask was issued 33 seconds into that command, the reply arrived 11 seconds after it ended, and the sender blocked 45 seconds in total — inside the window by under a second. A recipient that is busy at all is close to expiry, so budget the widened timeout before asking one.
 
 Against an idle recipient the same exchange blocked around 37 seconds, effectively all of it the recipient's model turn. The transport is not the cost; the peer's thinking is.
 
-One unresolved ask per recipient. A second one to the same peer is refused until the first resolves.
+One unresolved ask per recipient, per sender. A second one to the same peer is refused until the first resolves.
 
 ## Waiting costs nothing, unless you spend it
 
