@@ -4,11 +4,11 @@ Read from make-pr step 3. The outcome is a set of captioned frames, each with a 
 
 ## Decide the surface
 
-The diff has a visible surface when it touches routes, components, stories, styles, or CLI output. Everything else is behavioural: the proof is the test output or log of the change running, captured as text.
+The diff has a visible surface when it touches routes, components, stories, styles, or CLI output. Everything else is behavioural: the proof is the test output or log of the change running, captured as text. Text stays text: the closing lines of the run go into the body's Before and After lines and into the explanation page as a code block, never rendered into an image.
 
 ## Capture a visible surface
 
-1. Start the app the way the repository documents. When it cannot start in this session, use the affected Storybook stories; when those are absent too, capture the terminal and say which fallback applied.
+1. Start the app the way the repository documents. When it cannot start in this session, use the affected Storybook stories; when those are absent too, the change has no frame this session: keep the run's output as text and say which fallback applied.
 2. Drive the branch with the Playwright tools (`browser_navigate`, `browser_take_screenshot`): one PNG per state the reviewer must see, saved as `/tmp/<slug>/evidence/<nn>-<caption>.png`. The caption in the file name becomes the alt text.
 3. A "before" frame comes from the base only when a checkout of it is already running; otherwise the Before line of the body says it in words.
 
