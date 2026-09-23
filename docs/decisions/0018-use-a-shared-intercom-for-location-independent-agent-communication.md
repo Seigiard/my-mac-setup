@@ -159,11 +159,22 @@ connectivity.
 
 The first deployed host slice pins the tested Core, Claude, OpenCode, and Pi
 commits in one package root under `~/.local/share/agent-intercom`. A Herdr-only
-launcher derives the public name from the child alias or current pane record,
-runs interactive Claude sessions through live MCP `cci`, exports OpenCode's
+launcher derives the public name only from the current pane record and verifies
+membership in the pane-labels package's alias pool. Managed callers select a
+free pool alias before `herdr agent start`; the pending pane record already
+exposes that name, and later reconciliation retains it. `HERDR_CHILD_NAME` is
+child-launch context, not an Intercom address. A missing record, provisional
+name, or unavailable allocator produces a warning and starts the client without
+Intercom. The launcher never waits for reconciliation while blocking client
+startup: Herdr forbids renaming a pending launch. Fresh plain-shell launches
+therefore also use this fallback unless a canonical record already exists.
+
+The launcher runs interactive Claude sessions through live MCP `cci`, exports OpenCode's
 adapter name, and passes Pi's normal session name. Claude and Pi utility
-launches, plus nested and unidentified launches for all clients, pass through
-unchanged. The Claude bridge removes `cci`'s synthetic permission selector;
+launches and nested launches in the already-enrolled pane pass through unchanged.
+A new child pane resolves its own alias even when it inherits its parent's
+enrollment environment. The Claude bridge removes `cci`'s synthetic permission
+selector;
 the caller's native flag, or otherwise Claude's project and user settings,
 continues to decide the permission mode. OpenCode does not classify subcommands
 at the launcher boundary and loads only its server plugin. Codex is deferred

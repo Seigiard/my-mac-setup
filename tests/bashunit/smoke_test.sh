@@ -838,7 +838,19 @@ if (typeof pi.default !== "function") throw new Error("Pi adapter is unavailable
 printf '<%s>' "$@" > "$AGENT_INTERCOM_TEST_CLAUDE_LOG"
 SH
   chmod +x "$stub"
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=smoke-ibis HOME="$HOME" \
+  cat > "$BATS_TEST_TMPDIR/herdr" <<'SH'
+#!/usr/bin/env bash
+[[ "$1 $2 $3" == 'agent get smoke:p1' ]] || exit 2
+printf '%s\n' '{"result":{"agent":{"name":"smoke-ibis","pane_id":"smoke:p1"}}}'
+SH
+  cat > "$BATS_TEST_TMPDIR/allocator" <<'SH'
+#!/usr/bin/env bash
+[[ "$1" == --alias-candidates && $# == 2 ]] || exit 2
+printf '%s\n' smoke-ibis
+SH
+  chmod +x "$BATS_TEST_TMPDIR/herdr" "$BATS_TEST_TMPDIR/allocator"
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ignored HERDR_PANE_ID=smoke:p1 HOME="$HOME" \
+    HERDR_AGENT_INTERCOM_PANE= HERDR_ALIAS_ALLOCATOR="$BATS_TEST_TMPDIR/allocator" \
     AGENT_INTERCOM_TEST_CLAUDE_LOG="$log" PATH="$BATS_TEST_TMPDIR:$PATH" \
     "$HOME/.local/bin/herdr-agent-intercom" claude \
     --disallowed-tools 'Edit Write NotebookEdit AskUserQuestion'
@@ -847,6 +859,7 @@ SH
   run cat "$log"
   assert_success
   assert_output --partial '<--disallowed-tools><Edit Write NotebookEdit AskUserQuestion>'
+  assert_output --partial '<--plugin-dir>'
   refute_output --partial '<--dangerously-skip-permissions>'
   refute_output --partial '<--permission-mode><manual>'
 }

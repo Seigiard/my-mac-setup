@@ -26,11 +26,14 @@ if [[ "${HERDR_ENV:-}" != "1" ]]; then
 fi
 
 if [[ "${HERDR_AGENT_INTERCOM_ACTIVE:-}" == "1" ]] &&
-  { [[ -z "${HERDR_AGENT_INTERCOM_NAME:-}" ]] ||
-    [[ -z "${HERDR_CHILD_NAME:-}" ]] ||
-    [[ "$HERDR_CHILD_NAME" == "$HERDR_AGENT_INTERCOM_NAME" ]]; }; then
+  [[ -n "${HERDR_PANE_ID:-}" && "${HERDR_AGENT_INTERCOM_PANE:-}" == "$HERDR_PANE_ID" ]]; then
   exec "$agent_command" "$@"
 fi
+
+# A new pane can inherit its parent's adapter environment. It must enroll under
+# its own registered alias, or start without that inherited Intercom identity.
+unset HERDR_AGENT_INTERCOM_ACTIVE HERDR_AGENT_INTERCOM_NAME HERDR_AGENT_INTERCOM_PANE
+unset OPENCODE_INTERCOM_NAME HERDR_AGENT_INTERCOM_PI_LOAD
 
 case "$agent" in
   claude)
@@ -94,30 +97,55 @@ case "$agent" in
     ;;
 esac
 
-intercom_name="${HERDR_CHILD_NAME:-}"
-if [[ -z "$intercom_name" && -n "${HERDR_PANE_ID:-}" ]]; then
-  snapshot="$(herdr agent get "$HERDR_PANE_ID" 2>/dev/null || true)"
+intercom_name=""
+if [[ -n "${HERDR_PANE_ID:-}" ]]; then
+  snapshot="$(herdr agent get "$HERDR_PANE_ID" 2>/dev/null)" || snapshot=""
   intercom_name="$(printf '%s' "$snapshot" | python3 -c '
 import json
 import sys
 
 try:
-    name = json.load(sys.stdin)["result"]["agent"]["name"]
+    agent = json.load(sys.stdin)["result"]["agent"]
+    name = agent["name"]
+    if agent["pane_id"] != sys.argv[1]:
+        raise SystemExit(1)
 except (KeyError, TypeError, json.JSONDecodeError):
     raise SystemExit(1)
 if not isinstance(name, str) or not name.strip():
     raise SystemExit(1)
-sys.stdout.write(name.strip())
-')" || intercom_name=""
+sys.stdout.write(name)
+' "$HERDR_PANE_ID")" || intercom_name=""
+fi
+
+# Managed callers allocate from this pool before `herdr agent start`. Arbitrary
+# pending names cannot be renamed until the client starts, so never wait here
+# for the reconciler or mistake such a name for the final alias.
+if [[ -n "$intercom_name" ]]; then
+  allocator="${HERDR_ALIAS_ALLOCATOR:-herdr-pane-labels}"
+  if ! command -v "$allocator" >/dev/null 2>&1 &&
+    [[ "$allocator" == herdr-pane-labels && -x "$HOME/.local/bin/herdr-pane-labels" ]]; then
+    allocator="$HOME/.local/bin/herdr-pane-labels"
+  fi
+  candidates="$("$allocator" --alias-candidates intercom-validation 2>/dev/null)" || candidates=""
+  allocated=0
+  while IFS= read -r candidate; do
+    if [[ "$candidate" == "$intercom_name" ]]; then
+      allocated=1
+      break
+    fi
+  done <<< "$candidates"
+  [[ "$allocated" == 1 ]] || intercom_name=""
 fi
 
 if [[ -z "$intercom_name" ]]; then
+  printf 'herdr-agent-intercom: canonical pane alias unavailable; starting %s without Intercom\n' "$agent" >&2
   exec "$agent_command" "$@"
 fi
 
 intercom_root="$HOME/.local/share/agent-intercom"
 export HERDR_AGENT_INTERCOM_ACTIVE=1
 export HERDR_AGENT_INTERCOM_NAME="$intercom_name"
+export HERDR_AGENT_INTERCOM_PANE="$HERDR_PANE_ID"
 case "$agent" in
   claude)
     cci="$intercom_root/node_modules/.bin/cci"
