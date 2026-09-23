@@ -57,23 +57,23 @@ Embed frames as data URIs so the page stays self-contained. Done when every visi
 
 ### 4. Fill the template
 
-Copy `references/template.html` and fill each `<!-- slot: ... -->` in place; the template owns structure and styling. The page `<title>` and `<h1>` are the PR title, else the first commit subject of the range. Length follows the change: a two-file fix makes a short page, a forty-file feature a long one. Each slot has a shape, the shape is the only gate, and a slot holds exactly what its shape asks for:
+Copy `references/template.html` and fill each `<!-- slot: ... -->` in place; the template owns structure and styling, Pico supplies the look of bare semantic HTML, and `references/pico.md` lists its components and when each one fits a slot. The page `<title>` and `<h1>` are the PR title, else the first commit subject of the range. Length follows the change: a two-file fix makes a short page, a forty-file feature a long one. Each slot has a shape, the shape is the only gate, and a slot holds exactly what its shape asks for:
 
 - **Для нетехнических читателей**: the stakeholder block as four `<dt>`/`<dd>` rows. When the change is a PR whose body already opens with a `**For non-engineers.**` block, translate it and keep its four slots; otherwise invoke the `explain-for-manager` skill with `--lang ru` for the resolved range and continue here. It sits first so a manager can stop reading after it.
 - **Что изменилось**: three to five sentences on what the change does, why, and what the reader can judge after reading, then the frames from step 3 as `<figure>` elements with captions.
 - **Фон, для тех, кто впервые здесь**: the subsystem the change touches, told to a reader who has never seen the repository, collapsed by default. Names the entities, where they live, how data flows between them, and stops where the narrow context below takes over.
 - **Фон, что важно для этого изменения**: only the context the change depends on, with one data-flow diagram carrying example data; everything else about the subsystem belongs to the collapsed section.
 - **Разбор кода**: the shape of the change, in the `show-me` skill's view families. One group per family of changes the diff contains, named by purpose: ten groups for a large feature, one for a small fix. A group is one sentence of intent followed by one sketch (a `diff`-style call tree, file tree, or pseudocode in `<pre class="diff">`) and ends at the sketch: the sketch carries the detail, the sentence says why the group exists. The hunks themselves stay in the diff; mechanical changes (renames, imports, formatting) collapse into one list at the end.
-- **Риски и на что смотреть ревьюеру**: one checklist item per risk the reviewer would otherwise miss: behaviour that changed for existing callers, edge cases handled or skipped, what tests cover and what they miss, migration or rollout concerns. Each item names a file or function.
+- **Риски и на что смотреть ревьюеру**: one checkbox item per risk the reviewer would otherwise miss: behaviour that changed for existing callers, edge cases handled or skipped, what tests cover and what they miss, migration or rollout concerns. Each item names a file or function.
 
 ### 5. Prose
 
 - Russian prose; identifiers, paths, commands, and error text in English inside `<code>` or `<pre>`.
 - Short sentences, one idea each, plain punctuation.
 - Lists for parallel things, prose for an argument.
-- A callout (`<aside class="callout">`) for a definition, an invariant, or an edge case that changes how the reader judges the code. At most one per screen.
+- A callout (`<blockquote>`) for an edge case or a rule that changes how the reader judges the code. At most one per screen.
 - Every claim about behaviour points at the code that shows it.
-- An editor pass at the end: a term the reader would have to look up (инвариант, идемпотентность, грант, миграция) is either replaced by what it means here or defined once in a callout at first use.
+- An editor pass at the end: a term the reader would have to look up (инвариант, идемпотентность, грант, миграция, предикат, бэкфилл) is either replaced by what it means here or defined once at first use, as `<dfn data-tooltip="…">` for a phrase or a callout for a paragraph.
 
 ### 6. Diagrams
 
@@ -81,9 +81,9 @@ Rendered diagrams only, from these families:
 
 - **Frames** from step 3 for anything the user sees; a `.ui` mock only as the labelled fallback there.
 - **Data flow with example data** (`.flow` classes): every box carries a concrete value from the toy examples, not a type name.
-- **Sequence or state**: a `<pre class="mermaid">` block. Mermaid loads from a CDN, so the page needs network to render it; the HTML families work offline.
+- **Sequence or state**: a `<pre class="mermaid">` block, rendered by the template's Mermaid loader.
 
-At most two families per page, reused for the before and after cases so the reader compares like with like.
+The content picks the family: a frame for what the user sees, a `.flow` for data changing shape, a sequence diagram for the order of calls between parties, a state diagram for a lifecycle. A before and an after case use the same family so the reader compares like with like.
 
 ### 7. Save, check, open
 
@@ -92,7 +92,7 @@ Path: `/tmp/YYYY-MM-DD-explanation-<slug>.html`, today's date, slug from the bra
 Before saving, confirm in the HTML source:
 
 - every code block is a `<pre>`; a styled `<div>` holding code carries `white-space: pre-wrap`, otherwise the browser collapses its newlines;
-- the only `<script src>` is the template's Mermaid loader;
+- the only external resources are the template's Pico stylesheet and Mermaid loader;
 - absolute paths from this machine appear only inside diff snippets.
 
 On macOS without `--no-open`, run `open "$file"`. Finish with exactly one final line:

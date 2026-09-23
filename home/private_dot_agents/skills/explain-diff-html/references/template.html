@@ -4,104 +4,74 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title><!-- slot: title --></title>
+<!-- Pico styles bare semantic HTML and follows prefers-color-scheme; see references/pico.md for its components. -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css">
 <style>
-  :root {
-    --bg: #fbfbf9; --fg: #1d1d1b; --muted: #5f5f5a; --line: #dedcd4;
-    --accent: #2b5fd9; --callout-bg: #eef3ff; --callout-line: #b8c8f5;
-    --code-bg: #f1f0ea; --add: #e6f4e6; --del: #fbe9e7; --box: #ffffff;
-    color-scheme: light dark;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #161614; --fg: #e8e6df; --muted: #a09e95; --line: #35342f;
-      --accent: #7ea2ff; --callout-bg: #1c2438; --callout-line: #35528f;
-      --code-bg: #22221f; --add: #1f3320; --del: #3d211e; --box: #1e1e1b;
-    }
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; padding: 1rem; background: var(--bg); color: var(--fg);
-    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  }
-  main { max-width: 46rem; margin: 0 auto; }
-  h1 { font-size: 1.7rem; line-height: 1.2; margin: 1rem 0 .25rem; }
-  h2 { font-size: 1.3rem; margin: 2.5rem 0 .75rem; padding-top: .5rem; border-top: 1px solid var(--line); }
-  h3 { font-size: 1.05rem; margin: 1.5rem 0 .5rem; }
-  p, li { max-width: 42rem; }
-  a { color: var(--accent); }
-  .meta { color: var(--muted); font-size: .9rem; margin-bottom: 1.5rem; }
-  nav.toc { border: 1px solid var(--line); border-radius: 8px; padding: .75rem 1rem; margin: 1rem 0 2rem; }
-  nav.toc ol { margin: .25rem 0 0; padding-left: 1.25rem; }
-  code { font: .9em ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code-bg); padding: .1em .3em; border-radius: 4px; }
-  pre {
-    background: var(--code-bg); padding: .75rem 1rem; border-radius: 8px;
-    overflow-x: auto; white-space: pre; font: .85rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
-  }
-  pre code { background: none; padding: 0; }
-  pre.diff .add { display: block; background: var(--add); }
-  pre.diff .del { display: block; background: var(--del); }
-  pre.mermaid { background: var(--box); border: 1px solid var(--line); text-align: center; }
-  aside.callout {
-    background: var(--callout-bg); border-left: 4px solid var(--callout-line);
-    padding: .6rem .9rem; margin: 1.25rem 0; border-radius: 0 8px 8px 0;
-  }
-  aside.callout > strong { display: block; margin-bottom: .2rem; }
-  aside.stakeholder { border-left-color: var(--accent); }
-  aside.stakeholder dl { display: grid; grid-template-columns: max-content 1fr; gap: .35rem .9rem; margin: .4rem 0 0; }
-  aside.stakeholder dt { font-weight: 600; color: var(--accent); }
-  aside.stakeholder dd { margin: 0; }
-  @media (max-width: 480px) { aside.stakeholder dl { grid-template-columns: 1fr; } aside.stakeholder dd { margin-bottom: .4rem; } }
-  figure { margin: 1rem 0; }
-  figure img { display: block; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; }
-  figcaption { font-size: .85rem; color: var(--muted); margin-top: .35rem; }
-  details { border: 1px solid var(--line); border-radius: 8px; padding: .5rem 1rem; margin: 1rem 0; }
-  details > summary { cursor: pointer; font-weight: 600; }
+  /* Layer on top of Pico: reading width, our diagram families, diff colouring. Pico variables only, so both themes follow. */
+  main.container { max-width: 52rem; }
+  p, li { max-width: 44rem; }
+  pre { white-space: pre; }
+  pre.diff .add { display: block; background: color-mix(in srgb, var(--pico-ins-color) 18%, transparent); }
+  pre.diff .del { display: block; background: color-mix(in srgb, var(--pico-del-color) 18%, transparent); }
+  pre.mermaid { background: var(--pico-card-background-color); text-align: center; }
+  article.stakeholder dl { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1rem; margin: 0; }
+  article.stakeholder dt { font-weight: 600; color: var(--pico-primary); }
+  article.stakeholder dd { margin: 0; }
+  @media (max-width: 480px) { article.stakeholder dl { grid-template-columns: 1fr; } article.stakeholder dd { margin-bottom: .5rem; } }
+  figure img { display: block; max-width: 100%; border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius); }
   ul.checklist { list-style: none; padding-left: 0; }
-  ul.checklist li { padding-left: 1.6rem; position: relative; margin: .4rem 0; }
-  ul.checklist li::before { content: "☐"; position: absolute; left: 0; color: var(--muted); }
+  ul.checklist li { list-style: none; margin: .4rem 0; }
+  ul.checklist label { font-weight: normal; }
 
   /* Diagram family: data flow with example data. */
-  .flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: .5rem; margin: 1rem 0; }
-  .flow .box { flex: 1 1 9rem; min-width: 9rem; background: var(--box); border: 1px solid var(--line); border-radius: 8px; padding: .5rem .7rem; font-size: .9rem; }
-  .flow .box b { display: block; font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+  .flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: .5rem; margin: var(--pico-typography-spacing-vertical) 0; }
+  .flow .box { flex: 1 1 9rem; min-width: 9rem; background: var(--pico-card-background-color); border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius); padding: .5rem .7rem; font-size: .9rem; }
+  .flow .box b { display: block; font-size: .75rem; color: var(--pico-muted-color); text-transform: uppercase; letter-spacing: .03em; }
   .flow .box code { display: block; margin-top: .3rem; white-space: pre-wrap; }
-  .flow .arrow { align-self: center; color: var(--muted); font-size: 1.4rem; padding: 0 .2rem; }
+  .flow .arrow { align-self: center; color: var(--pico-muted-color); font-size: 1.4rem; padding: 0 .2rem; }
   @media (max-width: 480px) { .flow { flex-direction: column; } .flow .arrow { transform: rotate(90deg); text-align: center; } }
 
-  /* Diagram family: simplified UI mock. */
-  .ui { background: var(--box); border: 1px solid var(--line); border-radius: 10px; padding: .75rem; margin: 1rem 0; font-size: .9rem; max-width: 26rem; }
-  .ui .bar { border-bottom: 1px solid var(--line); padding-bottom: .4rem; margin-bottom: .6rem; color: var(--muted); font-size: .8rem; }
-  .ui .row { display: flex; justify-content: space-between; gap: .5rem; padding: .3rem 0; border-bottom: 1px dashed var(--line); }
+  /* Diagram family: simplified UI mock, the labelled fallback when no frame exists. */
+  .ui { background: var(--pico-card-background-color); border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius); padding: .75rem; margin: var(--pico-typography-spacing-vertical) 0; font-size: .9rem; max-width: 26rem; }
+  .ui .bar { border-bottom: 1px solid var(--pico-muted-border-color); padding-bottom: .4rem; margin-bottom: .6rem; color: var(--pico-muted-color); font-size: .8rem; }
+  .ui .row { display: flex; justify-content: space-between; gap: .5rem; padding: .3rem 0; border-bottom: 1px dashed var(--pico-muted-border-color); }
   .ui .row:last-child { border-bottom: 0; }
-  .ui .btn { display: inline-block; border: 1px solid var(--accent); color: var(--accent); border-radius: 6px; padding: .1rem .5rem; }
-  .ui .new { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  .ui .btn { display: inline-block; border: 1px solid var(--pico-primary); color: var(--pico-primary); border-radius: 6px; padding: .1rem .5rem; }
+  .ui .new { outline: 2px solid var(--pico-primary); outline-offset: 2px; border-radius: 4px; }
+
+  @media print {
+    nav.toc { display: none; }
+    pre, figure, article, .flow, .ui { break-inside: avoid; }
+    a[href^="http"]::after { content: " (" attr(href) ")"; font-size: .8em; }
+  }
 </style>
 </head>
 <body>
-<main>
-  <h1><!-- slot: title --></h1>
-  <p class="meta"><!-- slot: meta (branch or PR, base, date, file count) --></p>
+<main class="container">
+  <hgroup>
+    <h1><!-- slot: title --></h1>
+    <p><!-- slot: meta (branch or PR, base, date, file count) --></p>
+  </hgroup>
 
   <nav class="toc" aria-label="Оглавление">
-    <strong>Оглавление</strong>
-    <ol>
+    <ul>
       <li><a href="#what">Что изменилось</a></li>
       <li><a href="#background">Фон</a></li>
       <li><a href="#code">Разбор кода</a></li>
       <li><a href="#risks">Риски и на что смотреть ревьюеру</a></li>
-    </ol>
+    </ul>
   </nav>
 
   <h2 id="what">Что изменилось</h2>
-  <aside class="callout stakeholder">
-    <strong>Для нетехнических читателей</strong>
+  <article class="stakeholder">
+    <header><strong>Для нетехнических читателей</strong></header>
     <dl>
       <dt>Проблема</dt><dd><!-- slot --></dd>
       <dt>Влияние</dt><dd><!-- slot --></dd>
       <dt>Что сделано</dt><dd><!-- slot --></dd>
       <dt>Что вы заметите</dt><dd><!-- slot --></dd>
     </dl>
-  </aside>
+  </article>
   <!-- slot: lead, 3 to 5 sentences -->
   <!-- slot: frames, one <figure><img src="data:image/png;base64,…" alt="…"><figcaption>…</figcaption></figure> each -->
 
@@ -118,11 +88,11 @@
 
   <h2 id="risks">Риски и на что смотреть ревьюеру</h2>
   <ul class="checklist">
-    <!-- slot: one <li> per risk, each naming a file or function -->
+    <!-- slot: one <li><label><input type="checkbox"> …</label></li> per risk, each naming a file or function -->
   </ul>
 </main>
 
-<!-- Mermaid renders <pre class="mermaid"> blocks. Needs network; HTML diagram families above do not. -->
+<!-- Mermaid renders <pre class="mermaid"> blocks. Pico and Mermaid both load from the CDN; offline, the text and frames still read. -->
 <script type="module">
   import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
   const dark = matchMedia("(prefers-color-scheme: dark)").matches;
