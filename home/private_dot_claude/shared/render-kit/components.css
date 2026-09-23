@@ -11,7 +11,8 @@ main { counter-reset: frame; }
 figure { counter-increment: frame; margin: var(--pico-typography-spacing-vertical) 0; padding: .5rem; background: var(--pico-card-background-color); border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius); }
 figure img { display: block; max-width: 100%; border-radius: calc(var(--pico-border-radius) - 2px); }
 figcaption { margin-top: .5rem; padding-top: .5rem; border-top: 1px solid var(--pico-muted-border-color); font-size: .9rem; }
-figcaption::before { content: "Кадр " counter(frame) ". "; font-weight: 600; color: var(--pico-primary); }
+figcaption::before { content: "Frame " counter(frame) ". "; font-weight: 600; color: var(--pico-primary); }
+:lang(ru) figcaption::before { content: "Кадр " counter(frame) ". "; }
 .grid figure { margin: 0; }
 
 /* Checklist: items the reader can tick; each li holds <label><input type="checkbox"> …</label>. */

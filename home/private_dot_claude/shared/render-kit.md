@@ -23,7 +23,7 @@ Artifacts load scripts from a few CDNs and no external stylesheet. `python3 ~/.c
 | Class | On | Markup | Effect |
 |---|---|---|---|
 | `rows` | `dl` | `<dl class="rows"><dt>Label</dt><dd>…</dd>…</dl>`, inside an `<article>` when it needs a title band | two-column grid, labels in the accent colour, one column on phones |
-| (none) | `figure` | `<figure><img …><figcaption>… <small>source</small></figcaption></figure>`; two side by side inside `<div class="grid">` | a card with the caption under a rule, numbered «Кадр N.» by a CSS counter |
+| (none) | `figure` | `<figure><img …><figcaption>… <small>source</small></figcaption></figure>`; two side by side inside `<div class="grid">` | a card with the caption under a rule, numbered by a CSS counter whose label follows the nearest `lang` ("Frame N.", `ru`: «Кадр N.»; another language adds its own `:lang()` rule in the page's `<style>`) |
 | `checklist` | `ul` | `<li><label><input type="checkbox"> …</label></li>` | items the reader can tick, no bullets |
 | `toc` | `nav` | `<nav class="toc"><ul><li><a href="#…">…</a></li></ul></nav>` | a row of section links, hidden in print |
 | `mermaid` | `pre` | `<pre class="mermaid">sequenceDiagram …</pre>` plus the Mermaid loader script | a sequence or state diagram |

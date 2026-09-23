@@ -14,7 +14,7 @@ Translate one technical change into language a product owner reads at sprint pla
 | none | The current branch against the default branch. |
 | `<PR number or URL>`, `<sha>`, `<sha>..<sha>`, `uncommitted` | That change, resolved the same way explain-diff-html does. |
 | a sentence | A problem or tech-debt item to pitch instead of a diff. |
-| `--lang ru` | Russian output. Default is English. |
+| `--lang <code>` | Output language. Default is English: a manager's summary is English unless the user or the calling skill says otherwise; explain-diff-html passes its page language, make-pr passes nothing and gets English for the PR body. |
 
 ## Workflow
 
@@ -38,7 +38,7 @@ The block, in this exact shape: a bold label line, then four bullets with bold s
 - **What you will notice:** …
 ```
 
-In Russian (`--lang ru`) the label is **Для нетехнических читателей.** and the slot names are Проблема, Влияние, Что сделано, Что вы заметите.
+In another language the label and the four slot names are translated once and kept identical across blocks; in Russian: **Для нетехнических читателей.** with Проблема, Влияние, Что сделано, Что вы заметите.
 
 When another skill invoked this one (make-pr, explain-diff-html), the block is an intermediate product: hand it back and continue with that skill's next step. Only when the user invoked this skill directly is the block the whole reply.
 
