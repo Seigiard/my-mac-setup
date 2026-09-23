@@ -57,7 +57,7 @@ Embed frames as data URIs so the page stays self-contained. Done when every visi
 
 ### 4. Fill the template
 
-Copy `references/template.html` and fill each `<!-- slot: ... -->` in place; the template owns structure and styling, and `references/render-kit.md` says what Pico and speed-highlight give a bare element and when each Pico component fits a slot. The page `<title>` and `<h1>` are the PR title, else the first commit subject of the range. Length follows the change: a two-file fix makes a short page, a forty-file feature a long one. Each slot has a shape, the shape is the only gate, and a slot holds exactly what its shape asks for:
+Copy `references/template.html` and fill each `<!-- slot: ... -->` in place; the template owns structure and styling on the render kit in `~/.claude/shared/render-kit.md` (Pico components, code blocks), and `references/page-layer.md` names the classes the template adds on top. The page `<title>` and `<h1>` are the PR title, else the first commit subject of the range. Length follows the change: a two-file fix makes a short page, a forty-file feature a long one. Each slot has a shape, the shape is the only gate, and a slot holds exactly what its shape asks for:
 
 - **Для нетехнических читателей**: the stakeholder block as four `<dt>`/`<dd>` rows. When the change is a PR whose body already opens with a `**For non-engineers.**` block, translate it and keep its four slots; otherwise invoke the `explain-for-manager` skill with `--lang ru` for the resolved range and continue here. It sits first so a manager can stop reading after it.
 - **Что изменилось**: three to five sentences on what the change does, why, and what the reader can judge after reading, then the frames from step 3 as `<figure>` elements with captions.
@@ -97,7 +97,7 @@ Before saving, confirm in the HTML source:
 
 On macOS without `--no-open`, run `open "$file"`.
 
-To publish the page as a Claude Artifact, publish the copy that `python3 scripts/inject-styles.py "$file" -o <copy>` writes: Artifacts block external stylesheets, so the copy carries Pico and the highlighter theme inside the file while the scripts stay external. The `/tmp` file itself keeps its links.
+To publish the page as a Claude Artifact, publish the copy that `python3 ~/.claude/shared/render-kit/inject-styles.py "$file" -o <copy>` writes: Artifacts block external stylesheets, so the copy carries the CSS inside the file. The `/tmp` file itself keeps its links.
 
 Finish with exactly one final line:
 

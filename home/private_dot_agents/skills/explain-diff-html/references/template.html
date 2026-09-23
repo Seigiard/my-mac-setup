@@ -4,17 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title><!-- slot: title --></title>
-<!-- Render kit, see references/render-kit.md: Pico styles bare semantic HTML, speed-highlight colours shj-lang-* blocks, both follow prefers-color-scheme. -->
+<!-- Head from ~/.claude/shared/render-kit/head.html (see ~/.claude/shared/render-kit.md); the page's own layer follows in the second block of the style. -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@speed-highlight/core@2.1.0/dist/themes/github-light.css" media="(prefers-color-scheme: light)">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@speed-highlight/core@2.1.0/dist/themes/github-dark.css" media="(prefers-color-scheme: dark)">
 <style>
-  /* Layer on top of Pico: reading width, code blocks in Pico's colours, our diagram families. Pico variables only, so both themes follow. */
   /* Stated on body, not inherited from html: a host page (Claude Artifacts) resets body to its own 14px font and colours. */
   body { font-size: 1rem; line-height: var(--pico-line-height); font-family: var(--pico-font-family); background: var(--pico-background-color); color: var(--pico-color); }
-  main.container { max-width: 52rem; }
-  p, li { max-width: 44rem; }
+  /* Pico drops the container's side padding above 576px; a reading page keeps a gutter at every width. */
+  main.container { max-width: 52rem; padding-inline: var(--pico-spacing); }
+  /* Code blocks take Pico's code colours and font instead of the highlighter theme's own box. */
   [class*="shj-lang-"] { background: var(--pico-code-background-color); color: var(--pico-code-color); border: 0; border-radius: var(--pico-border-radius); padding: var(--pico-spacing); margin: var(--pico-typography-spacing-vertical) 0; font: .875em/1.6 var(--pico-font-family-monospace); }
+
+  /* The page's own layer: reading width, the stakeholder grid, frames, the risks checklist, the diagram families. See references/page-layer.md. */
+  p, li { max-width: 44rem; }
   pre.mermaid { background: var(--pico-card-background-color); text-align: center; }
   article.stakeholder dl { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1rem; margin: 0; }
   article.stakeholder dt { font-weight: 600; color: var(--pico-primary); }

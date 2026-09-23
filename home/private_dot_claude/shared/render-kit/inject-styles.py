@@ -11,7 +11,7 @@ with the URL on stderr when a stylesheet cannot be fetched, so a half-styled
 page is never written silently.
 
 Reason to exist: Claude Artifacts allow scripts from a few CDNs but block
-external stylesheets, so a page built on Pico and a highlighter theme
+external stylesheets, so a page on the render kit (~/.claude/shared/render-kit.md)
 arrives there unstyled unless the CSS travels inside the file.
 """
 import argparse
