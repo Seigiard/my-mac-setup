@@ -7816,8 +7816,8 @@ function test_scripts_260_pinned_bashunit_survives_late_child_output_aft() {
   run env NO_COLOR=1 TMPDIR="$BATS_TEST_TMPDIR" \
     "$BATS_TEST_DIRNAME/lib/bashunit" -j 2 "$probe_file"
   assert_success
-  # Bashunit abbreviates long titles to the terminal width in Docker panes.
-  assert_output --partial "Passed: late child output"
+  # The title is terminal-width dependent; the single-test count proves the probe ran.
+  assert_output --partial "Tests:      1 passed, 1 total"
   assert_output --partial "Assertions: 1 passed, 1 total"
 
   # Sequential leg: extract_result_counts parses the captured execution
@@ -9132,20 +9132,43 @@ function test_scripts_3072_skills_remove_points_wildcard_sources_to_exclusion_sy
 }
 
 function test_scripts_3075_skills_add_preserves_existing_wildcard_exclusions() {
-  _bats_test_init 3075 'skills add without an explicit selection preserves wildcard exclusions'
-  local stub manifest lock
-  stub="$(skills_stub_npx)"
+  _bats_test_init 3075 'skills wildcard-only re-adds reapply stored exclusions'
+  local stub manifest lock canonical
+  stub="$(skills_exclusion_stub_npx)"
   manifest="$BATS_TEST_TMPDIR/manifest"
   lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
-  mkdir -p "$(dirname "$lock")"
+  canonical="$BATS_TEST_TMPDIR/home/.agents/skills"
+  mkdir -p "$(dirname "$lock")" "$BATS_TEST_TMPDIR/config/agent-skills"
+  : > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
   printf '%s\n' 'owner/repo * !*/in-progress/*' > "$manifest"
   printf '%s\n' '{"version":3,"skills":{}}' > "$lock"
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
-    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" SKILLS_MANIFEST="$manifest" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$manifest" \
     bash "$SKILLS_WRAPPER" add owner/repo
   assert_success
+  assert_output --partial 'Excluded skills from owner/repo: draft'
   assert_file_contains "$manifest" '^owner/repo \* !\*/in-progress/\*$'
+  assert_dir_exists "$canonical/stable"
+  assert_dir_not_exists "$canonical/draft"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$manifest" \
+    bash "$SKILLS_WRAPPER" add owner/repo '*'
+  assert_success
+  assert_output --partial 'Excluded skills from owner/repo: draft'
+  assert_file_contains "$manifest" '^owner/repo \* !\*/in-progress/\*$'
+  assert_dir_not_exists "$canonical/draft"
+
+  run python3 - "$lock" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    skills = json.load(stream)["skills"]
+assert set(skills) == {"stable"}
+PY
+  assert_success
 }
 
 function test_scripts_3073_skills_add_rejects_named_or_unbound_exclusion_entries() {
