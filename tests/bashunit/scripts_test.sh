@@ -14,6 +14,7 @@ setup() {
   unset HERDR_ENV
   unset HERDR_AGENT_INTERCOM_ACTIVE
   unset HERDR_AGENT_INTERCOM_NAME
+  unset HERDR_AGENT_INTERCOM_PANE
   unset HERDR_AGENT_INTERCOM_PI_LOAD
   unset HERDR_CHILD_NAME
   unset HERDR_CHILD_PARENT_PANE
@@ -67,6 +68,22 @@ agent_intercom_stub_bin() {
   agent_intercom_stub_command "$stub/opencode"
   agent_intercom_stub_command "$stub/pi"
   agent_intercom_stub_command "$stub/cci"
+  cat > "$stub/herdr" <<'SH'
+#!/usr/bin/env bash
+[[ "$1 $2" == 'agent get' ]] || exit 2
+case "$3" in
+  w1:p2) name=ochre-okapi ;;
+  w1:p3) name=violet-tern ;;
+  *) exit 1 ;;
+esac
+printf '{"result":{"agent":{"name":"%s","pane_id":"%s","launch_pending":true}}}\n' "$name" "$3"
+SH
+  cat > "$stub/allocator" <<'SH'
+#!/usr/bin/env bash
+[[ "$1" == --alias-candidates && $# == 2 ]] || exit 2
+printf '%s\n' ochre-okapi silver-ibis violet-tern
+SH
+  chmod +x "$stub/herdr" "$stub/allocator"
   mkdir -p "$home/.local/share/agent-intercom/node_modules/.bin" \
     "$home/.local/share/agent-intercom/node_modules/@dataforxyz/agent-intercom-claude/dist" \
     "$home/.local/bin"
@@ -93,10 +110,12 @@ function test_scripts_1330_agent_intercom_launcher_is_an_exact_non_herdr_passthr
 }
 
 function test_scripts_1331_agent_intercom_launcher_propagates_a_child_alias_to_each_adapter() {
-  _bats_test_init 1331 'agent intercom launcher propagates a child alias to Claude OpenCode and Pi'
+  _bats_test_init 1331 'agent intercom launcher propagates a preallocated pane alias to Claude OpenCode and Pi'
   local launcher="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom"
   local stub
   stub="$(agent_intercom_stub_bin)"
+
+  export HERDR_PANE_ID=w1:p2 HERDR_ALIAS_ALLOCATOR="$stub/allocator"
 
   run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
     PATH="$stub:$PATH" bash "$launcher" claude \
@@ -132,11 +151,46 @@ printf '%s\n' '{"id":"cli:agent:get","result":{"agent":{"name":"silver-ibis","pa
 SH
   chmod +x "$stub/herdr"
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME= HERDR_PANE_ID=w1:p2 \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=caller-supplied HERDR_PANE_ID=w1:p2 \
+    HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
     HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" bash "$launcher" opencode
 
   assert_success
   assert_output 'opencode name=<silver-ibis> args= active=<1> pi_load=<>'
+
+  # A provisional name can look like an alias without belonging to the pool.
+  cat > "$stub/herdr" <<'SH'
+#!/usr/bin/env bash
+printf '{"result":{"agent":{"name":"%s","pane_id":"%s","launch_pending":true}}}\n' \
+  "$PROBE_NAME" "${PROBE_PANE:-w1:p2}"
+exit "${PROBE_STATUS:-0}"
+SH
+  local provisional
+  for provisional in caller-supplied unnamed-alpha; do
+    run env HERDR_ENV=1 HERDR_CHILD_NAME=silver-ibis HERDR_PANE_ID=w1:p2 \
+      PROBE_NAME="$provisional" HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+      HERDR_AGENT_INTERCOM_ACTIVE=1 HERDR_AGENT_INTERCOM_PANE=w1:p1 \
+      HERDR_AGENT_INTERCOM_NAME=parent-alias OPENCODE_INTERCOM_NAME=parent-alias \
+      HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" bash "$launcher" opencode
+    assert_success
+    assert_output --partial 'canonical pane alias unavailable; starting opencode without Intercom'
+    assert_output --partial 'opencode name=<> args= active=<> pi_load=<>'
+  done
+
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 PROBE_NAME=silver-ibis PROBE_PANE=w1:p9 \
+    HERDR_ALIAS_ALLOCATOR="$stub/allocator" PATH="$stub:$PATH" bash "$launcher" opencode
+  assert_success
+  assert_output --partial 'opencode name=<> args= active=<> pi_load=<>'
+
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 PROBE_NAME=silver-ibis PROBE_STATUS=1 \
+    HERDR_ALIAS_ALLOCATOR="$stub/allocator" PATH="$stub:$PATH" bash "$launcher" opencode
+  assert_success
+  assert_output --partial 'opencode name=<> args= active=<> pi_load=<>'
+
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 PROBE_NAME=silver-ibis \
+    HERDR_ALIAS_ALLOCATOR=/nonexistent/allocator PATH="$stub:$PATH" bash "$launcher" opencode
+  assert_success
+  assert_output --partial 'opencode name=<> args= active=<> pi_load=<>'
 }
 
 function test_scripts_1333_agent_intercom_launcher_passes_through_an_unidentified_herdr_session() {
@@ -149,7 +203,8 @@ function test_scripts_1333_agent_intercom_launcher_passes_through_an_unidentifie
     HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" bash "$launcher" pi
 
   assert_success
-  assert_output 'pi name=<> args= active=<> pi_load=<>'
+  assert_output --partial 'canonical pane alias unavailable; starting pi without Intercom'
+  assert_output --partial 'pi name=<> args= active=<> pi_load=<>'
 
   cat > "$stub/herdr" <<'SH'
 #!/usr/bin/env bash
@@ -159,7 +214,8 @@ SH
   run env HERDR_ENV=1 HERDR_CHILD_NAME= HERDR_PANE_ID=w1:p2 \
     HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" bash "$launcher" claude
   assert_success
-  assert_output 'claude name=<> args= active=<> pi_load=<>'
+  assert_output --partial 'canonical pane alias unavailable; starting claude without Intercom'
+  assert_output --partial 'claude name=<> args= active=<> pi_load=<>'
 }
 
 function test_scripts_1334_agent_intercom_shell_wrappers_only_intercept_herdr_launches() {
@@ -169,6 +225,7 @@ function test_scripts_1334_agent_intercom_shell_wrappers_only_intercept_herdr_la
   local stub home="$BATS_TEST_TMPDIR/agent-intercom-home"
   stub="$(agent_intercom_stub_bin)"
   mkdir -p "$home/.local/bin"
+  export HERDR_PANE_ID=w1:p2 HERDR_ALIAS_ALLOCATOR="$stub/allocator"
   cp "$launcher" "$home/.local/bin/herdr-agent-intercom"
   chmod +x "$home/.local/bin/herdr-agent-intercom"
 
@@ -188,6 +245,7 @@ function test_scripts_1337_agent_intercom_launcher_preserves_utility_and_nested_
   local launcher="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom"
   local stub
   stub="$(agent_intercom_stub_bin)"
+  export HERDR_PANE_ID=w1:p2 HERDR_ALIAS_ALLOCATOR="$stub/allocator"
 
   run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
     PATH="$stub:$PATH" bash "$launcher" claude mcp list
@@ -260,15 +318,15 @@ function test_scripts_1337_agent_intercom_launcher_preserves_utility_and_nested_
   assert_success
   assert_output 'claude name=<> args= active=<1> pi_load=<>'
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HERDR_AGENT_INTERCOM_ACTIVE=1 \
-    HERDR_AGENT_INTERCOM_NAME=ochre-okapi \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=unrelated-launch-name HERDR_AGENT_INTERCOM_ACTIVE=1 \
+    HERDR_AGENT_INTERCOM_NAME=ochre-okapi HERDR_AGENT_INTERCOM_PANE=w1:p2 \
     HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" \
     bash "$launcher" opencode run prompt
   assert_success
   assert_output 'opencode name=<> args= active=<1> pi_load=<><run><prompt>'
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=violet-tern HERDR_AGENT_INTERCOM_ACTIVE=1 \
-    HERDR_AGENT_INTERCOM_NAME=ochre-okapi \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HERDR_AGENT_INTERCOM_ACTIVE=1 \
+    HERDR_PANE_ID=w1:p3 HERDR_AGENT_INTERCOM_NAME=ochre-okapi HERDR_AGENT_INTERCOM_PANE=w1:p2 \
     HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" \
     bash "$launcher" opencode
   assert_success
