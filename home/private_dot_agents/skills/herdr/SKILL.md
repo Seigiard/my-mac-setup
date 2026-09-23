@@ -122,7 +122,7 @@ Every agent pane or tab you create follows one lifecycle, regardless of how it w
 - Exception: leaving a settled pane open is a named decision — state it in the report to the user and re-evaluate it next turn. It never silently becomes the default for later panes.
 - A new unrelated task gets a new pane. The alias identifies the live agent; it does not describe the task.
 
-Start child agents through `herdr-child`, which owns pane readiness, tool posture, coordinates, and the return channel. Read `~/.claude/shared/child-agent-contract.md` before supervising a child. Every start and managed ordinary follow-up selects exactly one of attached `--wait` or managed `--detach`.
+Start child agents through `herdr-child`, which owns pane readiness, tool posture, coordinates, and the return channel. Read `~/.claude/shared/child-agent-contract.md` before supervising a child. For a peer session you did not launch, the path is Agent intercom instead — read `~/.claude/shared/agent-intercom-contract.md`. Every start and managed ordinary follow-up selects exactly one of attached `--wait` or managed `--detach`.
 
 ```bash
 CHILD=$(herdr-child start --kind claude --posture ro --cwd "$PWD" \

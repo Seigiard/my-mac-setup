@@ -10,6 +10,12 @@ Read `~/.claude/shared/long-running-work.md` before launching. It carries the su
 
 </important>
 
+<important if="an intercom message reaches you, or you need to reach an agent session you did not launch">
+
+Read `~/.claude/shared/agent-intercom-contract.md`. It carries the tool set and the prefixed names Claude sees, who is reachable and who only looks reachable, the blocking window on `intercom_ask` and what expiry leaves behind, and when `herdr-child` owns the exchange instead.
+
+</important>
+
 ## Executor MCP
 
 Executor is the `executor` MCP server; use its `execute` tool when a task needs an API integration exposed through its sandboxed TypeScript `tools` object. In Claude Code its tools are named `mcp__executor__*`; other clients may use a different prefix.
