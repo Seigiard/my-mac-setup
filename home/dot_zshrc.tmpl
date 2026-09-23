@@ -132,7 +132,7 @@ export PATH="$HOME/.bun/bin:$PATH"
 
 
 # -------------------------------------------
-# herdr: report this machine's sidebar glyph
+# herdr: report this machine's sidebar glyphs
 # -------------------------------------------
 # The sidebar's built-in `machine` token is client-side: it labels the saved
 # SSH endpoints and always renders the machine you are attached from as
@@ -141,10 +141,14 @@ export PATH="$HOME/.bun/bin:$PATH"
 # values. So each shell reports a glyph for its own pane and
 # [ui.sidebar.agents] in ~/.config/herdr/config.toml reads it as $machine:
 # briefcase for the work laptop, house for the personal one, rack for the home
-# server. Deferred past the first prompt — the value is presentation only and
-# has no business delaying a prompt. Panes whose shell has not reported yet
-# render without a glyph.
+# server. The same call reports a glyph per agent state, which `state_text`
+# renders: herdr's own state glyphs are fixed to two presets and `state_icon`
+# takes no rules, so a set of our own has to arrive as state labels. Deferred
+# past the first prompt — these are presentation only and have no business
+# delaying a prompt. Panes whose shell has not reported yet keep herdr's
+# native marks.
 {{- $machineGlyph := dict "mbp2026" "\U000F00D6" "mbp2021" "\U000F02DC" "server" "\U000F048B" }}
+{{- $stateGlyph := dict "blocked" "\U000F0026" "done" "\U000F05E0" "working" "\U000F0AA1" "idle" "\U000F0766" "unknown" "\U000F01D8" }}
 
 if [[ -n "$HERDR_PANE_ID" ]]; then
   _herdr_report_machine() {
@@ -152,7 +156,12 @@ if [[ -n "$HERDR_PANE_ID" ]]; then
     [[ -x "$herdr_bin" ]] || return 0
     "$herdr_bin" pane report-metadata "$HERDR_PANE_ID" \
       --source mms.machine \
-      --token 'machine={{ index $machineGlyph .machine_role }}' > /dev/null 2>&1
+      --token 'machine={{ index $machineGlyph .machine_role }}' \
+      --state-label 'blocked={{ index $stateGlyph "blocked" }}' \
+      --state-label 'done={{ index $stateGlyph "done" }}' \
+      --state-label 'working={{ index $stateGlyph "working" }}' \
+      --state-label 'idle={{ index $stateGlyph "idle" }}' \
+      --state-label 'unknown={{ index $stateGlyph "unknown" }}' > /dev/null 2>&1
   }
   if (( $+functions[zsh-defer] )); then
     zsh-defer _herdr_report_machine

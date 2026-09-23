@@ -73,10 +73,12 @@ description = "close pane, then tab, but keep workspace"
 prompt_new_tab_name = false
 sidebar_min_width = 32
 
-# Agent state reads as a shape rather than a color: x blocked, half-circle
+# Space rows read state as a shape rather than a color: x blocked, half-circle
 # working, check done, ring idle, dot unknown. The default dots carry the same
 # five states in five colors, which collapses on a monochrome screenshot and
-# asks the eye to compare hues across a scrolling list.
+# asks the eye to compare hues across a scrolling list. This setting reaches
+# `state_icon` only, so it governs the Spaces rows; agent rows carry their own
+# glyphs through `state_text` (see [ui.sidebar.agents]).
 status_indicators = "symbols"
 
 # Account rate limits belong on one global surface, not on every agent row:
@@ -119,6 +121,15 @@ rows = [["state_icon", "workspace"], [{ token = "$branch", dim = false }, "$git_
 # #RGB/#RRGGBB (the binary rejects anything else with "sidebar token fg must
 # be #RGB or #RRGGBB"), so these hexes are Light-specific like the
 # [theme.custom] values below and share their fate on a dark-theme switch.
+# `state_text` renders the per-state glyph each shell reports as a state label,
+# again from `~/.zshrc`. The shorter `state_icon` cannot: its glyph set is
+# fixed to herdr's two presets (herdrdev/herdr#3593, closed as not planned)
+# and it accepts fixed styles only, no rules. The rules below therefore match
+# the rendered glyph rather than the state name, and the colors rank urgency
+# -- red is the only state waiting on a human, amber matches the working dot
+# herdr's own presets use, and idle sits at the alias gray so a settled pane
+# recedes whole. The cost of `state_text` is one ` · ` separator that
+# `state_icon` does not draw.
 # `$machine` is a machine glyph each shell reports for its own pane from
 # `~/.zshrc`, which also owns the role-to-glyph mapping. The built-in
 # `machine` token cannot carry it: it labels the *client's* endpoints, so the
@@ -133,7 +144,13 @@ rows = [["state_icon", "workspace"], [{ token = "$branch", dim = false }, "$git_
 row_gap = 1
 rows = [
   [
-    "state_icon",
+    { token = "state_text", rules = [
+      { equals = "󰀦", fg = "#AF3029", bold = true },
+      { equals = "󰗠", fg = "#205EA6", bold = true },
+      { equals = "󰪡", fg = "#AD8301", bold = true },
+      { equals = "󰝦", fg = "#9F9D96" },
+      { equals = "󰇘", fg = "#B7B5AC" },
+    ] },
     "$machine",
     { token = "workspace", dim = false },
   ],
