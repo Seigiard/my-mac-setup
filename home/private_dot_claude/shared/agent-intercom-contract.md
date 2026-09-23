@@ -80,11 +80,11 @@ Being listed is not the same as being able to answer, either: a Pi session that 
 
 `intercom_ask` blocks for 45 seconds on Claude and OpenCode, 30 on Pi. Both Claude and OpenCode accept `timeout_ms` up to 120000 to widen it; Pi has no timeout parameter.
 
-The clients disagree on how expiry is reported. Claude and OpenCode return an error naming the timeout; Pi returns a **success** whose text says the ask was delivered but went unanswered, sometimes naming a closed peer connection outright. Read the text, not the status.
+The clients disagree on how expiry is reported. Claude and OpenCode return an error naming the timeout. Pi returns a **success** whose text says the ask was delivered but went unanswered, and adds whether the broker confirmed keeping it open for a late reply — that clause is about Pi's own control call to the broker, not about your recipient. Read the text, not the status.
 
 Expiry does not mean the peer never got the message. It means you stopped waiting. The ask stays unresolved in the recipient's `intercom_pending`, and for work that will outlast the window the honest shape is `intercom_send` plus a later `intercom_pending`, not a wider timeout.
 
-A recipient that dies mid-ask looks exactly like a slow one on Claude and OpenCode: no disconnect reaches the blocked sender, so it waits out the full window and reports a plain timeout. Pi is the exception that names the closed connection. Never read a timeout as proof the peer refused or failed — check `intercom_list` before concluding anything.
+A recipient that dies mid-ask looks exactly like a slow one. No disconnect reaches the blocked sender on any of the three clients: the window runs out and the result reads the same as it would for a peer that was merely thinking. Never take an expiry as proof the peer refused, failed, or received nothing — check `intercom_list` before concluding anything.
 
 Neither endpoint can restart through an ask. The recipient's restart drops the message from its pending list; the sender's restart orphans the ask permanently, because a reply routes to the sender's **session ID** and no restart preserves that. The recipient is then left holding an ask it cannot resolve, and those accumulate — an `intercom_reply` with no selector eventually fails with `Multiple pending asks`. When more than one is outstanding, select: on Pi pass the `askId` that `intercom_pending` returned, which addresses an exact ask; on Claude and OpenCode the only selectors are `to` plus `which: oldest|latest`, so the middle of three from one sender is unreachable until the ones around it resolve.
 
