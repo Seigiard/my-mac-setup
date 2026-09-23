@@ -23,7 +23,13 @@
   article.stakeholder dt { font-weight: 600; color: var(--pico-primary); }
   article.stakeholder dd { margin: 0; }
   @media (max-width: 480px) { article.stakeholder dl { grid-template-columns: 1fr; } article.stakeholder dd { margin-bottom: .5rem; } }
-  figure img { display: block; max-width: 100%; border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius); }
+  /* A frame is a card: the image, then a numbered caption under a rule, so the caption belongs to its frame and not to the prose around it. */
+  main { counter-reset: frame; }
+  figure { counter-increment: frame; margin: var(--pico-typography-spacing-vertical) 0; padding: .5rem; background: var(--pico-card-background-color); border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius); }
+  figure img { display: block; max-width: 100%; border-radius: calc(var(--pico-border-radius) - 2px); }
+  figcaption { margin-top: .5rem; padding-top: .5rem; border-top: 1px solid var(--pico-muted-border-color); font-size: .9rem; }
+  figcaption::before { content: "Кадр " counter(frame) ". "; font-weight: 600; color: var(--pico-primary); }
+  .grid figure { margin: 0; }
   ul.checklist { list-style: none; padding-left: 0; }
   ul.checklist li { list-style: none; margin: .4rem 0; }
   ul.checklist label { font-weight: normal; }
@@ -78,15 +84,13 @@
     </dl>
   </article>
   <!-- slot: lead, 3 to 5 sentences -->
-  <!-- slot: frames, one <figure><img src="data:image/png;base64,…" alt="…"><figcaption>…</figcaption></figure> each -->
+  <!-- slot: optional <blockquote> with the one rule the reader must hold to judge the code -->
+  <!-- slot: frames, one <figure><img src="data:image/png;base64,…" alt="…"><figcaption>… <small>story or route</small></figcaption></figure> each; two small frames side by side inside <div class="grid"> -->
 
-  <h2 id="background">Фон</h2>
-  <details>
-    <summary>Для тех, кто впервые здесь</summary>
+  <details id="background">
+    <summary role="button" class="secondary outline">Фон для тех, кто впервые здесь</summary>
     <!-- slot: deep background for a newcomer -->
   </details>
-  <h3>Что важно для этого изменения</h3>
-  <!-- slot: narrow background with a .flow diagram carrying example data -->
 
   <h2 id="code">Разбор кода</h2>
   <!-- slot: grouped walkthrough; each group = one sentence of intent, then a <div class="shj-lang-diff"> sketch with raw + and - lines; nothing after the sketch -->

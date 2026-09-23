@@ -11,6 +11,6 @@ The page is built on the render kit in `~/.claude/shared/render-kit.md`: semanti
 | `ui`, with `bar`, `row`, `btn`, `new` children | `div` | the sketch family, a labelled fallback when no frame exists: a title bar, rows, buttons, and an accent outline on what the change adds |
 | `mermaid` | `pre` | rendered by Mermaid as a sequence or state diagram |
 
-Everything else in the layer is tag-level and needs no class: reading width on `main`, `p`, `li`; borders on `figure img`; page-break rules for print.
+Everything else in the layer is tag-level and needs no class: reading width on `main`, `p`, `li`; `figure` as a card whose caption is numbered «Кадр N.» by a CSS counter; the deep-background `summary` as a Pico button (`role="button" class="secondary outline"`); page-break rules for print.
 
 A new rule in the layer uses Pico's variables (`--pico-primary`, `--pico-muted-color`, `--pico-muted-border-color`, `--pico-card-background-color`, `--pico-code-background-color`, `--pico-border-radius`, `--pico-spacing`) so it follows both themes.
