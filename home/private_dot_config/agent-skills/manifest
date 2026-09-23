@@ -1,5 +1,5 @@
 EveryInc/compound-engineering-plugin ce-code-review ce-simplify-code ce-commit ce-babysit-pr ce-resolve-pr-feedback ce-debug ce-noslop
-mattpocock/skills *
+mattpocock/skills * !*/in-progress/*
 schpet/linear-cli linear-cli
 vercel-labs/skills find-skills
 anthropics/skills frontend-design skill-creator
