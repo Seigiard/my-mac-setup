@@ -1,0 +1,5 @@
+# revmux runtime knobs. Precedence: command line, ./.revmux/config, this file, built-in default.
+# Layers merge per key, so only the keys set here differ from what ships.
+
+# The `lean` profile in prompts/profiles/ runs five agents; the shipped cap of 4 would queue one.
+max-parallel = 5
