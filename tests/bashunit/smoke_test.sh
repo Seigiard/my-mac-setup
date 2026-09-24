@@ -314,7 +314,7 @@ function test_smoke_018_opencode_reads_the_shared_writing_style_file_via() {
 function test_smoke_019_clients_resolve_model_invocable_skills_from_agents() {
   _bats_test_init 19 'clients resolve model-invocable skills from canonical .agents trees'
   local source_skills="$SOURCE_ROOT/private_dot_agents/skills"
-  local skill_dir skill
+  local skill_dir skill sub sub_name probe
   [[ -d "$source_skills" ]] || skip "repository checkout is not mounted"
 
   for skill_dir in "$source_skills"/*; do
@@ -323,6 +323,18 @@ function test_smoke_019_clients_resolve_model_invocable_skills_from_agents() {
     assert_success
     assert_output "$HOME/.agents/skills/$skill/SKILL.md"
     assert_file_exists "$HOME/.agents/skills/$skill/SKILL.md"
+
+    # A skill names its own reference and script files relative to the base
+    # directory the client reports, which for Claude is ~/.claude/skills/<skill>.
+    # Deploying SKILL.md alone leaves every such path dangling there, so an agent
+    # that follows the skill's own instructions reads nothing.
+    for sub in "$HOME/.agents/skills/$skill"/*/; do
+      [ -d "$sub" ] || continue
+      sub_name="$(basename "$sub")"
+      probe="$(find "$sub" -maxdepth 1 -type f | head -n 1)"
+      [ -n "$probe" ] || continue
+      assert_file_exists "$HOME/.claude/skills/$skill/$sub_name/$(basename "$probe")"
+    done
   done
 }
 
