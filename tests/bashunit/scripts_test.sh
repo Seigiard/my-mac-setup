@@ -231,6 +231,194 @@ SH
   assert_output --partial 'opencode name=<> args= active=<> pi_load=<>'
 }
 
+function test_scripts_1346_agent_intercom_launcher_claims_an_alias_for_a_pane_with_no_record() {
+  _bats_test_init 1346 'agent intercom launcher claims an alias for a pane with no record'
+  local launcher="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom"
+  local release="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom-release"
+  local stub home log marker
+  stub="$(agent_intercom_stub_bin)"
+  home="$BATS_TEST_TMPDIR/agent-intercom-home"
+  log="$BATS_TEST_TMPDIR/claim-calls"
+  marker="$home/.local/state/agent-intercom/claims/w1_p2"
+
+  # #given a pane Herdr has no agent record for. The real CLI reports that on
+  # stderr and exits 1 -- measured against herdr v0.9.1, not taken from the
+  # launcher -- so the stub answers the same way or the launcher is never
+  # exercised on the one input this feature exists for.
+  cat > "$stub/herdr" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$CLAIM_LOG"
+case "$1 $2" in
+  'agent get')
+    printf '{"error":{"code":"agent_not_found","message":"agent target %s not found"},"id":"cli:agent:get"}\n' "$3" >&2
+    exit 1
+    ;;
+  'agent explain')
+    printf 'agent: claude\nstate: working\nrule: osc_title_working (region=osc_title priority=1100)\n'
+    exit 0
+    ;;
+  'pane report-agent'|'pane release-agent') exit 0 ;;
+  'agent rename')
+    [[ "$4" == "${RENAME_REJECT:-}" ]] && exit 1
+    exit 0
+    ;;
+esac
+exit 2
+SH
+  cat > "$stub/herdr-peer-alias" <<'SH'
+#!/usr/bin/env bash
+shift
+for taken in "$@"; do
+  [[ "$taken" == ochre-okapi ]] && { printf 'silver-ibis\n'; exit 0; }
+done
+printf '%s\n' "${PEER_ALIAS:-ochre-okapi}"
+SH
+  chmod +x "$stub/herdr" "$stub/herdr-peer-alias"
+
+  # #when Claude starts by hand in that pane
+  : > "$log"; rm -f "$marker"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
+    HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" claude
+
+  # #then it enrolls under the allocated name instead of warning
+  assert_success
+  assert_output --partial '<--name><ochre-okapi><--claude><'
+  assert_file_contains "$log" 'pane report-agent w1:p2 --source herdr-agent-intercom --agent claude --state unknown'
+  assert_file_contains "$log" 'agent rename w1:p2 ochre-okapi'
+
+  # #then the claim it recorded is the one the release command acts on
+  assert_file_contains "$marker" 'claude'
+  : > "$log"
+  run env HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" HOME="$home" PATH="$stub:$PATH" bash "$release"
+  assert_success
+  assert_file_contains "$log" 'pane release-agent w1:p2 --source herdr-agent-intercom --agent claude'
+  assert_file_not_exists "$marker"
+
+  # #when the server rejects the first name, as a concurrent launcher would cause
+  : > "$log"; rm -f "$marker"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" RENAME_REJECT=ochre-okapi \
+    HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" claude
+
+  # #then it gives the first claim back and enrolls under the next candidate
+  assert_success
+  assert_output --partial '<--name><silver-ibis><--claude><'
+  assert_file_contains "$log" 'pane release-agent w1:p2 --source herdr-agent-intercom --agent claude'
+
+  # #when the allocator can only answer with an out-of-pool placeholder
+  : > "$log"; rm -f "$marker"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" PEER_ALIAS=unnamed-alpha \
+    HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" claude
+
+  # #then it reports nothing and releases nothing, and the client starts bare
+  assert_success
+  assert_output --partial 'canonical pane alias unavailable; starting claude without Intercom'
+  assert_equal "$(grep -c 'pane report-agent' "$log")" 0
+  assert_equal "$(grep -c 'pane release-agent' "$log")" 0
+  assert_file_not_exists "$marker"
+
+  # #when the client is one with no surface that could ever release a claim
+  : > "$log"; rm -f "$marker"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
+    HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" opencode
+
+  # #then it takes no claim at all rather than leaking one for the session
+  assert_success
+  assert_output --partial 'canonical pane alias unavailable; starting opencode without Intercom'
+  assert_equal "$(grep -c 'pane report-agent' "$log")" 0
+  assert_file_not_exists "$marker"
+
+  # #when the allocator command is absent entirely
+  rm -f "$stub/herdr-peer-alias"
+  : > "$log"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
+    HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" claude
+
+  # #then the pane keeps its unclaimed state and the client starts without Intercom
+  assert_success
+  assert_output --partial 'canonical pane alias unavailable; starting claude without Intercom'
+  assert_equal "$(grep -c 'pane report-agent' "$log")" 0
+}
+
+function test_scripts_1347_agent_intercom_release_hands_state_back_only_when_detection_can_take_over() {
+  _bats_test_init 1347 'agent intercom release hands pane state back only when detection can take over'
+  local release="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom-release"
+  local stub home log marker
+  stub="$BATS_TEST_TMPDIR/release-bin"
+  home="$BATS_TEST_TMPDIR/release-home"
+  log="$BATS_TEST_TMPDIR/release-calls"
+  marker="$home/.local/state/agent-intercom/claims/w1_p2"
+  mkdir -p "$stub" "$(dirname "$marker")"
+
+  # `rule: none` is what the real `herdr agent explain` prints whenever no rule
+  # matched, which includes a pane whose detection the claim itself suppressed.
+  # Measured against herdr v0.9.1.
+  cat > "$stub/herdr" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$RELEASE_LOG"
+if [[ "$1 $2" == 'agent explain' ]]; then
+  if [[ -n "${NO_RULE:-}" ]]; then
+    printf 'agent: claude\nstate: idle\nrule: none\nfallback_reason: default_known_agent_idle_fallback\n'
+  else
+    printf 'agent: claude\nstate: working\nrule: osc_title_working (region=osc_title priority=1100)\n'
+  fi
+fi
+exit 0
+SH
+  chmod +x "$stub/herdr"
+
+  # #given a recorded claim on this pane, with detection already live
+  printf 'claude\n' > "$marker"; : > "$log"
+  # #when the release runs
+  run env HERDR_PANE_ID=w1:p2 HERDR_AGENT_INTERCOM_CLAIM=w1:p2 \
+    RELEASE_LOG="$log" HOME="$home" PATH="$stub:$PATH" bash "$release"
+  # #then authority goes back to Herdr and the claim cannot be released twice
+  assert_success
+  assert_file_contains "$log" 'pane release-agent w1:p2 --source herdr-agent-intercom --agent claude'
+  assert_file_not_exists "$marker"
+
+  # #given a claim whose launcher is gone, so nothing exports the claim variable
+  printf 'claude\n' > "$marker"; : > "$log"
+  # #when the release runs in a successor session
+  run env HERDR_PANE_ID=w1:p2 RELEASE_LOG="$log" HOME="$home" PATH="$stub:$PATH" bash "$release"
+  # #then the marker alone is enough to give the pane back
+  assert_success
+  assert_file_contains "$log" 'pane release-agent w1:p2 --source herdr-agent-intercom --agent claude'
+  assert_file_not_exists "$marker"
+
+  # #given the same claim but no detection rule has matched yet
+  printf 'claude\n' > "$marker"; : > "$log"
+  # #when the release runs
+  run env HERDR_PANE_ID=w1:p2 HERDR_AGENT_INTERCOM_CLAIM=w1:p2 NO_RULE=1 \
+    RELEASE_LOG="$log" HOME="$home" PATH="$stub:$PATH" bash "$release"
+  # #then it holds the claim, because releasing now destroys the record
+  assert_success
+  assert_equal "$(grep -c 'pane release-agent' "$log")" 0
+  assert_file_exists "$marker"
+
+  # #given a pane no launcher ever claimed
+  rm -f "$marker"; : > "$log"
+  # #when the release runs
+  run env HERDR_PANE_ID=w1:p2 RELEASE_LOG="$log" HOME="$home" PATH="$stub:$PATH" bash "$release"
+  # #then it touches nothing
+  assert_success
+  assert_equal "$(wc -c < "$log" | tr -d ' ')" 0
+
+  # #given a claim recorded against a different pane
+  printf 'claude\n' > "$marker"; : > "$log"
+  # #when the release runs in a pane that is not the claimed one
+  run env HERDR_PANE_ID=w1:p9 HERDR_AGENT_INTERCOM_CLAIM=w1:p2 RELEASE_LOG="$log" \
+    HOME="$home" PATH="$stub:$PATH" bash "$release"
+  # #then it refuses to release a pane that is not its own
+  assert_success
+  assert_equal "$(wc -c < "$log" | tr -d ' ')" 0
+  assert_file_exists "$marker"
+}
+
 function test_scripts_1333_agent_intercom_launcher_passes_through_an_unidentified_herdr_session() {
   _bats_test_init 1333 'agent intercom launcher passes through an unidentified Herdr session'
   local launcher="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom"

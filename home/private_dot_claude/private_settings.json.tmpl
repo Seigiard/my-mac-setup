@@ -95,6 +95,11 @@
             "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/herdr-worktree-identity-hook.sh'",
             "timeout": 2
           },
+          {{/* Fires here rather than at SessionStart on purpose: the launcher's claim may only be released once Herdr can detect this client, and at session start the TUI has not necessarily painted. The command is a no-op unless this session's launcher made the claim. */}}{
+            "type": "command",
+            "command": "bash '{{ .chezmoi.homeDir }}/.local/bin/herdr-agent-intercom-release'",
+            "timeout": 5
+          },
           {
             "type": "command",
             "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/herdr-resource-context.sh'",

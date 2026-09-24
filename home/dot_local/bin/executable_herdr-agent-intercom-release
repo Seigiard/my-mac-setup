@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# herdr-agent-intercom-release -- hand pane state back to Herdr's own detection.
+#
+# `herdr-agent-intercom` declares a pane agent record before it starts a client,
+# because Herdr allocates the alias the launcher needs only after detecting that
+# client. Declaring the record also claims lifecycle authority for the pane, and
+# a held claim suppresses screen detection in everything that reads the snapshot
+# -- sidebar rows, `herdr agent wait`, notifications. The launcher declares
+# `unknown` so that window is honest rather than false, and this command ends it
+# once the client is detectable.
+#
+# Run it from the client's own first-prompt hook, not from session start. The
+# release is only safe while detection can take over: against a pane with no
+# detectable client it destroys the record, taking the alias with it.
+
+set -euo pipefail
+
+pane="${HERDR_PANE_ID:-}"
+[[ -n "$pane" ]] || exit 0
+command -v herdr >/dev/null 2>&1 || exit 0
+
+# An exported claim belongs to this process tree, so it must be for this pane.
+# A claim from a launcher that is gone -- a session killed before it was ever
+# prompted -- leaves only the marker, and the successor in that pane inherits
+# no variable. The marker is therefore the authority, not the variable: without
+# this the leaked claim could never be released by anything.
+if [[ -n "${HERDR_AGENT_INTERCOM_CLAIM:-}" && "$HERDR_AGENT_INTERCOM_CLAIM" != "$pane" ]]; then
+  exit 0
+fi
+
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/agent-intercom/claims"
+marker="$state_dir/${pane//[^A-Za-z0-9]/_}"
+[[ -f "$marker" ]] || exit 0
+
+agent="$(head -n 1 "$marker" 2>/dev/null)" || agent=""
+[[ -n "$agent" ]] || agent="${HERDR_AGENT_INTERCOM_CLAIM_AGENT:-claude}"
+
+# `explain` names the rule that decided the state, and prints `rule: none` when
+# no rule matched -- while a claim is held, and again when the pane holds no
+# detectable client. Testing that the line exists would pass on `none` and
+# release into exactly the case the header warns about, so the rule has to be a
+# real one before authority can go back.
+explain="$(herdr agent explain "$pane" 2>/dev/null)" || exit 0
+rule="$(sed -n 's/^rule: *//p' <<<"$explain" | head -n 1)"
+[[ -n "$rule" && "$rule" != none && "$rule" != none\ * ]] || exit 0
+
+herdr pane release-agent "$pane" --source herdr-agent-intercom \
+  --agent "$agent" --seq "$(date +%s%N)" >/dev/null 2>&1 || exit 0
+rm -f "$marker"
