@@ -21,6 +21,8 @@ symptoms:
   - "A test stays green after the protected behavior is removed"
   - "A subprocess error message satisfies an output assertion because status was never checked"
   - "A fixture called valid never reaches the success path it claims to exercise"
+  - "An expected value was derived by re-running the logic under test, so both can be wrong together"
+  - "An assertion sits behind a condition, so one branch or the other always passes"
   - "A required package is declared or installed, but the process running the gate cannot resolve its binary"
   - "A partial or isolated run is reported as proof that the complete suite passed"
 tags:
@@ -71,6 +73,12 @@ Name the externally observable contract before choosing an assertion. Prefer the
 - Query the real persistence boundary when aggregation or ownership semantics live in the database.
 
 Literal source assertions are appropriate only when literal shape is itself the contract. Examples include reserved command syntax that must survive templating, a required symlink target, or policy text consumed verbatim by another tool. A grep for an internal method call, type annotation, or helper name proves implementation shape instead of behavior; a refactor can break it while preserving behavior, and removing the behavior can leave the matching text behind.
+
+**Precision and shape are separate axes.** Assert the exact value that boundary produces. Restraint
+about internal shape is not permission to assert loosely at the boundary you did choose: a substring
+match, a non-empty check, or an exit status accepted in place of the value leaves every other wrong
+result passing, which is a false green with a different cause. Loosen only when the surrounding output
+is genuinely unstable, and then match text that itself changes when the behavior breaks.
 
 ### Prove the red state
 

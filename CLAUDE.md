@@ -168,10 +168,11 @@ For repository issue queries, lifecycle changes, or unresolved work, load the `r
 
 Costly-to-reverse architecture decisions go to `docs/decisions/` as minimal Architecture Decision Records with `Context`, `Considered options`, and `Decision` sections.
 
-<important if="you are deciding whether a test is warranted, or adding, changing, or reviewing tests">
+<important if="you are deciding whether a test is warranted, or adding, changing, deleting, or reviewing tests">
 
-- **Test-oracle gate:** Read `docs/solutions/design-patterns/semantic-regression-tests-over-source-shape.md` first to decide whether a permanent test is warranted — including the zero-new-tests outcome — before designing one.
+- **Test-oracle gate:** Read `docs/solutions/design-patterns/semantic-regression-tests-over-source-shape.md` first to decide whether a permanent test is warranted — including the zero-new-tests outcome — before designing one. It owns test design here; `~/.claude/rules/testing.md` owns the false-green rules that apply in every repository.
 - Assert command status before inspecting output. Pair rejection fixtures with a nearby valid control that reaches the intended success path.
+- Reach for exact `assert_output` and `assert_equal`. This suite's habit is `--partial`, which passes on wrong values too; keep it for genuinely unstable surrounding output, and match text that changes when the behavior breaks.
 - Search existing coverage first and strengthen its best owner instead of duplicating the assertion. Put new coverage in the narrowest relevant suite; reserve `tests/bashunit/smoke_test.sh` for deployed cross-component behavior.
 - Use `chezmoi_test_init()` from `tests/helpers/common.bash` instead of raw `chezmoi init`.
 
