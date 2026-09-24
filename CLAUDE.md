@@ -184,8 +184,9 @@ Costly-to-reverse architecture decisions go to `docs/decisions/` as minimal Arch
 
 </important>
 
-<important if="you have read the findings of a revmux review round, or are judging whether review context in this repository is complete">
+<important if="you are launching a revmux round, have read its findings, or are judging whether review context in this repository is complete">
 
+- The default profile on this machine is `lean`, set in `~/.config/revmux/config`: `comprehensive` plus a codex agent carrying `simplify` and `test-worth`. Launch without `--profile` unless the user names one; `comprehensive` is the narrower roster here, not the full one.
 - `.revmux/profile.md` is the reviewer calibration revmux injects into every agent of every round. The global ignore file excludes `.revmux/*`; this repository re-admits the profile with a `!.revmux/profile.md` line in its own `.gitignore`, because revmux resolves the profile from the process working directory, so it must reach every herdr worktree.
 - It carries **weights, not facts** — how much something costs here, never what the repository contains. Anything an agent could establish by reading the repository belongs in the repository; only what changes a verdict belongs in the profile.
 - **Update it when a round demonstrates that a weight was wrong.** That is the whole trigger: a finding missed, a severity rated by general instinct instead of this repository's own rules, a false positive on a deliberate convention, a mandatory gate never applied. A new `docs/solutions/` entry or ADR is a reason to check whether one of those happened, not a reason to add a line.
