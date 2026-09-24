@@ -18,6 +18,6 @@ When every child is merged and the big PR is green, prove the change in the **re
 
 Three things that link does not excuse:
 
-- **Refresh the big PR's title and body to match its final contents.** They were authored when the PR held only the contract spec; now it holds the whole change. The title must name the product change itself (pf-cycle → Naming on public surfaces), and the Summary/Solution must describe everything in the final diff. The user reviews and merges this PR as the whole change, and it becomes the permanent record of it.
+- **Refresh the big PR's title and body to match its final contents.** They were authored when the PR held only the contract spec; now it holds the whole change. Its base is `main`, so the refreshed body follows the `make-pr` skill merged with the repo format. The title must name the product change itself (pf-cycle → Naming on public surfaces), and the Summary/Solution must describe everything in the final diff. The user reviews and merges this PR as the whole change, and it becomes the permanent record of it.
 - **Say what the demo proves.** Lead the Review Context with a sentence of outcome, not just a URL. A reviewer who never clicks should still know what happened.
 - **Embed the few frames that carry the story** with `bun linear-upload <png>` → `![caption](URL)`, so the PR is reviewable at a glance. The published page is the full walkthrough; inline images are the summary.
