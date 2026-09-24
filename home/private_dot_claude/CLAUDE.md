@@ -12,6 +12,12 @@ Read `~/.claude/shared/long-running-work.md` before launching. It carries the su
 
 </important>
 
+<important if="you are deciding whether a behavior needs a test, judging whether a failing test or a passing suite is evidence, or about to delete, skip, or weaken a test">
+
+Read `~/.claude/rules/testing.md`. It carries the oracle gate that decides whether a test is warranted at all, the false-green forms that pass whether the behavior is right or wrong, and what a red test obliges you to do instead of removing it.
+
+</important>
+
 <important if="an intercom message reaches you, or you need to reach an agent session you did not launch">
 
 Read `~/.claude/shared/agent-intercom-contract.md`. It carries the tool set and the prefixed names Claude sees, who is reachable and who only looks reachable, the blocking window on `intercom_ask` and what expiry leaves behind, and when `herdr-child` owns the exchange instead.
