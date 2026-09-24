@@ -56,9 +56,12 @@ Allowing an exact alias to bypass that routing policy is recorded but deferred;
 it is not a gate on proving useful communication between currently permitted
 peers.
 
-The explicit name is the globally unique alias Herdr assigns when it launches an
-agent. The same alias is passed through every placement launcher and registered
-with Agent Intercom. Agent Intercom session IDs and reconnect credentials remain
+The explicit name is the globally unique alias from Herdr's pane-labels pool
+that identifies an agent's pane. Herdr assigns it when it launches an agent
+itself; where a pane has no agent record at all, the launcher allocates from the
+same pool and registers the record before starting the client, so the pool
+remains the single source of these names. The same alias is passed through every
+placement launcher and registered with Agent Intercom. Agent Intercom session IDs and reconnect credentials remain
 internal transport details rather than a second user-facing naming system.
 
 The MVP does not require broker-owned persistence before sender success, typed
@@ -219,11 +222,33 @@ free pool alias before `herdr agent start`; the pending pane record already
 exposes that name, and later reconciliation retains it. `HERDR_CHILD_LAUNCH=1`
 marks managed child-launch context, not an Intercom address. The legacy
 `HERDR_CHILD_NAME` migration fallback and explicit context required for direct
-upstream launches are documented in the child-agent contract. A missing record, provisional
-name, or unavailable allocator produces a warning and starts the client without
-Intercom. The launcher never waits for reconciliation while blocking client
-startup: Herdr forbids renaming a pending launch. Fresh plain-shell launches
-therefore also use this fallback unless a canonical record already exists.
+upstream launches are documented in the child-agent contract. A provisional name or an
+unavailable allocator produces a warning and starts the client without Intercom.
+The launcher never waits for reconciliation while blocking client startup: Herdr
+forbids renaming a pending launch.
+
+A missing record is different, and it is the ordinary plain-shell case. Herdr
+builds a pane's agent record by detecting the started client from the terminal
+title it emits, so the alias the launcher wants comes into being strictly after
+the moment it is needed, and no amount of waiting reaches it. The launcher
+therefore declares the record itself: `herdr pane report-agent` creates it and
+`herdr agent rename` puts a pool alias on it, both before the client starts.
+That rename is also the collision boundary, because `agent_name_taken` is
+decided by the server rather than by a name chosen locally. A record that
+already exists is never renamed; it belongs to whoever created it.
+
+Only Claude Code takes this path. Declaring the record claims the pane's
+lifecycle authority, which suppresses Herdr's own screen detection until it is
+released, and the only release surface this repository deploys is Claude Code's
+first-prompt hook. OpenCode's and Pi's own transports gate tool calls rather
+than lifecycle, so a claim taken for them could never be given back; they keep
+the fallback until they have a release surface of their own. The launcher declares
+`unknown` rather than a state it cannot observe, so the window is honest instead
+of false, and `herdr-agent-intercom-release` ends it from the client's first
+prompt, once detection can take over. Release is deferred that far because
+against a pane with no detectable client it destroys the record and the alias
+with it. A session that dies before its release leaves the pane reading
+`unknown`: stale, and distinguishable from a healthy idle pane.
 
 The launcher runs interactive Claude sessions through live MCP `cci`, exports OpenCode's
 adapter name, and passes Pi's normal session name. Claude and Pi utility

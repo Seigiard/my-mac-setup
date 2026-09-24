@@ -34,6 +34,7 @@ fi
 # its own registered alias, or start without that inherited Intercom identity.
 unset HERDR_AGENT_INTERCOM_ACTIVE HERDR_AGENT_INTERCOM_NAME HERDR_AGENT_INTERCOM_PANE
 unset OPENCODE_INTERCOM_NAME HERDR_AGENT_INTERCOM_PI_LOAD
+unset HERDR_AGENT_INTERCOM_CLAIM HERDR_AGENT_INTERCOM_CLAIM_AGENT
 
 case "$agent" in
   claude)
@@ -135,6 +136,102 @@ if [[ -n "$intercom_name" ]]; then
     fi
   done <<< "$candidates"
   [[ "$allocated" == 1 ]] || intercom_name=""
+fi
+
+# A pane that has never hosted an agent carries no record at all, and Herdr
+# allocates its alias only after detecting the started client from the terminal
+# title that client emits. There is therefore nothing to read here, and waiting
+# cannot help: the name this lookup wants comes into being strictly after the
+# moment it is needed. Declare the record instead. `pane report-agent` creates
+# it, `agent rename` puts a pool alias on it, and that rename is the collision
+# boundary -- `agent_name_taken` is decided by the server and arrives before
+# the client starts, which is the guarantee a name chosen locally cannot offer.
+#
+# Only a pane with no record qualifies. A record whose name failed the pool
+# check above belongs to someone else's launch (#304); renaming it would take a
+# session's identity away from its owner.
+#
+# The claim suppresses screen detection for as long as it is held, so it
+# declares `unknown` rather than a state it cannot know. A session that dies
+# before the release then reads as "no information" instead of a confident lie.
+# `herdr-agent-intercom-release` performs the release once detection can take
+# over; HERDR_AGENT_INTERCOM_CLAIM tells it that this launcher is the claimant.
+# Only Claude Code has a surface that can end the claim: the `UserPromptSubmit`
+# hook this repository deploys. OpenCode's and Pi's own transports are tool-call
+# gates, not lifecycle surfaces, so a claim taken for them would be held for the
+# life of the session with nothing able to release it. They keep the fallback.
+if [[ -z "$intercom_name" && "$agent" == claude && -n "${HERDR_PANE_ID:-}" ]] &&
+  command -v herdr >/dev/null 2>&1 &&
+  command -v herdr-peer-alias >/dev/null 2>&1; then
+  # `herdr agent get` reports a missing record on stderr and exits non-zero, so
+  # the exit status is the ordinary answer here rather than a failure. Discard
+  # it and keep the text; blanking the capture on a non-zero status would throw
+  # away the one message this branch exists to match.
+  claim_probe="$(herdr agent get "$HERDR_PANE_ID" 2>&1)" || true
+  if [[ "$claim_probe" == *agent_not_found* ]]; then
+    claim_pane="$HERDR_PANE_ID"
+    claim_agent="$agent"
+    claim_held=0
+    # Every exit between taking the claim and handing the pane to the client
+    # would otherwise leave a record with detection suppressed and nothing
+    # behind it. A successful exec replaces this process and runs no EXIT trap,
+    # so this fires only on the paths that never reach the client -- a signal,
+    # or one of the argument checks further down that exit non-zero.
+    release_unfinished_claim() {
+      [[ "$claim_held" == 1 ]] || return 0
+      claim_held=0
+      herdr pane release-agent "$claim_pane" --source herdr-agent-intercom \
+        --agent "$claim_agent" --seq "$(date +%s%N)" >/dev/null 2>&1 || true
+    }
+    trap release_unfinished_claim EXIT INT TERM
+
+    claim_seed="${HERDR_SOCKET_PATH:-no-socket}|$HERDR_PANE_ID|$agent|$$|$(date +%s)-$RANDOM"
+    claimed=0
+    reserved=()
+    attempt=1
+    while [[ "$attempt" -le 3 ]]; do
+      candidate="$(herdr-peer-alias "$claim_seed" "${reserved[@]+"${reserved[@]}"}" 2>/dev/null)" || candidate=""
+      # herdr-peer-alias degrades to an `unnamed-*` placeholder when the
+      # allocator is silent. That name is outside the pool on purpose, so
+      # claiming it would only produce a record the pool check rejects.
+      [[ -n "$candidate" && "$candidate" != unnamed-* ]] || break
+      herdr pane report-agent "$HERDR_PANE_ID" --source herdr-agent-intercom \
+        --agent "$agent" --state unknown --seq "$(date +%s%N)" >/dev/null 2>&1 || break
+      claim_held=1
+      if herdr agent rename "$HERDR_PANE_ID" "$candidate" >/dev/null 2>&1; then
+        intercom_name="$candidate"
+        claimed=1
+        break
+      fi
+      # Releasing a claim on a pane with no running client destroys the record,
+      # which is exactly the state to return to before trying the next name.
+      release_unfinished_claim
+      reserved+=("$candidate")
+      attempt=$((attempt + 1))
+    done
+
+    if [[ "$claimed" == 1 ]]; then
+      # The marker is what lets the release find a claim whose launcher is gone
+      # -- a session killed before its first prompt exports nothing to its
+      # successor. Without the marker the claim could never be released at all,
+      # so a claim that cannot be recorded is given back instead of leaked.
+      claim_dir="${XDG_STATE_HOME:-$HOME/.local/state}/agent-intercom/claims"
+      if mkdir -p "$claim_dir" 2>/dev/null &&
+        printf '%s\n' "$agent" > "$claim_dir/${HERDR_PANE_ID//[^A-Za-z0-9]/_}" 2>/dev/null; then
+        export HERDR_AGENT_INTERCOM_CLAIM="$HERDR_PANE_ID"
+        export HERDR_AGENT_INTERCOM_CLAIM_AGENT="$agent"
+      else
+        printf 'herdr-agent-intercom: cannot record the pane claim; releasing it\n' >&2
+        release_unfinished_claim
+        intercom_name=""
+      fi
+    fi
+    # Give back only a claim that bought nothing. A successful claim is held
+    # deliberately until the client's first prompt releases it, and the loop
+    # breaks before the first `pane report-agent` when the allocator is silent,
+    # so there is nothing to release on that path either.
+    [[ "$claimed" == 1 ]] || release_unfinished_claim
+  fi
 fi
 
 if [[ -z "$intercom_name" ]]; then

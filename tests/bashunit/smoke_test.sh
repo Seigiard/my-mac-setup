@@ -136,6 +136,7 @@ _smoke_critical_paths() {
     .local/lib/herdr-child-reap.sh
     .local/bin/herdr-agent-intercom
     .local/bin/herdr-agent-intercom-claude
+    .local/bin/herdr-agent-intercom-release
     .local/share/agent-intercom/package.json
     .local/share/agent-intercom/package-lock.json
   )
