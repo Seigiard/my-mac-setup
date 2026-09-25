@@ -24,30 +24,6 @@ async function temporaryRoot(): Promise<string> {
   return root;
 }
 
-async function waitFor(path: string): Promise<void> {
-  for (let attempt = 0; attempt < 3000; attempt += 1) {
-    if (await Bun.file(path).exists()) return;
-    await Bun.sleep(1);
-  }
-  throw new Error(`timed out waiting for ${path}`);
-}
-
-async function stubEngine(root: string): Promise<string> {
-  const engine = join(root, "engine");
-  await writeFile(engine, `#!/usr/bin/env bash
-set -eu
-call="${root}/call-$$"
-mkdir "$call"
-printf '%s\\n' "$@" > "$call/argv"
-cat > "$call/stdin"
-: > "$call/ready"
-( while [ ! -e "${root}/release" ]; do sleep 0.01; done; : > "$call/released" ) &
-exit 0
-`);
-  await Bun.spawn(["chmod", "+x", engine]).exited;
-  return engine;
-}
-
 async function recordingEngine(root: string): Promise<string> {
   const engine = join(root, "recording-engine");
   await writeFile(engine, `#!/usr/bin/env bash
@@ -124,43 +100,71 @@ describe("Pi worktree identity prompt capture", () => {
     });
   });
 
-  test("registers before_agent_start and hands off a stdin-only prompt while derivation remains pending", async () => {
+  test("registers before_agent_start and hands the prompt to the engine on stdin only", async () => {
     const root = await temporaryRoot();
     process.env.HERDR_ENV = "1";
     process.env.HERDR_PANE_ID = "pane-pi";
     process.env.HERDR_WORKSPACE_ID = "workspace-pi";
-    process.env.HERDR_WORKTREE_IDENTITY_ENGINE = await stubEngine(root);
+    process.env.HERDR_WORKTREE_IDENTITY_ENGINE = await recordingEngine(root);
     const handlers = await register();
 
     const handler = handlers.get("before_agent_start");
-    expect(handler).toBeDefined();
-    await handler({ prompt: "Pi stdin-only sentinel" }, context());
+    expect(handler).toBeTypeOf("function");
+    await handler!({ prompt: "Pi stdin-only sentinel" }, context());
 
     const calls = (await readdir(root)).filter((entry) => entry.startsWith("call-"));
     expect(calls).toHaveLength(1);
     const call = join(root, calls[0]);
     expect(await Bun.file(join(call, "stdin")).text()).toBe("Pi stdin-only sentinel");
-    expect(await Bun.file(join(call, "argv")).text()).toContain("pi");
-    expect(await Bun.file(join(call, "argv")).text()).not.toContain("Pi stdin-only sentinel");
-    await waitFor(join(call, "ready"));
-    expect(await Bun.file(join(call, "released")).exists()).toBe(false);
-    await writeFile(join(root, "release"), "");
-    await waitFor(join(call, "released"));
+    // The exact flag list, not a substring: "pi" also matches the pane and
+    // workspace ids in the same argv, so it stays satisfied when --agent
+    // carries the wrong client. The list also shows the prompt never becomes
+    // an argument, where another process could read it.
+    expect((await Bun.file(join(call, "argv")).text()).trim().split("\n")).toEqual([
+      "--agent",
+      "pi",
+      "--session",
+      "session-pi",
+      "--pane",
+      "pane-pi",
+      "--workspace",
+      "workspace-pi",
+    ]);
   });
 
-  test("does not capture outside herdr, without session UI, or during naming re-entry", async () => {
+  test("does not register outside herdr", async () => {
     const root = await temporaryRoot();
-    process.env.HERDR_WORKTREE_IDENTITY_ENGINE = await stubEngine(root);
-    const outside = await register();
-    expect(outside.size).toBe(0);
+    process.env.HERDR_WORKTREE_IDENTITY_ENGINE = await recordingEngine(root);
 
+    const handlers = await register();
+
+    expect(handlers.size).toBe(0);
+    expect((await readdir(root)).filter((entry) => entry.startsWith("call-"))).toEqual([]);
+  });
+
+  test("declines to capture a session with no UI", async () => {
+    const root = await temporaryRoot();
     process.env.HERDR_ENV = "1";
-    const headless = await register();
-    await headless.get("before_agent_start")?.({ prompt: "headless" }, context(false));
+    process.env.HERDR_WORKTREE_IDENTITY_ENGINE = await recordingEngine(root);
+    const handlers = await register();
+    // Without this, a registration that never happened produces the same empty
+    // root as a handler that declined, so the two are indistinguishable.
+    expect(handlers.size).toBe(1);
 
+    await handlers.get("before_agent_start")!({ prompt: "headless" }, context(false));
+
+    expect((await readdir(root)).filter((entry) => entry.startsWith("call-"))).toEqual([]);
+  });
+
+  test("does not register during naming re-entry", async () => {
+    const root = await temporaryRoot();
+    process.env.HERDR_ENV = "1";
     process.env.HERDR_WORKTREE_IDENTITY_ACTIVE = "1";
-    const reentry = await register();
-    expect(reentry.size).toBe(0);
-    expect((await readdir(root)).filter((entry) => entry.startsWith("call-")).length).toBe(0);
+    process.env.HERDR_WORKTREE_IDENTITY_ENGINE = await recordingEngine(root);
+
+    const handlers = await register();
+
+    expect(handlers.size).toBe(0);
+    expect((await readdir(root)).filter((entry) => entry.startsWith("call-"))).toEqual([]);
   });
 });

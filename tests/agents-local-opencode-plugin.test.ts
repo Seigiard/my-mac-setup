@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { mkdir, symlink, writeFile } from "node:fs/promises";
+import { mkdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -85,9 +85,11 @@ async function projectWithAgentsLocal(contents: string): Promise<string> {
 // --- scenario 1: shared-module parity ---------------------------------------
 
 describe("shared selection module (R7)", () => {
-  test("pi and opencode emit a byte-identical block for the same tree", async () => {
+  test("pi and opencode emit the same literal block for the same tree", async () => {
     // #given one project tree and both consumers pointed at it
-    const root = await projectWithAgentsLocal("Shared fixture SENTINEL_PARITY_5e1a.\n");
+    const contents = "Shared fixture SENTINEL_PARITY_5e1a.\n";
+    const root = await projectWithAgentsLocal(contents);
+    const selectedRealPath = await realpath(join(root, "AGENTS.local.md"));
     const transform = await loadTransform(root);
     const piHandler = await loadPiHandler();
 
@@ -96,10 +98,25 @@ describe("shared selection module (R7)", () => {
     await transform({}, { system });
     const piResult = await piHandler({ systemPrompt: BASE_SYSTEM }, { cwd: root, hasUI: false });
 
-    // #then the appended text is the same bytes on both sides
-    expect(system).toHaveLength(2);
-    expect(piResult.systemPrompt.slice(BASE_SYSTEM.length)).toBe(system[1]);
-    expect(system[1]).toContain("SENTINEL_PARITY_5e1a");
+    // #then both sides emit this exact block. Written out rather than read back
+    // from the formatter: the heading is the plugin's own idempotence marker
+    // (agents-local.ts reads it back), and the "Loaded from" line and the
+    // `### <file name>` sub-heading are what tells a prompt reader whose
+    // instructions these are. Comparing the two consumers to each other proves
+    // only that they call one function, which they do by construction.
+    const block = [
+      "",
+      "",
+      "## Local Private Project Instructions",
+      "",
+      `Loaded from ${selectedRealPath}. These instructions are private and local. Follow them in addition to repository instructions.`,
+      "",
+      "### AGENTS.local.md",
+      "",
+      contents,
+    ].join("\n");
+    expect(system).toEqual([BASE_SYSTEM, block]);
+    expect(piResult.systemPrompt).toBe(BASE_SYSTEM + block);
   });
 });
 

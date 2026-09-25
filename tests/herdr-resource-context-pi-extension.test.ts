@@ -89,6 +89,27 @@ function generatedBlock(context: string): string {
   return `${START}\n${HEADING}\n${context}\n${END}`;
 }
 
+function unavailableBlock(reason: string): string {
+  return generatedBlock(
+    `Herdr resource context unavailable: ${reason}. This must not be treated as an empty resource branch.`,
+  );
+}
+
+/**
+ * The active-extension host. Naming both handlers up front keeps a failed
+ * registration from arriving later as a TypeError inside whichever step
+ * happened to call an optional handler first.
+ */
+async function loadActiveExtension(root: string) {
+  const host = await loadExtension(root);
+  expect([...host.handlers.keys()].sort()).toEqual(["before_agent_start", "session_start"]);
+  return {
+    sessionStart: host.handlers.get("session_start") as Function,
+    beforeAgentStart: host.handlers.get("before_agent_start") as Function,
+    sendMessageCalls: host.sendMessageCalls,
+  };
+}
+
 describe("Pi model-request resource context", () => {
   test("a resumed session's shared branch projection reaches model input without a synthetic turn", async () => {
     const root = temporaryDir("herdr-resource-context-pi-");
@@ -101,14 +122,11 @@ describe("Pi model-request resource context", () => {
       "Context truncated. Full branch: `herdr-resource-tree --branch`.",
     ].join("\n");
     writeFileSync(join(root, "context-session-B"), projected);
-    const host = await loadExtension(root);
+    const host = await loadActiveExtension(root);
     const ctx = context("session-B");
 
-    await host.handlers.get("session_start")?.({ reason: "resume" }, ctx);
-    const result = await host.handlers.get("before_agent_start")?.(
-      { systemPrompt: "You are Pi.", prompt: "continue" },
-      ctx,
-    );
+    await host.sessionStart({ reason: "resume" }, ctx);
+    const result = await host.beforeAgentStart({ systemPrompt: "You are Pi.", prompt: "continue" }, ctx);
 
     expect(result.systemPrompt).toBe(`You are Pi.\n\n${generatedBlock(projected)}`);
     expect(readFileSync(join(root, "query-argv"), "utf8").trim().split("\n")).toEqual([
@@ -123,35 +141,35 @@ describe("Pi model-request resource context", () => {
 
   test("the same conversation refreshes in place while a new conversation gets its own identity", async () => {
     const root = temporaryDir("herdr-resource-context-pi-session-");
-    writeFileSync(join(root, "context-session-B"), 'Resources:\n- pane "first" [w1:p1]');
-    writeFileSync(join(root, "context-session-new"), 'Resources:\n- pane "replacement" [w1:p2]');
-    const host = await loadExtension(root);
+    const firstBranch = 'Resources:\n- pane "first" [w1:p1]';
+    const refreshedBranch = 'Resources:\n- pane "refreshed" [w1:p3]';
+    const replacementBranch = 'Resources:\n- pane "replacement" [w1:p2]';
+    writeFileSync(join(root, "context-session-B"), firstBranch);
+    writeFileSync(join(root, "context-session-new"), replacementBranch);
+    const host = await loadActiveExtension(root);
     const resumed = context("session-B");
 
-    await host.handlers.get("session_start")?.({ reason: "resume" }, resumed);
-    const first = await host.handlers.get("before_agent_start")?.(
-      { systemPrompt: "Base prompt", prompt: "first" },
-      resumed,
-    );
-    expect(first.systemPrompt).toContain('pane "first"');
+    // Each step asserts the whole prompt: replacing in place is a property of
+    // the block boundaries, and a leftover START marker, a doubled blank line
+    // or a dangling END all survive a substring match plus a heading count.
+    await host.sessionStart({ reason: "resume" }, resumed);
+    const first = await host.beforeAgentStart({ systemPrompt: "Base prompt", prompt: "first" }, resumed);
+    expect(first.systemPrompt).toBe(`Base prompt\n\n${generatedBlock(firstBranch)}`);
 
-    writeFileSync(join(root, "context-session-B"), 'Resources:\n- pane "refreshed" [w1:p3]');
-    const refreshed = await host.handlers.get("before_agent_start")?.(
+    writeFileSync(join(root, "context-session-B"), refreshedBranch);
+    const refreshed = await host.beforeAgentStart(
       { systemPrompt: first.systemPrompt, prompt: "next" },
       resumed,
     );
-    expect(refreshed.systemPrompt).toContain('pane "refreshed"');
-    expect(refreshed.systemPrompt).not.toContain('pane "first"');
-    expect(refreshed.systemPrompt.split(HEADING)).toHaveLength(2);
+    expect(refreshed.systemPrompt).toBe(`Base prompt\n\n${generatedBlock(refreshedBranch)}`);
 
     const replacement = context("session-new");
-    await host.handlers.get("session_start")?.({ reason: "new" }, replacement);
-    const replaced = await host.handlers.get("before_agent_start")?.(
+    await host.sessionStart({ reason: "new" }, replacement);
+    const replaced = await host.beforeAgentStart(
       { systemPrompt: refreshed.systemPrompt, prompt: "replacement" },
       replacement,
     );
-    expect(replaced.systemPrompt).toContain('pane "replacement"');
-    expect(replaced.systemPrompt).not.toContain('pane "refreshed"');
+    expect(replaced.systemPrompt).toBe(`Base prompt\n\n${generatedBlock(replacementBranch)}`);
 
     const queryArgs = readFileSync(join(root, "query-argv"), "utf8").trim().split("\n");
     expect(queryArgs.filter((argument) => argument === "session-B")).toHaveLength(2);
@@ -162,39 +180,44 @@ describe("Pi model-request resource context", () => {
   test("empty, failed, and identity-mismatched queries remain distinct", async () => {
     const root = temporaryDir("herdr-resource-context-pi-failure-");
     writeFileSync(join(root, "context"), "");
-    const host = await loadExtension(root);
+    const host = await loadActiveExtension(root);
     const ctx = context("session-B");
-    await host.handlers.get("session_start")?.({ reason: "startup" }, ctx);
+    await host.sessionStart({ reason: "startup" }, ctx);
     const stale = generatedBlock('Resources:\n- pane "stale" [old]');
 
-    const empty = await host.handlers.get("before_agent_start")?.(
+    // "Remain distinct" is the contract, so each case is pinned to its whole
+    // prompt: the substring "Herdr resource context unavailable" matches all
+    // three reasons and cannot tell them apart.
+    const empty = await host.beforeAgentStart(
       { systemPrompt: `Base prompt\n\n${stale}`, prompt: "empty" },
       ctx,
     );
     expect(empty.systemPrompt).toBe("Base prompt");
 
     writeFileSync(join(root, "fail-session-B"), "");
-    const failed = await host.handlers.get("before_agent_start")?.(
+    const failed = await host.beforeAgentStart(
       { systemPrompt: `Base prompt\n\n${stale}`, prompt: "failed" },
       ctx,
     );
-    expect(failed.systemPrompt).toContain("Herdr resource context unavailable");
-    expect(failed.systemPrompt).toContain("must not be treated as an empty resource branch");
-    expect(failed.systemPrompt).not.toContain('pane "stale"');
+    expect(failed.systemPrompt).toBe(
+      `Base prompt\n\n${unavailableBlock("the shared resource query failed")}`,
+    );
 
-    const mismatch = await host.handlers.get("before_agent_start")?.(
+    const mismatch = await host.beforeAgentStart(
       { systemPrompt: `Base prompt\n\n${stale}`, prompt: "replacement" },
       context("session-new"),
     );
-    expect(mismatch.systemPrompt).toContain("Pi session identity changed");
-    expect(mismatch.systemPrompt).not.toContain('pane "stale"');
+    expect(mismatch.systemPrompt).toBe(
+      `Base prompt\n\n${unavailableBlock("Pi session identity changed before context projection")}`,
+    );
 
-    const missing = await host.handlers.get("before_agent_start")?.(
+    const missing = await host.beforeAgentStart(
       { systemPrompt: `Base prompt\n\n${stale}`, prompt: "missing" },
       context(),
     );
-    expect(missing.systemPrompt).toContain("Pi did not expose a native session identity");
-    expect(missing.systemPrompt).not.toContain('pane "stale"');
+    expect(missing.systemPrompt).toBe(
+      `Base prompt\n\n${unavailableBlock("Pi did not expose a native session identity")}`,
+    );
 
     const queryArgs = readFileSync(join(root, "query-argv"), "utf8").trim().split("\n");
     expect(queryArgs.filter((argument) => argument === "session-B")).toHaveLength(2);
