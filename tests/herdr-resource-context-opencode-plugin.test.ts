@@ -203,7 +203,9 @@ describe("OpenCode model-request resource context", () => {
 
     const system = ["You are OpenCode."];
     await host.transform({ sessionID: "session-B" }, { system });
-    expect(system.join("\n")).toContain('pane "owned"');
+    // Exact, like the other projections in this file: the retraction below is
+    // only meaningful if the branch it retracts was rendered whole first.
+    expect(system).toEqual(["You are OpenCode.", `${HEADING}\nResources:\n- pane "owned" [w1:p1]`]);
 
     // sessionID is optional in the plugin API, so an absent one is a supported
     // state. Returning early would leave the previous request's branch in the

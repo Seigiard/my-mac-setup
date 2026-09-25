@@ -100,8 +100,11 @@ function test_templates_033_unattended_init_requires_a_machine_role() {
 
   run write_test_config "$BATS_TEST_TMPDIR/missing-machine-role.yaml"
   assert_failure
-  assert_output --partial 'MMS_MACHINE_ROLE'
-  assert_output --partial 'mbp2021, mbp2026, or server'
+  # One match on the whole message. Split across two partials, the variable
+  # name and the accepted list could come from two different gates -- the
+  # unattended one and the invalid-value one both mention MMS_MACHINE_ROLE.
+  # Partial only because chezmoi wraps the message in template-error framing.
+  assert_output --partial 'MMS_MACHINE_ROLE must be mbp2021, mbp2026, or server during unattended init'
 }
 
 function test_templates_034_chezmoi_init_rejects_an_unknown_machine_role() {
@@ -221,7 +224,9 @@ function test_templates_037_an_invalid_persisted_role_fails_before_ssh_policy_ch
   run chezmoi_full_fixture apply \
     --source "$source" --destination "$dest" --config "$cfg"
   assert_failure
-  assert_output --partial 'invalid machine_role'
+  # Names the refused value and the accepted set: 'invalid machine_role' alone
+  # also matches the ignore file refusing some other role.
+  assert_output --partial 'invalid machine_role "workstation": expected mbp2021, mbp2026, or server'
   assert_ssh_policy_sentinels "$dest"
 }
 
@@ -245,7 +250,9 @@ function test_templates_0371_a_wrong_os_persisted_role_fails_before_ssh_policy_c
   run chezmoi_full_fixture apply \
     --source "$source" --destination "$dest" --config "$cfg"
   assert_failure
-  assert_output --partial 'is not supported on'
+  # The role and the OS both belong in the match: without them a message about
+  # the opposite pair satisfies this arm.
+  assert_output --partial "machine role \"$role\" is not supported on $(get_os)"
   assert_ssh_policy_sentinels "$dest"
 }
 
@@ -458,7 +465,9 @@ with open(path, "w") as output:
   run chezmoi_full_fixture --config "$cfg" --source "$source" \
     execute-template --file "$template"
   assert_failure
-  assert_output --partial 'has no authorized keys'
+  # Names the template and the role: the bare phrase cannot tell an empty
+  # authorized_keys list for this role from one for any other.
+  assert_output --partial "cannot render authorized_keys: machine_role \"$role\" has no authorized keys"
 }
 
 function test_templates_043_1password_agent_allowlists_only_the_role_key() {

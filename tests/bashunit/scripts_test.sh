@@ -3325,8 +3325,10 @@ TOML
 
   run bash "$PRE_EXTERNAL_SECRET_SCAN" "$clean_dir" "$leak_dir"
   assert_failure 1
-  assert_output --partial 'pre-external secret gate REFUSED'
-  assert_output --partial 'FOUND secrets'
+  # One phrase, not two fragments: split, the refusal banner and the finding
+  # could come from different lines -- a clean directory scanned after a failed
+  # one satisfies both.
+  assert_output --partial 'pre-external secret gate REFUSED: FOUND secrets in '
   refute_output --partial "$token"
 
   run bash -c 'printf "prompt=%s\n" "$3" | bash "$1" --stdin "$2"' \
@@ -3378,18 +3380,21 @@ SH
 
   run env PATH="$empty_bin:/usr/bin:/bin" /bin/bash "$PRE_EXTERNAL_SECRET_SCAN" "$scan_dir"
   assert_failure 1
-  assert_output --partial 'gitleaks is not on PATH'
-  assert_output --partial 'Nothing was sent externally'
+  # One line each. Split, the refusal reason and the "nothing was sent"
+  # reassurance need not come from the same gate, and all three gates below
+  # print the reassurance.
+  assert_output 'pre-external secret gate REFUSED: gitleaks is not on PATH. Nothing was sent externally.'
 
   run env PATH="$bad_bin:/usr/bin:/bin" /bin/bash "$PRE_EXTERNAL_SECRET_SCAN" "$scan_dir"
   assert_failure 1
-  assert_output --partial 'unexpected code 7'
-  assert_output --partial 'Nothing was sent externally'
+  # Partial: the scanned path is resolved through /private on macOS, so the
+  # line cannot be matched whole; the merged phrase still binds the reason and
+  # the exit code to one gate.
+  assert_output --partial 'pre-external secret gate REFUSED: gitleaks exited with unexpected code 7 while scanning '
 
   run bash "$PRE_EXTERNAL_SECRET_SCAN" "$scan_dir/missing"
   assert_failure 1
-  assert_output --partial 'scan target does not exist'
-  assert_output --partial 'Nothing was sent externally'
+  assert_output "pre-external secret gate REFUSED: scan target does not exist: $scan_dir/missing. Nothing was sent externally."
 }
 
 ask_live_stub() {
@@ -3643,9 +3648,12 @@ function test_scripts_1054_ask_sh_starts_a_read_only_live_child_and_returns_its_
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$ASK_HERDR_SCRIPT" claude "hi there"
   assert_success
-  assert_output --partial "ANSWER from child"
-  assert_output --partial "close with: herdr-child reap --to red-wolf --pane wT:p9"
-  assert_output --partial "ask.sh: status=answered"
+  # The whole relay, exactly: the answer, the pane notice naming the child and
+  # the pane, and the status line, in that order. As three partials the notice
+  # could precede the answer, or a second status line could follow.
+  assert_output 'ANSWER from child
+ask.sh: consult is in herdr pane wT:p9 (left open; close with: herdr-child reap --to red-wolf --pane wT:p9)
+ask.sh: status=answered'
   run grep -E -- '^start --kind claude --posture ro ' "$CHILD_STUB/child.log"
   assert_success
   run grep -E -- '--prompt-file .* --wait --timeout 1800000' "$CHILD_STUB/child.log"
@@ -3880,8 +3888,12 @@ function test_scripts_1067_ask_sh_returns_the_transport_file_not_the_pane_text()
     bash "$ASK_HERDR_SCRIPT" claude question
   assert_success
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=answered"
-  assert_output --partial 'report line 1'
-  assert_output --partial 'report line 250'
+  # Whole lines and the whole count: 'report line 1' as a substring is also
+  # satisfied by 'report line 100', so the pair could pass on a relay that
+  # dropped most of the transport.
+  assert_equal "$(grep -c '^report line ' <<< "$output")" 250
+  assert_line 'report line 1'
+  assert_line 'report line 250'
   refute_output --partial 'ANSWER from child'
 }
 
@@ -4694,11 +4706,12 @@ function test_scripts_1240_herdr_child_preserves_a_verified_child_when_parentage
 
   STUB_PARENTAGE_FAIL=1 run child_start --kind claude --wait
   assert_failure 75
-  assert_output --partial 'injected parentage failure'
-  assert_output --partial 'parentage recording failed after Agent start'
-  assert_output --partial 'child preserved'
-  assert_output --partial 'automatic launch retry is unsafe'
-  assert_output --partial "\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\""
+  # Whole output. Split into fragments, the diagnostic could lose the pane the
+  # caller has to clean up by hand, or report a different child, and still
+  # match every piece.
+  assert_output "injected parentage failure
+herdr-child: parentage recording failed after Agent start; child preserved and automatic launch retry is unsafe
+{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
   assert_file_contains "$CHILD_STUB/resource-tree.log" '^record-child --pane wT:p9 --terminal term-child'
   run grep -Eq '^(pane close|agent prompt)' "$CHILD_STUB/calls.log"
   assert_failure
@@ -4710,9 +4723,8 @@ function test_scripts_1241_herdr_child_preserves_a_wrapper_partial_success_witho
 
   STUB_SPLIT_STATUS=70 run child_start --kind claude --wait
   assert_failure 70
-  assert_output --partial '"pane_id":"wT:p9"'
-  assert_output --partial 'pane creation returned status 70 after reporting pane wT:p9'
-  assert_output --partial 'automatic creation retry is unsafe'
+  assert_output '{"result":{"pane":{"pane_id":"wT:p9","terminal_id":"term-child"}}}
+herdr-child: pane creation returned status 70 after reporting pane wT:p9 terminal term-child; resource preserved and automatic creation retry is unsafe'
   run grep -Ec '^(pane split|agent start|pane close)' "$CHILD_STUB/calls.log"
   assert_success
   assert_output '1'
@@ -4806,8 +4818,8 @@ function test_scripts_1246_herdr_child_replays_an_unparseable_partial_creation_r
   # caller if the native result is replayed before parsing.
   STUB_SPLIT_NO_TERMINAL=1 STUB_SPLIT_STATUS=70 run child_start --kind claude --wait
   assert_failure 70
-  assert_output --partial '"pane_id":"wT:p9"'
-  assert_output --partial 'pane split failed'
+  assert_output '{"result":{"pane":{"pane_id":"wT:p9","terminal_id":""}}}
+herdr-child: pane split failed'
   run grep -Eq '^(agent start|pane close)' "$CHILD_STUB/calls.log"
   assert_failure
 }
@@ -4829,12 +4841,14 @@ function test_scripts_029_herdr_child_detached_mode_returns_only_after_liv() {
   child_stub_herdr
   run child_start --kind claude --detach --supervision-timeout 60000
   assert_success
-  assert_output --partial "\"agent\":\"$(child_started_name)\""
-  assert_output --partial '"supervision":{"status":"armed"'
-  assert_output --partial '"timeout_ms":60000'
   assert_file_exists "$CHILD_STUB/watcher.pid"
   local generation
   generation="$(cat "$CHILD_STUB/generation")"
+  # The whole envelope, with the generation read back from the run the watcher
+  # was armed against. Three partials never checked the generation at all, so
+  # an envelope quoting a different run -- the one thing a caller needs to reap
+  # the right child -- matched every one of them.
+  assert_output "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\",\"supervision\":{\"status\":\"armed\",\"generation\":\"$generation\",\"timeout_ms\":60000}}"
   run cat "$CHILD_STUB/state/runs/$generation/launch.state"
   assert_success
   assert_output "$(printf '%s\n' 'mode=detach' "generation=$generation" 'timeout_ms=60000' \
@@ -4863,8 +4877,11 @@ function test_scripts_030_herdr_child_detached_arm_failure_preserves_the_c() {
   # a test cannot make that one write fail from outside.
   HERDR_CHILD_TEST_ARM_FAIL=1 run child_start --kind claude --detach
   assert_failure
-  assert_output --partial "\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\""
-  assert_output --partial '"supervision":{"status":"failed","reason":"watcher-arm-failed"'
+  # Whole output, generation wildcarded. The two partials never checked that
+  # the diagnostic names the same run the failure record was written under --
+  # the one field a caller needs to find the preserved child.
+  assert_output --regexp "^herdr-child: prompt was accepted but supervision failed to arm: watcher-arm-failed; child preserved
+\{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\",\"supervision\":\{\"status\":\"failed\",\"reason\":\"watcher-arm-failed\",\"generation\":\"[0-9a-f]{32}\",\"diagnostic\":\"[0-9a-f]{32}\"\}\}$"
   assert_file_contains "$CHILD_STUB/calls.log" '^agent prompt'
   assert_file_contains "$CHILD_STUB/calls.log" 'token supervision_failure_reason=watcher-arm-failed'
   set -- "$CHILD_STUB/state/runs/"*
@@ -6537,8 +6554,7 @@ function test_scripts_067_herdr_child_tab_mode_composes_with_detached_supe() {
   child_lifecycle_stub_herdr
   HERDR_WORKSPACE_ID=w1 run child_lifecycle_start --tab --supervision-timeout 5000
   assert_success
-  assert_output --partial '"tab":"wT:tA"'
-  assert_output --partial '"supervision":{"status":"armed"'
+  assert_output --regexp "^\{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\",\"tab\":\"wT:tA\",\"supervision\":\{\"status\":\"armed\",\"generation\":\"[0-9a-f]{32}\",\"timeout_ms\":5000\}\}$"
   assert_file_contains "$CHILD_STUB/calls.log" '^tab create --workspace w1'
   assert_file_contains "$CHILD_STUB/calls.log" 'pane report-metadata wT:p9 --source child-agent-tab.*child-tab=wT:tA'
   assert_file_contains "$CHILD_STUB/calls.log" 'pane report-metadata wT:p9 --source child-agent.*child_mode=detach'
@@ -6566,8 +6582,9 @@ function test_scripts_0682_herdr_child_tab_mode_rejects_creations_it_cannot() {
   STUB_TAB_CREATE_FAIL=1 HERDR_WORKSPACE_ID=w1 run child_start \
     --kind claude --tab --wait
   assert_failure 1
-  assert_output --partial 'herdr-child: tab create failed'
-  refute_output --partial 'was preserved'
+  # Exact, whole output: it subsumes the refutation, which could only speak
+  # for the one phrase it named.
+  assert_output 'herdr-child: tab create failed'
   run grep -Eq '^(pane report-metadata|agent start|pane close)' "$CHILD_STUB/calls.log"
   assert_failure
 
@@ -6587,9 +6604,8 @@ function test_scripts_1243_herdr_child_tab_mode_preserves_wrapper_partial_succes
   STUB_TAB_CREATE_STATUS=70 HERDR_WORKSPACE_ID=w1 run child_start \
     --kind claude --tab --wait
   assert_failure 70
-  assert_output --partial '"pane_id":"wT:p9"'
-  assert_output --partial 'tab creation returned status 70 after reporting pane wT:p9'
-  assert_output --partial 'automatic creation retry is unsafe'
+  assert_output '{"result":{"root_pane":{"pane_id":"wT:p9","terminal_id":"term-child"},"tab":{"tab_id":"wT:tA"}}}
+herdr-child: tab creation returned status 70 after reporting pane wT:p9 terminal term-child in tab wT:tA; resources preserved and automatic creation retry is unsafe'
   run grep -Ec '^(tab create|pane report-metadata|agent start|pane close)' "$CHILD_STUB/calls.log"
   assert_success
   assert_output '1'
@@ -6681,8 +6697,9 @@ function test_scripts_073_herdr_child_preserves_the_child_when_the_initia() {
   child_stub_herdr
   STUB_PROMPT_FAIL=1 run child_start --kind claude --wait
   assert_failure 124
-  assert_output --partial "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
-  assert_output --partial "initial prompt stalled"
+  assert_output "{\"error\":{\"code\":\"agent_prompt_stalled\"}}
+herdr-child: initial prompt stalled; child preserved for recovery
+{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
   run grep -q '^pane close' "$CHILD_STUB/calls.log"
   assert_failure
 }
@@ -6881,8 +6898,9 @@ function test_scripts_074_herdr_child_preserves_a_working_pane_when_the_wa() {
   child_stub_herdr
   STUB_PROMPT_TIMEOUT=1 run child_start --kind claude --wait
   assert_failure 124
-  assert_output --partial "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
-  assert_output --partial "wait timed out"
+  assert_output "{\"error\":{\"code\":\"timeout\"}}
+herdr-child: initial prompt was delivered, but the wait timed out
+{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
   run grep -q '^pane close' "$CHILD_STUB/calls.log"
   assert_failure
 }
@@ -6996,8 +7014,7 @@ function test_scripts_078_herdr_child_reply_validates_the_live_pair_delive() {
     HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$HERDR_CHILD" reply --to orange-panda --pane wT:p9 decision
   assert_failure
-  assert_output --partial "reply delivered to orange-panda in wT:p9"
-  assert_output --partial "waiting label could not be cleared"
+  assert_output 'herdr-child: reply delivered to orange-panda in wT:p9, but the waiting label could not be cleared'
 
   child_stub_herdr
   # A usage error, a stub crash or a missing environment would satisfy
@@ -7056,8 +7073,7 @@ function test_scripts_101_herdr_child_reap_closes_an_unfocused_idle_pane() {
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$HERDR_CHILD" reap --to idle-a --pane wT:p1
   assert_success
-  assert_output --partial "idle-a: closed pane wT:p1"
-  refute_output --partial "--pane: skipped"
+  assert_output 'idle-a: closed pane wT:p1'
   run grep -c '^pane close wT:p1' "$CHILD_STUB/calls.log"
   assert_success
   assert_output 1
@@ -8166,9 +8182,11 @@ function test_scripts_1327_claude_settings_modifier_reports_1password_read_error
   # oracle: only the controlled fake helper can create this launch marker, so an
   # unattended run that never reaches `op` cannot pass on empty stderr alone.
   assert_file_exists "$CLAUDE_MODIFIER_OP_MARKER"
-  assert_stderr --partial 'op: account is not signed in'
-  assert_stderr --partial 'modify_dot_claude.json: could not read Jina API Key from 1Password; skipping its MCP server'
-  refute_stderr --partial '1Password returned no Jina API Key'
+  # Exact, whole stderr: the helper's own error must reach the operator ahead of
+  # the modifier's notice, and nothing else may be added. That subsumes the
+  # refutation of the generic wording this replaced.
+  assert_stderr 'op: account is not signed in
+modify_dot_claude.json: could not read Jina API Key from 1Password; skipping its MCP server'
   run jq -e '.mcpServers | has("jina") | not' <<< "$output"
   assert_success
 }
@@ -9122,10 +9140,10 @@ SH
   run --separate-stderr env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     bash "$SKILLS_WRAPPER" --verbose update
   assert_success
-  assert_output --partial 'upstream stdout'
-  refute_output --partial 'upstream stderr'
-  assert_stderr --partial 'upstream stderr'
-  refute_stderr --partial 'upstream stdout'
+  # Exact on each separated stream; the exactness is what keeps the other
+  # stream's text out, so the two refutations beside it added nothing.
+  assert_output 'upstream stdout'
+  assert_stderr 'upstream stderr'
 
   run --separate-stderr env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     bash "$SKILLS_WRAPPER" --verbose update fail
@@ -9619,13 +9637,15 @@ function test_scripts_279_skills_sync_offers_to_remove_or_save_named_drift_but_n
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
     SKILLS_MANIFEST="$manifest" SKILLS_CANONICAL_ROOT="$canonical" bash "$SKILLS_WRAPPER" sync
   assert_success
-  assert_output --partial 'Installing skills from example/upstream-skills: *'
-  assert_output --partial 'Installing skills from owner/repo: desired'
-  assert_output --partial 'drift: skills remove owner/repo stale'
-  assert_output --partial 'keep:  skills add owner/repo stale'
-  assert_output --partial 'drift: skills remove gone/repo orphan'
-  assert_output --partial 'keep:  skills add gone/repo orphan'
-  refute_output --partial 'drift: skills remove example/upstream-skills upstream-skill'
+  # The whole plan, in order. Six partials could not see an extra row, a row
+  # pairing the wrong source with the wrong skill, or drift reported before the
+  # installs -- and the exact match subsumes the wildcard refutation below it.
+  assert_output 'Installing skills from example/upstream-skills: *
+Installing skills from owner/repo: desired
+drift: skills remove owner/repo stale
+keep:  skills add owner/repo stale
+drift: skills remove gone/repo orphan
+keep:  skills add gone/repo orphan'
 }
 
 function test_scripts_307_skills_sync_removes_wildcard_path_exclusions() {
@@ -10227,9 +10247,9 @@ function test_scripts_1226_claude_resource_context_is_session_scoped_and_marks_u
   local unavailable="$output"
   run jq -r '.hookSpecificOutput.additionalContext' <<< "$unavailable"
   assert_success
-  assert_output --partial 'Agent resource context unavailable'
-  assert_output --partial 'earlier generated resource context is stale'
-  assert_output --partial 'must not be treated as an empty resource branch'
+  # One sentence, exactly. Its three clauses have to arrive together: split,
+  # the 'stale' clause is also in the neighbouring update notice above.
+  assert_output 'Agent resource context unavailable: the shared resource query failed. The earlier generated resource context is stale, and this must not be treated as an empty resource branch.'
   run paste -sd ' ' "$root/query-argv"
   assert_success
   assert_output '--context --caller-agent claude --caller-session-id session-fresh'
@@ -11087,9 +11107,12 @@ y
 
   # #then the pin keeps its whole consistent set and the run names what it needs
   assert_success
-  assert_output --partial 'pin left unchanged'
-  assert_output --partial 'the values a manual bump needs'
-  assert_output --partial 'aarch64-unknown-linux-musl: unavailable'
+  # Full text on each: 'pin left unchanged' alone does not say which pin or
+  # which tag, and 'unavailable' alone does not say it was reported against the
+  # release URL the operator has to fetch by hand.
+  assert_output --partial 'update-pins: could not fetch every dmtrKovalenko/fff checksum for v99.0.0; pin left unchanged'
+  assert_output --partial 'update-pins: the values a manual bump needs:'
+  assert_output --partial 'update-pins:   aarch64-unknown-linux-musl: unavailable <- https://github.com/dmtrKovalenko/fff/releases/download/v99.0.0/fff-mcp-aarch64-unknown-linux-musl.sha256'
   assert_pins_files_unchanged
 }
 
@@ -11339,8 +11362,10 @@ function test_scripts_27204_agent_limits_drops_windows_whose_reset_has_passed() 
 
   # #then each provider contributes its live window
   assert_success
-  assert_output --partial '  5h/3%'
-  assert_output --partial '  7d/15%'
+  # The whole rendered entry. Every field here is fixed by the cache fixture
+  # this test wrote, so a partial only ever claimed one window while the other
+  # could carry any value -- and the exact match subsumes the refutations.
+  assert_output '  5h/3% ↻59m ·   7d/15% ↻23:59'
 
   # #given the same numbers, but with the Claude window reset and the Codex one
   # still open, so a dropped window leaves a line that is still rendered
@@ -11386,8 +11411,7 @@ function test_scripts_27205_agent_limits_prefers_the_live_cache_over_the_stale_c
 
   # #then the live figure wins and the stale one never reaches the bar
   assert_success
-  assert_output --partial '  5h/3%'
-  refute_output --partial '88%'
+  assert_output '  5h/3% ↻59m ·   7d/15% ↻23:59'
 
   # #given the live cache is gone, as on a home that has not run Claude yet
   rm -f "$home/.cache/claude-rate-limits/latest.json"
@@ -11422,8 +11446,7 @@ function test_scripts_27206_agent_limits_marks_a_spent_window_without_rounding_i
   # #then it reads as a state rather than a stuck gauge, and still says when
   # the allowance comes back
   assert_success
-  assert_output --partial "${exhausted}100%"
-  assert_output --partial '↻'
+  assert_output "  5h/${exhausted}100% ↻59m"
 
   # #given a window that is merely close to spent
   printf '{"fetched_at":%s,"five_hour":{"used_percentage":99.6,"resets_at":%s}}' \
@@ -11434,9 +11457,9 @@ function test_scripts_27206_agent_limits_marks_a_spent_window_without_rounding_i
 
   # #then rounding never manufactures an exhaustion that has not happened
   assert_success
-  assert_output --partial '5h/99%'
-  refute_output --partial '100%'
-  refute_output --partial "$exhausted"
+  # The whole rendered entry. The exact match is what rules out a rounded 100%
+  # or the exhaustion glyph, so the two refutations beside it are subsumed.
+  assert_output '  5h/99% ↻59m'
 }
 
 function test_scripts_27207_agent_limits_says_what_a_blocked_codex_account_can_still_do() {
@@ -11467,8 +11490,7 @@ function test_scripts_27207_agent_limits_says_what_a_blocked_codex_account_can_s
 
   # #then nothing claims a credit that is not there
   assert_success
-  refute_output --partial '×0'
-  refute_output --partial ' ×'
+  assert_output "  5h/3% ↻59m ·   7d/${exhausted}100% ↻23:59"
 
   # #given an account blocked while its window still reads below 100%, which
   # is what spend control and depleted credits look like
@@ -11509,8 +11531,7 @@ function test_scripts_27208_agent_limits_labels_a_codex_figure_the_refresh_stopp
 
   # #then the last known figure remains available without a 19m-old warning
   assert_success
-  assert_output --partial '  7d/40%'
-  refute_output --partial 'old)'
+  assert_output '  5h/3% ↻59m ·   7d/40% ↻23:59'
 
   # #given refreshes have failed for a full hour
   codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$((now - 3600))"
@@ -11530,8 +11551,7 @@ function test_scripts_27208_agent_limits_labels_a_codex_figure_the_refresh_stopp
 
   # #then the bar says nothing about age, because there is nothing to qualify
   assert_success
-  assert_output --partial '  7d/40%'
-  refute_output --partial 'old)'
+  assert_output '  5h/3% ↻59m ·   7d/40% ↻23:59'
 }
 
 function test_scripts_27209_codex_limits_refresh_fills_its_cache_from_the_real_app_server() {
@@ -11602,8 +11622,7 @@ EOF
 
   # #then the cache is rendered without asking the backend
   assert_success
-  assert_output --partial '  7d/40%'
-  refute_output --partial '  7d/7%'
+  assert_output '  5h/3% ↻59m ·   7d/40% ↻23:59'
   assert_file_not_exists "$marker"
 
   # #given the same snapshot has crossed the refresh interval
@@ -11615,9 +11634,10 @@ EOF
   # #then that invocation waits for the bounded refresh and renders its result;
   # no background descendant or leaked lock is needed for a later redraw
   assert_success
-  assert_output --partial '  7d/7%'
-  assert_output --partial '×1'
-  refute_output --partial 'old)'
+  # The whole entry, both windows and the credit marker. Partials could not see
+  # a stale-age suffix moved elsewhere in the line, and the exact match already
+  # rules out the '(Nd old)' suffix the refutation named.
+  assert_output '  5h/3% ↻59m ·   7d/7% ↻23:59 ×1'
   assert_file_exists "$marker"
   assert_dir_not_exists "$home/.cache/codex-rate-limits/refresh.lock"
 }
@@ -11634,8 +11654,7 @@ function test_scripts_27211_agent_limits_compacts_reset_countdowns() {
 
   # #then units already carried by position are not repeated
   assert_success
-  assert_output --partial '  5h/3% ↻2:00'
-  assert_output --partial '  7d/15% ↻1d1h'
+  assert_output '  5h/3% ↻2:00 ·   7d/15% ↻1d1h'
 }
 
 function test_scripts_27212_agent_limits_renders_the_compact_provider_layout() {

@@ -526,10 +526,12 @@ describe("brew auto update sequence", () => {
 
     expect(result.status).toBe("failed");
     expect(calls).toHaveLength(1);
-    expect(notifications).toHaveLength(1);
-    expect(notifications[0]?.message).toContain("Homebrew metadata refresh");
-    expect(notifications[0]?.message).toContain("spawn brew ENOENT");
-    expect(notifications[0]?.level).toBe("warning");
+    // The whole notification. Two substring checks pass on a message that names
+    // the step and the cause in either order, or that buries the cause in text
+    // the reader has to dig through; the thrown error's own words are the oracle.
+    expect(notifications).toEqual([
+      { message: "Homebrew metadata refresh failed: spawn brew ENOENT", level: "warning" },
+    ]);
   });
 
   test("startup reports a failure notification every time, unlike a silent success", async () => {
@@ -541,10 +543,9 @@ describe("brew auto update sequence", () => {
     const result = await runBrewAutoUpdate("startup", ui, deps);
 
     expect(result.status).toBe("failed");
-    expect(notifications).toHaveLength(1);
-    expect(notifications[0]?.message).toContain("Homebrew metadata refresh");
-    expect(notifications[0]?.message).toContain("network failed");
-    expect(notifications[0]?.level).toBe("warning");
+    expect(notifications).toEqual([
+      { message: "Homebrew metadata refresh failed: network failed", level: "warning" },
+    ]);
   });
 
   test("startup notifies again on a second consecutive failure, proving there is no rate-limit", async () => {
