@@ -249,28 +249,55 @@ function test_templates_0371_a_wrong_os_persisted_role_fails_before_ssh_policy_c
   assert_ssh_policy_sentinels "$dest"
 }
 
-function test_templates_038_a_valid_role_manages_its_ssh_policy_files() {
-  _bats_test_init 38 'a valid role manages its SSH policy files'
-  local source="$BATS_TEST_TMPDIR/valid-source"
-  local dest="$BATS_TEST_TMPDIR/valid-dest"
-  local cfg="$BATS_TEST_TMPDIR/valid-role.yaml"
+# Applies the SSH policy fixture under a name of its own and leaves the
+# rendered destination in SSH_POLICY_DEST. Called directly, never in a command
+# substitution, so an assertion failure inside it still ends its caller.
+SSH_POLICY_DEST=""
+apply_valid_role_ssh_policy() {
+  local name="$1"
+  local source="$BATS_TEST_TMPDIR/$name-source"
+  local cfg="$BATS_TEST_TMPDIR/$name-role.yaml"
+  SSH_POLICY_DEST="$BATS_TEST_TMPDIR/$name-dest"
   make_ssh_policy_fixture "$source"
-  plant_ssh_policy_sentinels "$dest"
+  plant_ssh_policy_sentinels "$SSH_POLICY_DEST"
   write_test_config "$cfg"
 
   run chezmoi_full_fixture apply \
-    --source "$source" --destination "$dest" --config "$cfg"
+    --source "$source" --destination "$SSH_POLICY_DEST" --config "$cfg"
   assert_success
-  assert_file_contains "$dest/.ssh/config" '^managed config$'
-  assert_file_contains "$dest/.ssh/authorized_keys" '^managed authorization$'
-  assert_file_contains "$dest/.ssh/mbp2026.pub" '^managed mbp2026 public key$'
-  assert_file_contains "$dest/.ssh/mbp2021.pub" '^managed mbp2021 public key$'
+}
 
-  if is_macos; then
-    assert_file_contains "$dest/.config/1Password/ssh/agent.toml" '^managed agent config$'
-  else
-    assert_file_contains "$dest/.config/1Password/ssh/agent.toml" '^existing agent config$'
-  fi
+function test_templates_038_a_valid_role_manages_its_ssh_policy_files() {
+  _bats_test_init 38 'a valid role manages its SSH policy files'
+  apply_valid_role_ssh_policy valid
+
+  assert_file_contains "$SSH_POLICY_DEST/.ssh/config" '^managed config$'
+  assert_file_contains "$SSH_POLICY_DEST/.ssh/authorized_keys" '^managed authorization$'
+  assert_file_contains "$SSH_POLICY_DEST/.ssh/mbp2026.pub" '^managed mbp2026 public key$'
+  assert_file_contains "$SSH_POLICY_DEST/.ssh/mbp2021.pub" '^managed mbp2021 public key$'
+}
+
+# The 1Password agent config is the one file in this fixture whose verdict
+# depends on the host, because write_test_config binds the role the host can
+# carry: mbp2026 on darwin, which uses the local agent, and server on linux,
+# which .chezmoiignore keeps out of the render. Both expectations behind one
+# `if is_macos` passed on either host whatever the ignore rules said. One test
+# per role keeps a single assertion path, and the named skip makes a run that
+# never reached the other one say so instead of reporting it as covered.
+function test_templates_0381_a_valid_role_deploys_the_1password_agent_config() {
+  _bats_test_init 381 'the mbp2026 role deploys the 1Password agent config'
+  is_macos || skip "only darwin binds a role (mbp2026) that uses the local 1Password SSH agent"
+  apply_valid_role_ssh_policy agent-used
+
+  assert_file_contains "$SSH_POLICY_DEST/.config/1Password/ssh/agent.toml" '^managed agent config$'
+}
+
+function test_templates_0382_the_server_role_leaves_the_1password_agent_config_alone() {
+  _bats_test_init 382 'the server role leaves an existing 1Password agent config alone'
+  is_linux || skip "only linux binds the server role, the one that does not use the local 1Password SSH agent"
+  apply_valid_role_ssh_policy agent-unused
+
+  assert_file_contains "$SSH_POLICY_DEST/.config/1Password/ssh/agent.toml" '^existing agent config$'
 }
 
 write_role_config() {
