@@ -39,7 +39,7 @@ tags:
 
 ## Context
 
-The 2026-08-24 corpus audit (#326) found a family of tests whose assertions lived inside a loop over
+The 2026-09-25 corpus audit (#326) found a family of tests whose assertions lived inside a loop over
 a collection the test itself computed. Over zero elements the loop runs zero assertions, the test
 reports green, and the report shows nothing unusual — a suite summary counts tests, not the
 assertions a test was supposed to make.

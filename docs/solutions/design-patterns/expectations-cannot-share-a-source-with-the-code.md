@@ -37,7 +37,7 @@ tags:
 
 ## Context
 
-The 2026-08-24 corpus audit (#326) found a family of tests whose expected value was computed by the
+The 2026-09-25 corpus audit (#326) found a family of tests whose expected value was computed by the
 same path as the actual value. Not copied once and left to rot — *recomputed on every run*, from the
 same regex, the same helper, the same encoder, or a faithful port of the same algorithm.
 

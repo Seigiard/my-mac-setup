@@ -36,7 +36,7 @@ tags:
 
 ## Context
 
-The 2026-08-24 corpus audit (#326) found source-shape greps scattered across every suite: a smoke
+The 2026-09-25 corpus audit (#326) found source-shape greps scattered across every suite: a smoke
 test searching `~/.local/bin/herdr-pane-labels` for octal escape literals and a `herdr pane rename`
 call count; a one-sided grep of `child-agent-contract.md` for the `herdr-child reap --to <alias>
 --pane <pane-id>` line agents copy out of it; an unanchored search of `config.toml` for

@@ -36,7 +36,7 @@ tags:
 
 ## Context
 
-The 2026-08-24 corpus audit (#326) counted around 450 substring assertions across the bashunit,
+The 2026-09-25 corpus audit (#326) counted around 450 substring assertions across the bashunit,
 Python and TypeScript suites — `assert_output --partial`, `assert_stderr --partial`, `toContain`,
 `assertIn`. Most were fine: chezmoi's template-error framing, gitleaks' timestamped progress lines
 and ssh-keygen's output are genuinely unstable, and matching a stable phrase inside them is the
