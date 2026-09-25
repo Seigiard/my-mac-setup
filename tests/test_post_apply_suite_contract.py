@@ -78,7 +78,13 @@ class TestPostApplySuiteContract(unittest.TestCase):
         # MMS_BASHUNIT_JOBS=4, so pinning the literal default instead would be
         # red for a supported configuration and blind to the regression that
         # matters -- the wrapper dropping the operator's cap on the floor.
-        for argv in self.wrapper_invocations("full", jobs="3"):
+        invocations = self.wrapper_invocations("full", jobs="3")
+        # The suite set first: the assertions below are per invocation, so a
+        # wrapper that produced none would forward nothing and pass.
+        self.assertEqual(
+            [Path(argv[-1]).name for argv in invocations], FULL_MODE_ORDER
+        )
+        for argv in invocations:
             with self.subTest(suite=Path(argv[-1]).name):
                 # The report path is a fresh mktemp file per invocation, so
                 # the flag is asserted and the path is not. --report-json is
@@ -92,7 +98,9 @@ class TestPostApplySuiteContract(unittest.TestCase):
         # not pinned; what must hold is that the unset case still reaches
         # bashunit with a usable count instead of an empty string or 0.
         invocations = self.wrapper_invocations("full")
-        self.assertTrue(invocations, "wrapper ran no suite file by default")
+        self.assertEqual(
+            [Path(argv[-1]).name for argv in invocations], FULL_MODE_ORDER
+        )
         for argv in invocations:
             with self.subTest(suite=Path(argv[-1]).name):
                 self.assertEqual(argv[0], "-j")
@@ -169,10 +177,9 @@ class TestPostApplySuiteContract(unittest.TestCase):
                     "job %s applies the dotfiles but never runs the post-apply suite"
                     % name,
                 )
-        # An empty selection would let the loop above pass vacuously.
-        self.assertGreaterEqual(
-            len(applying), 2, "expected at least two applying CI jobs, got %r" % applying
-        )
+        # Which jobs apply, not how many: a job whose launcher line stops
+        # matching drops out of the loop above with every assertion in it.
+        self.assertEqual(applying, ["test-ubuntu", "test-macos"])
 
     def test_make_test_suite_reaches_only_the_host_safe_mode(self):
         # make test-suite is host-safe by design: it must reach the wrapper,

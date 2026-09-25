@@ -71,6 +71,10 @@ async function loadPiHandler(): Promise<Function> {
   const module: any = await loadUnderHome(PI_EXTENSION_PATH, "agents-local-pi");
   const handlers: Record<string, Function> = {};
   module.default({ on: (event: string, handler: Function) => (handlers[event] = handler) });
+  // An extension that registered nothing hands back `undefined`, which the
+  // caller would then surface as a TypeError from wherever it happened to call
+  // it. Name the missing registration here instead.
+  expect(handlers.before_agent_start).toBeTypeOf("function");
   return handlers.before_agent_start;
 }
 

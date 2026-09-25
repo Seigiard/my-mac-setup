@@ -169,8 +169,10 @@ class TestDockerContract(unittest.TestCase):
                 self.service_command_script(self.service_block(name)) or "",
             )
         ]
-        # An empty selection would let every caller pass vacuously.
-        self.assertGreaterEqual(len(names), 2, "expected at least two full-apply services")
+        # Which services apply, not how many: every caller loops over this
+        # list, so a service whose launcher line stops matching takes its whole
+        # share of the assertions out of the run instead of failing one.
+        self.assertEqual(names, ["test-full", "test-ubuntu"])
         return names
 
     def test_make_test_ubuntu_routes_to_a_full_apply_service(self):
@@ -263,7 +265,10 @@ class TestDockerContract(unittest.TestCase):
                 for fixture, canary in FIXTURE_CANARIES.items():
                     self.assertEqual(env.get(fixture), canary)
                     self.assertEqual(build_args.get(fixture), canary)
-        self.assertTrue(disposable, "expected at least one disposable Docker service")
+        # Every declared service is disposable, named rather than counted: a
+        # service that loses MMS_DISPOSABLE_HOME=1 would otherwise leave the
+        # loop and keep this test green on the services that remain.
+        self.assertEqual(disposable, ["ubuntu", "test-full", "test-ubuntu"])
 
     # The three launcher steps every applying CI job runs, with the exact
     # command each must carry. Literal wiring, like `make test-python`: the
@@ -334,7 +339,9 @@ class TestDockerContract(unittest.TestCase):
                     # outside the `run:` value, where no assertion on the
                     # command itself can see it.
                     self.assertNotIn("continue-on-error", step)
-        self.assertGreaterEqual(len(applying), 2)
+        # Which jobs apply, not how many: a job whose launcher line stops
+        # matching skips the three step assertions above without failing one.
+        self.assertEqual(applying, ["test-ubuntu", "test-macos"])
 
     def run_make_test_local(self, root, managed_rc=None):
         """`make test-local` against a chezmoi that reports three managed
