@@ -210,6 +210,16 @@ describe("pi arg dialect reaches Claude's verdicts (R3, KTD8)", () => {
     const shared = corpus.POLICY_FIXTURES.filter((fixture: any) => piRawFor(fixture) !== undefined);
     let denials = 0;
     let clearances = 0;
+    // Cardinality before the loop: `shared` is selected by this file's own wire
+    // table, so a route that disappears from it shrinks the loop instead of
+    // failing it. 19 is the corpus's own count of bash and fff-grep fixtures,
+    // 9 of which deny -- an independent side from the wire table doing the
+    // selecting.
+    expect([
+      shared.length,
+      shared.filter((fixture: any) => fixture.tool === "bash").length,
+      shared.filter((fixture: any) => fixture.tool === "fff-grep").length,
+    ]).toEqual([19, 14, 5]);
 
     for (const fixture of shared) {
       // #when the pi dialect goes through the handler and the claude dialect
@@ -236,9 +246,8 @@ describe("pi arg dialect reaches Claude's verdicts (R3, KTD8)", () => {
       }
     }
 
-    // Both branches must have been reached, or the loop above proves nothing.
-    expect(denials).toBeGreaterThan(0);
-    expect(clearances).toBeGreaterThan(0);
+    // Both branches reached, and each for its whole share of the corpus.
+    expect([denials, clearances]).toEqual([9, 10]);
   });
 
   test("the fff route pi exposes denies a multi-token query and allows one identifier", async () => {

@@ -8276,8 +8276,14 @@ function test_scripts_252_pi_terminal_theme_uses_only_terminal_palette_col() {
   # sections of the file: every colour either inherits (empty string) or
   # names a slot the vars block declares, so no colour can hardcode a value
   # the user's terminal does not control.
+  # The two length guards are not content assertions -- they are the anti-vacuity
+  # gates that keep `all` and the empty-list check below from passing on a theme
+  # whose vars or colors object is empty, which is the shape a truncated or
+  # half-written theme file has.
   run jq -e '
     .name == "terminal" and
+    (.vars | length > 0) and
+    (.colors | length > 0) and
     ([.vars[]] | all(type == "number" and . >= 0 and . <= 15)) and
     (. as $theme
       | [$theme.colors[]

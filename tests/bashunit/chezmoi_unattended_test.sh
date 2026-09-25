@@ -450,9 +450,15 @@ function test_chezmoi_unattended_0101_large_host_diff_stays_below_linux_exec_str
   run cmp "$FAKE_STATE/managed-targets" "$FAKE_STATE/received-targets"
   assert_success
 
+  local size_records=0
   while IFS= read -r serialized_size; do
+    size_records=$((size_records + 1))
     assert_equal "$((serialized_size <= max_chezmoi_args_bytes))" 1
   done < "$FAKE_STATE/serialized-args-sizes"
+  # One record per final invocation. The bound above is asserted per record, so
+  # a short or empty record file would leave whole batches unmeasured and still
+  # pass; the invocation log is the independent count of what actually ran.
+  assert_equal "$size_records" "$final_invocations"
 }
 
 function test_chezmoi_unattended_011_malformed_inventory_fails_closed() {

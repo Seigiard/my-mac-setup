@@ -10,6 +10,13 @@ import unittest
 REPOSITORY = Path(__file__).resolve().parents[1]
 WORKFLOW = REPOSITORY / ".github" / "workflows" / "test-dotfiles.yml"
 
+# The jobs the workflow declares, in file order. Both "every job ..." tests
+# below iterate the parsed list, so a parser that returned a short list -- or
+# none -- would assert less instead of failing. Named here rather than
+# counted, so adding a job is a decision about whether it must carry the same
+# guarantees, not a silent gap.
+DECLARED_JOBS = ["test-ubuntu", "test-macos", "lint"]
+
 
 class TestDotfilesWorkflow(unittest.TestCase):
     def workflow_text(self):
@@ -439,7 +446,7 @@ class TestDotfilesWorkflow(unittest.TestCase):
         # A job without a timeout burns the 360-minute default when it hangs.
         text = self.workflow_text()
         names = self.job_names(text)
-        self.assertGreaterEqual(len(names), 3, "job parser found fewer jobs than the workflow runs")
+        self.assertEqual(names, DECLARED_JOBS)
         for name in names:
             with self.subTest(job=name):
                 self.assertRegex(
@@ -451,7 +458,7 @@ class TestDotfilesWorkflow(unittest.TestCase):
     def test_every_job_runs_the_general_python_gate(self):
         text = self.workflow_text()
         names = self.job_names(text)
-        self.assertGreaterEqual(len(names), 3, "job parser found fewer jobs than the workflow runs")
+        self.assertEqual(names, DECLARED_JOBS)
         for name in names:
             with self.subTest(job=name):
                 step = self.named_step_block(

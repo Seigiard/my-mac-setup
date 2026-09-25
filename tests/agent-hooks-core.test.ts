@@ -119,15 +119,27 @@ const EMPTY_PAYLOAD = { filePath: "", content: "", command: "", query: "", url: 
 
 describe("normalization of the three arg dialects", () => {
   test("every dialect of a fixture normalizes to one canonical payload", () => {
-    // #given the shared corpus, written in the wire shapes the shipped adapters read
-    expect(corpus.DIALECT_FIXTURES.length).toBeGreaterThan(3);
+    // #given the shared corpus, written in the wire shapes the shipped adapters read.
+    // The whole fixture-to-dialect map first: every assertion below sits inside
+    // two nested loops over it, so a corpus that lost a fixture -- or a fixture
+    // that lost a client -- would run fewer assertions and stay green.
+    expect(
+      corpus.DIALECT_FIXTURES.map((fixture: any) => `${fixture.name}: ${Object.keys(fixture.raw).join(" ")}`),
+    ).toEqual([
+      "write with content only: claude opencode pi",
+      "single edit replacement: claude opencode pi",
+      "multi-edit aggregation: claude opencode pi",
+      "bash command: claude opencode pi",
+      "codex exec command: pi",
+      "fff grep query: claude",
+      "web fetch url: claude",
+    ]);
     // The shipped payload record and the literal above name the same fields.
     expect(Object.keys(core.emptyPayload()).sort()).toEqual(Object.keys(EMPTY_PAYLOAD).sort());
 
     for (const fixture of corpus.DIALECT_FIXTURES) {
       const expected = { ...EMPTY_PAYLOAD, ...fixture.payload };
       const clients = Object.keys(fixture.raw);
-      expect(clients.length).toBeGreaterThan(0);
 
       for (const client of clients) {
         // #when the client's raw event goes through the core normalizer
@@ -338,7 +350,7 @@ describe("cross-client parity (KTD8)", () => {
   test("every multi-client policy yields one verdict and one reason everywhere", () => {
     // #given each registry policy applicable in more than one client
     const registries = [TEST_REGISTRY, core.CORE_REGISTRY];
-    let compared = 0;
+    const compared: string[] = [];
 
     for (const registry of registries) {
       for (const policy of registry.policies) {
@@ -360,11 +372,19 @@ describe("cross-client parity (KTD8)", () => {
 
         // #then the decision object is identical across dialects
         for (const decision of decisions) expect(decision).toEqual(decisions[0]);
-        compared += 1;
+        compared.push(`${policy.name}: ${clients.join("/")}`);
       }
     }
 
-    expect(compared).toBeGreaterThanOrEqual(2);
+    // Which routes were actually compared, not how many: the selection above
+    // is a filter, so a policy that lost a client -- or a registry that lost a
+    // policy -- drops silently out of the loop and every assertion in it.
+    expect(compared).toEqual([
+      "fixture-reserved-guard: claude/opencode/pi",
+      "fixture-content-guard: claude/opencode/pi",
+      "zsh-reserved-name-guard: claude/opencode/pi",
+      "fff-grep-guard: claude/opencode/pi",
+    ]);
   });
 });
 
@@ -553,10 +573,15 @@ describe("selfcheck loaded-identity markers (KTD5)", () => {
     // #when identity is inspected
     const report = inspect(stateDir, () => true);
 
-    // #then resident clients are unknown and nothing claims to be current
-    expect(statusOf(report, "opencode").status).toBe("unknown");
-    expect(statusOf(report, "pi").status).toBe("unknown");
-    expect(report.clients.some((entry: any) => entry.status === "current")).toBe(false);
+    // #then resident clients are unknown and nothing claims to be current.
+    // The whole client list rather than a `some(...)` over it: an empty report
+    // has no entry claiming to be current either, so the search alone cannot
+    // tell "nothing is current" from "nothing was inspected".
+    expect(report.clients.map((entry: any) => `${entry.client}: ${entry.status}`)).toEqual([
+      "claude: per-call",
+      "opencode: unknown",
+      "pi: unknown",
+    ]);
   });
 
   test("a live marker older than the deployed core names the stale session", () => {
