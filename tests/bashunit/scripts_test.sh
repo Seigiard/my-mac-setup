@@ -3056,8 +3056,8 @@ TOML
   assert_output 'server_not_running'
 }
 
-function test_scripts_08526_plugin_list_fake_github_source_matches_real_herdr() {
-  _bats_test_init 8526 'plugin-list fake github-source fields match the installed Herdr contract'
+function test_scripts_08530_plugin_list_fake_github_source_matches_real_herdr() {
+  _bats_test_init 8530 'plugin-list fake github-source fields match the installed Herdr contract'
   command_exists herdr || skip "herdr is not installed"
   # A github-source registration cannot be constructed offline -- `plugin
   # install` resolves a ref over the network -- so this half reads the host
@@ -4992,8 +4992,8 @@ function test_scripts_030_herdr_child_detached_arm_failure_preserves_the_c() {
   # Whole output, generation wildcarded. The two partials never checked that
   # the diagnostic names the same run the failure record was written under --
   # the one field a caller needs to find the preserved child.
-  assert_output --regexp "^\{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\",\"supervision\":\{\"status\":\"failed\",\"reason\":\"watcher-unavailable\",\"generation\":\"[0-9a-f]{32}\",\"diagnostic\":\"[0-9a-f]{32}\"\}\}$"
-  assert_file_contains "$CHILD_STUB/start.err" '^herdr-child: prompt was accepted but supervision failed to arm: watcher-unavailable; child preserved$'
+  assert_output --regexp "^\{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\",\"supervision\":\{\"status\":\"failed\",\"reason\":\"armed-write-failed\",\"generation\":\"[0-9a-f]{32}\",\"diagnostic\":\"[0-9a-f]{32}\"\}\}$"
+  assert_file_contains "$CHILD_STUB/start.err" '^herdr-child: prompt was accepted but supervision failed to arm: armed-write-failed; child preserved$'
   assert_file_contains "$CHILD_STUB/calls.log" '^agent prompt'
   set -- "$CHILD_STUB/state/runs/"*
   [ "$#" -eq 1 ]
@@ -6024,7 +6024,7 @@ function test_scripts_055_herdr_child_managed_detached_prompt_advances_gen() {
   assert_equal "$prompt_status" 1
   run cat "$CHILD_STUB/prompt.out"
   assert_success
-  assert_output --partial '"supervision":{"status":"failed","reason":"watcher-unavailable"'
+  assert_output --regexp "^\{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\",\"supervision\":\{\"status\":\"failed\",\"reason\":\"armed-write-failed\",\"generation\":\"[0-9a-f]{32}\",\"diagnostic\":\"[0-9a-f]{32}\"\}\}$"
   # The continuation invalidates the prior generation before it rearms, and the
   # superseded watcher then tears its own run down. Wait for that one end
   # state rather than accepting either half of it.

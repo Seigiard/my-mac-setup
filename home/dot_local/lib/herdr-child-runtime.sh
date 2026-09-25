@@ -136,6 +136,9 @@ now_ms() {
 
 atomic_write() {
   local file="$1" content="$2" dir tmp
+  # `mv file dir/` moves the file into an existing directory and exits 0, so a
+  # directory at the target would read as a successful write.
+  [ ! -d "$file" ] || return 1
   dir="${file%/*}"
   [ "$dir" != "$file" ] || dir="."
   [ -n "$dir" ] || dir="/"

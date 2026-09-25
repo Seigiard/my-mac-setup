@@ -52,7 +52,11 @@ Use one of these alternatives instead:
 
 1. Drive the real boundary. Make the command, file operation, parser, or wrapper the script already
 uses return the failure. In this repository, an `armed.state` write failure is induced by stopping the
-watcher at a barrier and creating `armed.state/` as a directory, so the real `mv` fails.
+watcher at a barrier and creating `armed.state/` as a directory. That works only because
+`atomic_write` in `herdr-child-runtime.sh` refuses a directory target: plain `mv file dir/` moves the
+file into the directory and exits 0, so without that guard the watcher would report itself armed and
+the test would pass on the launcher's generic `watcher-unavailable` timeout instead of the
+`armed-write-failed` branch it names.
 2. Use synchronization-only hooks. A barrier may pause before the branch, and a pid file may expose
 which process to signal, but the test must still create the failure through a real input or
 side-effect.
