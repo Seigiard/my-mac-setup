@@ -135,7 +135,6 @@ watch_child() {
   trap 'watcher_fail "$run_dir" "$pane" "$generation" watcher-signal-TERM' TERM
 
   if [ "$deferred_activation" -eq 1 ]; then
-    [ "${HERDR_CHILD_TEST_PREPARE_FAIL:-0}" != 1 ] || watcher_preflight_fail "$run_dir" watcher-readiness-failed
     atomic_write "$run_dir/prepared.state" "pid=$$" || watcher_preflight_fail "$run_dir" readiness-write-failed
     while [ ! -f "$run_dir/takeover.state" ]; do
       [ ! -f "$run_dir/abort.state" ] || watcher_preflight_fail "$run_dir" "$(supervision_reason "$run_dir/abort.state")"
@@ -175,10 +174,6 @@ watch_child() {
     abort_reason="$(supervision_reason "$run_dir/abort.state")"
     release_arm_guard "$run_dir"
     watcher_fail "$run_dir" "$pane" "$generation" "$abort_reason"
-  fi
-  if [ "${HERDR_CHILD_TEST_ARM_FAIL:-0}" = 1 ]; then
-    release_arm_guard "$run_dir"
-    watcher_fail "$run_dir" "$pane" "$generation" watcher-arm-failed
   fi
   if ! atomic_write "$run_dir/armed.state" "pid=$$"; then
     release_arm_guard "$run_dir"

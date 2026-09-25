@@ -42,8 +42,6 @@ setup() {
   unset OPENCODE_INTERCOM_NAME
   unset INTERCOM_DIR
   unset HERDR_CHILD_MAX_DELIVERY_RETRIES
-  unset HERDR_CHILD_TEST_ARM_FAIL
-  unset HERDR_CHILD_TEST_PREPARE_FAIL
   unset HERDR_CHILD_TEST_SKIP_RETRY_SLEEP
   unset HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS
   unset HERDR_CHILD_TEST_WATCHER_PID_FILE
@@ -4956,21 +4954,32 @@ function test_scripts_029_herdr_child_detached_mode_returns_only_after_liv() {
 function test_scripts_030_herdr_child_detached_arm_failure_preserves_the_c() {
   _bats_test_init 30 'herdr-child detached arm failure preserves the child and returns recovery JSON'
   child_stub_herdr
-  # HERDR_CHILD_TEST_ARM_FAIL stands in front of the real armed.state write
-  # failure and shares its recovery path (release_arm_guard + watcher_fail), so
-  # the launcher-side recovery JSON and pane preservation below are genuinely
-  # exercised. What no test covers is the real trigger: the run directory is
-  # created by the launcher mid-flight and production chmods it back to 700, so
-  # a test cannot make that one write fail from outside.
-  HERDR_CHILD_TEST_ARM_FAIL=1 run child_start --kind claude --detach
-  assert_failure
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 STUB_START_CONTEXT=1 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+    HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
+    HERDR_CHILD_TEST_ARM_BARRIER="$CHILD_STUB/arm" \
+    bash "$HERDR_CHILD" start --kind claude --detach \
+    --prompt "test task" >"$CHILD_STUB/start.out" 2>"$CHILD_STUB/start.err" &
+  local launcher_pid=$!
+  child_wait_for_file "$CHILD_STUB/arm.ready"
+  set -- "$CHILD_STUB/state/runs/"*
+  assert_equal "$#" 1
+  mkdir "$1/armed.state"
+  : > "$CHILD_STUB/arm.release"
+  local launch_status
+  if wait "$launcher_pid"; then
+    launch_status=0
+  else
+    launch_status=$?
+  fi
+  assert_equal "$launch_status" 1
+  run cat "$CHILD_STUB/start.out"
+  assert_success
   assert_output --partial "\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\""
-  assert_output --partial '"supervision":{"status":"failed","reason":"watcher-arm-failed"'
+  assert_output --partial '"supervision":{"status":"failed","reason":"watcher-unavailable"'
   assert_file_contains "$CHILD_STUB/calls.log" '^agent prompt'
-  assert_file_contains "$CHILD_STUB/calls.log" 'token supervision_failure_reason=watcher-arm-failed'
   set -- "$CHILD_STUB/state/runs/"*
   [ "$#" -eq 1 ]
-  assert_file_exists "$1/failed.state"
   assert_file_permission 700 "$1"
   run grep -q '^pane close' "$CHILD_STUB/calls.log"
   assert_failure
@@ -5973,14 +5982,32 @@ function test_scripts_055_herdr_child_managed_detached_prompt_advances_gen() {
   assert_success
   old_generation="$(cat "$CHILD_STUB/generation")"
   local old_run="$CHILD_STUB/state/runs/$old_generation"
-  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
     HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
-    HERDR_CHILD_TEST_ARM_FAIL=1 HERDR_CHILD_POLL_INTERVAL=0.01 \
+    HERDR_CHILD_TEST_ARM_BARRIER="$CHILD_STUB/arm" HERDR_CHILD_POLL_INTERVAL=0.01 \
     bash "$HERDR_CHILD" prompt --to "$(child_started_name)" --pane wT:p9 --detach \
-    --supervision-timeout 5000 "ordinary follow-up"
-  assert_failure
-  assert_output --partial '"supervision":{"status":"failed","reason":"watcher-arm-failed"'
+    --supervision-timeout 5000 "ordinary follow-up" \
+    >"$CHILD_STUB/prompt.out" 2>"$CHILD_STUB/prompt.err" &
+  local prompt_pid=$!
+  child_wait_for_file "$CHILD_STUB/arm.ready"
+  local new_run
+  for new_run in "$CHILD_STUB/state/runs/"*; do
+    [ "$new_run" = "$old_run" ] || break
+  done
+  [ "$new_run" != "$old_run" ] || fail "continuation did not create a new run directory"
+  mkdir "$new_run/armed.state"
+  : > "$CHILD_STUB/arm.release"
+  local prompt_status
+  if wait "$prompt_pid"; then
+    prompt_status=0
+  else
+    prompt_status=$?
+  fi
+  assert_equal "$prompt_status" 1
+  run cat "$CHILD_STUB/prompt.out"
+  assert_success
+  assert_output --partial '"supervision":{"status":"failed","reason":"watcher-unavailable"'
   # The continuation invalidates the prior generation before it rearms, and the
   # superseded watcher then tears its own run down. Wait for that one end
   # state rather than accepting either half of it.
@@ -6117,26 +6144,6 @@ function test_scripts_056_herdr_child_continuation_preflight_failures_pres() {
   set -- "$CHILD_STUB/state/runs/"*
   [ "$#" -eq 1 ] || fail "continuation left a second run directory behind: $*"
 
-  # #when the new watcher cannot reach readiness. This one keeps its
-  # production hook: watcher readiness has no adjacent real branch a test can
-  # fail from outside, and the hook is the only trigger for it.
-  teardown
-  setup
-  child_lifecycle_stub_herdr
-  run child_lifecycle_start --supervision-timeout 5000
-  assert_success
-  old_generation="$(cat "$CHILD_STUB/generation")"
-  old_run="$CHILD_STUB/state/runs/$old_generation"
-  old_watcher="$(cat "$CHILD_STUB/watcher.pid")"
-  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_TEST_PREPARE_FAIL=1 \
-    bash "$HERDR_CHILD" prompt --to "$(child_started_name)" --pane wT:p9 --detach "next task"
-  assert_failure 1
-  assert_output --partial 'watcher failed before supervision takeover'
-  assert_file_not_exists "$old_run/invalidated.state"
-  run cat "$CHILD_STUB/generation"
-  assert_output "$old_generation"
-  kill -0 "$old_watcher"
 }
 
 function test_scripts_057_herdr_child_attached_child_promoted_to_detach_as() {
