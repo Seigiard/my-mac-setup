@@ -29,8 +29,16 @@ function test_smoke_003_post_apply_suite_wrapper_rejects_an_unknown_mode() {
   [[ -x "$repository_root/tests/run-post-apply.sh" ]] || skip "repository checkout is not mounted"
 
   run "$repository_root/tests/run-post-apply.sh" unknown
-  [ "$status" -eq 2 ]
-  assert_output --partial "usage: tests/run-post-apply.sh full|host-safe"
+  assert_failure 2
+  # The whole block, not a leading substring: the wrapper's own usage is short
+  # and deterministic, and a partial match hides a stray error printed before
+  # or after it.
+  assert_output - <<'USAGE'
+usage: tests/run-post-apply.sh full|host-safe
+
+full      Run the complete post-apply suite against a disposable home.
+host-safe Run only the files that do not execute real chezmoi apply commands.
+USAGE
 }
 
 # Covers the suite-end orphan guard (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md). The
@@ -199,12 +207,45 @@ function test_smoke_005_gitignore_ignores_the_agent_trash_directory() {
   assert_success
 }
 
-# Literal consumed outside this repo: herdr's own TOML parser reads this exact
-# key at startup and binds the palette open action to it. No code here calls
-# herdr to observe the binding, so the deployed literal is the whole contract.
+# Literal consumed outside this repo: herdr's own TOML parser reads these
+# tables at startup and binds the palette open action. No code here calls herdr
+# to observe the binding, so the deployed file is the whole contract -- but the
+# contract is a bound key, not a string that occurs somewhere in the file. A
+# bare grep for the action name also accepts a commented-out line, or one that
+# drifted outside any [[keys.command]] table, or an entry with no key at all.
+#
+# Which chord opens the palette is the user's preference and stays unpinned on
+# purpose; what must hold is that every table naming the action carries a
+# non-empty key and the plugin_action type herdr dispatches it through.
 function test_smoke_006_herdr_command_palette_keybinding_is_configured() {
-_bats_test_init 6 'herdr command palette keybinding is configured'
-assert_file_contains "$HOME/.config/herdr/config.toml" "seigi.command-palette.open"
+  _bats_test_init 6 'herdr command palette keybinding is configured'
+  run python3 - "$HOME/.config/herdr/config.toml" <<'PALETTE'
+import re
+import sys
+
+text = open(sys.argv[1], encoding="utf-8").read()
+tables = re.split(r"^\[\[keys\.command\]\][ \t]*$", text, flags=re.M)[1:]
+bound = []
+broken = []
+for table in tables:
+    body = re.split(r"^\[", table, flags=re.M)[0]
+    fields = dict(re.findall(r'^([A-Za-z_]+) = "([^"]*)"[ \t]*$', body, flags=re.M))
+    if fields.get("command") != "seigi.command-palette.open":
+        continue
+    if fields.get("type") == "plugin_action" and fields.get("key"):
+        bound.append(fields["key"])
+    else:
+        broken.append(fields.get("key") or "<no key>")
+
+if broken:
+    print("not dispatchable: " + ", ".join(sorted(broken)))
+elif bound:
+    print("every palette-open table binds a key through plugin_action")
+else:
+    print("no table binds seigi.command-palette.open")
+PALETTE
+  assert_success
+  assert_output 'every palette-open table binds a key through plugin_action'
 }
 
 # Literal consumed outside this repo: herdr's auto-update plugin reads
@@ -217,8 +258,11 @@ function test_smoke_009_herdr_plugin_updates_are_automatic_and_owner_res() {
   local config="$HOME/.config/herdr/plugins/config/herdr-auto-update/config.toml"
 
   assert_file_exists "$config"
-  assert_file_contains "$config" 'auto_update = true'
-  assert_file_contains "$config" 'trusted_owners = \["dio16"\]'
+  # Anchored: unanchored, '# auto_update = true' and 'auto_update = trueish'
+  # both match, and a commented-out allowlist is exactly the state this
+  # security boundary has to go red on.
+  assert_file_contains "$config" '^auto_update = true$'
+  assert_file_contains "$config" '^trusted_owners = \["dio16"\]$'
 }
 
 # ===========================================
@@ -261,48 +305,67 @@ function test_smoke_016_pi_settings_include_all_managed_packages() {
   run jq -e 'length > 0' <<< "$expected"
   assert_success
 
-  # Subset by design, not exact equality: tests/bashunit/scripts_test.sh:7039-7090
-  # already owns exact transform equality for the modifier's output. This test
-  # owns delivery completeness -- that apply reached the live settings.json --
-  # and a real machine can legitimately carry an extra package installed
-  # directly through Pi between applies, so this asserts containment rather
-  # than equality.
+  # Subset by design, not exact equality. The transform itself belongs to
+  # scripts_test.sh's `Pi settings modifier` pair -- test_scripts_250 ("Pi
+  # settings modifier uses portable skills and the managed package set") and
+  # test_scripts_251 ("Pi settings modifier is idempotent") -- which run the
+  # modifier against fixtures and assert that the caller's package array is
+  # replaced, that no git: spec survives, and that a second pass is a no-op.
+  # Named rather than cited by line, because the earlier line citation here had
+  # already rotted onto unrelated tests.
+  #
+  # This test owns delivery completeness -- that apply reached the live
+  # settings.json -- and a real machine can legitimately carry an extra package
+  # installed directly through Pi between applies, so it asserts containment
+  # rather than equality.
   run jq -e --argjson expected "$expected" '
     ($expected - .packages) == []
   ' "$settings"
   assert_success
 }
 
-function test_smoke_017_coding_agents_use_terminal_color_palettes() {
-  _bats_test_init 17 'agent theme settings resolve to deployed theme files'
-  # Which palette each client names is a preference; pinning the names failed
-  # every intended theme edit. The contract is referential integrity: a
-  # settings value naming a file-backed theme must resolve to a deployed theme
-  # file, or the client falls back to a broken default. Two independent sides:
-  # the settings value vs the deployed theme file tree.
-  run jq -re '.theme' "$HOME/.claude/settings.json"
-  assert_success
-  local claude_theme="$output"
-  # Claude marks file-backed themes with a custom: prefix; a bare name is a
-  # builtin with no file to resolve.
-  case "$claude_theme" in
-    custom:*) assert_file_exists "$HOME/.claude/themes/${claude_theme#custom:}.json" ;;
-    # A bare name is a Claude builtin owned upstream: it has no file side to
-    # adjudicate here, same as OpenCode below. jq -re already rejected an
-    # empty or missing value, so this arm is a documented no-op, not a hole.
-    *) : ;;
-  esac
-
-  # Pi resolves theme names against its themes directory.
+# Which palette each client names is a preference; pinning the names failed
+# every intended theme edit. The contract is referential integrity: a settings
+# value naming a file-backed theme must resolve to a deployed theme file, or
+# the client falls back to a broken default. Two independent sides: the
+# settings value and the deployed theme file tree.
+#
+# One test per client, because the three clients do not offer the same
+# evidence. The two that can be adjudicated here assert it; the one that cannot
+# says so in its name instead of hiding an unassertable arm behind a passing
+# case branch.
+function test_smoke_017_pi_theme_resolves_to_a_deployed_theme_file() {
+  _bats_test_init 17 'pi theme setting resolves to a deployed theme file'
   run jq -re '.theme' "$HOME/.pi/agent/settings.json"
   assert_success
   assert_file_exists "$HOME/.pi/agent/themes/$output.json"
+}
 
-  # OpenCode builtin names carry no marker separating them from custom themes,
-  # so the file side cannot be adjudicated here; only the settings side — that
-  # tui.json parses and names a theme — is assertable.
-  run jq -re '.theme' "$HOME/.config/opencode/tui.json"
+function test_smoke_0171_claude_theme_resolves_to_a_deployed_theme_file() {
+  _bats_test_init 171 'claude theme setting resolves to a deployed theme file'
+  # This repository ships its own Claude palette, so the setting must be
+  # file-backed: Claude marks those with a custom: prefix. `select` drops a
+  # bare builtin name, and jq -e then exits non-zero, so the unresolvable case
+  # fails here rather than taking a second, assertion-free path.
+  run jq -re '.theme | select(startswith("custom:")) | ltrimstr("custom:")' \
+    "$HOME/.claude/settings.json"
   assert_success
+  assert_file_exists "$HOME/.claude/themes/$output.json"
+}
+
+function test_smoke_0172_opencode_tui_names_a_theme_with_no_local_file_side() {
+  _bats_test_init 172 'opencode tui.json names a theme, whose resolution is upstream-owned'
+  # OpenCode builtin names carry no marker separating them from custom themes
+  # and it deploys no theme files here, so the name has no local oracle and the
+  # resolution side stays untested on purpose (~/.claude/rules/testing.md:
+  # upstream-owned behavior). What this repository does own is that tui.json
+  # parses and carries a non-empty theme string; a null or missing one drops
+  # OpenCode onto its fallback palette.
+  run jq -r 'if (.theme | type) == "string" and (.theme | length) > 0
+             then "names a theme" else "theme is " + (.theme | tojson) end' \
+    "$HOME/.config/opencode/tui.json"
+  assert_success
+  assert_output 'names a theme'
 }
 
 function test_smoke_018_opencode_reads_the_shared_writing_style_file_via() {
@@ -481,16 +544,80 @@ function test_smoke_026_kitty_auto_launches_herdr_without_exec_ing_it_ma() {
   assert_file_contains "$config" "^shell /bin/zsh -lc .*exec /bin/zsh -l"
 }
 
+# Two-sided, because the contract is parity: kitty and ghostty must send the
+# same bytes for the same chord, and a one-sided grep on kitty's config freezes
+# one half of that relationship -- a ghostty edit that moves cmd+d leaves it
+# green. Every send_text binding is compared, not a hand-picked five, so
+# dropping one from either side is caught too.
+#
+# Chord names are normalized because the two config languages spell the same
+# physical key differently: ghostty writes cmd+KeyT, cmd+digit_1 and
+# ctrl+key_c for what kitty writes as cmd+t, cmd+1 and ctrl+c. Modifiers are
+# sorted, so cmd+shift+d and shift+cmd+d are one chord.
 function test_smoke_027_kitty_sends_the_herdr_prefix_for_macos_style_sho() {
-  _bats_test_init 27 'kitty sends the herdr prefix for macOS-style shortcuts (macOS only)'
+  _bats_test_init 27 'kitty and ghostty send the same bytes for the same chord (macOS only)'
   is_macos || skip "Not on macOS"
-  local config="$HOME/.config/kitty/herdr.conf"
-  # \x02 is herdr's ctrl+b prefix; these must match the ghostty keybindings.
-  assert_file_contains "$config" 'cmd+t send_text all .x02c$'
-  assert_file_contains "$config" 'cmd+d send_text all .x02v$'
-  assert_file_contains "$config" 'cmd+w send_text all .x02x$'
-  assert_file_contains "$config" 'ctrl+shift+1 send_text all .x1b\[49;6u$'
-  assert_file_contains "$config" '^map shift+alt+left send_text all .x1b\[1;4D$'
+  local parse="$BATS_TEST_TMPDIR/terminal-send-text-bindings.py"
+  cat > "$parse" <<'PARSE'
+import re
+import sys
+
+flavor, path = sys.argv[1], sys.argv[2]
+terminal_only = set(sys.argv[3:])
+ALIASES = {"left_bracket": "[", "right_bracket": "]"}
+
+
+def chord(raw):
+    parts = []
+    for token in raw.lower().split("+"):
+        token = re.sub(r"^(key|digit)_?", "", token)
+        parts.append(ALIASES.get(token, token))
+    return "+".join(sorted(parts[:-1]) + parts[-1:])
+
+
+bindings = {}
+for line in open(path, encoding="utf-8"):
+    line = line.strip()
+    if flavor == "kitty":
+        match = re.match(r"^map (?:--\S+ )*(\S+) send_text all (\S+)$", line)
+    else:
+        match = re.match(r"^keybind = (\S+?)=text:(\S+)$", line)
+    if not match:
+        continue
+    name = chord(match.group(1))
+    if name in terminal_only:
+        continue
+    bindings[name] = match.group(2)
+
+for name in sorted(bindings):
+    print("%s -> %s" % (name, bindings[name]))
+PARSE
+
+  # The three chords one terminal binds and the other has no counterpart for.
+  # kitty's ctrl+v is a layout override ghostty does not need, because its
+  # legacy encoder already sends \x16; ghostty's cmd+shift+o and cmd+shift+k
+  # carry protocol sequences kitty leaves to its own defaults. Everything else
+  # has to match byte for byte.
+  run python3 "$parse" kitty "$HOME/.config/kitty/herdr.conf" ctrl+v
+  assert_success
+  local kitty_bindings="$output"
+
+  run python3 "$parse" ghostty "$HOME/.config/ghostty/config" cmd+shift+k cmd+shift+o
+  assert_success
+  local ghostty_bindings="$output"
+
+  # Non-vacuity: herdr's own command keys for a new tab, a split and a close
+  # must each stay reachable, or two empty maps would compare equal. The
+  # distinct bytes, not the line count -- more than one chord may reach the
+  # same herdr command, and how many do is the user's preference. The leading
+  # backslash is left out of the pattern so the expectation needs no shell
+  # escaping; the full byte strings are compared by the equality below.
+  run bash -c 'set -o pipefail; grep -oE "x02[cvx]$" <<< "$1" | sort -u | paste -sd, -' \
+    _ "$kitty_bindings"
+  assert_success
+  assert_output 'x02c,x02v,x02x'
+
+  assert_equal "$kitty_bindings" "$ghostty_bindings"
 }
 
 function test_smoke_028_kitty_herdr_bindings_survive_a_non_latin_keyboar() {
@@ -535,9 +662,13 @@ function test_smoke_037_alerter_is_installed_for_focus_notify() {
   run command -v alerter
   assert_success
 
+  # The pinned version is not asserted: 26.5 is the number in
+  # home/.chezmoiexternal.toml, so matching it here would compare the install
+  # config against itself, and '26.5' as a substring also accepts '126.5x'.
+  # What the consumer needs is a binary that runs and answers with a version.
   run alerter --version
   assert_success
-  assert_output --partial '26.5'
+  assert_output --regexp '^[0-9]+\.[0-9]+(\.[0-9]+)?$'
 }
 
 # herdr alias presentation (engine, native integrations, sidebar)
@@ -572,13 +703,37 @@ function test_smoke_1074_managed_zsh_resolves_herdr_through_the_provenance_wrapp
 }
 
 function test_smoke_1052_herdr_child_and_consult_contracts_use_allocator_owned_p() {
-  _bats_test_init 1052 'herdr child and consult contracts use allocator-owned pair addressing'
+  _bats_test_init 1052 'the deployed reap contract and herdr-child agree on pair addressing'
   # The reap/verify/reply flow itself is owned by scripts_test.sh, which runs
-  # ask.sh and herdr-child against fakes. What remains here is the one command
-  # line agents copy verbatim from the deployed contract document: its literal
-  # shape is the contract.
-  assert_file_contains "$HOME/.claude/shared/child-agent-contract.md" \
-    'herdr-child reap --to <alias> --pane <pane-id>'
+  # ask.sh and herdr-child against fakes. What remains here is the command line
+  # agents copy verbatim out of the deployed contract document -- and a grep
+  # for that literal protects the document's wording, not the agreement it
+  # describes. A flag rename in herdr-child would leave the old text matching.
+  #
+  # So both sides are read: the document, and the deployed tool's own usage
+  # banner, which prints the same line. Either one drifting turns this red.
+  local doc="$HOME/.claude/shared/child-agent-contract.md"
+  local tool="$HOME/.local/bin/herdr-child"
+  assert_file_exists "$doc"
+  assert_file_executable "$tool"
+
+  local extract='herdr-child reap( --[a-z-]+ <[a-z-]+>)+'
+  # pipefail plus grep's own exit status: an empty extraction fails here
+  # instead of comparing two empty strings.
+  run bash -c 'set -o pipefail; grep -ohE "$1" "$2" | sort -u' _ "$extract" "$doc"
+  assert_success
+  local documented="$output"
+
+  # No arguments: herdr-child prints its usage and exits 2 before any
+  # environment check, so this needs neither HERDR_ENV nor a live pane. The
+  # documented exit status comes first, so a tool that died for another reason
+  # cannot reach the comparison on whatever it managed to print.
+  run "$tool"
+  assert_failure 2
+  run bash -c 'set -o pipefail; printf "%s\n" "$1" | grep -ohE "$2" | sort -u' \
+    _ "$output" "$extract"
+  assert_success
+  assert_equal "$output" "$documented"
 }
 
 # Single deployed owner for Claude's Herdr session/context chain. The managed
@@ -588,11 +743,14 @@ function test_smoke_1054_claude_settings_deliver_herdr_resource_context() {
   _bats_test_init 1054 'claude settings deploy Herdr resource context without Stop continuation'
   local settings="$HOME/.claude/settings.json"
   assert_file_exists "$settings"
+  # The retired herdr-task-sync-hook.sh absence assertion is gone: removing a
+  # hook does not by itself justify asserting that its name stays out of the
+  # file (~/.claude/rules/testing.md). The Stop check below is not that -- it
+  # guards a live wiring rule, since a resource refresh on Stop re-enters the
+  # continuation it just ended.
   run python3 - "$settings" <<'PY'
 import json, sys
 hooks = json.load(open(sys.argv[1]))["hooks"]
-commands = [h["command"] for entries in hooks.values() for entry in entries for h in entry["hooks"]]
-assert not any("herdr-task-sync-hook.sh" in command for command in commands), commands
 
 def event_commands(event):
     return [h["command"] for entry in hooks.get(event, []) for h in entry["hooks"]]
@@ -604,9 +762,17 @@ assert not any("herdr-resource-context.sh" in command for command in event_comma
 PY
   assert_success
   assert_file_executable "$HOME/.claude/hooks/herdr-resource-context.sh"
-  if [ -z "${MMS_CI_MINIMAL:-}" ]; then
-    assert_file_executable "$HOME/.claude/hooks/herdr-agent-state.sh"
-  fi
+}
+
+# The native reporter the managed hook above shells out to. herdr installs it
+# itself (HERDR_INTEGRATION_ID=claude in its header) rather than chezmoi, so it
+# exists only where a real herdr is installed -- hence a visible skip on that
+# precondition rather than the environment-variable branch this assertion used
+# to sit behind, which dropped the coverage silently in CI-minimal.
+function test_smoke_1075_herdr_native_agent_state_reporter_is_installed() {
+  _bats_test_init 1075 'herdr native Agent-session reporter is installed beside the managed hook'
+  require_working_herdr
+  assert_file_executable "$HOME/.claude/hooks/herdr-agent-state.sh"
 }
 
 function test_smoke_1064_deployed_settings_wire_the_context_threshold_handoff() {
@@ -777,8 +943,15 @@ function test_smoke_1067_deployed_claude_shim_denies_the_known_bad_fixture() {
 {"tool_name":"Bash","tool_input":{"command":"make check; status=$?; exit $status"}}
 EOF
   assert_success
-  assert_output --partial '"permissionDecision": "deny"'
-  assert_output --partial "zsh-reserved-name-guard:"
+  # Through jq, not through the envelope's pretty-printed text: the decision
+  # and the policy name are knowable values, while '": "' is jq's spacing.
+  local envelope="$output"
+  run jq -r '.hookSpecificOutput.permissionDecision' <<< "$envelope"
+  assert_success
+  assert_output 'deny'
+  run jq -r '.hookSpecificOutput.permissionDecisionReason | split(":")[0]' <<< "$envelope"
+  assert_success
+  assert_output 'zsh-reserved-name-guard'
 
   run bash "$shim" <<'EOF'
 {"tool_name":"Bash","tool_input":{"command":"make check; rc=$?; exit $rc"}}
@@ -819,9 +992,13 @@ function test_smoke_1069_deployed_pi_agent_hooks_extension_enforces_the_core() {
 # The checkout tests exercise thin loaders against fakes. This deployment check
 # proves that chezmoi ran the installer and that those same entrypoints exist in
 # the package tree the real clients resolve.
-function test_smoke_1073_deployed_agent_intercom_package_exposes_each_selected_adapter() {
-  _bats_test_init 1073 'deployed Agent Intercom package exposes each selected adapter'
+function test_smoke_1076_deployed_agent_intercom_package_exposes_each_selected_adapter() {
+  # 1076, not 1073: that id already belongs to the deployed Pi resource-context
+  # test above, and two tests reporting under one id cannot be told apart in a
+  # failure report.
+  _bats_test_init 1076 'deployed Agent Intercom package exposes each selected adapter'
   local root="$HOME/.local/share/agent-intercom"
+  local claude_plugin="$root/node_modules/@dataforxyz/agent-intercom-claude"
   assert_file_exists "$HOME/.local/bin/herdr-agent-intercom"
   assert_file_exists "$HOME/.local/bin/herdr-agent-intercom-claude"
   assert_file_exists "$HOME/.config/opencode/plugins/agent-intercom.ts"
@@ -829,6 +1006,7 @@ function test_smoke_1073_deployed_agent_intercom_package_exposes_each_selected_a
   assert_file_exists "$root/node_modules/.bin/cci"
   assert_file_exists "$root/node_modules/@dataforxyz/agent-intercom-opencode/dist/plugin.mjs"
   assert_file_exists "$root/node_modules/@dataforxyz/agent-intercom-pi/index.ts"
+  assert_dir_exists "$claude_plugin"
 
   run env \
     AGENT_INTERCOM_OPENCODE_LOADER_PATH="$HOME/.config/opencode/plugins/agent-intercom.ts" \
@@ -869,57 +1047,51 @@ SH
     --disallowed-tools 'Edit Write NotebookEdit AskUserQuestion'
   assert_success
   assert_file_exists "$log"
-  run cat "$log"
+
+  # The stub recorded the whole argv, so each flag's value is knowable. The
+  # append-system-prompt text carries a per-session id and is left alone; the
+  # two flags this wrapper is responsible for are asserted with their values.
+  #
+  # '<--plugin-dir>' on its own passes for a wrapper aimed at a directory that
+  # does not exist, so the value is compared against the adapter actually
+  # installed in the package tree -- two independent sides.
+  run python3 - "$log" <<'ARGV'
+import re
+import sys
+
+argv = re.findall(r"<(.*?)>", open(sys.argv[1], encoding="utf-8").read(), re.S)
+for flag in ("--disallowed-tools", "--plugin-dir"):
+    if flag not in argv:
+        print("%s is absent from: %s" % (flag, argv))
+        raise SystemExit(1)
+    print(argv[argv.index(flag) + 1])
+ARGV
   assert_success
-  assert_output --partial '<--disallowed-tools><Edit Write NotebookEdit AskUserQuestion>'
-  assert_output --partial '<--plugin-dir>'
-  refute_output --partial '<--dangerously-skip-permissions>'
-  refute_output --partial '<--permission-mode><manual>'
+  assert_line --index 0 'Edit Write NotebookEdit AskUserQuestion'
+  assert_line --index 1 "$claude_plugin"
+
+  # cci's generated permission selector is dropped by
+  # home/dot_local/bin/executable_herdr-agent-intercom-claude, and
+  # scripts_test.sh owns that transform directly: its 'claude bridge' pair
+  # feeds the bridge a generated '--permission-mode manual' beside a caller's
+  # own selector and asserts the exact surviving argv. Repeating it here as a
+  # refute_output proved only that two strings were missing from a log.
 }
 
-assert_herdr_label_writer_contract() {
-  local engine="$1"
-  local writer_roots=(
-    "$(dirname "$engine")"
-  )
-
-  # Nothing here asserts config.toml content. Sidebar rows, widths, and which
-  # tokens a row renders are the user's presentation preferences in the user's
-  # own config; a test that froze them would fail on an intended edit and prove
-  # nothing about the label writer.
-
-  run bash -c '
-    pattern="$1"; shift
-    find "$@" -type f -exec grep -hE "$pattern" {} +
-  ' _ '^[[:space:]]*herdr pane rename ' "${writer_roots[@]}"
-  assert_success
-  [ "$(printf '%s\n' "$output" | wc -l | tr -d '[:space:]')" -eq 1 ]
-  run bash -c '
-    pattern="$1"; shift
-    find "$@" -type f -exec grep -hE "$pattern" {} +
-  ' _ '^[[:space:]]*herdr tab rename ' "${writer_roots[@]}"
-  assert_success
-  [ "$(printf '%s\n' "$output" | wc -l | tr -d '[:space:]')" -eq 1 ]
-
-  # The engine builds the five codicon glyphs of the $git_ref grammar from
-  # bash 3.2-safe octal printf sequences. Raw PUA glyphs are easily lost when
-  # files pass through editors or agents, so none may be committed verbatim.
-  assert_file_contains "$engine" '\\356\\261\\257' # nf-cod-git_branch U+EC6F
-  assert_file_contains "$engine" '\\356\\261\\276' # nf-cod-worktree U+EC7E
-  assert_file_contains "$engine" '\\356\\253\\274' # nf-cod-git_commit U+EAFC
-  assert_file_contains "$engine" '\\356\\252\\203' # nf-cod-folder U+EA83
-  assert_file_contains "$engine" '\\356\\252\\202' # nf-cod-history U+EA82
-  run env LC_ALL=C grep -n "$(printf '\356')" "$engine"
-  assert_failure
-  assert_file_contains "$engine" 'LABEL_SEPARATOR=.* · '
-  assert_file_contains "$engine" '…'
-}
-
-function test_smoke_1059_herdr_deployed_files_preserve_label_writer_ownership() {
-  _bats_test_init 1059 'herdr deployed files preserve label-writer ownership boundaries'
-  require_working_herdr
-  assert_herdr_label_writer_contract "$HOME/.local/bin/herdr-pane-labels"
-}
+# The label-writer contract that used to live here (1059, with its
+# assert_herdr_label_writer_contract helper) is gone. It greped
+# ~/.local/bin/herdr-pane-labels for octal codicon escapes, a single
+# `herdr pane rename` call and an ellipsis -- but that script is not this
+# repository's code. It is installed from the Seigiard/herdr-pane-labels GitHub
+# package (run_onchange_after_7-install-herdr-github-plugins.sh.tmpl), so its
+# internals have no oracle here: a broken writer whose source still holds those
+# strings stayed green, and a harmless upstream refactor (hex escapes, a second
+# rename call) went red. Nothing ever ran the engine.
+#
+# What this repository owns is the deployment, and 1060 and 1061 below own it:
+# that the package is installed from the expected GitHub source, and that its
+# runtime, aliases and version file landed where the shell resolves them. The
+# writer's own behavior belongs to the herdr-pane-labels repository.
 
 function test_smoke_1060_herdr_pane_labels_is_installed_as_a_github_package() {
   _bats_test_init 1060 'herdr pane labels is installed as a GitHub package'

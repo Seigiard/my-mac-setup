@@ -110,20 +110,33 @@ function test_templates_034_chezmoi_init_rejects_an_unknown_machine_role() {
 
   run write_test_config "$BATS_TEST_TMPDIR/unknown-machine-role.yaml"
   assert_failure
-  assert_output --partial 'invalid MMS_MACHINE_ROLE'
+  # The operator has to learn which value was refused and what is accepted
+  # instead; a message that names neither leaves them guessing. Partial only
+  # because chezmoi wraps the message in its own template-error framing.
+  assert_output --partial 'invalid MMS_MACHINE_ROLE "workstation": expected mbp2021, mbp2026, or server'
 }
 
 function test_templates_035_chezmoi_init_rejects_a_role_for_the_wrong_os() {
   _bats_test_init 35 'chezmoi init rejects a machine role for the wrong OS'
+  # The runner's OS is an environment precondition, so each arm carries the
+  # message it must produce literally. Without the role and the OS in the
+  # match, a message naming the opposite pair would pass here too.
+  local expected
   case "$(get_os)" in
-    darwin) export MMS_MACHINE_ROLE="server" ;;
-    linux) export MMS_MACHINE_ROLE="mbp2026" ;;
+    darwin)
+      export MMS_MACHINE_ROLE="server"
+      expected='machine role "server" is not supported on darwin'
+      ;;
+    linux)
+      export MMS_MACHINE_ROLE="mbp2026"
+      expected='machine role "mbp2026" is not supported on linux'
+      ;;
     *) skip "unsupported test OS" ;;
   esac
 
   run write_test_config "$BATS_TEST_TMPDIR/wrong-os-machine-role.yaml"
   assert_failure
-  assert_output --partial 'is not supported on'
+  assert_output --partial "$expected"
 }
 
 make_ssh_policy_fixture() {
@@ -606,16 +619,28 @@ function test_templates_0092_zshenv_host_partial_diff_preserves_secret_target_an
   printf 'zshenv-host-sentinel\n' > "$work/home/.zshenv"
   write_test_config "$cfg"
 
-  run env \
-    HOME="$work/home" \
-    MMS_CHEZMOI_UNATTENDED=1 \
-    "$launcher" --profile host-partial -- \
-    diff --source "$SOURCE_ROOT" --destination "$work/home" --config "$cfg" --color=false
+  # A full host diff against an empty destination runs to ~180k lines. Narrow
+  # it to the two facts this test owns inside the run, so the lines below are
+  # whole-line matches and a failure prints three lines instead of five
+  # megabytes. pipefail keeps the diff's own status in front of the match: a
+  # launcher that died still prints text a grep would accept, and an empty
+  # grep result fails here rather than passing as "nothing unexpected".
+  run bash -c '
+    set -o pipefail
+    env HOME="$1" MMS_CHEZMOI_UNATTENDED=1 "$2" --profile host-partial -- \
+      diff --source "$3" --destination "$1" --config "$4" --color=false 2>&1 \
+      | grep -E "^(chezmoi-unattended: partial coverage;|diff --git a/\.zprofile )"
+  ' _ "$work/home" "$launcher" "$SOURCE_ROOT" "$cfg"
   assert_success
-  assert_output --partial 'partial coverage'
-  assert_output --partial 'home/dot_zshenv.tmpl'
-  assert_output --partial '~/.zshenv'
-  assert_output --partial '.zprofile'
+
+  # The omission notice in full. 'partial coverage' on its own never says which
+  # target was skipped, so a launcher omitting the wrong file passes it.
+  assert_line 'chezmoi-unattended: partial coverage; omitted source home/dot_zshenv.tmpl -> destination ~/.zshenv'
+  # Ordinary work still reported, as a diff header. A bare mention of the name
+  # also occurs in ~/.zshrc's own cfgfiles list and in Homebrew's shellenv
+  # advice, both of which land in this diff long before any .zprofile target.
+  assert_line 'diff --git a/.zprofile b/.zprofile'
+
   assert_file_contains "$work/home/.zshenv" '^zshenv-host-sentinel$'
   assert_equal "$(wc -l < "$work/home/.zshenv" | tr -d ' ')" 1
 }
@@ -779,18 +804,30 @@ function test_templates_014_every_opencode_instructions_entry_is_a_managed_f() {
 # ===========================================
 function test_templates_0151_private_settings_registers_worktree_identity_prompt_hook() {
   _bats_test_init 151 'private settings register the worktree identity and handoff hooks'
+  local hooks_dir="$HOME/.claude/hooks"
   BATS_TEST_TMPFILE="$(mktemp)"
   render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
   run grep -F '{{' "$BATS_TEST_TMPFILE"
   assert_failure
+
+  # The whole command line, not a substring of it: Claude runs this string, so
+  # a commented-out entry or one carrying the wrong arguments is a dead hook
+  # that a substring match still accepts.
   run jq -r '.hooks.UserPromptSubmit[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
   assert_success
-  assert_output --partial 'herdr-worktree-identity-hook.sh'
+  assert_line "bash '$hooks_dir/herdr-worktree-identity-hook.sh'"
   run jq -r '.hooks.SessionStart[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
   assert_success
-  assert_output --partial 'handoff-session-start.sh'
+  assert_line "bash '$hooks_dir/handoff-session-start.sh'"
+
+  # Both registered paths, not just one: a registration pointing at a script
+  # chezmoi does not manage is the same dead hook by another route.
   run chezmoi_host_partial source-path \
-    --source "$SOURCE_ROOT" "$HOME/.claude/hooks/handoff-session-start.sh"
+    --source "$SOURCE_ROOT" "$hooks_dir/herdr-worktree-identity-hook.sh"
+  assert_success
+  assert_file_exists "$output"
+  run chezmoi_host_partial source-path \
+    --source "$SOURCE_ROOT" "$hooks_dir/handoff-session-start.sh"
   assert_success
   assert_file_exists "$output"
 }
@@ -808,7 +845,7 @@ function test_templates_0152_private_settings_register_the_precompact_handoff_bu
   # https://github.com/Seigiard/my-mac-setup/blob/27f33a235548f19422b94565f6a14613219b5d5b/docs/issues/2026-09-03-004-user-prompt-skill-eval-hook-is-deployed-but-never-wired.md.
   run jq -r '.hooks.PreCompact[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
   assert_success
-  assert_output --partial 'handoff-pre-compact.sh'
+  assert_line "bash '$HOME/.claude/hooks/handoff-pre-compact.sh'"
   run chezmoi_host_partial source-path \
     --source "$SOURCE_ROOT" "$HOME/.claude/hooks/handoff-pre-compact.sh"
   assert_success
@@ -1018,7 +1055,12 @@ function test_templates_026_no_rendered_brew_cask_or_tap_entry_is_indented_i() {
     cfg="$BATS_TEST_TMPDIR/indent-$mode.yaml"
     MMS_CI_MINIMAL="$mode" write_test_config "$cfg"
     for tmpl in "$BREWFILE_TMPL" "$BREWFILE_MACOS_TMPL"; do
-      out="$(render_with_config "$cfg" "$SOURCE_ROOT/$tmpl")"
+      # Status first, like every sibling in this section: a failed render
+      # produces no entries, so the grep below would find nothing and the
+      # assert_failure would pass on an empty string.
+      run render_with_config "$cfg" "$SOURCE_ROOT/$tmpl"
+      assert_success
+      out="$output"
       run grep -n '^[[:space:]][[:space:]]*\(brew\|cask\|tap\) ' <<< "$out"
       assert_failure
     done
@@ -1113,45 +1155,48 @@ function test_templates_030_agent_skills_sync_hash_changes_for_each_managed_inpu
   assert_success
 }
 
-function test_templates_031_agent_skills_clients_use_portable_providers() {
-  _bats_test_init 31 'agent-skills clients retain non-skill plugins without legacy skill providers'
+function test_templates_031_enabled_claude_plugin_keys_name_a_marketplace() {
+  _bats_test_init 31 'every enabled Claude plugin key names both a plugin and its marketplace'
   skip_if_no_chezmoi
-  local home="$BATS_TEST_TMPDIR/client-home" claude opencode
+  # Which plugins are enabled is a selection, not a contract:
+  # docs/agent-setup-inventory.md owns the list, and this suite cannot read it
+  # (the template container mounts only home/, tests/, Makefile and README.md
+  # -- docker/docker-compose.yml). Naming the four current plugins here would
+  # copy them out of the template this test renders, so an intended edit would
+  # change both sides at once and never fail.
+  #
+  # What survives any selection edit is the key format Claude resolves a plugin
+  # by: "<plugin>@<marketplace>", mapped to true. A key that lost its
+  # marketplace half, or a value that is not true, disables the plugin silently
+  # at load -- no error, no plugin.
+  #
+  # The retired-provider absence checks this test used to carry are gone. Two
+  # of them could not fail: the template declares no extraKnownMarketplaces and
+  # opencode.json declares no plugin key, so `jq -e ... | has(...)` ran against
+  # null and exited non-zero whatever the settings said. Removing a provider
+  # does not by itself justify asserting its absence (~/.claude/rules/
+  # testing.md); the capability that remains is asserted below. JSON validity
+  # of both renders is owned by test 14 ('every opencode instructions entry is
+  # a managed source file') and test 151 ('private settings register the
+  # worktree identity and handoff hooks'), which jq the same two templates.
+  local home="$BATS_TEST_TMPDIR/client-home"
 
   HOME="$home" run chezmoi_full_fixture_finite_stdin --source "$SOURCE_ROOT" execute-template \
     < "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl"
   assert_success
-  claude="$output"
-  run python3 -c 'import json, sys; json.loads(sys.stdin.read())' <<< "$claude"
-  assert_success
 
-  HOME="$home" run chezmoi_full_fixture_finite_stdin --source "$SOURCE_ROOT" execute-template \
-    < "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl"
+  run jq -r '
+    (.enabledPlugins // {}) as $plugins
+    | [$plugins | to_entries[]
+       | select((.key | test("^[^@[:space:]]+@[^@[:space:]]+$") | not) or .value != true)
+       | .key]
+    | if ($plugins | length) == 0 then "no plugin is enabled"
+      elif length > 0 then "unresolvable: " + join(", ")
+      else "every enabled plugin names its marketplace"
+      end
+  ' <<< "$output"
   assert_success
-  opencode="$output"
-  run python3 -c 'import json, sys; json.loads(sys.stdin.read())' <<< "$opencode"
-  assert_success
-
-  run jq -e '.enabledPlugins | has("compound-engineering@compound-engineering-plugin") or has("frontend-design@claude-plugins-official") or has("playground@claude-plugins-official")' <<< "$claude"
-  assert_failure
-  run jq -e '.extraKnownMarketplaces | has("compound-engineering-plugin")' <<< "$claude"
-  assert_failure
-  run jq -e 'has("plugin")' <<< "$opencode"
-  assert_failure
-
-  # These four names are copied from the template this test renders, so treat
-  # them as the control fixture for the three rejections above, not as an
-  # independent oracle: with an empty `enabledPlugins` every `assert_failure`
-  # would pass, and the retirement checks would prove nothing. The protected
-  # regression is therefore silent *removal* — a settings edit that drops a
-  # plugin Claude still needs for its non-skill functionality.
-  #
-  # docs/agent-setup-inventory.md names the same four and would be the
-  # independent side, but the template-test container mounts only home/,
-  # tests/, Makefile and README.md (docker/docker-compose.yml), so that file
-  # does not exist where this suite runs and cannot be read here.
-  run jq -e '.enabledPlugins["playwright@claude-plugins-official"] and .enabledPlugins["plugin-dev@claude-plugins-official"] and .enabledPlugins["security-guidance@claude-plugins-official"] and .enabledPlugins["typescript-lsp@claude-plugins-official"]' <<< "$claude"
-  assert_success
+  assert_output 'every enabled plugin names its marketplace'
 }
 
 function set_up_before_script() {
