@@ -611,6 +611,7 @@ function test_resource_tree_004_agent_fixture_matches_the_installed_herdr_bounda
   resource_tree_require_real_herdr
 
   run python3 - <<'PY'
+import json
 import os
 import signal
 import subprocess
@@ -633,17 +634,32 @@ except subprocess.TimeoutExpired:
     raise SystemExit(124)
 if process.returncode != 0:
     print(stderr.strip() or f"real Herdr exited {process.returncode}", file=sys.stderr)
+    # Separate "there is no oracle here" from "the oracle answered and
+    # disagreed". Only the first is an environment precondition; folding both
+    # into one skip meant a herdr that had started rejecting this call read as
+    # an absent server, and the fixture below stayed unadjudicated in a green
+    # run (docs/solutions/design-patterns/calibration-skips-need-their-own-verdict.md).
+    try:
+        if json.loads(stderr)["error"]["code"] == "server_not_running":
+            raise SystemExit(78)
+    except (KeyError, TypeError, ValueError):
+        pass
     raise SystemExit(process.returncode)
 sys.stdout.write(stdout)
 PY
-  if [[ "$status" -ne 0 ]]; then
-    skip "real Herdr returned no snapshot: $output"
+  # 124 is the wrapper's timeout and 78 its no-running-server verdict. Both are
+  # named environment preconditions; every other non-zero status is real Herdr
+  # refusing the call, which this calibration must report as red.
+  if [[ "$status" -eq 124 || "$status" -eq 78 ]]; then
+    skip "no running Herdr server can answer api snapshot: $output"
   fi
+  assert_success
   local real_snapshot="$output"
   run "$TREE_WORK/run-bounded" herdr pane current --current
-  if [[ "$status" -ne 0 ]]; then
-    skip "real Herdr returned no current pane: $output"
+  if [[ "$status" -ne 0 ]] && [[ "$output" == *server_not_running* ]]; then
+    skip "no running Herdr server can answer pane current: $output"
   fi
+  assert_success
   local real_current="$output"
   run python3 - "$real_current" <<'PY'
 import json

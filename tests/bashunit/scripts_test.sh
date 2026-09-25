@@ -2947,59 +2947,124 @@ function test_scripts_08522_command_palette_migration_retries_after_enable_failu
   assert_output "2"
 }
 
-function test_scripts_08523_plugin_list_fake_fields_match_real_herdr() {
-  _bats_test_init 8523 'plugin-list fake fields match the installed Herdr contract'
-  command_exists herdr || skip "herdr is not installed"
-  local plugin_json
-
-  run env -i HOME="$HOME" PATH="$PATH" \
-    HERDR_SOCKET_PATH="/tmp/mms-herdr-plugin-contract-$$.sock" herdr plugin list --json
-  [[ $status -eq 0 ]] || skip "real herdr returned no plugin list: $output"
-  plugin_json="$output"
-
-  run env PLUGIN_JSON="$plugin_json" python3 - <<'PY'
+# The field contract every herdr plugin-list fake in this file reproduces, and
+# the only part of the payload the migrations read: `plugin_is_local` and
+# `plugin_is_enabled` in home/.chezmoiscripts/run_once_after_*-migrate-herdr-*
+# and run_onchange_after_7-install-herdr-github-plugins take
+# result.plugins[].plugin_id, .enabled and .source.kind and nothing else. The
+# expected side is the installed binary's own payload; the depth stops here on
+# purpose, because anything deeper restates a shape herdr owns and would go red
+# on its next release for no local reason
+# (docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md).
+assert_herdr_plugin_field_contract() {
+  local payload="$1" plugin_id="$2" expected_kind="$3"
+  run python3 - "$payload" "$plugin_id" "$expected_kind" <<'PY'
 import json
-import os
+import sys
 
-plugins = json.loads(os.environ["PLUGIN_JSON"])["result"]["plugins"]
-assert plugins, "real herdr returned no plugins"
-kinds = set()
-for plugin in plugins:
-    assert isinstance(plugin.get("plugin_id"), str), plugin
-    assert isinstance(plugin.get("enabled"), bool), plugin
-    source = plugin.get("source")
-    assert isinstance(source, dict) and isinstance(source.get("kind"), str), plugin
-    kinds.add(source["kind"])
-assert kinds <= {"local", "github"}, kinds
-print(" ".join(sorted(kinds)))
+payload, wanted, expected_kind = sys.argv[1:]
+plugins = json.loads(open(payload, encoding="utf-8").read())["result"]["plugins"]
+matches = [plugin for plugin in plugins if plugin.get("plugin_id") == wanted]
+assert len(matches) == 1, matches
+plugin = matches[0]
+print(json.dumps({
+    "plugin_id": type(plugin["plugin_id"]).__name__,
+    "enabled": type(plugin["enabled"]).__name__,
+    "source.kind": plugin["source"]["kind"],
+}, sort_keys=True))
 PY
   assert_success
-  local observed_kinds="$output"
+  assert_output \
+    "{\"enabled\": \"bool\", \"plugin_id\": \"str\", \"source.kind\": \"$expected_kind\"}"
+}
 
-  # The offline `enable` error shape needs no registry contents, so it runs before
-  # the source-kind precondition below can discard it. It is the only comparison of
-  # the fake's `server_not_running` payload against the real binary.
-  run env -i HOME="$HOME" PATH="$PATH" \
+function test_scripts_08523_plugin_list_fake_fields_match_real_herdr() {
+  _bats_test_init 8523 'plugin-list fake local-source fields match the installed Herdr contract'
+  command_exists herdr || skip "herdr is not installed"
+  local work="$BATS_TEST_TMPDIR/plugin-contract-local"
+  mkdir -p "$work/home/.config" "$work/plug"
+
+  # The local-source observation is constructed rather than borrowed from the
+  # host registry: the real binary registers a throwaway plugin in a config home
+  # of this test's own and reports back what it recorded. No environment has to
+  # happen to hold a local registration -- which is what used to fold this whole
+  # calibration into a single skip, leaving the `local` half of every fake below
+  # (lines with "kind":"local") adjudicated by nothing.
+  cat > "$work/plug/herdr-plugin.toml" <<'TOML'
+id = "mms.plugin-contract-probe"
+name = "Plugin Contract Probe"
+version = "0.0.1"
+min_herdr_version = "0.7.0"
+description = "throwaway local registration used to read herdr's plugin-list contract"
+platforms = ["macos", "linux"]
+TOML
+  # An explicit short socket path: herdr derives one from the config home, and a
+  # path under BATS_TEST_TMPDIR overruns sun_path.
+  run env -i HOME="$work/home" PATH="$PATH" XDG_CONFIG_HOME="$work/home/.config" \
+    HERDR_SOCKET_PATH="/tmp/mms-herdr-plugin-contract-$$.sock" \
+    herdr plugin link "$work/plug" --enabled
+  assert_success
+  run env -i HOME="$work/home" PATH="$PATH" XDG_CONFIG_HOME="$work/home/.config" \
+    HERDR_SOCKET_PATH="/tmp/mms-herdr-plugin-contract-$$.sock" \
+    herdr plugin list --json
+  assert_success
+  printf '%s\n' "$output" > "$work/real.json"
+  assert_herdr_plugin_field_contract "$work/real.json" mms.plugin-contract-probe local
+
+  # The offline `plugin enable` error payload the fakes at tests 08513 and 08514
+  # reproduce, read from the real binary against a socket no server answers.
+  run env -i HOME="$work/home" PATH="$PATH" \
     HERDR_SOCKET_PATH="/tmp/mms-herdr-plugin-contract-$$.sock" \
     herdr plugin enable missing.plugin
   assert_failure
-  local enable_error="$output"
-  run env ENABLE_ERROR="$enable_error" python3 - <<'PY'
-import json
-import os
+  run python3 -c 'import json,sys; print(json.loads(sys.argv[1])["error"]["code"])' "$output"
+  assert_success
+  assert_output 'server_not_running'
+}
 
-error = json.loads(os.environ["ENABLE_ERROR"])["error"]
-assert error["code"] == "server_not_running", error
+function test_scripts_08526_plugin_list_fake_github_source_matches_real_herdr() {
+  _bats_test_init 8526 'plugin-list fake github-source fields match the installed Herdr contract'
+  command_exists herdr || skip "herdr is not installed"
+  # A github-source registration cannot be constructed offline -- `plugin
+  # install` resolves a ref over the network -- so this half reads the host
+  # registry and carries its own visible skip. It is a separate test from 08523
+  # on purpose: folded into one, this precondition skipped the local half too and
+  # the run reported one "skipped" where one side had in fact been verified.
+  local work="$BATS_TEST_TMPDIR/plugin-contract-github" probe
+  mkdir -p "$work"
+  run env -i HOME="$HOME" PATH="$PATH" \
+    HERDR_SOCKET_PATH="/tmp/mms-herdr-plugin-contract-$$.sock" herdr plugin list --json
+  assert_success
+  printf '%s\n' "$output" > "$work/real.json"
+  run python3 - "$work/real.json" <<'PY'
+import json
+import sys
+
+plugins = json.loads(open(sys.argv[1], encoding="utf-8").read())["result"]["plugins"]
+github = [p for p in plugins if (p.get("source") or {}).get("kind") == "github"]
+print(github[0]["plugin_id"] if github else "")
 PY
   assert_success
+  probe="$output"
+  [[ -n "$probe" ]] \
+    || skip "the host herdr registry holds no github-source plugin to read the contract from"
+  assert_herdr_plugin_field_contract "$work/real.json" "$probe" github
 
-  # Named environment precondition, not coverage: the source-kind comparison can
-  # only run where the host registry holds both kinds. When this skip fires, the
-  # local/github half of the fake stays unverified, so compare skip identities
-  # across environments rather than reading the green run as coverage
-  # (docs/solutions/design-patterns/skip-set-parity-proves-reduced-dependencies.md).
-  [[ " $observed_kinds " == *" local "* && " $observed_kinds " == *" github "* ]] \
-    || skip "real registry does not currently expose both local and github source kinds: $observed_kinds"
+  # Every source kind the fakes below produce is one of two. A third kind
+  # appearing upstream is what would make the local/github branch in
+  # `plugin_is_local` stop partitioning the registry.
+  run python3 - "$work/real.json" <<'PY'
+import json
+import sys
+
+plugins = json.loads(open(sys.argv[1], encoding="utf-8").read())["result"]["plugins"]
+print(" ".join(sorted({p["source"]["kind"] for p in plugins})))
+PY
+  assert_success
+  case "$output" in
+    github|local|'github local') : ;;
+    *) fail "real herdr reports a source kind the migrations do not partition: $output" ;;
+  esac
 }
 
 function test_scripts_08524_worktree_setup_is_installed_enabled_and_pinned() {
@@ -8927,6 +8992,14 @@ SH
   printf '%s' "$stub"
 }
 
+# A fake of the Skills CLI, not of anything this repository owns: it reproduces
+# `skills add`'s lock-file writes and `skills remove`'s exit codes. What it
+# emulates, read from the real thing rather than assumed -- skills 1.7.0, as
+# `npx --yes skills@latest --version` reported on 2026-09-25. Test 3074 is the
+# oracle that keeps the record honest: it runs the same `add` against the real
+# CLI and compares the lock entries this stub writes to the ones the CLI writes.
+# Nothing asserted beside this stub can adjudicate it
+# (docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md).
 skills_exclusion_stub_npx() {
   local stub="$BATS_TEST_TMPDIR/skills-exclusion-stub"
   mkdir -p "$stub"
@@ -11311,6 +11384,24 @@ agent_limits_fixture() {
   chmod +x "$home/bin/codex"
 }
 
+# The `account/rateLimits/read` reply codex_refresh parses, declared once so one
+# calibration can adjudicate every test that answers with it. Captured from the
+# installed binary on 2026-09-25, codex-cli 0.157.0, by speaking the same
+# newline-delimited JSON-RPC the refresh path speaks:
+#   codex app-server  # then initialize, initialized,
+#                     # account/rateLimits/read {"excludeResetCreditDetails":true}
+# The real reply carries far more than this (accountId, planType, credits,
+# rateLimitsByLimitId, ...). Only the five fields below are reproduced, because
+# those are the five codex_refresh reads; the rest is a shape codex owns and
+# would break this suite on its next release for no local reason
+# (docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md).
+# Test 27209 is what keeps the record honest.
+codex_app_server_reply() {
+  local used_percent="$1" window_minutes="$2" resets_at="$3" credits="$4"
+  printf '{"jsonrpc":"2.0","id":2,"result":{"rateLimits":{"primary":{"usedPercent":%s,"windowDurationMins":%s,"resetsAt":%s}},"ordinaryUsageAllowed":true,"rateLimitResetCredits":{"availableCount":%s}}}' \
+    "$used_percent" "$window_minutes" "$resets_at" "$credits"
+}
+
 # The cache the refresh writes and the bar reads, as a single window.
 codex_limits_cache() {
   local home="$1" pct="$2" resets_at="$3" blocked="$4" credits="$5" fetched_at="$6"
@@ -11571,6 +11662,81 @@ print("ok")
 ' "$cache"
   assert_success
   assert_output --partial 'ok'
+
+  # #then the reply the fake in test 27210 answers with still matches the reply
+  # the installed binary sends. The cache above is our own output; without this
+  # leg nothing compares codex's payload to the payload that fake reproduces, so
+  # a renamed field would leave 27210 and 27213 green while the bar went blank.
+  run env CODEX_HOME="$HOME/.codex" FAKE_REPLY="$(codex_app_server_reply 7 10080 0 1)" \
+    python3 - <<'CALIBRATE'
+import json
+import os
+import subprocess
+import threading
+
+# Only the five fields codex_refresh reads, by name and Python type. Deeper and
+# this would restate a payload codex owns; shallower and a retyped field passes.
+def contract(reply):
+    result = reply["result"]
+    primary = result["rateLimits"]["primary"]
+    return {
+        "ordinaryUsageAllowed": type(result["ordinaryUsageAllowed"]).__name__,
+        "rateLimitResetCredits.availableCount":
+            type(result["rateLimitResetCredits"]["availableCount"]).__name__,
+        "rateLimits.primary.resetsAt": type(primary["resetsAt"]).__name__,
+        "rateLimits.primary.usedPercent": type(primary["usedPercent"]).__name__,
+        "rateLimits.primary.windowDurationMins":
+            type(primary["windowDurationMins"]).__name__,
+    }
+
+process = subprocess.Popen(
+    ["codex", "app-server"],
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+    text=True, bufsize=1,
+)
+captured = {}
+
+def pump():
+    for line in process.stdout:
+        try:
+            message = json.loads(line)
+        except ValueError:
+            continue
+        if message.get("id") == 2:
+            captured["reply"] = message
+            return
+
+def send(obj):
+    process.stdin.write(json.dumps(obj) + "\n")
+    process.stdin.flush()
+
+try:
+    send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+          "params": {"clientInfo": {"name": "mms-calibration", "version": "1"}}})
+    send({"jsonrpc": "2.0", "method": "initialized"})
+    send({"jsonrpc": "2.0", "id": 2, "method": "account/rateLimits/read",
+          "params": {"excludeResetCreditDetails": True}})
+    reader = threading.Thread(target=pump, daemon=True)
+    reader.start()
+    reader.join(30)
+finally:
+    process.kill()
+
+if "reply" not in captured:
+    raise SystemExit(77)
+real = contract(captured["reply"])
+fake = contract(json.loads(os.environ["FAKE_REPLY"]))
+if real != fake:
+    raise SystemExit("codex reply %s != fake reply %s" % (real, fake))
+print("calibrated")
+CALIBRATE
+  # 77 is this leg's one named precondition: the app-server answered nothing, so
+  # there is no oracle. Every other non-zero status is codex disagreeing with the
+  # fake, which is the drift this leg exists to catch.
+  [[ "$status" -ne 77 ]] \
+    || skip "codex app-server sent no rateLimits reply to calibrate the fake against"
+  assert_success
+  assert_output 'calibrated'
 }
 
 function test_scripts_27210_agent_limits_refreshes_stale_codex_data_before_rendering() {
@@ -11589,7 +11755,7 @@ printf 'called\n' > "$marker"
 while IFS= read -r request; do
   case "\$request" in
     *'"id": 2'*)
-      printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"rateLimits":{"primary":{"usedPercent":7,"windowDurationMins":10080,"resetsAt":$((now + 86400))}},"ordinaryUsageAllowed":true,"rateLimitResetCredits":{"availableCount":1}}}'
+      printf '%s\n' '$(codex_app_server_reply 7 10080 "$((now + 86400))" 1)'
       exit 0
       ;;
   esac
