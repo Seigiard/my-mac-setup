@@ -98,8 +98,19 @@ describe("captureExtensionSnapshot", () => {
     return { root, packagePath, lockPath, exec };
   }
 
-  test("changes when the npm package's package.json content changes", async () => {
-    const { packagePath, exec } = await setUpExtensionPackage();
+  // The two keys the snapshot must carry, written from the paths this test
+  // creates rather than read back from the snapshot: the digest values are
+  // legitimately opaque, but which files were digested is not. Without them a
+  // snapshot that recorded the wrong file, or "missing" for both, still
+  // compares unequal across an edit.
+  const snapshotKeys = (packagePath: string, lockPath: string) => [
+    `npm:example-extension\0${packagePath}`,
+    `lock\0${lockPath}`,
+  ];
+
+  test("changes only the npm package entry when its package.json content changes", async () => {
+    const { packagePath, lockPath, exec } = await setUpExtensionPackage();
+    const [packageKey, lockKey] = snapshotKeys(packagePath, lockPath);
 
     const before = await captureExtensionSnapshot(exec, 300_000);
     await writeFile(
@@ -108,21 +119,24 @@ describe("captureExtensionSnapshot", () => {
     );
     const after = await captureExtensionSnapshot(exec, 300_000);
 
-    expect(before).toBeDefined();
-    expect(after).toBeDefined();
-    expect(after).not.toEqual(before);
+    expect([...(before ?? []).keys()]).toEqual([packageKey, lockKey]);
+    expect([...(after ?? []).keys()]).toEqual([packageKey, lockKey]);
+    expect(after?.get(packageKey)).not.toBe(before?.get(packageKey));
+    expect(after?.get(lockKey)).toBe(before?.get(lockKey));
   });
 
-  test("changes when the lock-file content changes", async () => {
-    const { lockPath, exec } = await setUpExtensionPackage();
+  test("changes only the lock entry when the lock-file content changes", async () => {
+    const { packagePath, lockPath, exec } = await setUpExtensionPackage();
+    const [packageKey, lockKey] = snapshotKeys(packagePath, lockPath);
 
     const before = await captureExtensionSnapshot(exec, 300_000);
     await writeFile(lockPath, "new lock\n");
     const after = await captureExtensionSnapshot(exec, 300_000);
 
-    expect(before).toBeDefined();
-    expect(after).toBeDefined();
-    expect(after).not.toEqual(before);
+    expect([...(before ?? []).keys()]).toEqual([packageKey, lockKey]);
+    expect([...(after ?? []).keys()]).toEqual([packageKey, lockKey]);
+    expect(after?.get(lockKey)).not.toBe(before?.get(lockKey));
+    expect(after?.get(packageKey)).toBe(before?.get(packageKey));
   });
 
   test("stays the same when an unrelated file changes", async () => {
@@ -205,8 +219,12 @@ describe("brew auto update sequence", () => {
 
     const result = await runBrewAutoUpdate("startup", ui, deps);
 
-    expect(result.status).toBe("complete");
-    expect(calls).toHaveLength(3);
+    expect(result).toEqual({ status: "complete", message: "Pi is up to date." });
+    expect(calls).toEqual([
+      ["brew", ["update"]],
+      ["brew", ["upgrade", "pi-coding-agent"]],
+      ["pi", ["update", "--extensions"]],
+    ]);
     expect(notifications).toEqual([]);
   });
 
@@ -289,8 +307,13 @@ describe("brew auto update sequence", () => {
 
     const result = await runBrewAutoUpdate("manual", ui, deps);
 
-    expect(result.message).toBe("Pi extensions updated. Restart Pi to use them.");
-    expect(notifications).toEqual([{ message: result.message, level: "info" }]);
+    expect(result).toEqual({
+      status: "complete",
+      message: "Pi extensions updated. Restart Pi to use them.",
+    });
+    expect(notifications).toEqual([
+      { message: "Pi extensions updated. Restart Pi to use them.", level: "info" },
+    ]);
   });
 
   test("notifies at startup too when a real update installs, unlike the silent up-to-date case", async () => {
@@ -307,8 +330,13 @@ describe("brew auto update sequence", () => {
 
     const result = await runBrewAutoUpdate("startup", ui, deps);
 
-    expect(result.message).toBe("Pi extensions updated. Restart Pi to use them.");
-    expect(notifications).toEqual([{ message: result.message, level: "info" }]);
+    expect(result).toEqual({
+      status: "complete",
+      message: "Pi extensions updated. Restart Pi to use them.",
+    });
+    expect(notifications).toEqual([
+      { message: "Pi extensions updated. Restart Pi to use them.", level: "info" },
+    ]);
   });
 
   test.each([
@@ -323,7 +351,10 @@ describe("brew auto update sequence", () => {
       label: "extensions",
       command: "pi",
       args: ["update", "--extensions"],
-      stdout: "Updating npm:example-extension...\nUpdated packages\n",
+      // Deliberately empty, unlike the Pi row: an extension update is detected
+      // only from the snapshot diff below, never from `pi update` stdout. A
+      // decorative banner here would suggest stdout discriminates this row too.
+      stdout: "",
       message: "Pi extensions updated. Restart Pi to use them.",
     },
   ])("shows one specific notification when $label changed", async (updated) => {
@@ -349,7 +380,7 @@ describe("brew auto update sequence", () => {
 
     const result = await runBrewAutoUpdate("manual", ui, deps);
 
-    expect(result.status).toBe("complete");
+    expect(result).toEqual({ status: "complete", message: updated.message });
     expect(notifications).toEqual([{ message: updated.message, level: "info" }]);
   });
 
@@ -435,18 +466,21 @@ describe("brew auto update sequence", () => {
 
     const result = await runBrewAutoUpdate("manual", ui, deps);
 
-    expect(result.status).toBe("failed");
-    expect(calls).toHaveLength(1);
+    // The step that failed ("brew update") must be nameable by the user, not
+    // just a private status enum, so they know what to investigate — and the
+    // minute count is the injected timeout, rounded, not the 5-minute default.
+    expect(result).toEqual({
+      status: "failed",
+      message: "Homebrew metadata refresh timed out after 2 minutes.",
+    });
+    expect(calls).toEqual([["brew", ["update"]]]);
     // The command that was killed must have been given the independently
     // injected timeout, not a hardcoded default, or this proves nothing about
     // which timeout the subprocess actually ran under.
     expect(execOptions).toEqual([{ timeout: INJECTED_TIMEOUT_MS }]);
-    expect(notifications).toHaveLength(1);
-    // The step that failed ("brew update") must be nameable by the user, not
-    // just a private status enum, so they know what to investigate.
-    expect(notifications[0]?.message).toContain("Homebrew metadata refresh");
-    expect(notifications[0]?.message).toContain("timed out");
-    expect(notifications[0]?.level).toBe("warning");
+    expect(notifications).toEqual([
+      { message: "Homebrew metadata refresh timed out after 2 minutes.", level: "warning" },
+    ]);
   });
 
   test("stops on command failure and notifies a manual caller without aborting the caller", async () => {
@@ -458,12 +492,14 @@ describe("brew auto update sequence", () => {
     });
     const { ui, notifications } = fakeUi();
 
-    await expect(runBrewAutoUpdate("manual", ui, deps)).resolves.toMatchObject({ status: "failed" });
-    expect(calls).toHaveLength(1);
-    expect(notifications).toHaveLength(1);
-    expect(notifications[0]?.message).toContain("Homebrew metadata refresh");
-    expect(notifications[0]?.message).toContain("network failed");
-    expect(notifications[0]?.level).toBe("warning");
+    await expect(runBrewAutoUpdate("manual", ui, deps)).resolves.toEqual({
+      status: "failed",
+      message: "Homebrew metadata refresh failed: network failed",
+    });
+    expect(calls).toEqual([["brew", ["update"]]]);
+    expect(notifications).toEqual([
+      { message: "Homebrew metadata refresh failed: network failed", level: "warning" },
+    ]);
   });
 
   test("notifies a manual caller when the update command itself throws", async () => {

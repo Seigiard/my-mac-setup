@@ -155,6 +155,12 @@ const ZSH_TIED_SENTENCE =
 const ZSH_FIX_SENTENCE =
   'Fix: rename the variable — `rc`, `st`, `exit_code`, `dir`. Reading $status is legal zsh and is not blocked, only assignment is. If this assignment genuinely runs under bash rather than this zsh, add a "zsh-ok:" comment to the command and retry.';
 
+// Shorthand for the plain single-name cases below. It re-derives the shipped
+// composition rule (line order, joiner, conditional sentences) from the same
+// formula the policy uses, so it cannot adjudicate that rule. The three cases
+// that exercise composition — readonly only, tied only, and both at once —
+// spell their whole text out as a literal instead, and those are what keep the
+// rule honest.
 function zshReason(lines: string[], readonlyNames: string, tiedNames: string): string {
   const parts = ["zsh-reserved-name-guard: this command assigns to a parameter zsh reserves:", ...lines];
   if (readonlyNames !== "") parts.push(`zsh makes ${readonlyNames} ${ZSH_READONLY_SENTENCE}`);
@@ -176,11 +182,11 @@ export const POLICY_FIXTURES: PolicyFixture[] = [
     tool: "bash",
     payload: { command: "make test-ubuntu; status=$?; print -- FINAL_EXIT:$status; exit $status" },
     verdict: "block",
-    text: zshReason(
-      ["  line 1: make test-ubuntu; status=$?; print -- FINAL_EXIT:$status; exit $status"],
-      "status",
-      "",
-    ),
+    // Literal, not composed: the readonly-only shape of the block text.
+    text: `zsh-reserved-name-guard: this command assigns to a parameter zsh reserves:
+  line 1: make test-ubuntu; status=$?; print -- FINAL_EXIT:$status; exit $status
+zsh makes status ${ZSH_READONLY_SENTENCE}
+${ZSH_FIX_SENTENCE}`,
   },
   // zsh_reserved_name_guard_test.sh 002
   {
@@ -280,7 +286,11 @@ export const POLICY_FIXTURES: PolicyFixture[] = [
     tool: "bash",
     payload: { command: "path=/usr/bin; ls" },
     verdict: "block",
-    text: zshReason(["  line 1: path=/usr/bin; ls"], "", "path"),
+    // Literal, not composed: the tied-only shape of the block text.
+    text: `zsh-reserved-name-guard: this command assigns to a parameter zsh reserves:
+  line 1: path=/usr/bin; ls
+zsh ties path ${ZSH_TIED_SENTENCE}
+${ZSH_FIX_SENTENCE}`,
   },
   // Both conditional sentences at once, which no single bashunit case reaches.
   {
@@ -289,7 +299,14 @@ export const POLICY_FIXTURES: PolicyFixture[] = [
     tool: "bash",
     payload: { command: "path=/x\nstatus=1" },
     verdict: "block",
-    text: zshReason(["  line 1: path=/x", "  line 2: status=1"], "status", "path"),
+    // Literal, not composed: both conditional sentences, in the order the
+    // block text must carry them, with the hit lines ahead of both.
+    text: `zsh-reserved-name-guard: this command assigns to a parameter zsh reserves:
+  line 1: path=/x
+  line 2: status=1
+zsh makes status ${ZSH_READONLY_SENTENCE}
+zsh ties path ${ZSH_TIED_SENTENCE}
+${ZSH_FIX_SENTENCE}`,
   },
   {
     name: "fff/multi-token bare query is denied",
