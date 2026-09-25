@@ -109,13 +109,23 @@ const TEST_REGISTRY = registryWith([reservedNameGuard(), contentGuard(), context
 
 // --- scenario 1: dialect normalization --------------------------------------
 
+// The canonical payload every policy's `evaluate()` reads, spelled out rather
+// than taken from `core.emptyPayload()`. Building the expectation from the same
+// function the normalizer fills means a field added to one side and never read
+// from any dialect arrives on both sides as "", and the loop below stays green
+// for a field no client can actually deliver. A new canonical field has to be
+// added here and given a dialect fixture before this suite accepts it.
+const EMPTY_PAYLOAD = { filePath: "", content: "", command: "", query: "", url: "" };
+
 describe("normalization of the three arg dialects", () => {
   test("every dialect of a fixture normalizes to one canonical payload", () => {
     // #given the shared corpus, written in the wire shapes the shipped adapters read
     expect(corpus.DIALECT_FIXTURES.length).toBeGreaterThan(3);
+    // The shipped payload record and the literal above name the same fields.
+    expect(Object.keys(core.emptyPayload()).sort()).toEqual(Object.keys(EMPTY_PAYLOAD).sort());
 
     for (const fixture of corpus.DIALECT_FIXTURES) {
-      const expected = { ...core.emptyPayload(), ...fixture.payload };
+      const expected = { ...EMPTY_PAYLOAD, ...fixture.payload };
       const clients = Object.keys(fixture.raw);
       expect(clients.length).toBeGreaterThan(0);
 
@@ -335,7 +345,13 @@ describe("cross-client parity (KTD8)", () => {
         const clients = core.applicableClients(registry, policy);
         if (clients.length < 2 || !policy.canary) continue;
 
-        // #when its canary fixture is encoded into each applicable dialect
+        // #when its canary fixture is encoded into each applicable dialect.
+        // `encodeEvent` is the writers half feeding the readers half, which
+        // cannot adjudicate a wire spelling: a writer and a reader agreeing on
+        // `args.cmd` would keep all three decisions identically wrong. That
+        // half is owned by the dialect loop above, whose `raw` samples are
+        // hand-written per client; here the encoder is only the way to obtain
+        // N dialects of one payload, and the assertion is their agreement.
         const decisions = clients.map((client: string) => {
           const raw = normalize.encodeEvent(client, policy.canary.tool, policy.canary.payload, registry);
           expect(raw).toBeDefined();

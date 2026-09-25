@@ -176,6 +176,9 @@ Do not replace exact-format contract tests merely because they inspect text. Fir
   gates. This document owns test *design*; that one owns which checks to run and when to trust them.
 - `source-greps-need-a-second-side.md` — the narrower rule for the case this document rules out: what
   makes a text-reading check legitimate when the artifact cannot be executed here.
+- `expectations-cannot-share-a-source-with-the-code.md` — the narrower rule for the tautology this
+  document names: where an expected value is allowed to come from, and how to prove it is not the
+  code's own answer restated.
 - `skip-set-parity-proves-reduced-dependencies.md` — why a green suite does not prove unchanged coverage when skips can expand.
 - `completion-is-not-a-verdict.md` — why execution completion and an acceptance verdict are separate states.
 - `idle-machine-wall-clock-bounds-are-latent-flakes.md` — why timing observations need a bounded, state-aware contract.

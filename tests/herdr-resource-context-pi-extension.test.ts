@@ -128,7 +128,20 @@ describe("Pi model-request resource context", () => {
     await host.sessionStart({ reason: "resume" }, ctx);
     const result = await host.beforeAgentStart({ systemPrompt: "You are Pi.", prompt: "continue" }, ctx);
 
-    expect(result.systemPrompt).toBe(`You are Pi.\n\n${generatedBlock(projected)}`);
+    // The whole prompt as Pi receives it, spelled out rather than composed by
+    // `generatedBlock`. That helper repeats the extension's own marker order,
+    // so it cannot adjudicate it: a block rewritten as heading-then-start would
+    // satisfy a helper edited to match, while the extension's own removal pass
+    // stopped recognizing its predecessor. Every other case below may use the
+    // helper; this one is what keeps its formula honest.
+    expect(result.systemPrompt).toBe(
+      "You are Pi.\n" +
+        "\n" +
+        "<!-- herdr-resource-context:start -->\n" +
+        "## Herdr Agent Resource Context (generated)\n" +
+        `${projected}\n` +
+        "<!-- herdr-resource-context:end -->",
+    );
     expect(readFileSync(join(root, "query-argv"), "utf8").trim().split("\n")).toEqual([
       "--context",
       "--caller-agent",

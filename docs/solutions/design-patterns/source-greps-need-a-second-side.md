@@ -175,6 +175,8 @@ have to change for this assertion to be wrong, and can one person change it in o
 - `semantic-regression-tests-over-source-shape.md` — the parent rule. It owns the test-oracle gate,
   the contract-boundary choice and the red-before-green requirement; this document owns the narrower
   question of what makes a text-reading check legitimate when no boundary can be executed.
+- `expectations-cannot-share-a-source-with-the-code.md` — the sibling rule for the other way an
+  expectation loses its second side: computed by the code under test rather than read off a file.
 - `fakes-need-the-real-binary-as-oracle.md` — the mirror case: a fake reproduces an upstream
   contract, so the real binary has to be the second side.
 - `~/.claude/rules/testing.md` — the false-green rules that apply in every repository, including the

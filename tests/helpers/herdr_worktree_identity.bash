@@ -119,10 +119,13 @@ hwi_create_generated_worktree() {
   export HWI_MAIN HWI_CHECKOUT HWI_BRANCH
 }
 
-# The one state-key derivation the tests own. Deriving it in three spellings
-# across the suite -- two inline pipelines and the library's own `encode_key` --
-# let them drift apart; this keeps a single definition that does not call the
-# production helper the engine uses.
+# The one state-key derivation the tests own, used only where the key encodes a
+# mktemp path that cannot be written as a literal. Deriving it in three
+# spellings across the suite -- two inline pipelines and the library's own
+# `encode_key` -- let them drift apart; this keeps a single definition that does
+# not call the production helper the engine uses. The formula itself is not
+# adjudicated here: scripts_test.sh test 1206 pins it against literal vectors,
+# so a shared mistake cannot leave both sides agreeing.
 hwi_encode_state_key() {
   printf '%s' "$1" | base64 | tr '/+' '_-' | tr -d '=\n'
 }
@@ -135,8 +138,20 @@ hwi_identity_state_path() {
     "$(hwi_encode_state_key "$common")" "$(hwi_encode_state_key "$root")"
 }
 
+# Session state files, by literal key. The session ids this suite uses are
+# fixed strings, so their encoded names can be written out instead of derived:
+# an engine that encodes them differently is then a failed lookup here rather
+# than a matching mistake on both sides. Repository state paths cannot do this
+# -- their keys encode a mktemp path -- so they still go through
+# hwi_encode_state_key, with test 1206 pinning the encoding itself.
 hwi_session_state_path() {
-  printf '%s/sessions/%s.state' "$HWI_STATE" "$(hwi_encode_state_key "$1")"
+  local encoded
+  case "$1" in
+    session-1) encoded=c2Vzc2lvbi0x ;;
+    session-2) encoded=c2Vzc2lvbi0y ;;
+    *) printf 'no literal state key for session id %s\n' "$1" >&2; return 1 ;;
+  esac
+  printf '%s/sessions/%s.state' "$HWI_STATE" "$encoded"
 }
 
 hwi_branch_description() {

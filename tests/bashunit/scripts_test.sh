@@ -2135,6 +2135,42 @@ function test_scripts_1188_worktree_identity_declines_marker_and_retries_content
   assert_equal "$(hwi_workspace_rename_count)" 2
 }
 
+# Two libraries carry their own copy of this encoder -- `encode_key` in
+# herdr-worktree-state.sh and `context_usage_encode_key` in context-usage.sh --
+# and the suites that exercise them derive some expected paths with a third
+# spelling. Nothing in that arrangement can say the formula is right: a shared
+# mistake produces a matching wrong expectation. These vectors are the
+# independent side, url-safe unpadded base64 per RFC 4648 section 5, so both
+# libraries answer to a value written by hand rather than to each other.
+#
+# `aa~aa?a` is the discriminating one: its base64 carries a '+', a '/' and two
+# '=' at once, so dropping any one of the three substitutions fails here. The
+# long path is over 57 bytes, the width at which GNU base64 wraps its output, so
+# a library that stops deleting newlines fails on Linux.
+function test_scripts_1206_state_key_encoders_produce_url_safe_unpadded_base64() {
+  _bats_test_init 1206 'both state-key encoders produce url-safe unpadded base64'
+  local -a vectors=(
+    'session-1|c2Vzc2lvbi0x'
+    'aa~aa?a|YWF-YWE_YQ'
+    '/Users/agent/.worktrees/my-mac-setup/audit-339/deep/nested/path/segment|L1VzZXJzL2FnZW50Ly53b3JrdHJlZXMvbXktbWFjLXNldHVwL2F1ZGl0LTMzOS9kZWVwL25lc3RlZC9wYXRoL3NlZ21lbnQ'
+  )
+  local vector input expected
+  for vector in "${vectors[@]}"; do
+    input="${vector%%|*}"
+    expected="${vector##*|}"
+
+    run bash -c '. "$1"; encode_key "$2"' _ \
+      "$SOURCE_ROOT/dot_local/lib/herdr-worktree-state.sh" "$input"
+    assert_success
+    assert_output "$expected"
+
+    run bash -c '. "$1"; context_usage_encode_key "$2"' _ \
+      "$SOURCE_ROOT/dot_local/lib/context-usage.sh" "$input"
+    assert_success
+    assert_output "$expected"
+  done
+}
+
 function test_scripts_1189_worktree_identity_revalidates_occupant_before_workspace_rename() {
   _bats_test_init 1189 'worktree identity does not relabel a workspace after its pane changes occupants'
   hwi_setup
@@ -10724,8 +10760,22 @@ handoff_session_start_hook() {
   printf '%s' "$SOURCE_ROOT/private_dot_claude/hooks/executable_handoff-session-start.sh"
 }
 
+# The store file for a session id, by literal name. Re-deriving it with the
+# hook's own url-safe-base64 formula made the lookup agree with a broken encoder
+# instead of catching it; these session ids are fixed strings, so their file
+# names are written out. Test 1206 owns the encoding itself.
 handoff_store_path() {
-  printf '%s/%s.json' "$1" "$(printf '%s' "$2" | base64 | tr '/+' '_-' | tr -d '=\n')"
+  local encoded
+  case "$2" in
+    bare) encoded=YmFyZQ ;;
+    auto) encoded=YXV0bw ;;
+    injected) encoded=aW5qZWN0ZWQ ;;
+    neighbour) encoded=bmVpZ2hib3Vy ;;
+    startup) encoded=c3RhcnR1cA ;;
+    replaced) encoded=cmVwbGFjZWQ ;;
+    *) printf 'no literal store name for session id %s\n' "$2" >&2; return 1 ;;
+  esac
+  printf '%s/%s.json' "$1" "$encoded"
 }
 
 handoff_stage_stored() {
