@@ -117,26 +117,29 @@ function test_scripts_1331_agent_intercom_launcher_propagates_a_child_alias_to_e
   local stub
   stub="$(agent_intercom_stub_bin)"
 
+  local home="$BATS_TEST_TMPDIR/agent-intercom-home"
   export HERDR_PANE_ID=w1:p2 HERDR_ALIAS_ALLOCATOR="$stub/allocator"
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  # The binary name leads the line. A partial that starts at `active=` accepts
+  # `claude` exec'd directly, which is the one thing this adapter exists to
+  # prevent.
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude \
     --dangerously-skip-permissions --model sonnet
   assert_success
-  assert_output --partial 'active=<1> pi_load=<><--model><sonnet><--dangerously-skip-permissions><--tui><--transport><mcp><--name><ochre-okapi><--claude><'
-  assert_output --partial '/herdr-agent-intercom-claude>'
+  assert_output "cci name=<> args= active=<1> pi_load=<><--model><sonnet><--dangerously-skip-permissions><--tui><--transport><mcp><--name><ochre-okapi><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" opencode --model test/model
   assert_success
   assert_output 'opencode name=<ochre-okapi> args= active=<1> pi_load=<><--model><test/model>'
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" pi --provider anthropic
   assert_success
   assert_output 'pi name=<> args= active=<1> pi_load=<self><--name><ochre-okapi><--provider><anthropic>'
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" pi --name wrong -n wrong-again -- --name message
   assert_success
   assert_output 'pi name=<> args= active=<1> pi_load=<self><--name><ochre-okapi><--><--name><message>'
@@ -211,24 +214,27 @@ SH
       HERDR_AGENT_INTERCOM_NAME=parent-alias OPENCODE_INTERCOM_NAME=parent-alias \
       HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" bash "$launcher" opencode
     assert_success
-    assert_output --partial 'canonical pane alias unavailable; starting opencode without Intercom'
-    assert_output --partial 'opencode name=<> args= active=<> pi_load=<>'
+    assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting opencode without Intercom
+opencode name=<> args= active=<> pi_load=<>'
   done
 
   run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 PROBE_NAME=silver-ibis PROBE_PANE=w1:p9 \
     HERDR_ALIAS_ALLOCATOR="$stub/allocator" PATH="$stub:$PATH" bash "$launcher" opencode
   assert_success
-  assert_output --partial 'opencode name=<> args= active=<> pi_load=<>'
+  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting opencode without Intercom
+opencode name=<> args= active=<> pi_load=<>'
 
   run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 PROBE_NAME=silver-ibis PROBE_STATUS=1 \
     HERDR_ALIAS_ALLOCATOR="$stub/allocator" PATH="$stub:$PATH" bash "$launcher" opencode
   assert_success
-  assert_output --partial 'opencode name=<> args= active=<> pi_load=<>'
+  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting opencode without Intercom
+opencode name=<> args= active=<> pi_load=<>'
 
   run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 PROBE_NAME=silver-ibis \
     HERDR_ALIAS_ALLOCATOR=/nonexistent/allocator PATH="$stub:$PATH" bash "$launcher" opencode
   assert_success
-  assert_output --partial 'opencode name=<> args= active=<> pi_load=<>'
+  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting opencode without Intercom
+opencode name=<> args= active=<> pi_load=<>'
 }
 
 function test_scripts_1346_agent_intercom_launcher_claims_an_alias_for_a_pane_with_no_record() {
@@ -283,12 +289,12 @@ SH
 
   # #then it enrolls under the allocated name instead of warning
   assert_success
-  assert_output --partial '<--name><ochre-okapi><--claude><'
+  assert_output "cci name=<> args= active=<1> pi_load=<><--tui><--transport><mcp><--name><ochre-okapi><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
   assert_file_contains "$log" 'pane report-agent w1:p2 --source herdr-agent-intercom --agent claude --state unknown'
   assert_file_contains "$log" 'agent rename w1:p2 ochre-okapi'
 
   # #then the claim it recorded is the one the release command acts on
-  assert_file_contains "$marker" 'claude'
+  assert_file_contains "$marker" '^claude$'
   : > "$log"
   run env HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" HOME="$home" PATH="$stub:$PATH" bash "$release"
   assert_success
@@ -303,7 +309,7 @@ SH
 
   # #then it gives the first claim back and enrolls under the next candidate
   assert_success
-  assert_output --partial '<--name><silver-ibis><--claude><'
+  assert_output "cci name=<> args= active=<1> pi_load=<><--tui><--transport><mcp><--name><silver-ibis><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
   assert_file_contains "$log" 'pane release-agent w1:p2 --source herdr-agent-intercom --agent claude'
 
   # #when the allocator can only answer with an out-of-pool placeholder
@@ -314,7 +320,8 @@ SH
 
   # #then it reports nothing and releases nothing, and the client starts bare
   assert_success
-  assert_output --partial 'canonical pane alias unavailable; starting claude without Intercom'
+  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting claude without Intercom
+claude name=<> args= active=<> pi_load=<>'
   assert_equal "$(grep -c 'pane report-agent' "$log")" 0
   assert_equal "$(grep -c 'pane release-agent' "$log")" 0
   assert_file_not_exists "$marker"
@@ -327,7 +334,8 @@ SH
 
   # #then it takes no claim at all rather than leaking one for the session
   assert_success
-  assert_output --partial 'canonical pane alias unavailable; starting opencode without Intercom'
+  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting opencode without Intercom
+opencode name=<> args= active=<> pi_load=<>'
   assert_equal "$(grep -c 'pane report-agent' "$log")" 0
   assert_file_not_exists "$marker"
 
@@ -340,7 +348,8 @@ SH
 
   # #then the pane keeps its unclaimed state and the client starts without Intercom
   assert_success
-  assert_output --partial 'canonical pane alias unavailable; starting claude without Intercom'
+  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting claude without Intercom
+claude name=<> args= active=<> pi_load=<>'
   assert_equal "$(grep -c 'pane report-agent' "$log")" 0
 }
 
@@ -429,8 +438,8 @@ function test_scripts_1333_agent_intercom_launcher_passes_through_an_unidentifie
     HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" bash "$launcher" pi
 
   assert_success
-  assert_output --partial 'canonical pane alias unavailable; starting pi without Intercom'
-  assert_output --partial 'pi name=<> args= active=<> pi_load=<>'
+  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting pi without Intercom
+pi name=<> args= active=<> pi_load=<>'
 
   cat > "$stub/herdr" <<'SH'
 #!/usr/bin/env bash
@@ -440,8 +449,8 @@ SH
   run env HERDR_ENV=1 HERDR_CHILD_NAME= HERDR_PANE_ID=w1:p2 \
     HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" bash "$launcher" claude
   assert_success
-  assert_output --partial 'canonical pane alias unavailable; starting claude without Intercom'
-  assert_output --partial 'claude name=<> args= active=<> pi_load=<>'
+  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting claude without Intercom
+claude name=<> args= active=<> pi_load=<>'
 }
 
 function test_scripts_1334_agent_intercom_shell_wrappers_only_intercept_herdr_launches() {
@@ -469,51 +478,51 @@ function test_scripts_1334_agent_intercom_shell_wrappers_only_intercept_herdr_la
 function test_scripts_1337_agent_intercom_launcher_preserves_utility_and_nested_commands() {
   _bats_test_init 1337 'agent intercom launcher preserves utility commands and nested launches'
   local launcher="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom"
-  local stub
+  local stub home="$BATS_TEST_TMPDIR/agent-intercom-home"
   stub="$(agent_intercom_stub_bin)"
   export HERDR_PANE_ID=w1:p2 HERDR_ALIAS_ALLOCATOR="$stub/allocator"
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude mcp list
   assert_success
   assert_output 'claude name=<> args= active=<> pi_load=<><mcp><list>'
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude --verbose plugins list
   assert_success
   assert_output 'claude name=<> args= active=<> pi_load=<><--verbose><plugins><list>'
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude --plugin-dir /tmp mcp list
   assert_success
   assert_output 'claude name=<> args= active=<> pi_load=<><--plugin-dir></tmp><mcp><list>'
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude -c --no-session-persistence mcp list
   assert_success
   assert_output 'claude name=<> args= active=<> pi_load=<><-c><--no-session-persistence><mcp><list>'
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude upgrade
   assert_success
   assert_output 'claude name=<> args= active=<> pi_load=<><upgrade>'
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude --debug mcp list
   assert_success
-  assert_output --partial 'active=<1> pi_load=<><--tui><--transport><mcp><--name><ochre-okapi>'
+  assert_output "cci name=<> args= active=<1> pi_load=<><--tui><--transport><mcp><--name><ochre-okapi><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude --mcp-config mcp --model sonnet
   assert_success
-  assert_output --partial 'active=<1> pi_load=<><--model><sonnet><--tui><--transport><mcp><--name><ochre-okapi>'
+  assert_output "cci name=<> args= active=<1> pi_load=<><--model><sonnet><--tui><--transport><mcp><--name><ochre-okapi><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude --tools Read mcp list
   assert_success
-  assert_output --partial 'active=<1> pi_load=<><--tui><--transport><mcp><--name><ochre-okapi>'
+  assert_output "cci name=<> args= active=<1> pi_load=<><--tui><--transport><mcp><--name><ochre-okapi><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude --model sonnet -p prompt
   assert_success
   assert_output 'claude name=<> args= active=<> pi_load=<><--model><sonnet><-p><prompt>'
@@ -539,7 +548,7 @@ function test_scripts_1337_agent_intercom_launcher_preserves_utility_and_nested_
   assert_output 'claude name=<> args= active=<1> pi_load=<>'
 
   rm -f "$BATS_TEST_TMPDIR/agent-intercom-home/.local/share/agent-intercom/node_modules/@dataforxyz/agent-intercom-claude/dist/inbox-monitor.mjs"
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude
   assert_success
   assert_output 'claude name=<> args= active=<1> pi_load=<>'
@@ -749,14 +758,27 @@ SH
       printf "\n"
       process_start_matches 42 "  Sat Sep 12 06:18:05 2026    "
       process_start_matches 42 "sam 12 sep 2026 06:18:05 UTC"
-      ! process_start_matches 42 "wrong process start"
-      ! process_start_marker invalid
     ' _ "$process_library"
 
   assert_success
   assert_output 'Sat Sep 12 06:18:05 2026'
   assert_file_contains "$log" '^C$'
   assert_file_contains "$log" '^<unset>$'
+
+  # Each rejection needs its own exit status. `! cmd` under `set -e` is exempt
+  # from errexit, so a negative folded into the script above would report the
+  # status of the last line only and accept a wrong identity silently.
+  run env -u LC_ALL -u LC_CTYPE -u LANG PATH="$stub:$PATH" \
+    PROCESS_IDENTITY_LOCALE_LOG="$log" bash -c \
+    'source "$1"; process_start_matches 42 "wrong process start"' _ "$process_library"
+  assert_failure 1
+  assert_output ''
+
+  run env -u LC_ALL -u LC_CTYPE -u LANG PATH="$stub:$PATH" \
+    PROCESS_IDENTITY_LOCALE_LOG="$log" bash -c \
+    'source "$1"; process_start_marker invalid' _ "$process_library"
+  assert_failure 1
+  assert_output ''
 }
 
 function test_scripts_1210_worktree_identity_state_library_claims_live_owners_and_recovers_dead_owners() {
@@ -802,9 +824,19 @@ process_start=$(encode_value '')"
   acquire_claim "$malformed" 3 || fail 'empty process-start claim was not recovered'
   release_claim "$malformed" "$claim_owner_id"
 
-  : > "${interrupted}.candidate.abandoned"
+  # An owner killed between publishing the lock and writing its record leaves a
+  # blank owner_id. It must not be deleted on first sight -- a live writer could
+  # still be finishing -- but it must not hold the lock forever either.
+  atomic_write "$interrupted" "owner_id=
+pid=$$
+process_start=$(encode_value "$(process_start_marker $$)")"
+  run acquire_claim "$interrupted" 1
+  assert_failure 2
+  assert_file_exists "$interrupted"
   acquire_claim "$interrupted" 3 || fail 'interrupted owner write was not recovered'
+  assert_equal "$(read_state_field "$interrupted" owner_id)" "$claim_owner_id"
   release_claim "$interrupted" "$claim_owner_id"
+  assert_file_not_exists "$interrupted"
 
   hwi_start_claim_holder "$held" || fail 'second process did not acquire its claim'
   run acquire_claim "$held" 1
@@ -922,7 +954,7 @@ function test_scripts_1215_worktree_identity_keeps_unresolved_events_retryable_a
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'retry later'
   assert_success
-  local unresolved="$HWI_STATE/sessions/$(printf '%s' session-1 | base64 | tr '/+' '_-' | tr -d '=\n').state"
+  local unresolved="$(hwi_session_state_path session-1)"
   assert_equal "$(read_state_field "$unresolved" outcome)" unresolved
   assert_file_contains "${unresolved%.state}.diagnostics.log" 'reason=pane-unreachable'
 
@@ -968,7 +1000,7 @@ function test_scripts_1217_worktree_identity_declines_primary_checkouts_and_unma
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'primary checkout'
   assert_success
-  local state="$HWI_STATE/sessions/$(printf '%s' session-1 | base64 | tr '/+' '_-' | tr -d '=\n').state"
+  local state="$(hwi_session_state_path session-1)"
   assert_equal "$(read_state_field "$state" outcome)" declined
   assert_file_contains "${state%.state}.diagnostics.log" 'reason=primary-checkout .*checkout='
 
@@ -976,7 +1008,7 @@ function test_scripts_1217_worktree_identity_declines_primary_checkouts_and_unma
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
     bash "$HWI_ENGINE" --worker --agent codex --session session-2 --workspace workspace-1 <<< 'no pane for this session'
   assert_success
-  state="$HWI_STATE/sessions/$(printf '%s' session-2 | base64 | tr '/+' '_-' | tr -d '=\n').state"
+  state="$(hwi_session_state_path session-2)"
   assert_equal "$(read_state_field "$state" outcome)" unresolved
   assert_file_contains "${state%.state}.diagnostics.log" 'reason=pane-unresolved .*pane=missing'
 
@@ -1007,6 +1039,7 @@ function test_scripts_1218_worktree_identity_foreground_hands_off_to_a_detached_
     sleep 0.01
   done
   assert_file_exists "$HWI_WORK/pane-get.ready"
+  assert_file_exists "$HWI_WORK/herdr.calls"
   assert_file_not_contains "$HWI_WORK/herdr.calls" 'do not place this prompt on argv'
   : > "$HWI_WORK/pane-get.release"
 }
@@ -1119,6 +1152,7 @@ function test_scripts_1219_worktree_identity_uses_normalized_multi_word_pi_ident
   assert_equal "$(read_state_field "$state" title)" normalize-api-tokens
   assert_equal "$(read_state_field "$state" slug)" normalize-api-tokens
   assert_file_contains "$HWI_WORK/pi.stdin" 'First prompt of the session:'
+  assert_file_exists "$HWI_WORK/pi.calls"
   assert_file_not_contains "$HWI_WORK/pi.calls" 'Normalize API tokens from model output'
   assert_equal "$(cat "$HWI_WORK/pi.guard")" 1
   assert_file_not_exists "$HWI_WORK/claude.calls"
@@ -1174,13 +1208,11 @@ function test_scripts_1221_worktree_identity_falls_back_without_model_clis_and_c
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'a different prompt'
   assert_success
   state="$(hwi_identity_state_path)"
-  local slug="$(read_state_field "$state" slug)"
-  assert_equal "$(read_state_field "$state" title)" "$slug"
-  assert_equal "${#slug}" 40
-  run test "${slug%-}" = "$slug"
-  assert_success
-  run test "$(printf '%s' "$slug" | tr '-' '\n' | grep -c '.')" -ge 2
-  assert_success
+  # The model output is fixed, so the capped slug is one literal: the first 40
+  # characters of it with any trailing dash stripped. Length and dash-count
+  # properties alone admit every other 40-character cut of the same input.
+  assert_equal "$(read_state_field "$state" slug)" unusuallylongword-verylongsecondword-ver
+  assert_equal "$(read_state_field "$state" title)" unusuallylongword-verylongsecondword-ver
 }
 
 # Consumer: the naming chain when an engine wraps its object in a markdown
@@ -1374,6 +1406,7 @@ function test_scripts_1183_worktree_identity_records_branch_and_attribution_fail
   assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" "$HWI_BRANCH"
   assert_equal "$(read_state_field "$state" outcome)" branch-failed
   assert_file_contains "${state%.state}.diagnostics.log" '^reason=branch-rename-failed '
+  assert_file_exists "$marker"
   assert_file_not_contains "$marker" 'Intentional rename by herdr-worktree-identity'
 
   rm "$HWI_WORK/fail-git-branch-m"
@@ -1484,6 +1517,7 @@ function test_scripts_1186_worktree_identity_reconciles_terminal_workspace_to_th
   assert_equal "$(read_state_field "$state" outcome)" complete
   assert_equal "$(cat "$HWI_WORK/workspace.label")" "$branch"
   assert_equal "$(hwi_workspace_rename_count)" 1
+  assert_file_exists "$HWI_WORK/herdr.calls"
   assert_file_not_contains "$HWI_WORK/herdr.calls" 'pane rename '
   assert_file_not_contains "$HWI_WORK/herdr.calls" 'tab rename '
   assert_file_not_contains "$HWI_WORK/herdr.calls" 'agent rename '
@@ -1525,7 +1559,11 @@ function test_scripts_1187_worktree_identity_labels_workspace_only_for_upstream_
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Keep agent reverted branch'
   assert_success
-  local renamed="$(git -C "$HWI_CHECKOUT" branch --show-current)"
+  # The control for the revert leg below: without a rename here, "does not
+  # restore the agent branch" would pass on a branch that was never renamed.
+  # The slug is the session's first prompt, which the engine pins once, so it
+  # stays `preserve-upstream-workspace` however later prompts read.
+  assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" preserve-upstream-workspace
   git -C "$HWI_CHECKOUT" branch -m "$HWI_BRANCH"
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Do not restore agent branch'
@@ -1534,10 +1572,10 @@ function test_scripts_1187_worktree_identity_labels_workspace_only_for_upstream_
   assert_equal "$(read_state_field "$state" outcome)" workspace-only
   assert_equal "$(git -C "$HWI_CHECKOUT" reflog --format='%gs' "$HWI_BRANCH" | grep -c '^Branch: renamed ')" 2
   assert_equal "$(hwi_workspace_rename_count)" 3
+  assert_file_exists "$HWI_WORK/herdr.calls"
   assert_file_not_contains "$HWI_WORK/herdr.calls" 'pane rename '
   assert_file_not_contains "$HWI_WORK/herdr.calls" 'tab rename '
   assert_file_not_contains "$HWI_WORK/herdr.calls" 'agent rename '
-  [ -n "$renamed" ] || fail 'control rename did not occur'
 }
 
 function test_scripts_1190_worktree_identity_revalidates_marker_before_ref_mutation() {
@@ -1663,7 +1701,7 @@ function test_scripts_1194_worktree_identity_bounds_herdr_pane_reads() {
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Bound pane read'
   assert_success
   assert_file_exists "$HWI_WORK/pane-get.ready"
-  local state="$HWI_STATE/sessions/$(encode_key session-1).state"
+  local state="$(hwi_session_state_path session-1)"
   assert_equal "$(read_state_field "$state" outcome)" unresolved
   assert_file_contains "${state%.state}.diagnostics.log" '^reason=pane-unreachable '
 }
@@ -2019,7 +2057,7 @@ function test_scripts_1205_worktree_identity_timeout_kills_term_ignoring_descend
   done
   run kill -0 "$child_pid"
   assert_failure
-  local state="$HWI_STATE/sessions/$(encode_key session-1).state"
+  local state="$(hwi_session_state_path session-1)"
   assert_equal "$(read_state_field "$state" outcome)" unresolved
 }
 
@@ -2049,7 +2087,15 @@ function test_scripts_1188_worktree_identity_declines_marker_and_retries_content
     HERDR_WORKTREE_IDENTITY_BRANCH_CLAIM_ATTEMPTS=1 \
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Retry contention label'
   assert_success
+  # Contention is retryable, so the record has to survive it intact: authorized,
+  # no terminal outcome, no branch. A bare `outcome == ""` also accepts "the
+  # engine wrote nothing at all", which the retry legs below could not recover.
+  assert_file_exists "$state"
+  assert_equal "$(read_state_field "$state" authorization)" authorized
+  assert_equal "$(read_state_field "$state" original_branch)" "$HWI_BRANCH"
+  assert_equal "$(read_state_field "$state" branch)" ''
   assert_equal "$(read_state_field "$state" outcome)" ''
+  assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" "$HWI_BRANCH"
   assert_file_contains "${state%.state}.diagnostics.log" '^reason=contended '
   : > "$HWI_HOLDER_RELEASE"
   wait "$HWI_HOLDER_PID"

@@ -119,13 +119,24 @@ hwi_create_generated_worktree() {
   export HWI_MAIN HWI_CHECKOUT HWI_BRANCH
 }
 
+# The one state-key derivation the tests own. Deriving it in three spellings
+# across the suite -- two inline pipelines and the library's own `encode_key` --
+# let them drift apart; this keeps a single definition that does not call the
+# production helper the engine uses.
+hwi_encode_state_key() {
+  printf '%s' "$1" | base64 | tr '/+' '_-' | tr -d '=\n'
+}
+
 hwi_identity_state_path() {
   local root common
   root="$(git -C "$HWI_CHECKOUT" rev-parse --show-toplevel)" || return 1
   common="$(git -C "$HWI_CHECKOUT" rev-parse --path-format=absolute --git-common-dir)" || return 1
   printf '%s/repositories/%s/worktrees/%s.state' "$HWI_STATE" \
-    "$(printf '%s' "$common" | base64 | tr '/+' '_-' | tr -d '=\n')" \
-    "$(printf '%s' "$root" | base64 | tr '/+' '_-' | tr -d '=\n')"
+    "$(hwi_encode_state_key "$common")" "$(hwi_encode_state_key "$root")"
+}
+
+hwi_session_state_path() {
+  printf '%s/sessions/%s.state' "$HWI_STATE" "$(hwi_encode_state_key "$1")"
 }
 
 hwi_branch_description() {
