@@ -438,18 +438,19 @@ function test_resource_tree_002_snapshot_failures_cannot_look_like_an_empty_tree
 
   TREE_STUB_MODE=failed run tree_stub_run --json
   assert_failure 23
-  assert_output --partial 'herdr-resource-tree: snapshot retrieval failed: socket unavailable'
-  refute_output --partial '"workspaces": []'
+  # Exact, whole output. Each of these paths prints one line and nothing else,
+  # so the exact match already proves no tree was emitted -- which is all the
+  # '"workspaces": []' refutes beside them used to claim.
+  assert_output 'herdr-resource-tree: snapshot retrieval failed: socket unavailable'
 
   TREE_STUB_MODE=malformed run tree_stub_run --json
   assert_failure 1
-  assert_output --partial 'herdr-resource-tree: malformed snapshot:'
-  refute_output --partial '"workspaces": []'
+  assert_output 'herdr-resource-tree: malformed snapshot: snapshot.tabs must be an array'
 
   TREE_DESCENDANT_PID="$TREE_WORK/descendant.pid" TREE_STUB_MODE=hanging \
     run tree_stub_run --json
   assert_failure 124
-  assert_output --partial 'snapshot retrieval failed: herdr api snapshot timed out after 10 seconds'
+  assert_output 'herdr-resource-tree: snapshot retrieval failed: herdr api snapshot timed out after 10 seconds'
   local descendant_pid
   descendant_pid="$(<"$TREE_WORK/descendant.pid")"
   if kill -0 "$descendant_pid" 2>/dev/null; then
@@ -733,13 +734,12 @@ PY
     tree_wrapper_fixture_run "$HERDR_WRAPPER" pane split --pane w1:p2
   assert_failure 70
   assert_output "$(<"$TREE_WORK/split.json")"
-  assert_stderr --partial 'creation operation '
-  assert_stderr --partial 'pane_id=w1:p3'
-  assert_stderr --partial 'terminal_id=term-4'
-  assert_stderr --partial 'workspace_id=w1'
-  assert_stderr --partial 'tab_id=w1:t1'
-  assert_stderr --partial 'automatic creation retry is unsafe'
-  assert_stderr --partial 'do not retry creation'
+  # One whole-line match, UUID wildcarded: the operation id is random, every
+  # other field is the fixture's own input. Split into per-field partials the
+  # block could lose a coordinate, reorder them, or carry a different detail
+  # and still pass -- and workspace_created/tab_created were asserted by
+  # nothing at all.
+  assert_stderr --regexp '^herdr wrapper: creation operation [0-9a-f-]{36} pane_id=w1:p3 terminal_id=term-4 workspace_id=w1 tab_id=w1:t1 workspace_created=0 tab_created=0 succeeded, but provenance finalization failed: injected finalization failure; created resources remain open and automatic creation retry is unsafe; do not retry creation$'
   run tree_wrapper_fixture_run "$TREE_CLI" --branch --json
   assert_success
   local uncertain_branch="$output"
@@ -786,10 +786,7 @@ JSON
     "$HERDR_WRAPPER" pane split --pane w1:p2
   assert_failure 70
   assert_output "$(<"$TREE_WORK/split.json")"
-  assert_stderr --partial 'pane_id=w1:p3'
-  assert_stderr --partial 'workspace_id=w1'
-  assert_stderr --partial 'tab_id=w1:t1'
-  assert_stderr --partial 'created pane terminal_id must be a non-empty string'
+  assert_stderr --regexp '^herdr wrapper: creation operation [0-9a-f-]{36} pane_id=w1:p3 workspace_id=w1 tab_id=w1:t1 succeeded, but provenance finalization failed: created pane terminal_id must be a non-empty string; created resources remain open and automatic creation retry is unsafe; do not retry creation$'
 }
 
 function test_resource_tree_006_human_creations_stay_usable_and_incomplete_agent_identity_is_rejected() {
@@ -841,7 +838,7 @@ JSON
   : > "$TREE_CALLS"
   run tree_wrapper_fixture_run "$HERDR_WRAPPER" pane split --pane w1:p2
   assert_failure 69
-  assert_output --partial 'caller identity unavailable; native creation was not called'
+  assert_output 'herdr wrapper: caller identity unavailable; native creation was not called: current pane agent_session is required for an observed agent'
   run python3 - "$TREE_CALLS" <<'PY'
 import sys
 
@@ -1052,8 +1049,11 @@ PY
 
   run tree_wrapper_fixture_run "$TREE_CLI"
   assert_success
-  assert_output --partial 'unresolved pane creation operation '
-  assert_output --partial 'automatic retry is unsafe'
+  # Whole lines out of the render, UUID wildcarded. The two partials this
+  # replaces matched anywhere in the tree and left the reason line, which is
+  # what tells the reader why a retry is unsafe, asserted by nothing.
+  assert_line --regexp '^unresolved pane creation operation [0-9a-f-]{36}: automatic retry is unsafe$'
+  assert_line '  reason: creation ended before a final native outcome was recorded'
 
   run tree_wrapper_fixture_run "$TREE_CLI" --branch --json
   assert_success
@@ -1310,8 +1310,7 @@ PY
 
   TREE_SNAPSHOT_FAIL=1 run tree_wrapper_fixture_run "$TREE_CLI" --json
   assert_failure 23
-  assert_output --partial 'snapshot retrieval failed: snapshot unavailable'
-  refute_output --partial '"workspaces"'
+  assert_output 'herdr-resource-tree: snapshot retrieval failed: snapshot unavailable'
   run tree_wrapper_fixture_run "$TREE_CLI" --json
   assert_success
   local recovered_json="$output"
@@ -1583,11 +1582,12 @@ function test_resource_tree_013_composite_creation_failures_preserve_partial_suc
     tree_wrapper_fixture_run "$HERDR_WRAPPER" workspace create --cwd "$TREE_WORK"
   assert_failure 70
   assert_output "$(<"$TREE_WORK/workspace.json")"
-  assert_stderr --partial 'workspace_id=w2'
-  assert_stderr --partial 'tab_id=w2:t1'
-  assert_stderr --partial 'pane_id=w2:p1'
-  assert_stderr --partial 'terminal_id=term-6'
-  assert_stderr --partial 'automatic creation retry is unsafe'
+  # One whole-line match, UUID wildcarded: the operation id is random, every
+  # other field is the fixture's own input. Split into per-field partials the
+  # block could lose a coordinate, reorder them, or carry a different detail
+  # and still pass -- and workspace_created/tab_created were asserted by
+  # nothing at all.
+  assert_stderr --regexp '^herdr wrapper: creation operation [0-9a-f-]{36} workspace_id=w2 tab_id=w2:t1 pane_id=w2:p1 terminal_id=term-6 workspace_created=1 tab_created=1 succeeded, but provenance finalization failed: injected finalization failure; created resources remain open and automatic creation retry is unsafe; do not retry creation$'
 
   cat > "$TREE_WORK/tab.json" <<'JSON'
 {"id":"cli:tab:create","result":{"type":"tab_created","tab":{"workspace_id":"w1","tab_id":"w1:t2"},"root_pane":{"workspace_id":"wrong-workspace","tab_id":"w1:t2","pane_id":"w1:p4","terminal_id":"term-5"}}}
@@ -1596,8 +1596,7 @@ JSON
     "$HERDR_WRAPPER" tab create --workspace w1
   assert_failure 70
   assert_output "$(<"$TREE_WORK/tab.json")"
-  assert_stderr --partial 'created pane workspace_id does not match returned container'
-  assert_stderr --partial 'automatic creation retry is unsafe'
+  assert_stderr --regexp '^herdr wrapper: creation operation [0-9a-f-]{36} workspace_id=w1 tab_id=w1:t2 pane_id=w1:p4 terminal_id=term-5 succeeded, but provenance finalization failed: created pane workspace_id does not match returned container; created resources remain open and automatic creation retry is unsafe; do not retry creation$'
 
   cat > "$TREE_WORK/workspace.json" <<'JSON'
 {"id":"cli:workspace:create","result":{"type":"workspace_created","workspace":{"workspace_id":"w2"},"tab":{"workspace_id":"w2","tab_id":"w2:t1"},"root_pane":{"workspace_id":"w2","tab_id":"wrong-tab","pane_id":"w2:p1","terminal_id":"term-6"}}}
@@ -1606,8 +1605,7 @@ JSON
     "$HERDR_WRAPPER" workspace create --cwd "$TREE_WORK"
   assert_failure 70
   assert_output "$(<"$TREE_WORK/workspace.json")"
-  assert_stderr --partial 'created pane tab_id does not match returned container'
-  assert_stderr --partial 'automatic creation retry is unsafe'
+  assert_stderr --regexp '^herdr wrapper: creation operation [0-9a-f-]{36} workspace_id=w2 tab_id=w2:t1 pane_id=w2:p1 terminal_id=term-6 succeeded, but provenance finalization failed: created pane tab_id does not match returned container; created resources remain open and automatic creation retry is unsafe; do not retry creation$'
 
   run python3 - "$TREE_CALLS" <<'PY'
 import sys
@@ -1882,14 +1880,21 @@ PY
   assert_success
   # The client contract exposes the parent name only; the parent's native
   # identity would let an adapter reach outside the child's branch.
-  assert_output --partial 'Parent agent: "agent-a"'
-  refute_output --partial 'herdr:claude/id/session-A'
-  assert_output --partial 'Descendant agent: "agent-c" [herdr:pi/id/session-C]'
-  assert_output --partial 'pane "child-c" [w1:pC] terminal=term-C creator=herdr:opencode/id/session-B'
-  assert_output --partial 'pane "c-server" [w1:pD] terminal=term-D creator=herdr:pi/id/session-C'
-  assert_output --partial 'pane "manual-occupant" [w1:pX] terminal=term-X creator=herdr:opencode/id/session-B'
-  refute_output --partial '"sibling"'
-  refute_output --partial '"unrelated-child"'
+  # The whole projection, exactly. The fixture fixes every name and id, so
+  # anything the render adds, drops, reorders or re-indents shows up here --
+  # including the parent's native identity, whose absence the separate refute
+  # could only claim for the one string it named.
+  assert_output 'Parent agent: "agent-a"
+Descendant agent: "agent-c" [herdr:pi/id/session-C]
+Resources:
+- workspace "Project" [w1] creator=unknown
+  - tab "Agents" [w1:t1] creator=unknown
+    - pane "child-c" [w1:pC] terminal=term-C creator=herdr:opencode/id/session-B
+      occupant=opencode "replacement-z" session=herdr:opencode/id/session-Z parent=unknown
+    - pane "c-server" [w1:pD] terminal=term-D creator=herdr:pi/id/session-C
+    - pane "manual-occupant" [w1:pX] terminal=term-X creator=herdr:opencode/id/session-B
+      occupant=opencode "agent-x" session=herdr:opencode/id/session-X parent=unknown'
+  local expected_context="$output"
 
   cat > "$TREE_WORK/opencode-model-request.ts" <<'TS'
 const module = await import(process.env.HRC_OPENCODE_PLUGIN!)
@@ -1905,12 +1910,20 @@ TS
     HRC_OPENCODE_PLUGIN="$HRC_OPENCODE_PLUGIN" \
     run tree_wrapper_fixture_run bun "$TREE_WORK/opencode-model-request.ts" session-B
   assert_success
-  assert_output --partial 'Parent agent: \"agent-a\"'
-  assert_output --partial 'pane \"child-c\" [w1:pC]'
-  assert_output --partial 'pane \"c-server\" [w1:pD]'
-  assert_output --partial 'pane \"manual-occupant\" [w1:pX]'
-  refute_output --partial '\"sibling\"'
-  refute_output --partial '\"unrelated-child\"'
+  # The plugin's own contract is the header plus the CLI projection, unchanged.
+  # Comparing against the projection asserted exactly above keeps one owner for
+  # the render and still fails if the plugin drops, reorders or re-escapes it.
+  run python3 - "$output" "$expected_context" <<'PY'
+import json
+import sys
+
+system = json.loads(sys.argv[1])
+assert system == [
+    "base",
+    "## Herdr Agent Resource Context (generated)\n" + sys.argv[2],
+], system
+PY
+  assert_success
 
   run tree_wrapper_fixture_run "$TREE_CLI" --context \
     --caller-agent claude --caller-session-id stale-conversation
@@ -1946,7 +1959,6 @@ JSON
   run tree_wrapper_fixture_run "$TREE_CLI" --context
   assert_success
   assert_output 'Parent agent: "agent-a"'
-  refute_output --partial 'Resources:'
 
   cat > "$TREE_WORK/caller.json" <<'JSON'
 {"id":"cli:pane:current","result":{"type":"pane_current","pane":{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:pB","terminal_id":"term-B","agent":"opencode","agent_session":{"agent":"opencode","kind":"id","source":"herdr:opencode","value":"session-B"}}}}
@@ -2371,8 +2383,7 @@ function test_resource_tree_019_signal_terminated_creation_remains_unresolved() 
     tree_wrapper_fixture_run "$HERDR_WRAPPER" pane split --pane w1:p2
   assert_failure 143
   assert_output ''
-  assert_stderr --partial 'may have created a resource'
-  assert_stderr --partial 'automatic creation retry is unsafe'
+  assert_stderr --regexp '^herdr wrapper: creation operation [0-9a-f-]{36} may have created a resource, but no recoverable response is available: native creation terminated by signal 15; automatic creation retry is unsafe; do not retry creation$'
 
   run tree_wrapper_fixture_run "$TREE_CLI" --json
   assert_success
@@ -2509,8 +2520,7 @@ JSON
   TREE_CALLER_NEXT="$TREE_WORK/caller-next.json" \
     run tree_wrapper_fixture_run "$TREE_CLI" --branch --json
   assert_failure 1
-  assert_output --partial 'caller identity changed during snapshot retrieval'
-  refute_output --partial '"branch"'
+  assert_output 'herdr-resource-tree: caller identity changed during snapshot retrieval'
 
   # Control: the same fixture with a stable occupant must reach the branch, so
   # the rejection above cannot pass by never projecting at all.
@@ -2518,5 +2528,14 @@ JSON
   TREE_CALLER_NEXT="$TREE_WORK/caller.json" \
     run tree_wrapper_fixture_run "$TREE_CLI" --branch --json
   assert_success
-  assert_output --partial '"branch"'
+  # The control has to reach a branch for the stable occupant: the bare token
+  # '"branch"' also appears in a projection that resolved to null.
+  run python3 - "$output" <<'PY'
+import json
+import sys
+
+tree = json.loads(sys.argv[1])
+assert tree["branch"]["session"]["value"] == "session-caller", tree["branch"]
+PY
+  assert_success
 }

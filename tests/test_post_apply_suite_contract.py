@@ -130,7 +130,12 @@ class TestPostApplySuiteContract(unittest.TestCase):
 
         self.assertEqual(control.returncode, 0, control.stdout + control.stderr)
         self.assertEqual(completed.returncode, 1, completed.stdout + completed.stderr)
-        self.assertIn("invalid post-apply declaration", completed.stderr)
+        # Names the file. Without it the runner could reject the valid control
+        # instead of the broken fixture and print the same sentence.
+        self.assertIn(
+            f"invalid post-apply declaration: {suite_dir / 'broken_test.sh'}",
+            completed.stderr,
+        )
 
     def test_runner_rejects_a_missing_post_apply_declaration(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -151,7 +156,10 @@ class TestPostApplySuiteContract(unittest.TestCase):
 
         self.assertEqual(control.returncode, 0, control.stdout + control.stderr)
         self.assertEqual(completed.returncode, 1, completed.stdout + completed.stderr)
-        self.assertIn("missing post-apply declaration", completed.stderr)
+        self.assertIn(
+            f"missing post-apply declaration: {suite_dir / 'missing_test.sh'}",
+            completed.stderr,
+        )
 
     # -- who calls the wrapper --------------------------------------------
 

@@ -134,7 +134,12 @@ describe("Pi AGENTS.local.md extension selection", () => {
     const selection = await inspectLocalInstructions(root);
 
     expect(selection.selected?.name).toBe("CLAUDE.local.md");
-    expect(selection.warnings[0]).toContain("above the 51200 byte limit");
+    // The whole warning, and only one of them: the substring said nothing about
+    // which file was skipped or how big it actually was, so a warning naming the
+    // fallback file satisfied it just as well.
+    expect(selection.warnings).toEqual([
+      `${join(root, "AGENTS.local.md")} is ${MAX_LOCAL_INSTRUCTIONS_BYTES + 1} bytes, above the ${MAX_LOCAL_INSTRUCTIONS_BYTES} byte limit; skipping local instructions from AGENTS.local.md.`,
+    ]);
   });
 
   test("skips an outside-project symlink and falls back to the other local file", async () => {

@@ -311,12 +311,14 @@ PY
   assert_success
   run grep -F -- '--kind claude' "$PAIR_WORK/herdr.log"
   assert_success
-  assert_output --partial '--model sonnet'
-  assert_output --partial '--effort high'
+  # Trailing space: the log is %q-quoted argv, so an unbounded value also
+  # matches a longer alias that merely starts with it.
+  assert_output --partial '--model sonnet '
+  assert_output --partial '--effort high '
   run grep -F -- '--kind opencode' "$PAIR_WORK/herdr.log"
   assert_success
-  assert_output --partial '--model openai/gpt-5.6-terra'
-  assert_output --partial '--agent build'
+  assert_output --partial '--model openai/gpt-5.6-terra '
+  assert_output --partial '--agent build '
 }
 
 function test_external_leg_pair_1302_refuses_before_tabs_and_records_an_explicit_scan_waiver() {
@@ -500,8 +502,11 @@ function test_external_leg_pair_1308_treats_untracked_tabs_and_failed_error_clea
       --claude-prompt-file "$PAIR_WORK/claude.prompt" \
       --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$staging"
   assert_failure 3
-  assert_output --partial 'could not stage the result'
-  assert_output --partial 'cleanup failed for transport'
+  # Partial: the transport line carries a mktemp suffix, so the pair cannot be
+  # matched whole. Both lines still carry the program prefix, which a phrase
+  # printed by the stubbed mktemp or rm would not.
+  assert_output --partial 'se-external-leg-pair: could not stage the result.'
+  assert_output --partial 'se-external-leg-pair: cleanup failed for transport '
   assert_dir_not_exists "$staging"
   run cat "$PAIR_WORK/mktemp-count"
   assert_success
@@ -595,7 +600,9 @@ function test_external_leg_pair_1311_refuses_to_classify_when_report_comparison_
       --claude-prompt-file "$PAIR_WORK/claude.prompt" \
       --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$result"
   assert_failure 1
-  assert_output --partial 'could not compare peer reports'
+  # Exact line: this gate prints one line and nothing else, so a partial would
+  # also accept it alongside a stray warning from the surrounding cleanup.
+  assert_output 'se-external-leg-pair: could not compare peer reports.'
   assert_dir_not_exists "$result"
   run cat "$PAIR_WORK/closed-tabs"
   assert_success
@@ -684,11 +691,13 @@ function test_external_leg_pair_1313_maps_every_complexity_and_effort_to_launch_
 
     run grep -F -- '--kind claude' "$PAIR_WORK/herdr.log"
     assert_success
-    assert_output --partial "--model $claude_model"
-    assert_output --partial "--effort $effort"
+    # Trailing space bounds each value to a whole argv token; without it a
+    # longer alias sharing the mapped prefix satisfies the mapping row.
+    assert_output --partial "--model $claude_model "
+    assert_output --partial "--effort $effort "
     run grep -F -- '--kind opencode' "$PAIR_WORK/herdr.log"
     assert_success
-    assert_output --partial "--model $opencode_model"
+    assert_output --partial "--model $opencode_model "
     run python3 - "$PAIR_WORK/herdr.log" "$effort" "$opencode_model" <<'PY'
 import json
 import shlex
@@ -838,7 +847,7 @@ PY
       --claude-prompt-file "$PAIR_WORK/claude.prompt" \
       --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$nested"
   assert_failure 2
-  assert_output --partial 'inside an external leg'
+  assert_output 'se-external-leg-pair: refused: already inside an external leg; do this work in the current session instead of launching a nested pair.'
   assert_dir_not_exists "$nested"
   assert_file_not_exists "$PAIR_WORK/herdr.log"
   assert_file_not_exists "$PAIR_WORK/scan-count"
