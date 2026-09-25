@@ -9,141 +9,59 @@ import unittest
 REPOSITORY = Path(__file__).resolve().parents[1]
 MAKEFILE = REPOSITORY / "Makefile"
 WORKFLOW = REPOSITORY / ".github" / "workflows" / "test-dotfiles.yml"
-COMPOSE = REPOSITORY / "docker" / "docker-compose.yml"
 RUNNER = REPOSITORY / "tests" / "run-post-apply.sh"
 GENERATED = REPOSITORY / "tests" / "bashunit"
-POST_APPLY_DECLARATION = re.compile(
-    r"^# post-apply: (?:(?P<excluded>excluded)|(?P<order>[1-9][0-9]*) "
-    r"(?P<eligibility>host-safe|needs-disposable-home))$"
+
+# A suite run-post-apply.sh has never seen, with declarations written by hand.
+# The expected order and eligibility below are therefore this test's own
+# statement of the contract, not a Python re-implementation of the runner's
+# parsing applied to the same files the runner reads: a wrapper and a test that
+# both misread `needs-disposable-home` would agree, and stay green together.
+#
+# Declared order (10, 20, 30) deliberately disagrees with both file order and
+# alphabetical order, so neither can be mistaken for the declared order.
+SYNTHETIC_SUITE = {
+    "alpha_test.sh": "# post-apply: 30 host-safe",
+    "bravo_test.sh": "# post-apply: 10 needs-disposable-home",
+    "charlie_test.sh": "# post-apply: 20 host-safe",
+    "delta_test.sh": "# post-apply: excluded",
+}
+FULL_MODE_ORDER = ["bravo_test.sh", "charlie_test.sh", "alpha_test.sh"]
+HOST_SAFE_MODE_ORDER = ["charlie_test.sh", "alpha_test.sh"]
+
+# The launcher invocation each applying CI job must follow with the suite.
+POST_APPLY_RUN = "tests/run-post-apply.sh full"
+APPLY_LAUNCHER = re.compile(
+    r"tests/helpers/chezmoi-unattended\b[^\n]*\s--\s+apply\b"
 )
 
 
 class TestPostApplySuiteContract(unittest.TestCase):
-    def test_post_apply_suite_uses_one_wrapper_with_two_explicit_modes(self):
-        makefile = MAKEFILE.read_text(encoding="utf-8")
-        workflow = WORKFLOW.read_text(encoding="utf-8")
+    # -- the wrapper's selection contract ---------------------------------
 
-        # Counting occurrences pinned "how many exist today" -- a number with
-        # no origin outside the file being read -- and the workflow count also
-        # pinned the YAML spelling `run: `, so reformatting a step to `run: |`
-        # broke it with no behaviour change. What the wrapper actually owes CI
-        # is a relationship between two independently maintained sides:
-        # whatever applies the dotfiles must then run the suite against them.
-        # The compose side of the same rule is owned by
-        # tests/test_docker_contract.py's
-        # test_apply_service_scripts_propagate_a_failing_post_apply_suite,
-        # which executes each applying service's script against a stubbed
-        # wrapper and requires the exit code to survive -- strictly stronger
-        # than counting the command's occurrences.
-        jobs = re.search(r"^jobs:\n(?P<body>.*)\Z", workflow, re.MULTILINE | re.DOTALL)
-        self.assertIsNotNone(jobs, "workflow must declare a jobs block")
-        job_names = re.findall(r"^  ([a-zA-Z0-9_-]+):\n", jobs.group("body"), re.MULTILINE)
-        self.assertTrue(job_names, "no jobs parsed from the workflow")
+    def test_full_mode_runs_every_declared_suite_in_declared_order(self):
+        # #given / #when
+        invocations = self.wrapper_invocations("full")
+        # #then
+        self.assertEqual([Path(argv[-1]).name for argv in invocations], FULL_MODE_ORDER)
 
-        applying = []
-        for name in job_names:
-            block = re.search(
-                r"^  %s:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:\n|\Z)" % re.escape(name),
-                workflow,
-                re.MULTILINE | re.DOTALL,
-            )
-            body = block.group("body")
-            if not re.search(
-                r"tests/helpers/chezmoi-unattended\b[^\n]*\s--\s+apply\b", body
-            ):
-                continue
-            applying.append(name)
-            self.assertIn(
-                "tests/run-post-apply.sh full",
-                body,
-                "job %s applies the dotfiles but never runs the post-apply suite" % name,
-            )
-        # An empty selection would let the loop above pass vacuously.
-        self.assertGreaterEqual(len(applying), 2, "expected at least two applying CI jobs, got %r" % applying)
-
-        # make test-suite is host-safe by design: it must reach the wrapper,
-        # and must not reach the full mode, which runs real apply tests.
-        recipe = re.search(r"^test-suite:.*?(?=^\S|\Z)", makefile, re.MULTILINE | re.DOTALL)
-        self.assertIsNotNone(recipe, "Makefile must define the test-suite target")
-        self.assertRegex(recipe.group(0), r"(?m)^\t.*tests/run-post-apply\.sh host-safe\b")
-        self.assertNotRegex(recipe.group(0), r"(?m)^\t.*tests/run-post-apply\.sh full\b")
-
-        suite_files = self.discovered_suite_files()
-        self.assertTrue(suite_files, "no post-apply suite files discovered on disk")
-
-        declarations = {f: self.post_apply_declaration(f) for f in suite_files}
-        orders = [order for order, _ in declarations.values()]
-        self.assertEqual(len(orders), len(set(orders)), "post-apply order values must be unique")
-
-        # "3" is this test's own value, unrelated to the wrapper's default, so
-        # a wrapper that hardcoded its worker count instead of reading
-        # MMS_BASHUNIT_JOBS fails here.
-        full_invocations = self.wrapper_invocations("full", jobs="3")
-        host_safe_invocations = self.wrapper_invocations("host-safe", jobs="3")
-        self.assert_invocation_shape(full_invocations, "full mode", "3")
-        self.assert_invocation_shape(host_safe_invocations, "host-safe mode", "3")
-
-        # The unset case must still reach bashunit with a positive integer, so
-        # the default cannot silently become empty or 0.
-        default_invocations = self.wrapper_invocations("host-safe")
-        self.assertTrue(default_invocations, "wrapper ran no suite file by default")
-        for argv in default_invocations:
-            self.assertEqual(argv[0], "-j", "default worker flag")
-            self.assertTrue(
-                argv[1].isdigit() and int(argv[1]) > 0,
-                "default worker count must be a positive integer, got %r" % argv[1],
-            )
-
-        full_files = [argv[-1] for argv in full_invocations]
-        host_safe_files = [argv[-1] for argv in host_safe_invocations]
-
+    def test_host_safe_mode_drops_the_suites_that_need_a_disposable_home(self):
+        # The same suite, one mode later: only the eligibility word may
+        # change the outcome, and the surviving files keep full-mode order.
+        invocations = self.wrapper_invocations("host-safe")
         self.assertEqual(
-            full_files,
-            [str(f) for f in sorted(suite_files, key=lambda f: declarations[f][0])],
-            "full mode must run every discovered suite once in declared order -- "
-            "a new tests/bashunit/*_test.sh file must be explicitly classified",
-        )
-        self.assertEqual(
-            len(full_files),
-            len(set(full_files)),
-            "full mode must not run any suite file twice",
-        )
-        self.assertEqual(
-            host_safe_files,
-            [
-                f
-                for f in full_files
-                if declarations[Path(f)][1] == "host-safe"
-            ],
-            "host-safe mode must follow the eligibility declarations consumed "
-            "by the runner, in full-mode order",
+            [Path(argv[-1]).name for argv in invocations], HOST_SAFE_MODE_ORDER
         )
 
-    def test_runner_rejects_a_malformed_post_apply_declaration(self):
+    def test_every_real_suite_file_carries_a_usable_declaration(self):
+        """The runner rejects a suite file with a missing, malformed or
+        duplicate-order declaration (see the two rejection tests below), so a
+        clean full-mode run over the real tests/bashunit is the statement that
+        every file there is classified -- without this test re-deriving the
+        classification it is checking."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            (temp_path / "valid_test.sh").write_text(
-                "#!/usr/bin/env bash\n# post-apply: 10 host-safe\n",
-                encoding="utf-8",
-            )
-            fake_bashunit = temp_path / "bashunit"
-            fake_bashunit.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-            fake_bashunit.chmod(0o755)
-            env = os.environ.copy()
-            env["MMS_BASHUNIT_BIN"] = str(fake_bashunit)
-            env["MMS_BASHUNIT_SUITE_DIR"] = str(temp_path)
-
-            control = subprocess.run(
-                [str(RUNNER), "full"],
-                cwd=REPOSITORY,
-                env=env,
-                capture_output=True,
-                text=True,
-            )
-            (temp_path / "broken_test.sh").write_text(
-                "#!/usr/bin/env bash\n# post-apply: 20a host-safe\n",
-                encoding="utf-8",
-            )
+            env = self.runner_environment(Path(temp_dir))
+            env["MMS_BASHUNIT_SUITE_DIR"] = str(GENERATED)
             completed = subprocess.run(
                 [str(RUNNER), "full"],
                 cwd=REPOSITORY,
@@ -151,187 +69,216 @@ class TestPostApplySuiteContract(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
 
-        self.assertEqual(control.returncode, 0, control.stderr)
-        self.assertNotEqual(completed.returncode, 0)
+    def test_wrapper_forwards_the_operators_worker_cap_to_bashunit(self):
+        # "3" is this test's own value, unrelated to the wrapper's default, so
+        # a wrapper that hardcoded its worker count instead of reading
+        # MMS_BASHUNIT_JOBS fails here. CI's macOS job really does set
+        # MMS_BASHUNIT_JOBS=4, so pinning the literal default instead would be
+        # red for a supported configuration and blind to the regression that
+        # matters -- the wrapper dropping the operator's cap on the floor.
+        for argv in self.wrapper_invocations("full", jobs="3"):
+            with self.subTest(suite=Path(argv[-1]).name):
+                # The report path is a fresh mktemp file per invocation, so
+                # the flag is asserted and the path is not. --report-json is
+                # the wrapper's own operational contract: its inline
+                # failure-name reporter reads that file back.
+                self.assertEqual(argv[:3], ["-j", "3", "--report-json"])
+                self.assertEqual(len(argv), 5)
+
+    def test_the_default_worker_count_is_a_positive_integer(self):
+        # The default is the wrapper's own overridable choice, so its value is
+        # not pinned; what must hold is that the unset case still reaches
+        # bashunit with a usable count instead of an empty string or 0.
+        invocations = self.wrapper_invocations("full")
+        self.assertTrue(invocations, "wrapper ran no suite file by default")
+        for argv in invocations:
+            with self.subTest(suite=Path(argv[-1]).name):
+                self.assertEqual(argv[0], "-j")
+                self.assertTrue(
+                    argv[1].isdigit() and int(argv[1]) > 0,
+                    "default worker count must be a positive integer, got %r" % argv[1],
+                )
+
+    # -- the wrapper's rejection contract ---------------------------------
+
+    def test_runner_rejects_a_malformed_post_apply_declaration(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            env = self.runner_environment(temp_path)
+            suite_dir = self.write_suite(temp_path, {"valid_test.sh": "# post-apply: 10 host-safe"})
+            env["MMS_BASHUNIT_SUITE_DIR"] = str(suite_dir)
+
+            control = subprocess.run(
+                [str(RUNNER), "full"], cwd=REPOSITORY, env=env, capture_output=True, text=True
+            )
+            (suite_dir / "broken_test.sh").write_text(
+                "#!/usr/bin/env bash\n# post-apply: 20a host-safe\n", encoding="utf-8"
+            )
+            completed = subprocess.run(
+                [str(RUNNER), "full"], cwd=REPOSITORY, env=env, capture_output=True, text=True
+            )
+
+        self.assertEqual(control.returncode, 0, control.stdout + control.stderr)
+        self.assertEqual(completed.returncode, 1, completed.stdout + completed.stderr)
         self.assertIn("invalid post-apply declaration", completed.stderr)
 
     def test_runner_rejects_a_missing_post_apply_declaration(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            (temp_path / "valid_test.sh").write_text(
-                "#!/usr/bin/env bash\n# post-apply: 10 host-safe\n",
-                encoding="utf-8",
-            )
-            (temp_path / "missing_test.sh").write_text(
-                "#!/usr/bin/env bash\n# no eligibility declaration\n",
-                encoding="utf-8",
-            )
-            fake_bashunit = temp_path / "bashunit"
-            fake_bashunit.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-            fake_bashunit.chmod(0o755)
-            env = os.environ.copy()
-            env["MMS_BASHUNIT_BIN"] = str(fake_bashunit)
-            env["MMS_BASHUNIT_SUITE_DIR"] = str(temp_path)
+            env = self.runner_environment(temp_path)
+            suite_dir = self.write_suite(temp_path, {"valid_test.sh": "# post-apply: 10 host-safe"})
+            env["MMS_BASHUNIT_SUITE_DIR"] = str(suite_dir)
 
+            control = subprocess.run(
+                [str(RUNNER), "full"], cwd=REPOSITORY, env=env, capture_output=True, text=True
+            )
+            (suite_dir / "missing_test.sh").write_text(
+                "#!/usr/bin/env bash\n# no eligibility declaration\n", encoding="utf-8"
+            )
             completed = subprocess.run(
-                [str(RUNNER), "full"],
-                cwd=REPOSITORY,
-                env=env,
-                capture_output=True,
-                text=True,
+                [str(RUNNER), "full"], cwd=REPOSITORY, env=env, capture_output=True, text=True
             )
 
-        self.assertNotEqual(completed.returncode, 0)
+        self.assertEqual(control.returncode, 0, control.stdout + control.stderr)
+        self.assertEqual(completed.returncode, 1, completed.stdout + completed.stderr)
         self.assertIn("missing post-apply declaration", completed.stderr)
 
-    def discovered_suite_files(self):
-        """Suite files this wrapper is responsible for driving, found on disk
-        rather than copied from run-post-apply.sh's own file list."""
-        candidates = sorted(GENERATED.glob("*_test.sh"))
-        texts = {f.name: f.read_text(encoding="utf-8") for f in candidates}
-        outside_sources = [
-            MAKEFILE.read_text(encoding="utf-8"),
-            WORKFLOW.read_text(encoding="utf-8"),
-            COMPOSE.read_text(encoding="utf-8"),
-        ]
-        candidates = [
-            f
-            for f in candidates
-            if not self.wired_outside_the_wrapper(f.name, outside_sources)
-            and not self.nested_inside_a_sibling(f.name, texts)
-        ]
-        return [f for f in candidates if self.post_apply_declaration(f) is not None]
+    # -- who calls the wrapper --------------------------------------------
 
-    def post_apply_declaration(self, path):
-        declarations = []
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if line.startswith("# post-apply:"):
-                declarations.append(POST_APPLY_DECLARATION.fullmatch(line))
-            elif line and not line.startswith("#"):
-                break
-        self.assertEqual(
-            len(declarations),
-            1,
-            f"{path.name} must have exactly one post-apply declaration",
-        )
-        self.assertIsNotNone(
-            declarations[0],
-            f"{path.name} has an invalid post-apply declaration",
-        )
-        if declarations[0].group("excluded"):
-            return None
-        return int(declarations[0].group("order")), declarations[0].group("eligibility")
-
-    def wired_outside_the_wrapper(self, name, outside_sources):
-        """templates_test.sh is the case in point: the Makefile, workflow,
-        and compose file each invoke it directly as a pre-apply gate step
-        (`tests/lib/bashunit ... tests/bashunit/templates_test.sh`), never
-        through tests/run-post-apply.sh. A suite file with its own direct
-        bashunit invocation elsewhere is not part of this wrapper's
-        inventory; require the literal binary path so a comment or echo
-        line that merely mentions the file's path (e.g. Makefile's
-        test-suite NOTE about idempotent_test.sh) does not count. The name
-        match is boundary-bounded (preceded by a path separator/whitespace/
-        start-of-line, followed by whitespace or end-of-line) rather than
-        a raw substring test, so one suite file's name being a substring of
-        another's (e.g. a hypothetical "widget_test.sh" inside
-        "other_widget_test.sh") cannot cause a false match."""
-        name_pattern = re.compile(r"(?:^|[\s/])%s(?:\s|$)" % re.escape(name))
-        for text in outside_sources:
-            for line in text.splitlines():
-                stripped = line.strip()
-                if stripped.startswith("#") or "run-post-apply.sh" in line:
-                    continue
-                if "lib/bashunit" in line and name_pattern.search(line):
-                    return True
-        return False
-
-    def nested_inside_a_sibling(self, name, texts):
-        """The herdr/bashunit descriptor probes are driven as a nested
-        bashunit invocation from inside scripts_test.sh, wired through
-        `$BATS_TEST_DIRNAME/bashunit/<file>`, not by the top-level runner.
-        scripts_test.sh also nests a filtered invocation of itself for a
-        bounded-pipe regression, so self-references are excluded -- only a
-        DIFFERENT sibling wiring a file in this way removes it from the
-        top-level inventory. Comment lines are skipped (mirroring
-        wired_outside_the_wrapper's own comment skip) so an unrelated remark
-        that happens to mention the marker text cannot cause a false
-        exclusion of a real, unwired suite file -- the exact regression this
-        whole discovery mechanism exists to catch."""
-        marker = "BATS_TEST_DIRNAME/bashunit/%s" % name
-        for other_name, other_text in texts.items():
-            if other_name == name:
+    def test_every_applying_ci_job_runs_the_post_apply_suite(self):
+        # The relationship between two independently maintained sides:
+        # whatever applies the dotfiles must then run the suite against them.
+        # Asserted on the step's `run:` value, not on the job body, because a
+        # comment or an echo naming the command satisfies a body search.
+        # The compose side of the same rule is owned by
+        # tests/test_docker_contract.py's
+        # test_apply_service_scripts_propagate_a_failing_post_apply_suite.
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        applying = []
+        for name in self.job_names(workflow):
+            body = self.job_block(workflow, name)
+            if not APPLY_LAUNCHER.search(body):
                 continue
-            for line in other_text.splitlines():
-                if line.strip().startswith("#"):
-                    continue
-                if marker in line:
-                    return True
-        return False
+            applying.append(name)
+            with self.subTest(job=name):
+                self.assertEqual(
+                    self.step_run(body, "Run post-apply tests"),
+                    POST_APPLY_RUN,
+                    "job %s applies the dotfiles but never runs the post-apply suite"
+                    % name,
+                )
+        # An empty selection would let the loop above pass vacuously.
+        self.assertGreaterEqual(
+            len(applying), 2, "expected at least two applying CI jobs, got %r" % applying
+        )
 
-    def assert_invocation_shape(self, invocations, message, expected_jobs):
-        for argv in invocations:
-            # The report path is a fresh mktemp file per invocation, so assert
-            # the flag positions but not the path itself. --report-json is the
-            # wrapper's own operational contract: its inline failure-name
-            # reporter reads that file back.
-            #
-            # The worker count is asserted against the value THIS TEST chose
-            # via MMS_BASHUNIT_JOBS, never against the wrapper's default.
-            # run-post-apply.sh declares that default overridable, and CI's
-            # macOS job really does set MMS_BASHUNIT_JOBS=4
-            # (.github/workflows/test-dotfiles.yml), so pinning the literal 8
-            # made this test red for a supported configuration while staying
-            # blind to the regression that matters -- the wrapper dropping the
-            # operator's cap on the floor.
-            self.assertEqual(len(argv), 5, message)
-            self.assertEqual(argv[0], "-j", message)
-            self.assertEqual(argv[1], expected_jobs, message)
-            self.assertEqual(argv[2], "--report-json", message)
+    def test_make_test_suite_reaches_only_the_host_safe_mode(self):
+        # make test-suite is host-safe by design: it must reach the wrapper,
+        # and must not reach the full mode, which runs real apply tests.
+        makefile = MAKEFILE.read_text(encoding="utf-8")
+        recipe = re.search(r"^test-suite:.*?(?=^\S|\Z)", makefile, re.MULTILINE | re.DOTALL)
+        self.assertIsNotNone(recipe, "Makefile must define the test-suite target")
+        self.assertEqual(
+            [
+                line[1:].strip()
+                for line in recipe.group(0).splitlines()
+                if line.startswith("\t") and not line[1:].lstrip().startswith("@echo")
+            ],
+            ["tests/run-post-apply.sh host-safe"],
+        )
+
+    # -- helpers ----------------------------------------------------------
+
+    def job_names(self, workflow):
+        jobs = re.search(r"^jobs:\n(?P<body>.*)\Z", workflow, re.MULTILINE | re.DOTALL)
+        self.assertIsNotNone(jobs, "workflow must declare a jobs block")
+        names = re.findall(r"^  ([a-zA-Z0-9_-]+):\n", jobs.group("body"), re.MULTILINE)
+        self.assertTrue(names, "no jobs parsed from the workflow")
+        return names
+
+    def job_block(self, workflow, name):
+        block = re.search(
+            r"^  %s:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:\n|\Z)" % re.escape(name),
+            workflow,
+            re.MULTILINE | re.DOTALL,
+        )
+        self.assertIsNotNone(block, "%s job is missing" % name)
+        return block.group("body")
+
+    def step_run(self, job, step_name):
+        """A named step's literal `run:` value."""
+        step = re.search(
+            r"^      - name: %s\n(?P<body>.*?)(?=^      - name: |\Z)" % re.escape(step_name),
+            job,
+            re.MULTILINE | re.DOTALL,
+        )
+        self.assertIsNotNone(step, "%s step is missing" % step_name)
+        run = re.search(r"^        run: (?P<command>.+)$", step.group("body"), re.MULTILINE)
+        self.assertIsNotNone(run, "%s step must declare a run: command" % step_name)
+        return run.group("command").strip()
+
+    def write_suite(self, root, declarations):
+        """A suite directory holding one file per declaration."""
+        suite_dir = root / "suite"
+        suite_dir.mkdir()
+        for name, declaration in declarations.items():
+            (suite_dir / name).write_text(
+                "#!/usr/bin/env bash\n%s\n" % declaration, encoding="utf-8"
+            )
+        return suite_dir
+
+    def runner_environment(self, root):
+        """An environment whose bashunit records its argv and whose `ps` is
+        inert.
+
+        The wrapper's suite-end orphan-watcher guard
+        (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md)
+        scans the live `ps` table and can independently force rc=1 when it
+        finds an abandoned herdr-child watcher rooted at this checkout -- a
+        real condition in this repo's own herdr-based dev environment. Left
+        unstubbed, a control run's failure cannot be told apart from that
+        environment artifact.
+        """
+        stub_dir = root / "stub-bin"
+        stub_dir.mkdir()
+        (stub_dir / "ps").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        (stub_dir / "ps").chmod(0o755)
+
+        bashunit = root / "bashunit"
+        bashunit.write_text(
+            "#!/bin/sh\n"
+            "printf '%s\\036' \"$@\" >> \"$BASHUNIT_ARGV_FILE\"\n"
+            "printf '\\037' >> \"$BASHUNIT_ARGV_FILE\"\n"
+            "exit 0\n",
+            encoding="utf-8",
+        )
+        bashunit.chmod(0o755)
+
+        env = os.environ.copy()
+        env["PATH"] = str(stub_dir) + os.pathsep + env["PATH"]
+        env["MMS_BASHUNIT_BIN"] = str(bashunit)
+        env["BASHUNIT_ARGV_FILE"] = str(root / "argv")
+        env.pop("MMS_BASHUNIT_JOBS", None)
+        return env
 
     def wrapper_invocations(self, mode, jobs=None):
-        if not RUNNER.exists():
-            self.fail("tests/run-post-apply.sh must own the post-apply suite command")
-
+        """Every bashunit argv the wrapper produced for SYNTHETIC_SUITE."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            for suite in GENERATED.glob("*_test.sh"):
-                (temp_path / suite.name).symlink_to(suite)
-            argv_file = temp_path / "argv"
-            fake_bashunit = temp_path / "bashunit"
-            fake_bashunit.write_text(
-                "#!/bin/sh\n"
-                "printf '%s\\036' \"$@\" >> \"$BASHUNIT_ARGV_FILE\"\n"
-                "printf '\\037' >> \"$BASHUNIT_ARGV_FILE\"\n"
-                "exit 0\n",
-                encoding="utf-8",
-            )
-            fake_bashunit.chmod(0o755)
-
-            env = os.environ.copy()
-            env["BASHUNIT_ARGV_FILE"] = str(argv_file)
-            env["MMS_BASHUNIT_BIN"] = str(fake_bashunit)
-            env["MMS_BASHUNIT_SUITE_DIR"] = str(temp_path)
-            if jobs is None:
-                env.pop("MMS_BASHUNIT_JOBS", None)
-            else:
+            root = Path(temp_dir)
+            env = self.runner_environment(root)
+            env["MMS_BASHUNIT_SUITE_DIR"] = str(self.write_suite(root, SYNTHETIC_SUITE))
+            if jobs is not None:
                 env["MMS_BASHUNIT_JOBS"] = jobs
-            subprocess.run(
-                [str(RUNNER), mode],
-                cwd=REPOSITORY,
-                env=env,
-                check=True,
+            completed = subprocess.run(
+                [str(RUNNER), mode], cwd=REPOSITORY, env=env, capture_output=True, text=True
             )
-            raw = argv_file.read_text(encoding="utf-8")
-            invocations = [
-                call.split("\036")[:-1]
-                for call in raw.split("\037")
-                if call
-            ]
-            for argv in invocations:
-                argv[-1] = str(GENERATED / Path(argv[-1]).name)
-            return invocations
+            self.assertEqual(
+                completed.returncode, 0, completed.stdout + completed.stderr
+            )
+            raw = Path(env["BASHUNIT_ARGV_FILE"]).read_text(encoding="utf-8")
+        return [call.split("\036")[:-1] for call in raw.split("\037") if call]
 
 
 if __name__ == "__main__":

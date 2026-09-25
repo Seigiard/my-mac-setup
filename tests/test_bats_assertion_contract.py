@@ -10,7 +10,16 @@ CHECKER = REPOSITORY / "scripts" / "check_bats_assertions.py"
 
 
 class TestBatsAssertionContract(unittest.TestCase):
+    # The checker's report line, with the scan root stripped off. Reported
+    # verbatim to whoever runs `make lint`, so the whole line is the contract.
+    VIOLATION = "%s:%d: bare %s requires explicit status handling"
+
     def run_checker(self, files):
+        """(exit status, every reported violation with the scan root stripped).
+
+        The full report is returned, not searched, so a checker that starts
+        flagging a negative control fails here instead of passing on the
+        strength of the violations it still gets right."""
         with tempfile.TemporaryDirectory() as temp_dir:
             tests_dir = Path(temp_dir) / "tests"
             tests_dir.mkdir()
@@ -18,15 +27,26 @@ class TestBatsAssertionContract(unittest.TestCase):
                 path = tests_dir / relative_path
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(content, encoding="utf-8")
-            return subprocess.run(
+            result = subprocess.run(
                 [sys.executable, str(CHECKER), str(tests_dir)],
                 text=True,
                 capture_output=True,
                 check=False,
             )
+        prefix = str(tests_dir) + "/"
+        return result, [
+            line.replace(prefix, "") for line in result.stdout.splitlines()
+        ]
 
     def test_rejects_bare_conditional_commands(self):
-        result = self.run_checker(
+        # Every fixture below carries exactly one bare conditional on a known
+        # line; lines 2-6 of the first one are negative controls (arithmetic
+        # `<<`, a quoted heredoc marker, a commented marker, a here-string)
+        # that the checker must NOT report. Asserting the complete report is
+        # what makes them controls: a checker that flags line 3's `1 <<
+        # attempt` as an unterminated heredoc, or line 6's here-string, can no
+        # longer hide behind the seven violations it still finds.
+        result, violations = self.run_checker(
             {
                 "bashunit/unsafe_test.sh": """function test_conditional() {
   local attempt=2
@@ -68,21 +88,22 @@ class TestBatsAssertionContract(unittest.TestCase):
             }
         )
 
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("bashunit/unsafe_test.sh:8: bare [[...]]", result.stdout)
-        self.assertIn("nested/bashunit/unsafe_test.sh:2: bare ((...))", result.stdout)
-        self.assertIn("nested/bashunit/semicolon_test.sh:2: bare [[...]]", result.stdout)
-        self.assertIn(
-            "nested/bashunit/second_conditional_test.sh:2: bare [[...]]", result.stdout
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(
+            violations,
+            [
+                self.VIOLATION % ("bashunit/unsafe_test.sh", 8, "[[...]]"),
+                self.VIOLATION % ("nested/bashunit/second_and_test.sh", 2, "[[...]]"),
+                self.VIOLATION % ("nested/bashunit/second_arithmetic_test.sh", 2, "((...))"),
+                self.VIOLATION % ("nested/bashunit/second_conditional_test.sh", 2, "[[...]]"),
+                self.VIOLATION % ("nested/bashunit/second_or_test.sh", 2, "((...))"),
+                self.VIOLATION % ("nested/bashunit/semicolon_test.sh", 2, "[[...]]"),
+                self.VIOLATION % ("nested/bashunit/unsafe_test.sh", 2, "((...))"),
+            ],
         )
-        self.assertIn(
-            "nested/bashunit/second_arithmetic_test.sh:2: bare ((...))", result.stdout
-        )
-        self.assertIn("nested/bashunit/second_and_test.sh:2: bare [[...]]", result.stdout)
-        self.assertIn("nested/bashunit/second_or_test.sh:2: bare ((...))", result.stdout)
 
     def test_accepts_explicit_handlers_control_flow_and_heredocs(self):
-        result = self.run_checker(
+        result, _ = self.run_checker(
             {
                 "bashunit/safe_test.sh": """function test_safe_forms() {
   [[ 1 == 1 ]] || fail "expected equality"
@@ -130,8 +151,9 @@ PLAIN
         # (a broken glob, a narrowed pattern), its violation stops being
         # reported and this test fails for that class specifically. The nested
         # helper pins the recursive scope: a flat helpers glob leaves it
-        # unscanned.
-        result = self.run_checker(
+        # unscanned. The clean control beside each violation is what the
+        # complete report below turns into a discriminator.
+        result, violations = self.run_checker(
             {
                 "bashunit/reachable_test.sh": """function test_reachable() {
   [[ 1 == 2 ]]
@@ -172,23 +194,21 @@ PLAIN
             }
         )
 
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("bashunit/reachable_test.sh:2: bare [[...]]", result.stdout)
-        self.assertIn("helpers/reachable.bash:2: bare [[...]]", result.stdout)
-        self.assertIn("helpers/nested/reachable.bash:2: bare [[...]]", result.stdout)
-        self.assertIn("bashunit/reachable.bash:2: bare [[...]]", result.stdout)
-        self.assertNotIn("reachable_clean_test.sh", result.stdout)
-        self.assertNotIn("reachable_clean.bash", result.stdout)
-
-    def test_repository_has_no_implicit_conditional_assertions(self):
-        result = subprocess.run(
-            [sys.executable, str(CHECKER), str(REPOSITORY / "tests")],
-            text=True,
-            capture_output=True,
-            check=False,
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(
+            violations,
+            [
+                self.VIOLATION % ("bashunit/reachable_test.sh", 2, "[[...]]"),
+                self.VIOLATION % ("helpers/nested/reachable.bash", 2, "[[...]]"),
+                self.VIOLATION % ("helpers/reachable.bash", 2, "[[...]]"),
+                self.VIOLATION % ("bashunit/reachable.bash", 2, "[[...]]"),
+            ],
         )
 
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+    # `make lint` runs `python3 scripts/check_bats_assertions.py tests` over
+    # this repository's own tests, so a test that did the same here asserted
+    # repository state a lint gate already owns, not the checker's behavior.
+    # The tests above own the checker; the lint gate owns the tree.
 
 
 if __name__ == "__main__":
