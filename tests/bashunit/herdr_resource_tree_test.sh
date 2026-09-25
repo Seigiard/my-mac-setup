@@ -231,6 +231,16 @@ tree_real_env() {
     "$@"
 }
 
+tree_restore_managed_env() {
+  # The disposable server itself must not see HERDR_BIN_PATH; only the managed
+  # wrapper and the query CLI are pointed at the identity shim.
+  local native="$1"
+  shift
+  tree_real_env env HERDR_BIN_PATH="$TREE_WORK/restore-bin/herdr" \
+    HERDR_RESOURCE_TREE_STATE_DIR="$TREE_WORK/restore-state" \
+    TREE_RESTORE_NATIVE="$native" "$@"
+}
+
 tree_close_inherited_descriptors() {
   local descriptor fd
   for descriptor in /dev/fd/*; do
@@ -279,6 +289,19 @@ PY
 }
 
 teardown() {
+  # A failing assertion ends the test body in its own shell, so any pane id held
+  # only in a variable never reaches here. Tests that create panes in the
+  # developer's live session append them to this file as well.
+  if command_exists herdr; then
+    local recorded_kind recorded
+    for recorded_kind in panes workspaces; do
+      [[ -s "${TREE_WORK:-}/live-$recorded_kind" ]] || continue
+      while read -r recorded; do
+        "$TREE_WORK/run-bounded" "$(command -v herdr)" "${recorded_kind%s}" close \
+          "$recorded" >/dev/null 2>&1 || true
+      done < "$TREE_WORK/live-$recorded_kind"
+    done
+  fi
   if [[ -n "${TREE_LIVE_TERMINAL:-}" && -x "${TREE_LIVE_HERDR:-}" ]]; then
     local live_identity live_snapshot
     live_snapshot="$("$TREE_WORK/run-bounded" "$TREE_LIVE_HERDR" api snapshot 2>/dev/null || true)"
@@ -327,24 +350,44 @@ PY
 function test_resource_tree_001_human_and_json_views_share_the_complete_fixture_tree() {
   _bats_test_init 1 'human and JSON views share the complete fixture tree'
 
+  # The fixture pins every id and label and generates nothing, so the whole
+  # human render is knowable. Substring checks would accept a pane nested under
+  # the wrong tab, workspaces emitted out of number order, or an attribution
+  # line printed against the wrong resource.
+  local expected_human
+  expected_human="$(cat <<'RENDER'
+local Herdr server (version 0.9.0, protocol 22)
+workspace "Project" [w1]
+  creator: unknown
+  tab "Agents" [w1:t1]
+    creator: unknown
+    pane "implementation" [w1:p1]
+      terminal: term-1
+      creator: unknown
+      agent: opencode "red-fox"
+      session: herdr:opencode/id/session-1
+      parent: unknown
+  tab "Shells" [w1:t2]
+    creator: unknown
+    pane "logs" [w1:p2]
+      terminal: term-2
+      creator: unknown
+      agent: none
+workspace "Unrelated" [w2]
+  creator: unknown
+  tab "Elsewhere" [w2:t1]
+    creator: unknown
+    pane "manual" [w2:p1]
+      terminal: term-3
+      creator: unknown
+      agent: claude "blue-whale"
+      session: unknown
+      parent: unknown
+RENDER
+)"
   run tree_stub_run
   assert_success
-  assert_output --partial 'workspace "Project" [w1]'
-  assert_output --partial 'tab "Agents" [w1:t1]'
-  assert_output --partial 'pane "implementation" [w1:p1]'
-  assert_output --partial 'terminal: term-1'
-  assert_output --partial 'agent: opencode "red-fox"'
-  assert_output --partial 'session: herdr:opencode/id/session-1'
-  assert_output --partial 'creator: unknown'
-  assert_output --partial 'tab "Shells" [w1:t2]'
-  assert_output --partial 'pane "logs" [w1:p2]'
-  assert_output --partial 'terminal: term-2'
-  assert_output --partial 'workspace "Unrelated" [w2]'
-  assert_output --partial 'tab "Elsewhere" [w2:t1]'
-  assert_output --partial 'pane "manual" [w2:p1]'
-  assert_output --partial 'terminal: term-3'
-  assert_output --partial 'session: unknown'
-  assert_output --partial 'parent: unknown'
+  assert_output "$expected_human"
 
   run tree_stub_run --json
   assert_success
@@ -399,7 +442,7 @@ function test_resource_tree_002_snapshot_failures_cannot_look_like_an_empty_tree
   refute_output --partial '"workspaces": []'
 
   TREE_STUB_MODE=malformed run tree_stub_run --json
-  assert_failure
+  assert_failure 1
   assert_output --partial 'herdr-resource-tree: malformed snapshot:'
   refute_output --partial '"workspaces": []'
 
@@ -760,12 +803,19 @@ import json
 import sys
 
 tree = json.loads(sys.argv[1])
-for workspace in tree["workspaces"]:
-    assert workspace["creator_session"] is None
-    for tab in workspace["tabs"]:
-        assert tab["creator_session"] is None
-        for pane in tab["panes"]:
-            assert pane["creator_session"] is None
+# Pin the fixture's whole resource set before asserting the property: an empty
+# tree, or one missing the created resources, would run zero assertions below.
+assert [workspace["id"] for workspace in tree["workspaces"]] == ["w1", "w2"]
+tabs = {
+    tab["id"]: tab for workspace in tree["workspaces"] for tab in workspace["tabs"]
+}
+assert set(tabs) == {"w1:t1", "w1:t2", "w2:t1"}
+panes = {
+    pane["id"]: pane for tab in tabs.values() for pane in tab["panes"]
+}
+assert set(panes) == {"w1:p1", "w1:p2", "w1:p3", "w1:p4", "w2:p1"}
+for resource in [*tree["workspaces"], *tabs.values(), *panes.values()]:
+    assert resource["creator_session"] is None, resource["id"]
 PY
   assert_success
 
@@ -815,6 +865,8 @@ SH
   local calls_a="$TREE_WORK/calls-a" calls_b="$TREE_WORK/calls-b"
   : > "$scope"
   mkdir -p "$state"
+  # The pre-migration operations table as an older herdr-resource-tree shipped
+  # it, frozen by history; see test 011, which owns the migration case.
   run python3 - "$state/registry.sqlite3" <<'PY'
 import sqlite3
 import sys
@@ -876,6 +928,9 @@ panes = [
     for tab in workspace["tabs"]
     for pane in tab["panes"]
 ]
+# Pin the fixture's pane set first: an empty tree would satisfy the `all`
+# below without ever evaluating the property under test.
+assert {pane["id"] for pane in panes} == {"w1:pa", "w1:pb"}
 assert all(pane["creator_session"] is None for pane in panes)
 PY
   assert_success
@@ -1035,39 +1090,50 @@ PY
     PATH="$(dirname "$HERDR_WRAPPER"):$PATH" \
     "$HERDR_WRAPPER" pane split --pane "$current_pane" --direction right --no-focus
   local split_status="$status" split_stderr="$stderr" split_json="$output"
+
+  # Record the pane the server actually gained, so teardown can close it even
+  # when the wrapper failed after creating it. This is bookkeeping, not a
+  # verdict: asserting here would report a missing pane instead of the
+  # wrapper's own exit status and diagnostic, which is what failed.
+  run "$TREE_WORK/run-bounded" "$TREE_LIVE_HERDR" api snapshot
+  local after_split="$output"
+  TREE_LIVE_PANE="$(python3 - "$before_split" "$after_split" <<'PY'
+import json
+import sys
+
+
+def pane_ids(envelope):
+    try:
+        snapshot = json.loads(envelope)["result"]["snapshot"]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return set()
+    return {pane["pane_id"] for pane in snapshot["panes"]}
+
+
+created = pane_ids(sys.argv[2]) - pane_ids(sys.argv[1])
+if len(created) == 1:
+    print(created.pop())
+PY
+)"
+  if [[ -n "$TREE_LIVE_PANE" ]]; then
+    printf '%s\n' "$TREE_LIVE_PANE" >> "$TREE_WORK/live-panes"
+  fi
+
+  status="$split_status"
+  output="$split_json"
+  stderr="$split_stderr"
+  assert_success
+
+  # The wrapper must report the pane the server really created, not merely some
+  # pane id: the recorded attribution is keyed by what it returns here.
   run python3 - "$split_json" <<'PY'
 import json
 import sys
 
 print(json.loads(sys.argv[1])["result"]["pane"]["pane_id"])
 PY
-  if [[ "$status" -eq 0 ]]; then
-    TREE_LIVE_PANE="$output"
-  else
-    run "$TREE_WORK/run-bounded" "$TREE_LIVE_HERDR" api snapshot
-    assert_success
-    local after_split="$output"
-    run python3 - "$before_split" "$after_split" <<'PY'
-import json
-import sys
-
-def pane_ids(envelope):
-    return {
-        pane["pane_id"]
-        for pane in json.loads(envelope)["result"]["snapshot"]["panes"]
-    }
-
-created = pane_ids(sys.argv[2]) - pane_ids(sys.argv[1])
-assert len(created) == 1, created
-print(created.pop())
-PY
-    assert_success
-    TREE_LIVE_PANE="$output"
-  fi
-  status="$split_status"
-  output="$split_json"
-  stderr="$split_stderr"
   assert_success
+  assert_output "$TREE_LIVE_PANE"
 
   run "$TREE_WORK/run-bounded" "$TREE_LIVE_HERDR" pane get "$TREE_LIVE_PANE"
   assert_success
@@ -1099,6 +1165,8 @@ PY
   assert_success
   moved_identity="$output"
   IFS=$'\t' read -r TREE_LIVE_PANE TREE_LIVE_WORKSPACE <<< "$moved_identity"
+  printf '%s\n' "$TREE_LIVE_PANE" >> "$TREE_WORK/live-panes"
+  printf '%s\n' "$TREE_LIVE_WORKSPACE" >> "$TREE_WORK/live-workspaces"
 
   run env HERDR_BIN_PATH="$TREE_LIVE_HERDR" \
     HERDR_RESOURCE_TREE_STATE_DIR="$TREE_WORK/live-state" \
@@ -1165,6 +1233,10 @@ function test_resource_tree_011_split_records_the_caller_and_persists_its_branch
 
   tree_install_managed_creation_stub
   mkdir -p "$TREE_WORK/state"
+  # A registry left by an older herdr-resource-tree: this is the operations
+  # table as that version shipped it, frozen by history. It must not be updated
+  # to match the current source. The split below is the migration case: against
+  # this schema it only succeeds if the CLI adds the columns it now writes.
   run python3 - "$TREE_WORK/state/registry.sqlite3" <<'PY'
 import sqlite3
 import sys
@@ -1376,13 +1448,19 @@ PY
   assert_success
 
   run python3 - "$TREE_CALLS" <<'PY'
+import re
 import sys
 
 calls = open(sys.argv[1], encoding="utf-8").read().splitlines()
-assert sum(call.startswith("pane split ") for call in calls) == 1
-assert any(call == "pane split --pane w1:p2 --direction right" or
-           call.startswith("pane split --pane w1:p2 --direction right --env HERDR_RESOURCE_OPERATION_ID=")
-           for call in calls)
+splits = [call for call in calls if call.startswith("pane split ")]
+assert len(splits) == 1, splits
+# The operation id must reach the native command: it is how a crashed wrapper's
+# resource is later reconciled. Only the generated UUID itself is unstable.
+assert re.fullmatch(
+    r"pane split --pane w1:p2 --direction right "
+    r"--env HERDR_RESOURCE_OPERATION_ID=[0-9a-f-]{36}",
+    splits[0],
+), splits[0]
 PY
   assert_success
 }
@@ -1760,8 +1838,8 @@ JSON
   run tree_wrapper_fixture_run "$TREE_CLI" record-child \
     --pane w1:pC --terminal term-C --child-name agent-c \
     --child-session-json '{"agent":"pi","kind":"id","source":"herdr:pi","value":"session-C"}'
-  assert_failure
-  assert_output --partial 'launched child identity changed before parentage recording'
+  assert_failure 1
+  assert_output 'herdr-resource-tree: parentage verification failed: launched child identity changed before parentage recording'
   run tree_wrapper_fixture_run "$TREE_CLI" --branch --json
   assert_success
   local replacement_branch="$output"
@@ -1820,8 +1898,8 @@ TS
 
   run tree_wrapper_fixture_run "$TREE_CLI" --context \
     --caller-agent claude --caller-session-id stale-conversation
-  assert_failure
-  assert_output --partial 'caller identity changed before context projection'
+  assert_failure 1
+  assert_output 'herdr-resource-tree: caller identity changed before context projection'
 
   HERDR_ENV=1 HERDR_RESOURCE_CONTEXT_CLI="$TREE_CLI" \
     HRC_OPENCODE_PLUGIN="$HRC_OPENCODE_PLUGIN" \
@@ -2089,28 +2167,79 @@ function test_resource_tree_017_query_rejects_a_server_scope_change_during_snaps
   rm "$TREE_WORK/herdr.sock"
   : > "$TREE_WORK/herdr.sock"
   : > "$release"
-  if wait "$query_pid"; then
-    fail 'query accepted a snapshot across a server scope change'
-    return 1
-  fi
-  if [[ ! -s "$TREE_WORK/scope.err" ]]; then
-    fail 'scope-changing query returned no diagnostic'
-    return 1
-  fi
+  local scope_status=0
+  wait "$query_pid" || scope_status=$?
+  assert_equal "$scope_status" 1
+  # Any broken query writes to stderr. Only this line says the CLI noticed the
+  # socket identity change rather than failing for some unrelated reason.
+  assert_equal "$(<"$TREE_WORK/scope.err")" \
+    'herdr-resource-tree: provenance lookup failed: server identity changed during snapshot retrieval'
   assert_file_not_contains "$TREE_WORK/scope.out" '"workspaces"'
 }
 
-function test_resource_tree_018_cold_restore_exposes_no_proven_server_continuity() {
-  _bats_test_init 18 'cold restore exposes no proven server continuity'
+function test_resource_tree_018_a_cold_restore_drops_attribution_from_the_previous_server() {
+  _bats_test_init 18 'a cold restore drops attribution from the previous server'
   resource_tree_require_real_herdr
 
   TREE_SOCKET="$BATS_RUN_TMPDIR/htr-restore-$BATS_TEST_NUMBER.sock"
-  mkdir -p "$TREE_WORK/config/herdr" "$TREE_WORK/runtime" "$TREE_WORK/home"
+  mkdir -p "$TREE_WORK/config/herdr" "$TREE_WORK/runtime" "$TREE_WORK/home" \
+    "$TREE_WORK/restore-bin" "$TREE_WORK/restore-state"
   cat > "$TREE_WORK/config/herdr/config.toml" <<'TOML'
 onboarding = false
 [terminal]
 default_shell = "/bin/sh"
 TOML
+
+  # The disposable server's panes run /bin/sh, so no pane carries a native Agent
+  # session and the wrapper would refuse to record a creator. This shim answers
+  # only `pane current` with the real root pane plus a grafted Agent identity and
+  # forwards every other call, so the creation and the queries below still go to
+  # the real server. It drops HERDR_BIN_PATH on the way: the native binary re-execs
+  # that path itself, which would send it straight back into this shim.
+  cat > "$TREE_WORK/restore-bin/herdr" <<'SH'
+#!/usr/bin/env bash
+unset HERDR_BIN_PATH
+if [[ "${1:-}" == pane && "${2:-}" == current ]]; then
+  exec python3 - "$TREE_RESTORE_NATIVE" <<'PY'
+import json
+import subprocess
+import sys
+
+completed = subprocess.run(
+    [sys.argv[1], "api", "snapshot"], capture_output=True, text=True, check=True
+)
+pane = json.loads(completed.stdout)["result"]["snapshot"]["panes"][0]
+print(
+    json.dumps(
+        {
+            "id": "cli:pane:current",
+            "result": {
+                "type": "pane_current",
+                "pane": {
+                    "workspace_id": pane["workspace_id"],
+                    "tab_id": pane["tab_id"],
+                    "pane_id": pane["pane_id"],
+                    "terminal_id": pane["terminal_id"],
+                    "agent": "claude",
+                    "agent_session": {
+                        "agent": "claude",
+                        "kind": "id",
+                        "source": "herdr:claude",
+                        "value": "session-before-restore",
+                    },
+                },
+            },
+        }
+    )
+)
+PY
+fi
+exec "$TREE_RESTORE_NATIVE" "$@"
+SH
+  chmod +x "$TREE_WORK/restore-bin/herdr"
+
+  local native_herdr
+  native_herdr="$(command -v herdr)"
 
   if ! tree_start_real_server \
     "$TREE_WORK/server.log" "$TREE_WORK/server-before-restore.exit"; then
@@ -2122,16 +2251,54 @@ TOML
   assert_success
   run tree_real_env "$TREE_WORK/run-bounded" herdr api snapshot
   assert_success
-  local before_restore="$output" before_socket
-  run python3 - "$TREE_SOCKET" <<'PY'
-import os
+  run python3 - "$output" <<'PY'
+import json
 import sys
 
-identity = os.stat(sys.argv[1])
-print(f"{identity.st_dev}:{identity.st_ino}:{identity.st_ctime_ns}")
+panes = json.loads(sys.argv[1])["result"]["snapshot"]["panes"]
+assert len(panes) == 1, panes
+print(panes[0]["pane_id"])
 PY
   assert_success
-  before_socket="$output"
+  local root_pane="$output"
+
+  run tree_restore_managed_env "$native_herdr" \
+    "$HERDR_WRAPPER" pane split --pane "$root_pane" --direction right --no-focus
+  assert_success
+  run python3 - "$output" <<'PY'
+import json
+import sys
+
+print(json.loads(sys.argv[1])["result"]["pane"]["pane_id"])
+PY
+  assert_success
+  local created_pane="$output"
+
+  # Control: the attribution really exists on this server, so the absence
+  # asserted after the restore is a dropped record and not a missing one.
+  run tree_restore_managed_env "$native_herdr" "$TREE_CLI" --json
+  assert_success
+  run python3 - "$output" "$root_pane" "$created_pane" <<'PY'
+import json
+import sys
+
+tree, root, created = json.loads(sys.argv[1]), sys.argv[2], sys.argv[3]
+panes = {
+    pane["id"]: pane
+    for workspace in tree["workspaces"]
+    for tab in workspace["tabs"]
+    for pane in tab["panes"]
+}
+assert set(panes) == {root, created}, sorted(panes)
+assert panes[root]["creator_session"] is None
+assert panes[created]["creator_session"] == {
+    "agent": "claude",
+    "kind": "id",
+    "source": "herdr:claude",
+    "value": "session-before-restore",
+}
+PY
+  assert_success
 
   run tree_real_env "$TREE_WORK/run-bounded" herdr server stop
   assert_success
@@ -2149,44 +2316,24 @@ PY
     return 1
   fi
 
-  run tree_real_env "$TREE_WORK/run-bounded" herdr api snapshot
+  run tree_restore_managed_env "$native_herdr" "$TREE_CLI" --json
   assert_success
-  local after_restore="$output" after_socket
-  run python3 - "$TREE_SOCKET" <<'PY'
-import os
-import sys
-
-identity = os.stat(sys.argv[1])
-print(f"{identity.st_dev}:{identity.st_ino}:{identity.st_ctime_ns}")
-PY
-  assert_success
-  after_socket="$output"
-  run python3 - "$before_restore" "$after_restore" "$before_socket" "$after_socket" <<'PY'
+  run python3 - "$output" "$root_pane" "$created_pane" <<'PY'
 import json
 import sys
 
-before = json.loads(sys.argv[1])["result"]["snapshot"]
-after = json.loads(sys.argv[2])["result"]["snapshot"]
-assert sys.argv[3] != sys.argv[4]
-assert [workspace["workspace_id"] for workspace in before["workspaces"]] == [
-    workspace["workspace_id"] for workspace in after["workspaces"]
-]
-assert len(before["panes"]) == len(after["panes"]) == 1
-assert before["panes"][0]["terminal_id"] != after["panes"][0]["terminal_id"]
-for snapshot in (before, after):
-    assert all(key not in snapshot for key in ("boot_id", "server_id", "incarnation_id"))
-PY
-  assert_success
-
-  run tree_real_env "$TREE_CLI" --json
-  assert_success
-  local restored_tree="$output"
-  run python3 - "$restored_tree" <<'PY'
-import json
-import sys
-
-tree = json.loads(sys.argv[1])
-assert tree["workspaces"][0]["tabs"][0]["panes"][0]["creator_session"] is None
+tree, root, created = json.loads(sys.argv[1]), sys.argv[2], sys.argv[3]
+panes = {
+    pane["id"]: pane
+    for workspace in tree["workspaces"]
+    for tab in workspace["tabs"]
+    for pane in tab["panes"]
+}
+# The restored server reuses the pane ids, so an attribution that outlived the
+# restart would reappear here rather than simply vanish with the resource.
+assert set(panes) == {root, created}, sorted(panes)
+assert panes[created]["creator_session"] is None, panes[created]
+assert panes[root]["creator_session"] is None, panes[root]
 PY
   assert_success
 
