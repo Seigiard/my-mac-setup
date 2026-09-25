@@ -29,6 +29,17 @@ afterEach(async () => {
   }
 });
 
+// Bun's per-test timeout would report a hang with no idea which condition was
+// never met. These waits name theirs, and the bound is generous enough that
+// only a stuck fixture -- never a loaded machine -- can reach it.
+async function waitFor(ready: () => boolean, what: string): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (!ready()) {
+    if (Date.now() > deadline) throw new Error(`timed out after 10s waiting until ${what}`);
+    await Bun.sleep(1);
+  }
+}
+
 function fakeUi() {
   const notifications: Array<{ message: string; level: string }> = [];
   const ui: UpdateUi = {
@@ -629,7 +640,7 @@ describe("cross-process update lock", () => {
     };
 
     const running = runBrewAutoUpdate("manual", fakeUi().ui, deps);
-    while (!releaseFirstCommand) await Bun.sleep(1);
+    await waitFor(() => releaseFirstCommand !== undefined, "the first command blocked inside the fake executor");
     await writeFile(
       join(deps.lockPath, "owner.json"),
       JSON.stringify({ pid: 9999, startedAt: deps.now(), token: "replacement" }),
@@ -661,12 +672,27 @@ test("registers session_start to run the update sequence in the background, only
 
   registerBrewAutoUpdater(fakePi as never, deps);
   const startup = handlers.get("session_start")!;
-  const ctx = { ui: fakeUi().ui };
+  // The sequence runs in the background and the first exec is several awaits
+  // in, so `calls` is empty right after a rejected event whether the reason
+  // filter is there or not -- deleting the filter outright left this test
+  // green. What is synchronous is the handler reading ctx.ui to hand it to the
+  // sequence: no run can start without it. Counting that read is the causal
+  // signal, and the startup event below is the control proving it still fires.
+  let uiReads = 0;
+  const ctx = { get ui() { uiReads += 1; return fakeUi().ui; } };
 
+  // #when a session_start arrives for a reason that is not a startup
   startup({ reason: "reload" }, ctx);
-  expect(calls).toEqual([]);
+
+  // #then the handler started no run at all
+  expect(uiReads).toBe(0);
+
+  // #when a startup reason arrives
   startup({ reason: "startup" }, ctx);
-  while (!finishExec) await Bun.sleep(1);
+
+  // #then exactly one run started, and it reaches the first command
+  expect(uiReads).toBe(1);
+  await waitFor(() => finishExec !== undefined, "the update sequence never reached its first command");
   expect(calls).toHaveLength(1);
   finishExec();
 });
