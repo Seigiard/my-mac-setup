@@ -29,6 +29,7 @@ A content-only managed-file verdict requires every existing canonical focused ch
 - A failed or incomplete required local check blocks publication until resolved.
 - A diagnosed failed or interrupted attempt may be retried after its processes reach a terminal state.
 - A skipped, partial, or isolated run is not a pass for a required broader check.
+- Some tests are live oracles: they calibrate a test double against the real binary it imitates, and they skip by default. `tests/bashunit/scripts_test.sh` test 27209 needs `MMS_LIVE_CODEX_TEST=1`, a logged-in `codex`, and network; test 3074 needs a reachable npm registry. While they skip, the fakes they keep honest (the `codex` app-server JSON that 27210 and 27213 assert, the Skills CLI lock shape that 307, 3071 and 3075 assert) adjudicate their own values. Report these skips by name, and run the live ones before trusting a change to the shape a fake reproduces.
 - When a required suite stalls, record the exact boundary, isolate the case, create a repository issue for unresolved behavior, and report the suite as incomplete.
 - When CI is the backstop, report the risk class, substitute evidence, and why the broader local check adds no assurance.
 - Both Ubuntu and macOS pull-request jobs must pass before merging.
