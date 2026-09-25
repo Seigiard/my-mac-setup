@@ -17,15 +17,37 @@ setup() {
   unset HERDR_AGENT_INTERCOM_PANE
   unset HERDR_AGENT_INTERCOM_PI_LOAD
   unset HERDR_CHILD_NAME
+  # herdr-child reads its mode, parent identity and tuning from the
+  # environment, so any of these left in the runner's own environment decides
+  # a case instead of the case deciding it. Running the suite from inside a
+  # Herdr child pane exports HERDR_CHILD_LAUNCH_MODE and the captured parent
+  # identity, which sent tests 76 and 79 down the detached ask path and failed
+  # them on a host that only differs by where the runner was started. Every
+  # case states the variables it needs; this clears the rest.
   unset HERDR_CHILD_LAUNCH
+  unset HERDR_CHILD_LAUNCH_MODE
   unset HERDR_CHILD_PARENT_PANE
+  unset HERDR_CHILD_PARENT_TERMINAL
+  unset HERDR_CHILD_PARENT_SESSION
   unset HERDR_CHILD_STATE_DIR
+  unset HERDR_CHILD_HERDR_CLI
   unset HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY
+  unset HERDR_CHILD_POLL_INTERVAL
+  unset HERDR_CHILD_PANE_BUSY_RETRY_DELAY
+  unset HERDR_CHILD_WAIT_SLICE_MS
+  unset HERDR_CHILD_DELIVERY_RETRY_INITIAL
+  unset HERDR_CHILD_DELIVERY_RETRY_MAX
   unset HERDR_WORKSPACE_ID
   unset HERDR_PANE_ID
   unset OPENCODE_INTERCOM_NAME
   unset INTERCOM_DIR
   unset HERDR_CHILD_MAX_DELIVERY_RETRIES
+  unset HERDR_CHILD_TEST_ARM_FAIL
+  unset HERDR_CHILD_TEST_PREPARE_FAIL
+  unset HERDR_CHILD_TEST_SKIP_RETRY_SLEEP
+  unset HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS
+  unset HERDR_CHILD_TEST_WATCHER_PID_FILE
+  unset HERDR_CHILD_TEST_WATCHER_RELEASE
   unset HERDR_CHILD_TEST_RETRY_LOG
   unset HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER
   unset HERDR_CHILD_TEST_LIVENESS_PUBLISH_BARRIER
@@ -4045,6 +4067,14 @@ case "${1:-} ${2:-}" in
     printf '{"result":{"agent":{"interactive_ready":true}}}\n'
     ;;
   "agent get")
+    # Read failures scoped to the caller's own environment. A watcher armed
+    # before these were set keeps reading a healthy child, so a
+    # continuation-side failure does not disturb the generation under test.
+    [ "${STUB_AGENT_GET_FAIL:-0}" != 1 ] || {
+      printf '{"error":{"code":"internal_error","message":"agent read failed"}}\n' >&2
+      exit 1
+    }
+    [ "${STUB_AGENT_GET_MALFORMED:-0}" != 1 ] || { printf 'not-json\n'; exit 0; }
     count="$(read_value get-count 0)"
     count=$((count + 1))
     printf '%s\n' "$count" > "$CHILD_STUB/get-count"
@@ -4070,7 +4100,7 @@ case "${1:-} ${2:-}" in
       done
     fi
     child_name="$(read_value started-name child)"
-    child_terminal="$(read_value child-terminal term-child)"
+    child_terminal="${STUB_AGENT_GET_TERMINAL:-$(read_value child-terminal term-child)}"
     child_session="$(read_value child-session child-session)"
     child="$(agent_json "$child_name" wT:p9 "$child_terminal" "$child_session" "$child_status" "$child_seq")"
     if [ "$child_status" = working ] && [ "$child_seq" -gt 10 ]; then
@@ -4528,7 +4558,7 @@ function test_scripts_027_herdr_child_detached_mode_fails_closed_without_a() {
   _bats_test_init 27 'herdr-child detached mode fails closed without a parent session'
   child_stub_herdr
   STUB_PARENT_SESSION_MISSING=1 run child_start --kind claude --detach
-  assert_failure
+  assert_failure 1
   assert_output --partial "parent agent_session is unavailable"
   assert_file_contains "$CHILD_STUB/calls.log" '^agent list'
   run grep -Eq '^(pane split|agent start|agent prompt|pane report-metadata)' "$CHILD_STUB/calls.log"
@@ -4541,7 +4571,7 @@ function test_scripts_1242_herdr_child_attached_mode_keeps_unknown_parent_launch
 
   STUB_PARENT_SESSION_MISSING=1 run child_start --kind claude --wait
   assert_success
-  assert_output --partial '"pane":"wT:p9"'
+  assert_output "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
   assert_file_not_exists "$CHILD_STUB/resource-tree.log"
 }
 
@@ -4597,7 +4627,7 @@ function test_scripts_1245_herdr_child_attached_mode_keeps_unknown_child_session
   # identity. Attached mode records no edge rather than failing a live child.
   STUB_CHILD_SESSION_MISSING=1 run child_start --kind claude --wait
   assert_success
-  assert_output --partial '"pane":"wT:p9"'
+  assert_output "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
   assert_file_contains "$CHILD_STUB/calls.log" '^agent prompt'
   assert_file_not_exists "$CHILD_STUB/resource-tree.log"
 }
@@ -4621,7 +4651,7 @@ function test_scripts_028_herdr_child_detached_mode_closes_only_its_new_pa() {
   _bats_test_init 28 'herdr-child detached mode closes only its new pane without a child session'
   child_stub_herdr
   STUB_CHILD_SESSION_MISSING=1 run child_start --kind claude --detach
-  assert_failure
+  assert_failure 1
   assert_output --partial "child agent_session is unavailable"
   assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
   run grep -q '^agent prompt' "$CHILD_STUB/calls.log"
@@ -4660,6 +4690,12 @@ function test_scripts_029_herdr_child_detached_mode_returns_only_after_liv() {
 function test_scripts_030_herdr_child_detached_arm_failure_preserves_the_c() {
   _bats_test_init 30 'herdr-child detached arm failure preserves the child and returns recovery JSON'
   child_stub_herdr
+  # HERDR_CHILD_TEST_ARM_FAIL stands in front of the real armed.state write
+  # failure and shares its recovery path (release_arm_guard + watcher_fail), so
+  # the launcher-side recovery JSON and pane preservation below are genuinely
+  # exercised. What no test covers is the real trigger: the run directory is
+  # created by the launcher mid-flight and production chmods it back to 700, so
+  # a test cannot make that one write fail from outside.
   HERDR_CHILD_TEST_ARM_FAIL=1 run child_start --kind claude --detach
   assert_failure
   assert_output --partial "\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\""
@@ -5011,7 +5047,11 @@ function test_scripts_0371_herdr_child_detached_delivery_retries_prompt_tr() {
 function test_scripts_038_herdr_child_detached_delivery_uses_capped_increa() {
   _bats_test_init 38 'herdr-child detached delivery uses capped increasing retry backoff and one terminal failure'
   child_lifecycle_stub_herdr
-  export HERDR_CHILD_MAX_DELIVERY_RETRIES=4
+  # Six attempts against a cap of three: the doubling has to reach the cap and
+  # stay there. With the shipped cap of 15 the sequence stops at 1 2 4, which
+  # a removed clamp would produce just as well.
+  export HERDR_CHILD_MAX_DELIVERY_RETRIES=6
+  export HERDR_CHILD_DELIVERY_RETRY_MAX=3
   export HERDR_CHILD_TEST_RETRY_LOG="$CHILD_STUB/retry.log"
   printf '20\n' > "$CHILD_STUB/prompt-fail-count"
   run child_lifecycle_start --supervision-timeout 5000
@@ -5021,7 +5061,7 @@ function test_scripts_038_herdr_child_detached_delivery_uses_capped_increa() {
   child_wait_for_log 'supervision_failure_reason=prompt-error'
   run cat "$CHILD_STUB/retry.log"
   assert_success
-  assert_output $'1\n2\n4'
+  assert_output $'1\n2\n3\n3\n3'
   run grep -c 'supervision_failure_reason=prompt-error' "$CHILD_STUB/calls.log"
   assert_success
   assert_output 1
@@ -5063,6 +5103,7 @@ function test_scripts_040_herdr_child_superseded_watcher_cannot_publish_fa() {
     attempt=$((attempt + 1))
     sleep 0.01
   done
+  [ "$attempt" -lt 500 ] || fail 'superseded watcher never exited'
   assert_dir_not_exists "$old_run"
 }
 
@@ -5253,14 +5294,21 @@ function test_scripts_044_herdr_child_detached_watcher_rejects_malformed_s() {
   child_lifecycle_stub_herdr
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
+  local watcher_pid run_dir attempt=0
+  run_dir="$CHILD_STUB/state/runs/$(cat "$CHILD_STUB/generation")"
+  watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
   printf 'replacement-session\n' > "$CHILD_STUB/child-session"
   printf 'idle 11\n' > "$CHILD_STUB/child-state"
-  local watcher_pid attempt=0
-  watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
   while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 500 ]; do
     attempt=$((attempt + 1))
     sleep 0.01
   done
+  # A watcher that loops forever on the mismatch, and one that dies on a bash
+  # error before reading the state, both satisfy "no event was delivered".
+  # watcher_fail_without_publish tears the run down, so the removed run
+  # directory is what separates the intended retirement from either of them.
+  [ "$attempt" -lt 500 ] || fail 'watcher never exited after child identity replacement'
+  assert_dir_not_exists "$run_dir"
   run grep -q 'event=' "$CHILD_STUB/calls.log"
   assert_failure
 }
@@ -5371,6 +5419,10 @@ function test_scripts_046_herdr_child_failed_reap_restores_supervision_for() {
   printf 'idle 11\n' > "$CHILD_STUB/child-state"
   child_wait_for_file "$CHILD_STUB/agent-get.ready"
 
+  # This fixture hand-writes the reap code's private state schema, so a schema
+  # change breaks it without any behaviour change. Test 59 shows the honest
+  # shape: start a real reap and kill -KILL it at the pane-close barrier.
+  # Rewrite this block that way the next time the reap state files change.
   local stale_token=00000000000000000000000000000001
   printf 'status=pending\nowner_pid=%s\nowner_token=%s\n' "$$" "$stale_token" > "$run_dir/reap-pending.state"
   printf 'reason=reap\n' > "$run_dir/invalidated.state"
@@ -5397,8 +5449,9 @@ function test_scripts_047_herdr_child_detached_ask_follows_parent_identity() {
   child_lifecycle_stub_herdr
   run child_lifecycle_start --supervision-timeout 600000
   assert_success
-  local generation watcher_pid attempt=0
+  local generation run_dir watcher_pid attempt=0
   generation="$(cat "$CHILD_STUB/generation")"
+  run_dir="$CHILD_STUB/state/runs/$generation"
   watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
   printf 'wT:p7\n' > "$CHILD_STUB/parent-pane"
 
@@ -5416,7 +5469,12 @@ function test_scripts_047_herdr_child_detached_ask_follows_parent_identity() {
     attempt=$((attempt + 1))
     sleep 0.01
   done
-  [ "$attempt" -lt 500 ]
+  # An exit is not the contract on its own: a crash and a
+  # child-identity-mismatch also exit without delivering blocked-11. A
+  # confirmed callback retires the run instead, so the removed run directory
+  # is the terminal state that names the reason.
+  [ "$attempt" -lt 500 ] || fail 'watcher never retired after the confirmed callback'
+  assert_dir_not_exists "$run_dir"
   run grep -q 'event=blocked-11' "$CHILD_STUB/calls.log"
   assert_failure
 }
@@ -5469,7 +5527,10 @@ function test_scripts_049_herdr_child_callback_intent_suppresses_blocked_w() {
     attempt=$((attempt + 1))
     sleep 0.01
   done
-  [ "$attempt" -lt 500 ]
+  # Same discrimination as 047: only the retired run directory tells the
+  # intended suppression apart from a crash or an identity mismatch.
+  [ "$attempt" -lt 500 ] || fail 'watcher never retired after the confirmed receipt'
+  assert_dir_not_exists "$run_dir"
   run grep -q 'event=blocked-11' "$CHILD_STUB/calls.log"
   assert_failure
 }
@@ -5654,7 +5715,16 @@ function test_scripts_055_herdr_child_managed_detached_prompt_advances_gen() {
     --supervision-timeout 5000 "ordinary follow-up"
   assert_failure
   assert_output --partial '"supervision":{"status":"failed","reason":"watcher-arm-failed"'
-  [ ! -d "$old_run" ] || [ -f "$old_run/invalidated.state" ]
+  # The continuation invalidates the prior generation before it rearms, and the
+  # superseded watcher then tears its own run down. Wait for that one end
+  # state rather than accepting either half of it.
+  local rearm_attempt=0
+  while [ -d "$old_run" ] && [ "$rearm_attempt" -lt 500 ]; do
+    rearm_attempt=$((rearm_attempt + 1))
+    sleep 0.01
+  done
+  [ "$rearm_attempt" -lt 500 ] || fail "superseded run directory retained: $old_run"
+  assert_dir_not_exists "$old_run"
   run cat "$CHILD_STUB/generation"
   assert_success
   refute_output "$old_generation"
@@ -5713,6 +5783,12 @@ function test_scripts_056_herdr_child_continuation_preflight_failures_pres() {
   _bats_test_init 56 'herdr-child continuation preflight failures preserve the prior generation'
   local old_generation old_run old_watcher
 
+  # Every case below fails the real herdr boundary the preflight reads, scoped
+  # to the continuation process so the armed watcher keeps running. A hook
+  # placed in front of the branch would print the same diagnostic whether or
+  # not the branch behind it still preserved the prior generation.
+
+  # #given a live detached generation, #when the baseline read fails outright
   child_lifecycle_stub_herdr
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
@@ -5720,15 +5796,19 @@ function test_scripts_056_herdr_child_continuation_preflight_failures_pres() {
   old_run="$CHILD_STUB/state/runs/$old_generation"
   old_watcher="$(cat "$CHILD_STUB/watcher.pid")"
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_TEST_BASELINE_FAIL=1 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" STUB_AGENT_GET_FAIL=1 \
     bash "$HERDR_CHILD" prompt --to "$(child_started_name)" --pane wT:p9 --detach "next task"
-  assert_failure
-  assert_output --partial 'baseline state could not be read'
+  # #then the prior generation, its run directory and its watcher all survive
+  assert_failure 1
+  assert_output --partial 'herdr-child: child baseline state could not be read before detached prompt'
   assert_file_not_exists "$old_run/invalidated.state"
   run cat "$CHILD_STUB/generation"
   assert_output "$old_generation"
   kill -0 "$old_watcher"
+  set -- "$CHILD_STUB/state/runs/"*
+  [ "$#" -eq 1 ] || fail "continuation left a second run directory behind: $*"
 
+  # #when the baseline read answers with something that is not JSON
   teardown
   setup
   child_lifecycle_stub_herdr
@@ -5738,15 +5818,42 @@ function test_scripts_056_herdr_child_continuation_preflight_failures_pres() {
   old_run="$CHILD_STUB/state/runs/$old_generation"
   old_watcher="$(cat "$CHILD_STUB/watcher.pid")"
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_TEST_SETUP_FAIL=1 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" STUB_AGENT_GET_MALFORMED=1 \
     bash "$HERDR_CHILD" prompt --to "$(child_started_name)" --pane wT:p9 --detach "next task"
-  assert_failure
-  assert_output --partial 'setup failed before supervision takeover'
+  assert_failure 1
+  assert_output --partial 'herdr-child: child baseline state was malformed before detached prompt'
   assert_file_not_exists "$old_run/invalidated.state"
   run cat "$CHILD_STUB/generation"
   assert_output "$old_generation"
   kill -0 "$old_watcher"
+  set -- "$CHILD_STUB/state/runs/"*
+  [ "$#" -eq 1 ] || fail "continuation left a second run directory behind: $*"
 
+  # #when the child the baseline read returns is no longer the child the alias
+  # listing named
+  teardown
+  setup
+  child_lifecycle_stub_herdr
+  run child_lifecycle_start --supervision-timeout 5000
+  assert_success
+  old_generation="$(cat "$CHILD_STUB/generation")"
+  old_run="$CHILD_STUB/state/runs/$old_generation"
+  old_watcher="$(cat "$CHILD_STUB/watcher.pid")"
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" STUB_AGENT_GET_TERMINAL=term-replaced \
+    bash "$HERDR_CHILD" prompt --to "$(child_started_name)" --pane wT:p9 --detach "next task"
+  assert_failure 1
+  assert_output --partial 'herdr-child: child identity changed before detached prompt'
+  assert_file_not_exists "$old_run/invalidated.state"
+  run cat "$CHILD_STUB/generation"
+  assert_output "$old_generation"
+  kill -0 "$old_watcher"
+  set -- "$CHILD_STUB/state/runs/"*
+  [ "$#" -eq 1 ] || fail "continuation left a second run directory behind: $*"
+
+  # #when the new watcher cannot reach readiness. This one keeps its
+  # production hook: watcher readiness has no adjacent real branch a test can
+  # fail from outside, and the hook is the only trigger for it.
   teardown
   setup
   child_lifecycle_stub_herdr
@@ -5758,7 +5865,7 @@ function test_scripts_056_herdr_child_continuation_preflight_failures_pres() {
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_TEST_PREPARE_FAIL=1 \
     bash "$HERDR_CHILD" prompt --to "$(child_started_name)" --pane wT:p9 --detach "next task"
-  assert_failure
+  assert_failure 1
   assert_output --partial 'watcher failed before supervision takeover'
   assert_file_not_exists "$old_run/invalidated.state"
   run cat "$CHILD_STUB/generation"
@@ -5856,6 +5963,9 @@ function test_scripts_058_herdr_child_markers_round_trip_documented_shape() {
   for token in $tokens; do
     # Without a herdr environment every real subcommand fails for an env
     # reason; only a token the CLI dropped fails with "unknown subcommand".
+    # This arm is negative-only on purpose and is weaker for it: rewording the
+    # unknown-subcommand error silently retires the sweep. The marker halves
+    # above carry the test's real verdict.
     run env PATH="$CHILD_STUB:$PATH" HERDR_ENV= HERDR_PANE_ID= bash "$HERDR_CHILD" "$token"
     assert_failure
     refute_output --partial 'unknown subcommand'
@@ -6018,18 +6128,30 @@ function test_scripts_060_herdr_child_maps_claude_postures_effort_and_skill_dire
   assert_failure
 }
 
+# calls.log records argv through printf %q, and which characters that escapes
+# differs between bash 3.2 and bash 5. Undo the escaping so a value assertion
+# reads the string the child process actually receives.
+child_logged_value() {
+  grep -o "$1=[^ ]*" "$CHILD_STUB/calls.log" | head -n1 | sed 's/\\\(.\)/\1/g'
+}
+
 function test_scripts_061_herdr_child_maps_opencode_permissions_model_and() {
   _bats_test_init 61 'herdr-child maps opencode permissions, model, and configured agent'
   child_stub_herdr
-  run child_start --kind opencode --agent reviewer --wait
+  # OPENCODE_PERMISSION is a literal opencode parses: a loose match accepts
+  # {"question":"allow",...,"x":"deny"} just as happily, so the key-to-value
+  # pairing only holds if the whole value is asserted.
+  run child_start --kind opencode --agent reviewer --model custom/model --wait
   assert_success
-  assert_file_contains "$CHILD_STUB/calls.log" 'OPENCODE_PERMISSION=.*question.*deny.*edit.*deny'
-  assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--model openai/gpt-5.5 --agent reviewer'
+  assert_equal "$(child_logged_value OPENCODE_PERMISSION)" \
+    'OPENCODE_PERMISSION={"question":"deny","edit":"deny"}'
+  assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--model custom/model --agent reviewer'
 
   : > "$CHILD_STUB/calls.log"
   run child_start --kind opencode --posture rw --wait
   assert_success
-  assert_file_contains "$CHILD_STUB/calls.log" 'OPENCODE_PERMISSION=.*question.*deny'
+  assert_equal "$(child_logged_value OPENCODE_PERMISSION)" \
+    'OPENCODE_PERMISSION={"question":"deny"}'
   run grep -q 'OPENCODE_PERMISSION=.*edit' "$CHILD_STUB/calls.log"
   assert_failure
 }
@@ -6037,9 +6159,12 @@ function test_scripts_061_herdr_child_maps_opencode_permissions_model_and() {
 function test_scripts_062_herdr_child_maps_pi_model_effort_skills_and_ques() {
   _bats_test_init 62 'herdr-child maps pi model, effort, skills, and question exclusion'
   child_stub_herdr
+  # The shipped default model is a product choice a user may change without
+  # breaking any contract, so only the mapping is asserted here; the second
+  # run below is the discriminating case for --model.
   run child_start --kind pi --posture rw --skills A --skills B --wait
   assert_success
-  assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--exclude-tools ask_user --model openai-codex/gpt-5.5 --thinking medium --skill A --skill B'
+  assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--exclude-tools ask_user --model .* --thinking medium --skill A --skill B'
 
   : > "$CHILD_STUB/calls.log"
   run child_start --kind pi --posture rw --model custom/model --effort high --wait
@@ -6266,6 +6391,30 @@ function test_scripts_068_herdr_child_tab_mode_preserves_malformed_creatio() {
   assert_failure
 }
 
+function test_scripts_0682_herdr_child_tab_mode_rejects_creations_it_cannot() {
+  _bats_test_init 0682 'herdr-child tab mode rejects a failed creation and a tab root pane without a terminal'
+  # Both stub knobs shipped with no test driving them. 68 covers a response
+  # with no pane at all; these are the two neighbours it cannot separate: a
+  # creation that never happened, and one that reports a pane but withholds
+  # the terminal the parentage edge needs.
+  child_stub_herdr
+  STUB_TAB_CREATE_FAIL=1 HERDR_WORKSPACE_ID=w1 run child_start \
+    --kind claude --tab --wait
+  assert_failure 1
+  assert_output --partial 'herdr-child: tab create failed'
+  refute_output --partial 'was preserved'
+  run grep -Eq '^(pane report-metadata|agent start|pane close)' "$CHILD_STUB/calls.log"
+  assert_failure
+
+  child_stub_herdr
+  STUB_TAB_CREATE_NO_TERMINAL=1 HERDR_WORKSPACE_ID=w1 run child_start \
+    --kind claude --tab --wait
+  assert_failure 1
+  assert_output --partial 'herdr-child: tab create returned no usable pane/tab identity; tab wT:tA was preserved and needs manual cleanup'
+  run grep -Eq '^(pane report-metadata|agent start|pane close)' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
 function test_scripts_1243_herdr_child_tab_mode_preserves_wrapper_partial_success_without_retrying() {
   _bats_test_init 1243 'herdr-child tab mode preserves wrapper partial success without retrying'
   child_stub_herdr
@@ -6310,7 +6459,7 @@ function test_scripts_0691_herdr_child_tab_mode_names_the_tab_on_launch_fa() {
   child_stub_herdr
   STUB_START_MODE=busy HERDR_WORKSPACE_ID=w1 run child_start \
     --kind claude --tab --wait
-  assert_failure
+  assert_failure 1
   assert_output --partial "three agent start attempts (tab wT:tA)"
   assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
 }
@@ -6333,13 +6482,15 @@ function test_scripts_071_herdr_child_retries_only_the_pane_readiness_star() {
   STUB_START_MODE=busy-once run child_start --kind claude --wait
   assert_success
   run grep -c '^agent start' "$CHILD_STUB/calls.log"
+  assert_success
   assert_output 2
 
   child_stub_herdr
   STUB_START_MODE=error run child_start --kind claude --wait
-  assert_failure
+  assert_failure 1
   assert_output --partial "agent start failed"
   run grep -c '^agent start' "$CHILD_STUB/calls.log"
+  assert_success
   assert_output 1
   assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
 }
@@ -6348,9 +6499,10 @@ function test_scripts_072_herdr_child_closes_its_pane_after_three_readines() {
   _bats_test_init 72 'herdr-child closes its pane after three readiness failures'
   child_stub_herdr
   STUB_START_MODE=busy run child_start --kind claude --wait
-  assert_failure
+  assert_failure 1
   assert_output --partial "three agent start attempts"
   run grep -c '^agent start' "$CHILD_STUB/calls.log"
+  assert_success
   assert_output 3
   assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
 }
@@ -6496,6 +6648,11 @@ SH
   assert_failure
 }
 
+# A meta-test: the unit under test is this file's own child_reap_all_stubs /
+# child_stub_watcher_pids, not shipped behaviour. Its oracle is still
+# independent (process-table liveness, and the incident the comments name), and
+# a leaked watcher stalls the whole suite, so it stays - counted as scaffolding
+# coverage rather than repository coverage.
 function test_scripts_0732_stub_teardown_reaps_a_watcher_from_every_stub_a() {
   _bats_test_init 0732 'stub teardown reaps a watcher from every stub a test created, not only the last'
   local first second probe probe_pid attempt
@@ -6638,13 +6795,20 @@ function test_scripts_077_herdr_child_ask_leaves_the_label_when_parent_loo() {
   run grep -q 'clear-state-labels' "$CHILD_STUB/calls.log"
   assert_failure
 
+  # The listing has to name the asking pane too, or the run stops at the alias
+  # lookup and never reaches delivery - the failure this case is named for.
   child_stub_herdr
-  local agents='{"result":{"agents":[{"name":"parent","pane_id":"wT:p0"}]}}'
+  local agents='{"result":{"agents":[{"name":"parent","agent":"claude","pane_id":"wT:p0","terminal_id":"term-parent","revision":1,"state_change_seq":1},{"name":"orange-panda","agent":"claude","pane_id":"wT:p9","terminal_id":"term-child","revision":1,"state_change_seq":10}]}}'
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_PROMPT_FAIL=1 \
     HERDR_ENV=1 HERDR_PANE_ID=wT:p9 HERDR_CHILD_LAUNCH=1 HERDR_CHILD_PARENT_PANE=wT:p0 \
     bash "$HERDR_CHILD" ask question
+  assert_failure 1
+  assert_output --partial "herdr-child: delivery to parent failed; waiting label remains published"
+  assert_file_contains "$CHILD_STUB/calls.log" '^agent prompt wT:p0'
+  # Same observable as the first case: the label survives because herdr was
+  # never asked to clear it.
+  run grep -q 'clear-state-labels' "$CHILD_STUB/calls.log"
   assert_failure
-  assert_output --partial "waiting label remains published"
 }
 
 function test_scripts_078_herdr_child_reply_validates_the_live_pair_delive() {
@@ -6671,9 +6835,12 @@ function test_scripts_078_herdr_child_reply_validates_the_live_pair_delive() {
   assert_output --partial "waiting label could not be cleared"
 
   child_stub_herdr
+  # A usage error, a stub crash or a missing environment would satisfy
+  # "nothing was delivered" too, so the pair check has to name itself.
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$HERDR_CHILD" reply --to orange-panda --pane wT:p8 decision
-  assert_failure
+  assert_failure 1
+  assert_output --partial "herdr-child: child name and pane do not identify the same live agent"
   run grep -q '^agent prompt' "$CHILD_STUB/calls.log"
   assert_failure
 }
@@ -6705,7 +6872,9 @@ function test_scripts_080_herdr_child_reply_keeps_the_label_when_delivery() {
   local agents='{"result":{"agents":[{"name":"orange-panda","agent":"claude","pane_id":"wT:p9","terminal_id":"term-child","revision":1,"state_change_seq":10}]}}'
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_PROMPT_FAIL=1 \
     HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reply --to orange-panda --pane wT:p9 decision
-  assert_failure
+  assert_failure 1
+  assert_output --partial "herdr-child: reply delivery failed; waiting label remains published"
+  assert_file_contains "$CHILD_STUB/calls.log" '^agent prompt'
   run grep -q 'clear-state-labels' "$CHILD_STUB/calls.log"
   assert_failure
 
@@ -6725,6 +6894,7 @@ function test_scripts_101_herdr_child_reap_closes_an_unfocused_idle_pane() {
   assert_output --partial "idle-a: closed pane wT:p1"
   refute_output --partial "--pane: skipped"
   run grep -c '^pane close wT:p1' "$CHILD_STUB/calls.log"
+  assert_success
   assert_output 1
 }
 
