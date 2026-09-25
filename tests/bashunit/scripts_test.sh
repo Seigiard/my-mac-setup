@@ -9428,9 +9428,27 @@ except subprocess.TimeoutExpired as error:
     print("real Skills CLI fixture timed out after %ss" % error.timeout)
     sys.exit(124)
 sys.stdout.buffer.write(stdout)
+# Separate "the oracle could not be reached" from "the oracle answered and
+# disagreed". Only the first is an environment precondition; the second is the
+# upstream contract change this calibration exists to catch, and it must go red.
+UNREACHABLE = (
+    "enotfound", "eai_again", "etimedout", "econnreset", "econnrefused",
+    "getaddrinfo", "network", "offline", "socket hang up", "err_socket",
+    "registry.npmjs.org", "rate limit", "429",
+)
+if process.returncode != 0:
+    text = stdout.decode("utf-8", "replace").lower()
+    if any(marker in text for marker in UNREACHABLE):
+        sys.exit(125)
 sys.exit(process.returncode)
 PY
-  [ "$status" -eq 0 ] || skip "real Skills CLI fixture is unavailable: $output"
+  # 124 is this wrapper's timeout and 125 its unreachable-upstream verdict.
+  # Both are named environment preconditions; every other non-zero status is
+  # the real CLI rejecting the fixture, which is the regression under test.
+  if [ "$status" -eq 124 ] || [ "$status" -eq 125 ]; then
+    skip "the real Skills CLI could not be reached as an oracle: $output"
+  fi
+  assert_success
   run python3 - "$real_state/skills/.skill-lock.json" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding="utf-8") as stream:
@@ -9783,16 +9801,17 @@ function test_scripts_1226_claude_resource_context_is_session_scoped_and_marks_u
   assert_output --partial 'pane "owned"'
 
   # A successful empty projection invalidates stale generated context without
-  # inventing an empty resource listing.
+  # inventing an empty resource listing. The notice is the hook's own literal
+  # and the model reads it verbatim, so the whole sentence is the contract: an
+  # exact match separates it from the unavailable notice, which would be the
+  # wrong verdict here, and from a listing header with nothing under it.
   : > "$root/context"
   run hrc_run "$root" UserPromptSubmit session-old
   assert_success
   local cleared="$output"
-  run jq -e '.hookSpecificOutput.additionalContext | length > 0' <<< "$cleared"
-  assert_success
   run jq -r '.hookSpecificOutput.additionalContext' <<< "$cleared"
   assert_success
-  refute_output --partial 'Resources:'
+  assert_output 'Agent resource context update: the earlier generated resource context is stale; there are now no resources or parent to report.'
 
   # The shared query rejects a stale pane occupant through the expected session
   # arguments. Query failure must not be presented as a complete empty tree.
@@ -9947,11 +9966,21 @@ TS
   assert_success
   assert_output --partial 'OpenCode stdin sentinel'
   assert_output --partial 'Second OpenCode prompt'
+  # Per-line and in order, as the Claude sibling (1222) asserts it. A bare
+  # `opencode` match would also be satisfied by `pane-opencode`, so a plugin
+  # that dropped `--agent` and passed only the pane id would still pass.
   run sh -c 'cat "$1"/call-*/argv' _ "$root"
   assert_success
-  refute_output --partial 'OpenCode stdin sentinel'
-  refute_output --partial 'Second OpenCode prompt'
-  assert_output --partial 'opencode'
+  refute_line --partial 'OpenCode stdin sentinel'
+  refute_line --partial 'Second OpenCode prompt'
+  assert_line --index 0 '--agent'
+  assert_line --index 1 'opencode'
+  assert_line --index 2 '--session'
+  assert_line --index 3 'session-opencode'
+  assert_line --index 4 '--pane'
+  assert_line --index 5 'pane-opencode'
+  assert_line --index 6 '--workspace'
+  assert_line --index 7 'workspace-opencode'
   : > "$root/release"
 
   run env HOME="$home" HERDR_ENV= HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" \
@@ -10037,18 +10066,22 @@ function test_scripts_2842_statusline_figure_and_percentage_agree() {
 function test_scripts_2814_statusline_renders_without_the_shared_library() {
   _bats_test_init 2814 'statusline renders when the library or the context window is missing'
   local statusline="$SOURCE_ROOT/private_dot_claude/hooks/executable_statusline.sh"
-  local library home="$BATS_TEST_TMPDIR/home"
+  local library home="$BATS_TEST_TMPDIR/home" rendered
   library="$(context_usage_lib)"
   mkdir -p "$home"
 
   # A partially applied home has the status line but not yet the library. The
   # bar must still render: the operator's prompt is not a place to surface a
-  # deployment race.
+  # deployment race. Every part of the line is fixed by the payload -- the
+  # folder, the model, and a bar at the plain 372k-of-1M share, because an
+  # unsourced library leaves no allowance to subtract. "Printed something" would
+  # also accept a `source: no such file` diagnostic on a zero exit.
   run env HOME="$home" HERDR_ENV= CONTEXT_USAGE_LIBRARY="$BATS_TEST_TMPDIR/absent-library.sh" \
     bash "$statusline" \
     <<< "$(context_usage_statusline_payload nolib 372000 1000000)"
   assert_success
-  refute_output ''
+  rendered="$(printf '%s' "$output" | sed -e $'s/\033\[[0-9;]*m//g')"
+  assert_equal "$rendered" 'tmp ❯ Opus 5 ▓▓▓▓░░░░░░'
 
   # A payload without a context window renders the zero-percent bar rather than
   # dividing by nothing.
@@ -10218,9 +10251,12 @@ function test_scripts_2844_handoff_pre_compact_hands_the_extractor_a_usable_goal
     <<< "$(handoff_payload bareprompt "$root" manual '')"
   assert_success
   assert_file_exists "$prompt"
-  block="$(sed -n '/<goal>/,/<\/goal>/p' "$prompt" | sed '1d;$d' | tr -d '[:space:]')"
-  run bash -c '[ -n "$1" ] && printf named || printf "the goal block was empty"' _ "$block"
-  assert_output 'named'
+  # The consumer is another model, so the instruction itself is the interface:
+  # the exact sentence, not merely some text. "Non-blank" would also accept the
+  # `handoff:` marker the first half forbids, a `null` from an unguarded jq, or
+  # the raw instructions field.
+  block="$(sed -n '/<goal>/,/<\/goal>/p' "$prompt" | sed '1d;$d')"
+  assert_equal "$block" 'The operator did not state a goal. Read the session and name the goal yourself: the work that is underway and still unfinished at the point of compaction. Treat what you name as the goal for every step below, and open your handoff by stating it.'
 }
 
 function test_scripts_2837_handoff_hooks_fail_open_without_a_home() {
@@ -10513,31 +10549,42 @@ pins_baseline_value() {
 # The externals file the fixture should hold after an accepted fff-mcp bump:
 # the pinned tag replaced, and each platform's checksum replaced by the one the
 # stub serves for that platform's asset.
+#
+# Every value here is a literal. The earlier form re-ran the script's own four
+# `sed -n` expressions, its asset-name substitution and its positional
+# target/checksum pairing, then called the fetcher for the sums -- so a wrong
+# pairing in the script produced a matching wrong expectation and 1453 stayed
+# green. The stub serves one fixed sum per platform, and the target name sits
+# on the line above the checksum it belongs to, so the expectation can be built
+# from the file's own text without sharing any parsing with the script.
 pins_expected_fff_bump() {
   local out="$BATS_TEST_TMPDIR/expected-externals"
-  local work="$BATS_TEST_TMPDIR/expected-externals.work"
-  local old_tag template asset sum index=0
-  local targets=() shas=()
-
-  old_tag="$(pins_baseline_value 's|.*/releases/download/\([^/"]*\)/.*|\1|p')"
-  template="$(pins_baseline_value 's|.*/releases/download/[^/"]*/\([^"]*\)".*|\1|p')"
-  while IFS= read -r asset; do
-    targets[${#targets[@]}]="$asset"
-  done < <(sed -n 's|.*\$fffMcpTarget = "\([^"]*\)".*|\1|p' "$PINS_BASELINE/externals")
-  while IFS= read -r sum; do
-    shas[${#shas[@]}]="$sum"
-  done < <(sed -n 's|.*\$fffMcpSha256 = "\([0-9a-f]\{64\}\)".*|\1|p' "$PINS_BASELINE/externals")
-
-  sed "s|/releases/download/$old_tag/|/releases/download/$PINS_STUB_TAG/|" \
-    "$PINS_BASELINE/externals" >"$out"
-  while [ "$index" -lt "${#targets[@]}" ]; do
-    asset="${template%%\{\{*}${targets[$index]}${template##*\}\}}"
-    sum="$(STUB_CHECKSUM_FAILS_FOR= "$PINS_FETCHER" checksum repo "$PINS_STUB_TAG" "$asset" |
-      awk '{ print $1 }')"
-    sed "s|\"${shas[$index]}\"|\"$sum\"|" "$out" >"$work"
-    mv "$work" "$out"
-    index=$((index + 1))
-  done
+  awk -v tag="$PINS_STUB_TAG" '
+    BEGIN {
+      sum["aarch64-apple-darwin"]       = "1111111111111111111111111111111111111111111111111111111111111111"
+      sum["x86_64-apple-darwin"]        = "2222222222222222222222222222222222222222222222222222222222222222"
+      sum["aarch64-unknown-linux-musl"] = "3333333333333333333333333333333333333333333333333333333333333333"
+      sum["x86_64-unknown-linux-musl"]  = "4444444444444444444444444444444444444444444444444444444444444444"
+    }
+    /\$fffMcpTarget = "/ {
+      target = $0
+      sub(/^.*\$fffMcpTarget = "/, "", target)
+      sub(/".*$/, "", target)
+      if (!(target in sum)) {
+        print "unknown fff-mcp target in the fixture: " target > "/dev/stderr"
+        exit 1
+      }
+    }
+    /\$fffMcpSha256 = "/ {
+      sub(/\$fffMcpSha256 = "[0-9a-f]+"/, "$fffMcpSha256 = \"" sum[target] "\"")
+    }
+    # The fff-mcp release URL, and only it: other pins in this file carry
+    # release downloads of their own that this bump must leave alone.
+    /releases\/download\// && /fff-mcp-/ {
+      sub(/\/releases\/download\/[^\/"]+\//, "/releases/download/" tag "/")
+    }
+    { print }
+  ' "$PINS_BASELINE/externals" >"$out" || return 1
   printf '%s\n' "$out"
 }
 
@@ -10888,17 +10935,31 @@ function test_scripts_27204_agent_limits_drops_windows_whose_reset_has_passed() 
   assert_output --partial '  5h/3%'
   assert_output --partial '  7d/15%'
 
-  # #given the same numbers, but after both windows have reset
+  # #given the same numbers, but with the Claude window reset and the Codex one
+  # still open, so a dropped window leaves a line that is still rendered
+  agent_limits_fixture "$home" -3600 90050
+
+  # #when the status entry runs again
+  agent_limits_run "$home"
+
+  # #then the finished window is gone entirely -- not its percentage alone, and
+  # not its provider glyph or the separator beside it -- while the live one
+  # renders unchanged. Forbidding two substrings would also be satisfied by a
+  # run that printed nothing at all, which is what a missing python3 or a
+  # swallowed parse error looks like.
+  assert_success
+  assert_output '  7d/15% ↻1d1h'
+
+  # #given both windows have now reset
   agent_limits_fixture "$home" -3600 -86400
 
   # #when the status entry runs again
   agent_limits_run "$home"
 
-  # #then neither percentage is shown: a finished window describes a period
-  # that is over, and a stale number in a status bar misleads silently
+  # #then the bar is empty: with no live window there is nothing left to say,
+  # and the run above is the control that the fixture and the renderer work
   assert_success
-  refute_output --partial '3%'
-  refute_output --partial '15%'
+  assert_output ''
 }
 
 function test_scripts_27205_agent_limits_prefers_the_live_cache_over_the_stale_claude_json() {
@@ -10927,11 +10988,11 @@ function test_scripts_27205_agent_limits_prefers_the_live_cache_over_the_stale_c
   # #when the status entry runs
   agent_limits_run "$home"
 
-  # #then the fallback figure appears, labelled with its age rather than
-  # passed off as current
+  # #then the fallback figure appears, labelled with its exact age rather than
+  # passed off as current. The fixture fixes that age at seven days, so `old)`
+  # on its own would also accept a mis-scaled one.
   assert_success
-  assert_output --partial '  5h/88%'
-  assert_output --partial 'old)'
+  assert_output --partial '  5h/88% (7d old)'
 }
 
 function test_scripts_27206_agent_limits_marks_a_spent_window_without_rounding_into_it() {
@@ -10946,8 +11007,10 @@ function test_scripts_27206_agent_limits_marks_a_spent_window_without_rounding_i
   printf '{"fetched_at":%s,"five_hour":{"used_percentage":100,"resets_at":%s}}' \
     "$now" "$((now + 3600))" > "$home/.cache/claude-rate-limits/latest.json"
 
-  # #when the status entry runs
-  run env -i HOME="$home" bash "$AGENT_LIMITS_SCRIPT"
+  # #when the status entry runs on the hermetic PATH its neighbours use: bare
+  # `env -i` drops python3's directory, so an absent interpreter would fail
+  # this test on setup and read as a rendering regression
+  agent_limits_run "$home"
 
   # #then it reads as a state rather than a stuck gauge, and still says when
   # the allowance comes back
@@ -10960,7 +11023,7 @@ function test_scripts_27206_agent_limits_marks_a_spent_window_without_rounding_i
     "$now" "$((now + 3600))" > "$home/.cache/claude-rate-limits/latest.json"
 
   # #when the status entry runs
-  run env -i HOME="$home" bash "$AGENT_LIMITS_SCRIPT"
+  agent_limits_run "$home"
 
   # #then rounding never manufactures an exhaustion that has not happened
   assert_success
