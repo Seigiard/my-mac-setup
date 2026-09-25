@@ -17,7 +17,7 @@ pair_stub() {
   PAIR_REAL_MKTEMP="$(command -v mktemp)"
   PAIR_REAL_RM="$(command -v rm)"
   PAIR_REAL_CMP="$(command -v cmp)"
-  export PAIR_WORK PAIR_REAL_MKTEMP PAIR_REAL_RM PAIR_REAL_CMP
+  export PAIR_WORK PAIR_RESULTS PAIR_REAL_MKTEMP PAIR_REAL_RM PAIR_REAL_CMP
 
   cat > "$PAIR_BIN/cmp" <<'SH'
 #!/usr/bin/env bash
@@ -180,9 +180,13 @@ case "${1:-} ${2:-}" in
     ;;
   "tab close")
     printf '%s\n' "$3" >> "$PAIR_WORK/closed-tabs"
-    if [ "${PAIR_STUB_ASSERT_NO_STAGE_ON_CLOSE:-0}" = 1 ]; then
+    if [ "${PAIR_STUB_RECORD_STAGE_ON_CLOSE:-0}" = 1 ]; then
+      # Record, never adjudicate: exiting 1 here made the script report
+      # "cleanup failed for tab", which reads the same as a real close failure.
+      # The caller asserts this file absent, so a violation names itself.
       for candidate in "$PAIR_RESULTS"/.se-external-leg-pair.*; do
-        [ ! -e "$candidate" ] && [ ! -L "$candidate" ] || exit 1
+        [ ! -e "$candidate" ] && [ ! -L "$candidate" ] || \
+          printf '%s\n' "$candidate" >> "$PAIR_WORK/staged-before-close"
       done
     fi
     [ "${PAIR_STUB_CLOSE_FAIL_TAB:-}" != "$3" ]
@@ -204,17 +208,51 @@ SH
   printf 'frozen document' > "$PAIR_WORK/document.md"
 }
 
+# The documented mapping, read from the interface the calling skills read:
+# home/private_dot_claude/shared/herdr-peer-launch.md. Prints the mapping
+# version, then one complexity/claude-model/opencode-model row per line.
+#
+# That document is the independent side. Transcribing the executable's own case
+# table into this file would make expectation and implementation share a source,
+# so both could be wrong together and every policy change would force a test
+# edit. A drift between the document and the executable is the regression this
+# catches; a misread of the table fails the exact assertions below instead of
+# passing quietly.
+pair_documented_mapping() {
+  python3 - "$SOURCE_ROOT/private_dot_claude/shared/herdr-peer-launch.md" <<'PY'
+import re
+import sys
+
+text = open(sys.argv[1], encoding="utf-8").read()
+version = re.search(r"^Mapping `([^`]+)` was verified", text, re.MULTILINE)
+assert version, "the interface document states no mapping version"
+rows = re.findall(
+    r"^\| `(low|medium|high|xhigh)` \| `([^`]+)` \| `([^`]+)` \|$",
+    text,
+    re.MULTILINE,
+)
+assert len(rows) == 4, rows
+print(version.group(1))
+for row in rows:
+    print("\t".join(row))
+PY
+}
+
 function test_external_leg_pair_1301_scans_exact_inputs_before_launch_and_publishes_distinct_reports() {
   _bats_test_init 1301 'External leg pair scans exact inputs before launch and publishes distinct reports'
   pair_stub
   local result="$PAIR_RESULTS/distinct"
 
-  run env PATH="$PAIR_BIN:$PATH" PAIR_STUB_ASSERT_NO_STAGE_ON_CLOSE=1 HERDR_ENV=1 HERDR_WORKSPACE_ID=wT \
+  run env PATH="$PAIR_BIN:$PATH" PAIR_STUB_RECORD_STAGE_ON_CLOSE=1 HERDR_ENV=1 HERDR_WORKSPACE_ID=wT \
     bash "$PAIR_SCRIPT" --complexity medium --effort high --repo-root "$PAIR_REPO" \
       --claude-prompt-file "$PAIR_WORK/claude.prompt" \
       --opencode-prompt-file "$PAIR_WORK/opencode.prompt" \
       --exposed-document "$PAIR_WORK/document.md" --result-dir "$result"
   assert_success
+  # Ordering: staging is created only after the tabs are closed. The herdr stub
+  # records any staging directory it sees while closing, so this names the
+  # violation instead of surfacing as a tab-close failure.
+  assert_file_not_exists "$PAIR_WORK/staged-before-close"
 
   run jq -cS '{classification,cleanup,interface,reports,scan}' "$result/result.json"
   assert_success
@@ -357,13 +395,14 @@ function test_external_leg_pair_1304_withholds_results_when_cleanup_is_incomplet
   pair_stub
   local result="$PAIR_RESULTS/cleanup-failed"
 
-  run env PATH="$PAIR_BIN:$PATH" PAIR_STUB_CLOSE_FAIL_TAB=wT:t1 PAIR_STUB_ASSERT_NO_STAGE_ON_CLOSE=1 \
+  run env PATH="$PAIR_BIN:$PATH" PAIR_STUB_CLOSE_FAIL_TAB=wT:t1 PAIR_STUB_RECORD_STAGE_ON_CLOSE=1 \
     HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" --complexity medium --effort high \
       --repo-root "$PAIR_REPO" \
       --claude-prompt-file "$PAIR_WORK/claude.prompt" \
       --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$result"
   assert_failure 3
   assert_dir_not_exists "$result"
+  assert_file_not_exists "$PAIR_WORK/staged-before-close"
   run cat "$PAIR_WORK/closed-tabs"
   assert_success
   assert_line --index 0 wT:t1
@@ -503,7 +542,26 @@ function test_external_leg_pair_1309_recovers_mixed_start_races_and_keeps_an_ack
   run cat "$PAIR_WORK/start-count"
   assert_success
   assert_output 4
-  run grep -F 'agent start amber-hare' "$PAIR_WORK/herdr.log"
+  # The retried start must be the same claude leg, on the same pane, with the
+  # same launch flags -- only the refused alias changes. The first start's own
+  # argv is the oracle, so this stays correct when model policy changes.
+  run python3 - "$PAIR_WORK/herdr.log" <<'PY'
+import shlex
+import sys
+
+starts = []
+for line in open(sys.argv[1], encoding="utf-8"):
+    words = shlex.split(line)
+    if words[1:3] == ["agent", "start"]:
+        starts.append(words)
+assert [words[3] for words in starts] == [
+    "blue-fox", "blue-fox", "amber-hare", "green-owl"], starts
+# agent_pane_busy reuses the alias; agent_name_taken allocates a fresh one.
+assert starts[1] == starts[0], starts[:2]
+assert starts[2][4:] == starts[0][4:], starts[2]
+assert starts[2][starts[2].index("--kind") + 1] == "claude", starts[2]
+assert starts[2][starts[2].index("--pane") + 1] == "wT:p1", starts[2]
+PY
   assert_success
 }
 
@@ -550,6 +608,9 @@ function test_external_leg_pair_1311_refuses_to_classify_when_report_comparison_
 
 function test_external_leg_pair_1312_refuses_missing_or_unsupported_selection_before_tabs() {
   _bats_test_init 1312 'External leg pair refuses missing or unsupported selection before tabs'
+  # Exact refusal lines. Each of these gates prints one line and nothing else,
+  # so a partial match would also accept a usage dump or a stray warning
+  # printed alongside it, and would not say which gate answered.
   pair_stub
   local result="$PAIR_RESULTS/refused-selection"
 
@@ -558,28 +619,28 @@ function test_external_leg_pair_1312_refuses_missing_or_unsupported_selection_be
     --claude-prompt-file "$PAIR_WORK/claude.prompt" \
     --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$result"
   assert_failure 2
-  assert_output --partial '--complexity is required'
+  assert_output 'se-external-leg-pair: refused: --complexity is required.'
 
   run env PATH="$PAIR_BIN:$PATH" HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" \
     --complexity medium --repo-root "$PAIR_REPO" \
     --claude-prompt-file "$PAIR_WORK/claude.prompt" \
     --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$result"
   assert_failure 2
-  assert_output --partial '--effort is required'
+  assert_output 'se-external-leg-pair: refused: --effort is required.'
 
   run env PATH="$PAIR_BIN:$PATH" HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" \
     --complexity extreme --effort high --repo-root "$PAIR_REPO" \
     --claude-prompt-file "$PAIR_WORK/claude.prompt" \
     --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$result"
   assert_failure 2
-  assert_output --partial '--complexity must be one of: low, medium, high, xhigh'
+  assert_output 'se-external-leg-pair: refused: --complexity must be one of: low, medium, high, xhigh.'
 
   run env PATH="$PAIR_BIN:$PATH" HERDR_ENV=1 HERDR_WORKSPACE_ID=wT bash "$PAIR_SCRIPT" \
     --complexity medium --effort extreme --repo-root "$PAIR_REPO" \
     --claude-prompt-file "$PAIR_WORK/claude.prompt" \
     --opencode-prompt-file "$PAIR_WORK/opencode.prompt" --result-dir "$result"
   assert_failure 2
-  assert_output --partial '--effort must be one of: low, medium, high, xhigh, max'
+  assert_output 'se-external-leg-pair: refused: --effort must be one of: low, medium, high, xhigh, max.'
   assert_file_not_exists "$PAIR_WORK/herdr.log"
   assert_dir_not_exists "$result"
 }
@@ -587,14 +648,30 @@ function test_external_leg_pair_1312_refuses_missing_or_unsupported_selection_be
 function test_external_leg_pair_1313_maps_every_complexity_and_effort_to_launch_settings() {
   _bats_test_init 1313 'External leg pair maps every complexity and effort to launch settings'
   local selection complexity effort claude_model opencode_model result
+  local mapping mapping_version
 
+  # #given the mapping the interface document publishes
+  mapping="$BATS_TEST_TMPDIR/documented-mapping"
+  run pair_documented_mapping
+  assert_success
+  printf '%s\n' "$output" > "$mapping"
+  mapping_version="$(sed -n 1p "$mapping")"
+
+  # Every documented complexity, paired with every documented effort at least
+  # once. Effort is a pass-through by contract -- the document states it becomes
+  # Claude's native effort and OpenCode's model variant -- so the requested
+  # value is its own expectation.
   for selection in \
-    'low low sonnet openai/gpt-5.6-luna' \
-    'low medium sonnet openai/gpt-5.6-luna' \
-    'medium high sonnet openai/gpt-5.6-terra' \
-    'high xhigh opus openai/gpt-5.6-sol' \
-    'xhigh max fable openai/gpt-6-astra'; do
-    read -r complexity effort claude_model opencode_model <<< "$selection"
+    'low low' \
+    'low medium' \
+    'medium high' \
+    'high xhigh' \
+    'xhigh max'; do
+    read -r complexity effort <<< "$selection"
+    claude_model="$(awk -F'\t' -v c="$complexity" '$1 == c { print $2 }' "$mapping")"
+    opencode_model="$(awk -F'\t' -v c="$complexity" '$1 == c { print $3 }' "$mapping")"
+    [ -n "$claude_model" ] && [ -n "$opencode_model" ] || \
+      fail "the interface document has no mapping row for complexity $complexity"
     rm -rf "$BATS_TEST_TMPDIR/pair"
     pair_stub
     result="$PAIR_RESULTS/$complexity-$effort"
@@ -636,30 +713,51 @@ PY
 
     run jq -cS '.selection' "$result/result.json"
     assert_success
-    assert_output "{\"mapping\":\"external-leg-models/2026-09-12\",\"requested\":{\"complexity\":\"$complexity\",\"effort\":\"$effort\"},\"resolved\":{\"claude\":{\"effort\":\"$effort\",\"model\":\"$claude_model\"},\"opencode\":{\"model\":\"$opencode_model\",\"variant\":\"$effort\"}}}"
+    assert_output "{\"mapping\":\"$mapping_version\",\"requested\":{\"complexity\":\"$complexity\",\"effort\":\"$effort\"},\"resolved\":{\"claude\":{\"effort\":\"$effort\",\"model\":\"$claude_model\"},\"opencode\":{\"model\":\"$opencode_model\",\"variant\":\"$effort\"}}}"
   done
 }
 
 function test_external_leg_pair_1314_mapped_claude_aliases_and_efforts_exist_in_the_installed_client() {
   _bats_test_init 1314 'External leg pair mapped Claude aliases and efforts exist in the installed client'
   command_exists claude || skip "claude is not installed"
-  local help model effort
+  local help model effort models
 
+  # #given the Claude aliases the interface document maps complexity to
+  models="$BATS_TEST_TMPDIR/documented-claude-models"
+  run pair_documented_mapping
+  assert_success
+  printf '%s\n' "$output" | tail -n +2 | cut -f2 | sort -u > "$models"
+
+  # #when the installed client publishes its own alias inventory
   run claude --help
   assert_success
   help="$output"
-  for model in sonnet opus fable; do
+
+  # #then every mapped alias is one the client names. The bogus control makes
+  # this grep falsifiable: without it a help text that had stopped listing
+  # aliases could not be told from one that lists them all.
+  while IFS= read -r model; do
     run grep -F -- "'$model'" <<< "$help"
     assert_success
-  done
+  done < "$models"
+  run grep -F -- "'not-a-model-alias'" <<< "$help"
+  assert_failure
 
-  for model in sonnet opus fable; do
-    for effort in low medium high xhigh max; do
-      run claude --model "$model" --effort "$effort" --version
-      assert_success
-      refute_output --partial 'Unknown --effort value'
-    done
+  # Model validity stops there on purpose. `claude --model <unknown> --version`
+  # exits 0 and prints the version -- the client resolves aliases at request
+  # time -- so no local invocation rejects an unknown alias, and asserting
+  # success on one proves nothing. Effort is different: the client validates it
+  # up front and says so.
+  for effort in low medium high xhigh max; do
+    run claude --effort "$effort" --version
+    assert_success
+    refute_output --partial 'Unknown --effort value'
   done
+  # Calibration for that refute: an unmapped effort does produce the warning, so
+  # the refutes above are not passing because the client stopped warning.
+  run claude --effort not-an-effort --version
+  assert_success
+  assert_output --partial "Unknown --effort value 'not-an-effort'"
 }
 
 function test_external_leg_pair_1315_mapped_opencode_settings_exist_in_the_installed_client() {
@@ -667,11 +765,13 @@ function test_external_leg_pair_1315_mapped_opencode_settings_exist_in_the_insta
   command_exists opencode || skip "opencode is not installed"
   local catalog="$BATS_TEST_TMPDIR/opencode-models"
 
+  # One assertion path: the skip is a named environment precondition and stays
+  # visible; every other outcome reaches the same assert_success below.
   run opencode models openai --verbose
   if [ "$status" -ne 0 ]; then
     case "$output" in
-      *'Provider not found: openai'*) skip "installed opencode has no openai model catalog: $output" ;;
-      *) assert_success ;;
+      *'Provider not found: openai'*)
+        skip "installed opencode has no openai model catalog: $output" ;;
     esac
   fi
   assert_success
