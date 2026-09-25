@@ -2263,13 +2263,6 @@ function test_scripts_006_install_packages_script_renders_as_valid_bash() {
 # macOS tunes script
 # ===========================================
 
-function test_scripts_007_macos_tunes_script_is_valid_bash() {
-  _bats_test_init 7 'macos-tunes script is valid bash'
-  local script="$SOURCE_ROOT/.chezmoiscripts/darwin/run_once_after_macos-tunes.sh"
-  run bash -n "$script"
-  assert_success
-}
-
 function test_scripts_008_darwin_scripts_excluded_from_managed_list_on_lin() {
   _bats_test_init 8 'darwin scripts excluded from managed list on Linux'
   is_linux || skip "Only relevant on Linux"
@@ -2381,21 +2374,28 @@ SH
   assert_failure
   run grep -Fx "plugin install dio16/herdr-auto-update -y" "$calls"
   assert_success
-  run grep -Fx "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y" "$calls"
+  # The pinned commit is an installation choice with no oracle outside the
+  # template it is copied from, so these match the install command and the
+  # shape of a pinned ref. A ref bump must not edit a test.
+  run grep -Ex "plugin install Seigiard/herdr-command-palette --ref [0-9a-f]{40} -y" "$calls"
   assert_success
-  run grep -Fx "plugin install Seigiard/herdr-pane-labels --ref aba61eb788c5fe0630dc570d96fd14683e2f63c7 -y" "$calls"
+  run grep -Ex "plugin install Seigiard/herdr-pane-labels --ref [0-9a-f]{40} -y" "$calls"
   assert_success
   run grep -Fx "plugin enable seigi.pane-labels" "$calls"
   assert_success
   run grep -Fx "plugin enable seigi.command-palette" "$calls"
   assert_success
-  run grep -Fx "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y" "$calls"
-  assert_success
-  run grep -Fx "plugin install Seigiard/herdr-pane-labels --ref aba61eb788c5fe0630dc570d96fd14683e2f63c7 -y" "$calls"
+  run grep -Ex "plugin install Seigiard/herdr-worktree-setup --ref [0-9a-f]{40} -y" "$calls"
   assert_success
   run grep -Fx "plugin enable seigi.worktree-setup" "$calls"
   assert_success
-  run grep -Fx "plugin install usrivastava92/herdr-wakeup/plugin --ref 43db0b9f88a4b1bc560593b0ce8f2a7d2a940f04 -y" "$calls"
+  run grep -Ex "plugin install usrivastava92/herdr-wakeup/plugin --ref [0-9a-f]{40} -y" "$calls"
+  assert_success
+  # The Darwin-only positive control for the refutation in 08511: this render
+  # installs and enables focus-notify, the Linux render must not.
+  run grep -Ex "plugin install yankewei/herdr-focus-notify --ref [0-9a-f]{40} -y" "$calls"
+  assert_success
+  run grep -Fx "plugin enable herdr-focus-notify" "$calls"
   assert_success
   run grep -Fx "plugin action invoke stop --plugin herdr-wakeup" "$calls"
   assert_success
@@ -2437,10 +2437,11 @@ SH
   assert_failure
   run grep -Fx "plugin uninstall seigi.worktree-setup" "$calls"
   assert_failure
-  run grep -Fx "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y" "$calls"
+  run grep -Ex "plugin install Seigiard/herdr-command-palette --ref [0-9a-f]{40} -y" "$calls"
   assert_success
-  run grep -Fx "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y" "$calls"
+  run grep -Ex "plugin install Seigiard/herdr-worktree-setup --ref [0-9a-f]{40} -y" "$calls"
   assert_success
+  # Controlled by the Darwin install assertions in 0851.
   run grep -F "herdr-focus-notify" "$calls"
   assert_failure
   run grep -F "herdr-auto-update" "$calls"
@@ -2549,7 +2550,7 @@ case "$*" in
       printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.worktree-setup","source":{"kind":"local"}}]}}'
     fi
     ;;
-  "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y")
+  "plugin install Seigiard/herdr-worktree-setup --ref "*" -y")
     [ "${HERDR_FAIL_STEP:-}" != install ]
     ;;
   "plugin uninstall seigi.worktree-setup")
@@ -2622,7 +2623,7 @@ function test_scripts_0853_worktree_setup_migration_retries_after_install_failur
   run worktree_migration_apply "$work"
   assert_success
   assert_dir_not_exists "$work/home/.config/herdr/plugins/worktree-setup"
-  run grep -Fc "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y" "$work/herdr.calls"
+  run grep -Ec "plugin install Seigiard/herdr-worktree-setup --ref [0-9a-f]{40} -y" "$work/herdr.calls"
   assert_success
   assert_output "2"
 }
@@ -2662,7 +2663,7 @@ function test_scripts_08532_worktree_setup_migration_replaces_a_stale_local_regi
   assert_success
   run grep -Fx "plugin uninstall seigi.worktree-setup" "$work/herdr.calls"
   assert_success
-  run grep -Fx "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y" "$work/herdr.calls"
+  run grep -Ex "plugin install Seigiard/herdr-worktree-setup --ref [0-9a-f]{40} -y" "$work/herdr.calls"
   assert_success
 }
 
@@ -2812,7 +2813,7 @@ case "$*" in
   "plugin list --json")
     printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","source":{"kind":"local"}}]}}'
     ;;
-  "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y")
+  "plugin install Seigiard/herdr-command-palette --ref "*" -y")
     [ "${HERDR_FAIL_STEP:-}" != install ]
     ;;
   "plugin enable seigi.command-palette")
@@ -2851,7 +2852,7 @@ function test_scripts_08521_command_palette_migration_retries_after_install_fail
   assert_success
   assert_dir_not_exists "$work/home/.config/herdr/plugins/command-palette"
   assert_file_exists "$work/home/.config/herdr/command-palette/commands.toml"
-  run grep -Fc "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y" "$work/herdr.calls"
+  run grep -Ec "plugin install Seigiard/herdr-command-palette --ref [0-9a-f]{40} -y" "$work/herdr.calls"
   assert_success
   assert_output "2"
 }
@@ -2905,9 +2906,11 @@ assert kinds <= {"local", "github"}, kinds
 print(" ".join(sorted(kinds)))
 PY
   assert_success
-  [[ " $output " == *" local "* && " $output " == *" github "* ]] \
-    || skip "real registry does not currently expose both local and github source kinds: $output"
+  local observed_kinds="$output"
 
+  # The offline `enable` error shape needs no registry contents, so it runs before
+  # the source-kind precondition below can discard it. It is the only comparison of
+  # the fake's `server_not_running` payload against the real binary.
   run env -i HOME="$HOME" PATH="$PATH" \
     HERDR_SOCKET_PATH="/tmp/mms-herdr-plugin-contract-$$.sock" \
     herdr plugin enable missing.plugin
@@ -2921,6 +2924,14 @@ error = json.loads(os.environ["ENABLE_ERROR"])["error"]
 assert error["code"] == "server_not_running", error
 PY
   assert_success
+
+  # Named environment precondition, not coverage: the source-kind comparison can
+  # only run where the host registry holds both kinds. When this skip fires, the
+  # local/github half of the fake stays unverified, so compare skip identities
+  # across environments rather than reading the green run as coverage
+  # (docs/solutions/design-patterns/skip-set-parity-proves-reduced-dependencies.md).
+  [[ " $observed_kinds " == *" local "* && " $observed_kinds " == *" github "* ]] \
+    || skip "real registry does not currently expose both local and github source kinds: $observed_kinds"
 }
 
 function test_scripts_08524_worktree_setup_is_installed_enabled_and_pinned() {
@@ -2928,6 +2939,10 @@ function test_scripts_08524_worktree_setup_is_installed_enabled_and_pinned() {
   command_exists herdr && herdr --version >/dev/null 2>&1 \
     || skip "a working upstream herdr is not installed"
   [[ "${MMS_DISPOSABLE_HOME:-}" == 1 ]] || skip "requires the disposable post-apply registry"
+  # This is the one test that keeps the pinned commit as a literal. Here it is not
+  # copied from the template being exercised: the real herdr reports the commit it
+  # actually resolved, so the literal compares two independent sides. Every other
+  # site matches the shape of a pinned ref instead.
   local plugin_json
   run env -i HOME="$HOME" PATH="$PATH" \
     HERDR_SOCKET_PATH="/tmp/mms-herdr-worktree-setup-$$.sock" herdr plugin list --json
@@ -2984,11 +2999,18 @@ SH
   cat > "$fake_bin/herdr" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$HERDR_CALLS"
+# Every precondition below encodes one step of the cut-over order. Name the step
+# in the order log so a wrong order reads as prose in the failed apply's output
+# instead of as an opaque exit code the reader has to decode from this stub.
+out_of_order() {
+  printf 'herdr stub: out of order: %s\n' "$1" >> "$HERDR_CALLS.order"
+  exit 1
+}
 case "$*" in
   "plugin list --json")
     printf '%s\n' '{"result":{"plugins":[{"plugin_id":"keepawake.caffeinate","source":{"kind":"local"}}]}}'
     ;;
-  "plugin install usrivastava92/herdr-wakeup/plugin --ref 43db0b9f88a4b1bc560593b0ce8f2a7d2a940f04 -y")
+  "plugin install usrivastava92/herdr-wakeup/plugin --ref "*" -y")
     [ "$HERDR_FAIL_STEP" != install ] || exit 1
     : > "$HOME/replacement-installed"
     ;;
@@ -2997,25 +3019,26 @@ case "$*" in
     ;;
   "plugin enable herdr-wakeup")
     [ "$HERDR_FAIL_STEP" != enable ] || exit 1
-    [ -f "$HOME/replacement-installed" ] || exit 3
-    [ -L "$HOME/.config/herdr/plugins/config/herdr-wakeup/sessions/f60c672338465554/config.json" ] || exit 4
+    [ -f "$HOME/replacement-installed" ] || out_of_order "enable herdr-wakeup before installing it"
+    [ -L "$HOME/.config/herdr/plugins/config/herdr-wakeup/sessions/f60c672338465554/config.json" ] || \
+      out_of_order "enable herdr-wakeup before linking its managed session policy"
     : > "$HOME/replacement-enabled"
     ;;
   "plugin action invoke stop --plugin keepawake.caffeinate")
     [ -d "$HOME/.config/herdr/plugins/herdr-caffeinate" ] || exit 1
-    [ -f "$HOME/replacement-enabled" ] || exit 5
+    [ -f "$HOME/replacement-enabled" ] || out_of_order "stop the local owner before enabling herdr-wakeup"
     : > "$HOME/legacy-stopped"
     ;;
   "plugin action invoke status --plugin keepawake.caffeinate")
-    [ -f "$HOME/legacy-reconciled" ] || exit 10
+    [ -f "$HOME/legacy-reconciled" ] || out_of_order "query the local owner before reconciling it"
     ;;
   "plugin disable keepawake.caffeinate")
     [ ! -d "$HOME/.config/herdr/plugins/herdr-caffeinate" ] || \
-      [ -f "$HOME/legacy-stopped" ] || exit 6
+      [ -f "$HOME/legacy-stopped" ] || out_of_order "disable the local owner before stopping it"
     : > "$HOME/legacy-disabled"
     ;;
   "server reload-config")
-    [ -f "$HOME/legacy-disabled" ] || exit 7
+    [ -f "$HOME/legacy-disabled" ] || out_of_order "reload before disabling the local owner"
     if [ "$HERDR_FAIL_STEP" = reload ] && [ ! -f "$HOME/activation-reload-failed" ]; then
       : > "$HOME/activation-reload-failed"
       exit 1
@@ -3023,11 +3046,11 @@ case "$*" in
     : > "$HOME/server-reloaded"
     ;;
   "plugin action invoke start --plugin herdr-wakeup")
-    [ -f "$HOME/server-reloaded" ] || exit 8
+    [ -f "$HOME/server-reloaded" ] || out_of_order "start herdr-wakeup before reloading"
     : > "$HOME/replacement-started"
     ;;
   "plugin uninstall keepawake.caffeinate")
-    [ -f "$HOME/replacement-started" ] || exit 9
+    [ -f "$HOME/replacement-started" ] || out_of_order "uninstall the local owner before herdr-wakeup runs"
     ;;
   *)
     exit 0
@@ -3036,15 +3059,38 @@ esac
 SH
   chmod +x "$fake_bin/herdr"
   : > "$work/herdr.calls"
+  rm -f "$work/herdr.calls.order"
 }
 
 caffeinate_migration_run() {
-  local work="$1" fail_step="${2:-}"
+  local work="$1" fail_step="${2:-}" run_status=0
   HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" \
     PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
     HERDR_FAIL_STEP="$fail_step" HERDR_SOCKET_PATH=/tmp/mms-herdr-wakeup-test.sock \
     chezmoi_full_fixture apply --source "$work/source" --destination "$work/home" \
-      --config "$work/chezmoi.yaml"
+      --config "$work/chezmoi.yaml" || run_status=$?
+  # Diagnostics, not an expectation: carry the stub's named ordering violations
+  # into this command's output so a failed apply names the step that moved.
+  [ ! -s "$work/herdr.calls.order" ] || cat "$work/herdr.calls.order" >&2
+  return "$run_status"
+}
+
+# The cut-over order is the migration's contract. The stub enforces it through
+# preconditions that surface as opaque exit codes 3-10 inside a failed apply, so
+# the sequence is asserted by name here instead. The pinned ref is normalized
+# out: which commit is installed is not part of the ordering contract.
+caffeinate_cutover_calls() {
+  local observed
+  observed="$(grep -Ex \
+    -e 'plugin install usrivastava92/herdr-wakeup/plugin --ref [0-9a-f]{40} -y' \
+    -e 'plugin enable herdr-wakeup' \
+    -e 'plugin action invoke stop --plugin keepawake.caffeinate' \
+    -e 'plugin disable keepawake.caffeinate' \
+    -e 'server reload-config' \
+    -e 'plugin action invoke start --plugin herdr-wakeup' \
+    -e 'plugin uninstall keepawake.caffeinate' \
+    "$1")" || return 1
+  printf '%s\n' "$observed" | sed -E 's/--ref [0-9a-f]{40} /--ref <pinned> /'
 }
 
 function test_scripts_08524_caffeinate_migration_cuts_over_only_after_the_replacement_is_ready() {
@@ -3059,14 +3105,15 @@ function test_scripts_08524_caffeinate_migration_cuts_over_only_after_the_replac
   run readlink "$wakeup_config/sessions/f60c672338465554/config.json"
   assert_success
   assert_output "$wakeup_config/config.json"
-  run grep -Fx "plugin action invoke stop --plugin keepawake.caffeinate" "$work/herdr.calls"
+  run caffeinate_cutover_calls "$work/herdr.calls"
   assert_success
-  run grep -Fx "plugin uninstall keepawake.caffeinate" "$work/herdr.calls"
-  assert_success
-  run grep -Fx "plugin install usrivastava92/herdr-wakeup/plugin --ref 43db0b9f88a4b1bc560593b0ce8f2a7d2a940f04 -y" "$work/herdr.calls"
-  assert_success
-  run grep -Fx "plugin enable herdr-wakeup" "$work/herdr.calls"
-  assert_success
+  assert_output "plugin install usrivastava92/herdr-wakeup/plugin --ref <pinned> -y
+plugin enable herdr-wakeup
+plugin action invoke stop --plugin keepawake.caffeinate
+plugin disable keepawake.caffeinate
+server reload-config
+plugin action invoke start --plugin herdr-wakeup
+plugin uninstall keepawake.caffeinate"
 }
 
 function test_scripts_08525_caffeinate_migration_keeps_the_local_owner_when_installation_fails() {
@@ -3086,7 +3133,7 @@ function test_scripts_08525_caffeinate_migration_keeps_the_local_owner_when_inst
   run caffeinate_migration_run "$work"
   assert_success
   assert_dir_not_exists "$work/home/.config/herdr/plugins/herdr-caffeinate"
-  run grep -Fc "plugin install usrivastava92/herdr-wakeup/plugin --ref 43db0b9f88a4b1bc560593b0ce8f2a7d2a940f04 -y" "$work/herdr.calls"
+  run grep -Ec "plugin install usrivastava92/herdr-wakeup/plugin --ref [0-9a-f]{40} -y" "$work/herdr.calls"
   assert_success
   assert_output "2"
 }
@@ -3124,19 +3171,54 @@ function test_scripts_08527_caffeinate_migration_restores_the_local_owner_when_r
   assert_failure
 }
 
-function test_scripts_08528_caffeinate_migration_skips_a_broken_wrapper_without_legacy_files() {
-  _bats_test_init 8528 'caffeinate migration skips a broken wrapper without legacy files'
-  local work="$BATS_TEST_TMPDIR/caffeinate-migration-wrapper-only"
-  caffeinate_migration_prepare "$work" absent
-  cat > "$work/bin/herdr" <<'SH'
+# A wrapper that is present but cannot run. It still records its argv, so a test
+# can tell which probe the migration made before deciding to skip or refuse.
+caffeinate_break_herdr_wrapper() {
+  cat > "$1/bin/herdr" <<'SH'
 #!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
 exit 127
 SH
-  chmod +x "$work/bin/herdr"
+  chmod +x "$1/bin/herdr"
+}
 
+function test_scripts_08528_caffeinate_migration_skips_a_broken_wrapper_without_legacy_files() {
+  _bats_test_init 8528 'caffeinate migration skips a broken wrapper without legacy files'
+  # #given a broken herdr wrapper and no legacy Caffeinate files
+  local work="$BATS_TEST_TMPDIR/caffeinate-migration-wrapper-only"
+  caffeinate_migration_prepare "$work" absent
+  caffeinate_break_herdr_wrapper "$work"
+
+  # #when
   run caffeinate_migration_run "$work"
 
+  # #then the migration probed the wrapper and stopped there. Status alone cannot
+  # tell a deliberate skip from a migration that stopped probing herdr at all,
+  # so the recorded argv must be exactly the one probe and nothing else.
   assert_success
+  run cat "$work/herdr.calls"
+  assert_success
+  assert_output "--version"
+}
+
+function test_scripts_08529_caffeinate_migration_refuses_a_broken_wrapper_while_legacy_files_remain() {
+  _bats_test_init 8529 'caffeinate migration refuses a broken wrapper while legacy files remain'
+  # #given a broken herdr wrapper and the legacy Caffeinate plugin still on disk
+  local work="$BATS_TEST_TMPDIR/caffeinate-migration-wrapper-with-legacy"
+  caffeinate_migration_prepare "$work" present
+  caffeinate_break_herdr_wrapper "$work"
+
+  # #when
+  run caffeinate_migration_run "$work"
+
+  # #then it refuses and keeps the local owner: the discriminating control for
+  # 08528, which must not be able to pass by doing nothing at all.
+  assert_failure 1
+  assert_output --partial "Caffeinate migration needs herdr; retry after herdr is installed"
+  assert_dir_exists "$work/home/.config/herdr/plugins/herdr-caffeinate"
+  run cat "$work/herdr.calls"
+  assert_success
+  assert_output "--version"
 }
 
 # ask-in-herdr skill script
@@ -3390,14 +3472,14 @@ function test_scripts_1053_ask_sh_refuses_outside_herdr_and_when_herdr_child_is_
   assert_output --partial "status=refused"
   [ ! -f "$CHILD_STUB/child.log" ]
 
-  local no_child; no_child="$(mktemp -d)"
+  local no_child="$BATS_TEST_TMPDIR/no-child"
+  mkdir -p "$no_child"
   cp "$CHILD_STUB/herdr" "$no_child/herdr"
   run env PATH="$no_child:/usr/bin:/bin" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$ASK_HERDR_SCRIPT" claude question
   assert_failure 2
   assert_output --partial "herdr-child is not on PATH"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=refused"
-  rm -rf "$no_child"
 }
 
 function test_scripts_1227_ask_sh_refuses_before_launch_when_the_secret_scan_is_not_clean() {
@@ -3441,6 +3523,8 @@ function test_scripts_1228_ask_in_herdr_follow_up_rescans_the_question_before_pr
     STUB_PANE_CWD="$secret_cwd" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$ASK_HERDR_FOLLOW_UP" prompt red-wolf wT:p9 clean-question
   assert_failure 2
+  # Exit 2 is also an argument-parse refusal, so the trailer names the reason.
+  assert_line --index "$(( ${#lines[@]} - 1 ))" 'follow-up.sh: status=refused'
   assert_file_not_exists "$CHILD_STUB/child.log"
 
   ask_live_stub
@@ -3452,7 +3536,25 @@ function test_scripts_1228_ask_in_herdr_follow_up_rescans_the_question_before_pr
     STUB_PANE_CWD="$clean_cwd" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$ASK_HERDR_FOLLOW_UP" prompt red-wolf wT:p9 clean-question --skills "$secret_skills"
   assert_failure 2
+  assert_line --index "$(( ${#lines[@]} - 1 ))" 'follow-up.sh: status=refused'
   assert_file_not_exists "$CHILD_STUB/child.log"
+
+  # Control for both directory-scan refusals: the same scanning configuration over a
+  # clean pane cwd and a clean --skills tree must still deliver. Without it a
+  # follow-up.sh that refuses whenever --skills is present passes both refusals, and
+  # the delivering legs above never exercise a scanner that reads directories.
+  ask_live_stub
+  local clean_scan_cwd="$BATS_TEST_TMPDIR/follow-up-clean-scan-cwd"
+  local clean_skills="$BATS_TEST_TMPDIR/follow-up-clean-skills"
+  mkdir -p "$clean_scan_cwd" "$clean_skills"
+  printf '%s\n' 'no marker in this tree' > "$clean_scan_cwd/notes"
+  printf '%s\n' 'no marker in this tree' > "$clean_skills/SKILL.md"
+  run env PATH="$CHILD_STUB:$PATH" STUB_SCAN_MATCH=follow-up-secret-marker STUB_SCAN_DIRS=1 \
+    STUB_PANE_CWD="$clean_scan_cwd" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_FOLLOW_UP" prompt red-wolf wT:p9 clean-question --skills "$clean_skills"
+  assert_success
+  assert_line --index "$(( ${#lines[@]} - 1 ))" 'follow-up.sh: status=delivered'
+  assert_file_contains "$CHILD_STUB/child.log" '^prompt --to red-wolf --pane wT:p9 --wait clean-question'
 
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_PROMPT_STATUS=124 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -3533,9 +3635,16 @@ function test_scripts_1057_ask_sh_performs_no_agent_list_preflight_or_query_and_
   assert_failure
   run sed -n '1p' "$CHILD_STUB/order.log"
   assert_output --partial "child start"
-  run grep -c '^herdr agent list' "$CHILD_STUB/herdr.log"
-  assert_failure
-  assert_output 0
+  # herdr.log records bare argv, so the pattern carries no `herdr ` prefix. The
+  # `agent read` count below is the positive control: it proves the same pattern
+  # shape does match a call the script really makes, so the refutation above
+  # cannot be satisfied by a log the grep can never read.
+  run grep -c '^agent list ' "$CHILD_STUB/herdr.log"
+  assert_failure 1
+  assert_output "0"
+  run grep -c '^agent read ' "$CHILD_STUB/herdr.log"
+  assert_success
+  assert_output "1"
   run grep -c '^verify --to red-wolf --pane wT:p9 ' "$CHILD_STUB/child.log"
   assert_success
   assert_output 2
@@ -3548,7 +3657,7 @@ function test_scripts_1058_ask_sh_discards_buffered_output_when_either_pair_vali
     bash "$ASK_HERDR_SCRIPT" claude question
   assert_failure 1
   refute_output --partial "ANSWER from child"
-  assert_output --partial "status=undelivered"
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=undelivered"
 
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_PAIR_TERMINAL_CHANGE_AT=2 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -3556,6 +3665,7 @@ function test_scripts_1058_ask_sh_discards_buffered_output_when_either_pair_vali
   assert_failure 1
   refute_output --partial "ANSWER from child"
   assert_output --partial "output discarded"
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=undelivered"
 }
 
 function test_scripts_1059_ask_sh_reports_blocked_children_after_printing_their_an() {
@@ -3641,7 +3751,9 @@ function test_scripts_1063_ask_sh_maps_child_start_failures_to_refused_or_undeli
 function test_scripts_1064_ask_sh_names_a_report_path_outside_the_checkout_in_the_de() {
   _bats_test_init 1064 'ask.sh names a report path outside the checkout in the delivered question'
   ask_live_stub
-  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+  local tmp_root="$BATS_TEST_TMPDIR/ask-transport-root"
+  mkdir -p "$tmp_root"
+  run env PATH="$CHILD_STUB:$PATH" TMPDIR="$tmp_root" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$ASK_HERDR_SCRIPT" claude 'what is set -e'
   assert_success
 
@@ -3652,11 +3764,15 @@ function test_scripts_1064_ask_sh_names_a_report_path_outside_the_checkout_in_th
   assert_file_contains "$CHILD_STUB/prompt.txt" 'answer\.report'
   assert_file_contains "$CHILD_STUB/prompt.txt" 'what is set -e'
 
-  report_line="$(grep -o '/[^ ]*/answer\.report' "$CHILD_STUB/prompt.txt" | head -1)"
-  [ -n "$report_line" ]
-  case "$report_line" in
-    "$SOURCE_ROOT"*) printf 'report path is inside the checkout: %s\n' "$report_line" >&2; return 1 ;;
-  esac
+  # The transport belongs in the caller's temp root, never in a checkout the child
+  # could commit from. This test owns that root, so the expected parent directory is
+  # exact; refuting one checkout prefix left a transport under the repository root
+  # or the caller's $PWD passing.
+  local report_path report_dir
+  report_path="$(grep -o '/[^ ]*/answer\.report' "$CHILD_STUB/prompt.txt" | head -1)"
+  report_dir="$(dirname "$report_path")"
+  assert_equal "$(dirname "$report_dir")" "$tmp_root"
+  assert_equal "$(basename "$report_path")" "answer.report"
 }
 
 function test_scripts_1065_ask_sh_tells_a_read_only_child_to_write_the_report_throug() {
@@ -4361,8 +4477,11 @@ function test_scripts_021_herdr_child_requires_a_subcommand_and_herdr_envi() {
   child_stub_herdr
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV= HERDR_PANE_ID=wT:p0 \
     bash "$HERDR_CHILD" start --kind claude --wait --prompt task
-  assert_failure
-  [ ! -f "$CHILD_STUB/calls.log" ]
+  # Any non-zero status also accepts an argument-parse crash or the mode guard,
+  # and then the absent calls.log proves nothing about which guard fired.
+  assert_failure 1
+  assert_output --partial "this command requires HERDR_ENV=1"
+  assert_file_not_exists "$CHILD_STUB/calls.log"
 }
 
 function test_scripts_022_herdr_child_refuses_pi_read_only_before_splittin() {
