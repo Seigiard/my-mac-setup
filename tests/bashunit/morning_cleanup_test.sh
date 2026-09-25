@@ -65,31 +65,11 @@ build_platform_fixture() {
   printf 'dirt\n' > "$WT_DIRTY/untracked.txt"
 }
 
-function test_morning_cleanup_001_purge_removes_entries_past_the_age_threshold() {
-  _bats_test_init 1 'trash purge removes entries past the age threshold'
-  # ctime cannot be backdated (touch -t rewrites it to now), so staleness is
-  # simulated by lowering the threshold to 0 instead of aging the entry.
-  # Honest limit: this exercises the purge machinery, not the production
-  # `-ctime +N` comparison itself -- no fixture can age past a day-granular
-  # threshold, so a wrong sign or unit there is only caught by test 002
-  # refusing to over-delete, never by a positive aged-removal proof.
-  # The threshold-0 branch in the script exists for this test alone; the branch
-  # launchd runs (`-ctime +2`) has no test, and no local oracle can give it one.
-  mkdir -p "$FAKE_HOME/.scratchpad/stale-entry"
-  printf 'x' > "$FAKE_HOME/.scratchpad/stale-entry/file"
-  printf 'y' > "$FAKE_HOME/.scratchpad/stale-file"
-
-  run_cleanup MORNING_CLEANUP_TRASH_MAX_AGE_DAYS=0
-  assert_success
-  assert_dir_not_exists "$FAKE_HOME/.scratchpad/stale-entry"
-  assert_file_not_exists "$FAKE_HOME/.scratchpad/stale-file"
-  # -mindepth 1 contract: the trash root itself survives the purge.
-  assert_dir_exists "$FAKE_HOME/.scratchpad"
-  # Completion proof for the keep-control below: the same stamp shows the
-  # default-threshold run also reached the end, not that it crashed early.
-  assert_file_exists "$FAKE_HOME/.local/state/morning-cleanup/last-run"
-}
-
+# No positive aged-removal test: `-ctime +N` cannot be reached by a fixture,
+# because ctime cannot be backdated (touch -t rewrites it to now). The former
+# test 001 drove a threshold-0 branch that existed in the script for that test
+# alone and never exercised the shipped comparison. The keep half of the purge
+# contract is owned by 002 below; the removal half is uncovered.
 function test_morning_cleanup_002_default_threshold_keeps_a_fresh_entry() {
   _bats_test_init 2 'default age threshold keeps a fresh trash entry (purge control)'
   mkdir -p "$FAKE_HOME/.scratchpad/fresh-entry"

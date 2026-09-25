@@ -23,18 +23,13 @@ wt_count=0
 br_count=0
 trash_count=0
 
-# 0) Purge trash entries older than the age threshold (default 2 days; ctime
-# cannot be backdated, so tests lower MORNING_CLEANUP_TRASH_MAX_AGE_DAYS
-# instead of aging fixtures). ctime is keyed to the moment the entry was moved
-# into the trash (rename updates it), not its original mtime, so fresh moves
-# keep an undo window. A threshold of 0 purges regardless of age — find's
-# day-granularity rounding would otherwise keep sub-day entries at -ctime +0.
+# 0) Purge trash entries older than the age threshold (default 2 days). ctime
+# is keyed to the moment the entry was moved into the trash (rename updates
+# it), not its original mtime, so fresh moves keep an undo window. ctime cannot
+# be backdated, so the aged-removal half of this contract has no local test;
+# morning_cleanup_test.sh 002 owns the keep half.
 trash_candidates() {
-  if [[ "$TRASH_MAX_AGE_DAYS" == 0 ]]; then
-    find "$TRASH" -mindepth 1 -maxdepth 1 2>/dev/null
-  else
-    find "$TRASH" -mindepth 1 -maxdepth 1 -ctime "+$TRASH_MAX_AGE_DAYS" 2>/dev/null
-  fi
+  find "$TRASH" -mindepth 1 -maxdepth 1 -ctime "+$TRASH_MAX_AGE_DAYS" 2>/dev/null
 }
 while IFS= read -r entry; do
   if rm -rf "$entry"; then
