@@ -230,11 +230,15 @@ function test_idempotent_013_guard_the_misconfigured_message_names_the_marker() 
   # it -- but read back out of the message and checked against the tree.
   assert_output --partial "MMS_DISPOSABLE_HOME"
 
+}
+
+function test_idempotent_0131_guard_the_named_launch_sites_declare_the_marker() {
+  _bats_test_init 131 'guard: the launch sites the misconfigured message names declare the marker'
   # Two independently maintained sides: the message in tests/helpers/common.bash
   # claims which launch sites declare the marker, and those launch sites have to
   # actually declare it. The rot this catches is a dropped `env:` block in the
   # workflow or a dropped `environment:` entry in a compose service -- after
-  # which the scenarios above skip in CI and the suite stays green.
+  # which the apply scenarios skip in CI and the suite stays green.
   #
   # The repo root only exists where the full checkout does: the host, and the
   # macOS CI job. `make test-ubuntu` mounts home/ and tests/ alone, so the
@@ -245,12 +249,13 @@ function test_idempotent_013_guard_the_misconfigured_message_names_the_marker() 
   [[ -d "$repo_root/.github" ]] || \
     skip "the repository root is not mounted here, so the launch sites this message names cannot be read"
   assert_python3_available
-
-  # The message claims one scope per file: a top-level env: block in the
-  # workflow, named services in the compose file. Each claim is checked at that
-  # scope -- a file-wide grep would pass on one service while the other two had
-  # lost their `environment:` entry, which is exactly the rot that silently
-  # removes the coverage above.
+  captured_fail_message() {
+    mms_disposable_home_verdict() { echo "misconfigured"; }
+    fail() { printf '%s' "$*"; return 0; }
+    require_disposable_home
+  }
+  run captured_fail_message
+  assert_failure 1
   message="$BATS_TEST_TMPDIR/misconfigured-message"
   printf '%s' "$output" > "$message"
   run python3 - "$message" "$repo_root" <<'PY'

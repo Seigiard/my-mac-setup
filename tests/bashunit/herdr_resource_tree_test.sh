@@ -294,6 +294,28 @@ teardown() {
   # developer's live session append them to this file as well.
   if command_exists herdr; then
     local recorded_kind recorded
+    # A split whose follow-up snapshot failed left no pane id behind; close
+    # whatever the live server holds beyond the set recorded before the split.
+    if [[ -s "${TREE_WORK:-}/live-panes-before" && -x "${TREE_LIVE_HERDR:-}" ]]; then
+      "$TREE_WORK/run-bounded" "$TREE_LIVE_HERDR" api snapshot \
+        > "$TREE_WORK/live-panes-now" 2>/dev/null || true
+      python3 - "$TREE_WORK/live-panes-before" "$TREE_WORK/live-panes-now" <<'PY' >> "$TREE_WORK/live-panes" 2>/dev/null || true
+import json
+import sys
+
+
+def pane_ids(path):
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return {pane["pane_id"] for pane in json.load(handle)["result"]["snapshot"]["panes"]}
+    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+        return set()
+
+
+for pane_id in sorted(pane_ids(sys.argv[2]) - pane_ids(sys.argv[1])):
+    print(pane_id)
+PY
+    fi
     for recorded_kind in panes workspaces; do
       [[ -s "${TREE_WORK:-}/live-$recorded_kind" ]] || continue
       while read -r recorded; do
@@ -1113,6 +1135,9 @@ PY
   # wrapper's own exit status and diagnostic, which is what failed.
   run "$TREE_WORK/run-bounded" "$TREE_LIVE_HERDR" api snapshot
   local after_split="$output"
+  # If this snapshot failed, TREE_LIVE_PANE stays empty and live-panes gets no
+  # entry; teardown then diffs a fresh snapshot against this pre-split set.
+  printf '%s' "$before_split" > "$TREE_WORK/live-panes-before"
   TREE_LIVE_PANE="$(python3 - "$before_split" "$after_split" <<'PY'
 import json
 import sys

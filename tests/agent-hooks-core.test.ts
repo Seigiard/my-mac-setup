@@ -390,6 +390,19 @@ describe("cross-client parity (KTD8)", () => {
 
 // --- scenario 7: reason contract (R9) ---------------------------------------
 
+// R9: a denial names a concrete alternative action. For a policy with an
+// escape hatch that is the hatch token; for one without, it is the literal
+// alternative its reason must carry. A block-capable policy missing from this
+// map reports `alternative=unlisted` and fails the exact list below, so a new
+// policy has to declare its alternative here rather than inherit a pass.
+const R9_ALTERNATIVES: Record<string, string> = {
+  "fixture-reserved-guard": "fixture-ok:",
+  "fixture-content-guard": "Assert the capability that remains",
+  "zsh-reserved-name-guard": "zsh-ok:",
+  "fff-grep-guard": "Pick one: search a single identifier",
+};
+
+
 describe("reason contract (R9)", () => {
   // The exact reason text of every shipped policy is owned by the corpus loop
   // below. What R9 adds here is the two properties that hold for any policy:
@@ -410,33 +423,32 @@ describe("reason contract (R9)", () => {
           // #when the known-bad canary is dispatched
           const decision = core.dispatch(client, raw, { registry, env: {} });
 
-          // #then every route denies, names itself, and repeats its own hatch
-          const hatch =
-            policy.escapeHatch === undefined
-              ? "none"
-              : String(decision.reason?.includes(policy.escapeHatch));
+          // #then every route denies, names itself, and names its alternative
+          const alternative = R9_ALTERNATIVES[policy.name];
+          const named =
+            alternative === undefined ? "unlisted" : String(decision.reason?.includes(alternative));
           observed.push(
             `${policy.name}@${client}: ${decision.verdict}` +
               ` prefixed=${decision.reason?.startsWith(`${policy.name}:`)}` +
-              ` hatch=${hatch}`,
+              ` alternative=${named}`,
           );
         }
       }
     }
 
     expect(observed).toEqual([
-      "fixture-reserved-guard@claude: block prefixed=true hatch=true",
-      "fixture-reserved-guard@opencode: block prefixed=true hatch=true",
-      "fixture-reserved-guard@pi: block prefixed=true hatch=true",
-      "fixture-content-guard@claude: block prefixed=true hatch=none",
-      "fixture-content-guard@opencode: block prefixed=true hatch=none",
-      "fixture-content-guard@pi: block prefixed=true hatch=none",
-      "zsh-reserved-name-guard@claude: block prefixed=true hatch=true",
-      "zsh-reserved-name-guard@opencode: block prefixed=true hatch=true",
-      "zsh-reserved-name-guard@pi: block prefixed=true hatch=true",
-      "fff-grep-guard@claude: block prefixed=true hatch=none",
-      "fff-grep-guard@opencode: block prefixed=true hatch=none",
-      "fff-grep-guard@pi: block prefixed=true hatch=none",
+      "fixture-reserved-guard@claude: block prefixed=true alternative=true",
+      "fixture-reserved-guard@opencode: block prefixed=true alternative=true",
+      "fixture-reserved-guard@pi: block prefixed=true alternative=true",
+      "fixture-content-guard@claude: block prefixed=true alternative=true",
+      "fixture-content-guard@opencode: block prefixed=true alternative=true",
+      "fixture-content-guard@pi: block prefixed=true alternative=true",
+      "zsh-reserved-name-guard@claude: block prefixed=true alternative=true",
+      "zsh-reserved-name-guard@opencode: block prefixed=true alternative=true",
+      "zsh-reserved-name-guard@pi: block prefixed=true alternative=true",
+      "fff-grep-guard@claude: block prefixed=true alternative=true",
+      "fff-grep-guard@opencode: block prefixed=true alternative=true",
+      "fff-grep-guard@pi: block prefixed=true alternative=true",
     ]);
   });
 });
@@ -783,6 +795,20 @@ describe("fff-grep-guard fail-open (R4)", () => {
 });
 
 describe("webfetch-markdown-hint applicability (KTD8)", () => {
+  test("the hint is the only shipped policy that neither blocks nor declares a canary", () => {
+    // #given the shipped registry
+    // #when the policies no other test can see are listed: not block-capable
+    // (the R9 and canary tests skip them) and without a canary (runCanaries
+    // yields no route for them)
+    const unobserved = core.CORE_REGISTRY.policies
+      .filter((policy: any) => !core.isBlockCapable(policy) && policy.canary === undefined)
+      .map((policy: any) => policy.name);
+
+    // #then a context-only policy added to policies/index.ts has to be named
+    // here, because nothing else in this suite would notice it shipping
+    expect(unobserved).toEqual(["webfetch-markdown-hint"]);
+  });
+
   test("the context-only policy is derived Claude-only", () => {
     // #given the shipped registry
     // #when applicability is derived for the hint policy

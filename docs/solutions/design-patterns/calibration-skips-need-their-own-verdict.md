@@ -44,7 +44,7 @@ shape. That is correct and incomplete. A skip is exit 0. The runner folds it int
 a green run, and the tests that run against the fake keep passing on a claim
 nothing checked.
 
-The 2026-08-24 test-corpus audit found three shapes of this in one suite:
+The 2026-09-25 test-corpus audit found three shapes of this in one suite:
 
 - `tests/bashunit/scripts_test.sh` test 3074, the only calibration of the Skills
   CLI stub, turned **any** non-zero exit of the real CLI into `skip`. A CLI that
@@ -119,7 +119,7 @@ calibration has two halves with different preconditions, split it into two tests
 so the half that can be verified is reported as verified:
 
 - 08523 owns the `local` half, constructed, and skips only where herdr is absent.
-- 08526 owns the `github` half, which cannot be constructed offline — `plugin
+- 08530 owns the `github` half, which cannot be constructed offline — `plugin
   install` resolves a ref over the network — and carries its own named skip.
 
 The pass count is not the point; the point is that the run says which half was
