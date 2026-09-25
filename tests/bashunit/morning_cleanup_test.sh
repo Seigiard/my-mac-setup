@@ -73,6 +73,8 @@ function test_morning_cleanup_001_purge_removes_entries_past_the_age_threshold()
   # `-ctime +N` comparison itself -- no fixture can age past a day-granular
   # threshold, so a wrong sign or unit there is only caught by test 002
   # refusing to over-delete, never by a positive aged-removal proof.
+  # The threshold-0 branch in the script exists for this test alone; the branch
+  # launchd runs (`-ctime +2`) has no test, and no local oracle can give it one.
   mkdir -p "$FAKE_HOME/.scratchpad/stale-entry"
   printf 'x' > "$FAKE_HOME/.scratchpad/stale-entry/file"
   printf 'y' > "$FAKE_HOME/.scratchpad/stale-file"
@@ -118,12 +120,13 @@ function test_morning_cleanup_003_git_cleanup_removes_only_merged_clean() {
   assert_dir_exists "$WT_DIRTY"
   assert_file_exists "$WT_DIRTY/untracked.txt"
 
-  run fgit -C "$PLATFORM" branch --list
+  # Exact listing, not per-branch partials: git prints these three names sorted
+  # and nothing else, so the whole set is the oracle. It states in one assertion
+  # that merged-clean is gone and that the three survivors are untouched —
+  # over-deletion and under-deletion both fail here.
+  run fgit -C "$PLATFORM" branch --list --format='%(refname:short)'
   assert_success
-  assert_output --partial "main"
-  assert_output --partial "unmerged"
-  assert_output --partial "dirty-merged"
-  refute_output --partial "merged-clean"
+  assert_output $'dirty-merged\nmain\nunmerged'
 
   # The main checkout itself is never a cleanup candidate.
   assert_dir_exists "$PLATFORM"

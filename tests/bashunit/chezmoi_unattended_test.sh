@@ -137,6 +137,17 @@ run_full() {
     run "$LAUNCHER" --profile full-fixture -- "$@"
 }
 
+# One version fixture, one exact gate message. The version probe has four
+# rejection branches and the bare token 'version' appears in three of them —
+# and inside two of the fixture strings themselves — so only the exact line
+# says which gate answered.
+assert_version_rejected() {
+  FAKE_CHEZMOI_VERSION="$1" run_host verify
+  assert_failure 2
+  assert_output "$2"
+  assert_final_not_reached
+}
+
 assert_final_not_reached() {
   # oracle: the controlled child creates this marker only for a final command.
   assert_file_not_exists "$FAKE_STATE/argv"
@@ -179,15 +190,18 @@ function test_chezmoi_unattended_001_requires_exact_selector_with_valid_control(
 
 function test_chezmoi_unattended_002_rejects_missing_or_malformed_profile() {
   _bats_test_init 2 'rejects missing or malformed profile before final execution'
+  # Exact line, not the token 'profile': that word is also in the usage header
+  # and in MMS_CHEZMOI_UNATTENDED_PROFILE, so any other gate that mentions it
+  # would satisfy a partial match and hide which one answered.
   PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 run "$LAUNCHER" -- verify
-  assert_failure
-  assert_output --partial 'profile'
+  assert_failure 2
+  assert_output 'chezmoi-unattended: --profile must be full-fixture or host-partial'
   assert_final_not_reached
 
   PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
     run "$LAUNCHER" --profile automatic -- verify
-  assert_failure
-  assert_output --partial 'full-fixture or host-partial'
+  assert_failure 2
+  assert_output 'chezmoi-unattended: --profile must be full-fixture or host-partial'
   assert_final_not_reached
 }
 
@@ -217,18 +231,17 @@ function test_chezmoi_unattended_004_rejects_bad_versions_with_valid_boundaries(
   mv "$FAKE_BIN/chezmoi" "$FAKE_BIN/not-chezmoi"
   PATH="$FAKE_BIN" MMS_CHEZMOI_UNATTENDED=1 \
     run /bin/bash "$LAUNCHER" --profile host-partial -- verify
-  assert_failure
-  assert_output --partial 'chezmoi executable'
+  assert_failure 2
+  assert_output 'chezmoi-unattended: chezmoi executable is not available on PATH'
   assert_final_not_reached
   mv "$FAKE_BIN/not-chezmoi" "$FAKE_BIN/chezmoi"
 
-  local version
-  for version in broken 'chezmoi version latest' 'chezmoi version v2.72.0, commit fake'; do
-    FAKE_CHEZMOI_VERSION="$version" run_host verify
-    assert_failure
-    assert_output --partial 'version'
-    assert_final_not_reached
-  done
+  assert_version_rejected broken \
+    'chezmoi-unattended: malformed chezmoi version output: broken'
+  assert_version_rejected 'chezmoi version latest' \
+    'chezmoi-unattended: malformed chezmoi version: latest'
+  assert_version_rejected 'chezmoi version v2.72.0, commit fake' \
+    'chezmoi-unattended: chezmoi version 2.72.0 is older than required 2.72.1'
 
   FAKE_CHEZMOI_VERSION='chezmoi version v2.72.1, commit fake' run_host verify
   assert_success
@@ -409,6 +422,15 @@ break"
 
 function test_chezmoi_unattended_0101_large_host_diff_stays_below_linux_exec_string_limit() {
   _bats_test_init 101 'large host diff keeps CHEZMOI_ARGS below the Linux exec string limit'
+  # Known limit: the fake flattens argv with the same len(bin) + Σ(len(arg)+1)
+  # accounting the launcher budgets batches with, so a shared off-by-N in how
+  # chezmoi really flattens CHEZMOI_ARGS would pass both sides. What keeps the
+  # check honest is the ceiling: 128 KiB minus the variable name and NUL is
+  # Linux's documented per-string exec limit, an external number, and the
+  # launcher budgets 96 KiB against it, so the assertion has real headroom to
+  # measure. The batch count is a direction because the exact number depends on
+  # the length of $HOME; `> 1` is also what proves the size loop below is not
+  # reading an empty file.
   local target_count=2000 final_invocations=0 invocation serialized_size
   local linux_max_env_string_bytes=$((128 * 1024))
   local chezmoi_args_name_and_nul_bytes=14
@@ -444,8 +466,12 @@ function test_chezmoi_unattended_011_malformed_inventory_fails_closed() {
 
   PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
     run "$copied/chezmoi-unattended" --profile host-partial -- verify
-  assert_failure
-  assert_output --partial 'inventory'
+  assert_failure 2
+  # Exact row message. 'inventory' alone also matches "is missing or unreadable"
+  # and "contains no target rows", so a launcher that failed to locate its
+  # sidecar next to the copy -- the resolution this copied directory exists to
+  # exercise -- would pass on the wrong branch.
+  assert_output 'chezmoi-unattended: malformed inventory row 1: expected five tab-separated fields'
   assert_final_not_reached
 }
 
