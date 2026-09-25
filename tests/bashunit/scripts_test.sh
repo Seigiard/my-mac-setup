@@ -7104,7 +7104,10 @@ function test_scripts_086_herdr_child_reap_refuses_outside_herdr_and_from() {
   child_stub_herdr
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV= HERDR_PANE_ID=wT:p0 \
     bash "$HERDR_CHILD" reap --to orange-panda --pane wT:p9
-  assert_failure
+  assert_failure 1
+  assert_output --partial 'requires HERDR_ENV=1'
+  # The refusal is only a refusal if nothing reached herdr first.
+  assert_file_not_exists "$CHILD_STUB/calls.log"
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
     HERDR_CHILD_PARENT_PANE=wT:p0 bash "$HERDR_CHILD" reap --to orange-panda --pane wT:p9
   assert_failure
@@ -7155,6 +7158,12 @@ function test_scripts_090_herdr_child_reap_closes_the_child_pane_but_repor() {
     STUB_TAB_PANE_COUNT=2 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reap --to tab-a --pane wT:p1
   assert_success
   assert_output --partial "tab-a: closed pane wT:p1; tab wT:tA kept with 2 panes"
+  # The line is a report; these two are the acts it reports. A reap that printed
+  # the line and then took the tab with the siblings in it would pass without
+  # them.
+  assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p1'
+  run grep -q '^tab close' "$CHILD_STUB/calls.log"
+  assert_failure
 }
 
 function test_scripts_091_herdr_child_reap_preserves_ambiguous_tab_ownersh() {
@@ -7192,10 +7201,6 @@ function test_scripts_092_herdr_child_tab_reap_invalidates_detached_superv() {
 # ===========================================
 
 PEER_ALIAS_SCRIPT="$SOURCE_ROOT/dot_local/bin/executable_herdr-peer-alias"
-peer_alias_candidate() {
-  "$HERDR_ALIAS_ALLOCATOR" --alias-candidates "$1" | sed -n "${2}p"
-}
-
 peer_alias_stub() {
   local stub="$BATS_TEST_TMPDIR/stub"
   mkdir -p "$stub"
@@ -7234,22 +7239,18 @@ function test_scripts_1401_herdr_peer_alias_skips_live_and_reserved_aliase() {
   _bats_test_init 1401 'herdr-peer-alias skips live and reserved aliases'
   command -v jq >/dev/null || skip "jq not available"
   local seed="claude|peer-alias-suite|$BATS_TEST_TMPDIR"
-  local stub live reserved expected allocated
+  local stub
   stub="$(peer_alias_stub)"
-  live="$(peer_alias_candidate "$seed" 1)"
-  reserved="$(peer_alias_candidate "$seed" 2)"
-  expected="$(peer_alias_candidate "$seed" 3)"
-
+  # tests/helpers/herdr_alias_allocator answers every seed with the same fixed
+  # pool: red-wolf blue-fox green-otter amber-badger silver-koala purple-raven.
+  # The literals are written out rather than read back from the allocator, so an
+  # allocator that started printing something else fails this test instead of
+  # relabelling its own expectation.
   run env PATH="$stub:$PATH" \
-    STUB_AGENT_LIST="{\"result\":{\"agents\":[{\"name\":\"$live\",\"pane_id\":\"wT:p1\"},{\"name\":null,\"pane_id\":\"wT:p2\"}]}}" \
-    bash "$PEER_ALIAS_SCRIPT" "$seed" "$reserved"
+    STUB_AGENT_LIST='{"result":{"agents":[{"name":"red-wolf","pane_id":"wT:p1"},{"name":null,"pane_id":"wT:p2"}]}}' \
+    bash "$PEER_ALIAS_SCRIPT" "$seed" blue-fox
   assert_success
-  assert_output "$expected"
-  allocated="$output"
-
-  if [[ ! "$allocated" =~ ^[a-z]+-[a-z]+$ ]]; then
-    fail "allocator returned an invalid alias: $allocated"
-  fi
+  assert_output green-otter
 }
 
 # An agent record missing pane_id is a truncated list: its alias may be live
@@ -7486,13 +7487,22 @@ function test_scripts_094_dispatcher_denies_a_fff_query_of_several_bare_wo() {
 {"tool_name":"mcp__fff__grep","tool_input":{"query":"TODO FIXME scheduling launchd cron"}}
 EOF
   assert_success
-  assert_output --partial '"permissionDecision": "deny"'
   assert_output --partial "fff-grep-guard:"
   # R9 wants a named alternative, not a client's spelling of one. The reason is
   # shown to every client the policy is applicable to, so pinning Claude's
   # mcp__fff__multi_grep here would re-assert the bug that made an OpenCode deny
   # point at a tool OpenCode does not have.
   assert_output --partial "fff multi-grep tool"
+  # The decision is a field of a document the client parses, not a line of text.
+  # A substring match on the pretty-printed pair pins this shim's whitespace and
+  # would still pass with the value filed under the wrong key.
+  run python3 -c '
+import json, sys
+hook = json.loads(sys.argv[1])["hookSpecificOutput"]
+if hook.get("permissionDecision") != "deny":
+    raise SystemExit("permissionDecision is %r" % (hook.get("permissionDecision"),))
+' "$output"
+  assert_success
 }
 
 function test_scripts_095_dispatcher_stays_silent_on_a_single_identifier() {
@@ -7539,10 +7549,20 @@ function test_scripts_098_dispatcher_adds_context_for_a_plain_webfetch_url() {
 {"tool_name":"WebFetch","tool_input":{"url":"https://example.com/docs"}}
 EOF
   assert_success
-  assert_output --partial '"additionalContext"'
-  assert_output --partial "/markdown-new"
-  # A context-only policy routed through a deny would turn a hint into a wall.
-  refute_output --partial "permissionDecision"
+  # Both halves read out of the parsed document: a bare '"additionalContext"'
+  # substring passes on the key name appearing anywhere, including inside a
+  # string, and the absent-decision half is the discriminator -- a context-only
+  # policy routed through a deny would turn a hint into a wall.
+  run python3 -c '
+import json, sys
+hook = json.loads(sys.argv[1])["hookSpecificOutput"]
+if "permissionDecision" in hook:
+    raise SystemExit("context-only policy carries a decision: %r" % (hook["permissionDecision"],))
+context = hook.get("additionalContext")
+if context is None or "/markdown-new" not in context:
+    raise SystemExit("additionalContext does not name the skill: %r" % (context,))
+' "$output"
+  assert_success
 }
 
 function test_scripts_099_dispatcher_stays_silent_when_the_url_already_uses() {
@@ -7777,9 +7797,9 @@ function test_scripts_1337_pane_labels_migration_activates_and_removes_the_legac
   run pane_labels_migration_apply "$work"
   assert_success
   assert_dir_not_exists "$work/home/.config/herdr/plugins/herdr-pane-labels"
-  assert_file_contains "$work/home/.local/bin/herdr-pane-labels" '^#!/bin/sh$'
-  assert_file_contains "$work/home/.local/lib/herdr-aliases.sh" '^package-aliases$'
-  assert_file_contains "$work/home/.local/lib/herdr-process.sh" '^package-process$'
+  # The package engine and its two libs are written by the stub's own install
+  # branch, so re-reading them proves only that install ran -- which the install
+  # argv below proves directly. The migration never touches those paths.
   assert_file_contains "$work/home/.local/bin/herdr-child" '^legacy-child$'
   assert_file_contains "$work/herdr.calls" '^plugin install Seigiard/herdr-pane-labels --ref aba61eb788c5fe0630dc570d96fd14683e2f63c7 -y$'
   assert_file_exists "$work/home/.local/lib/herdr-pane-labels.version"
@@ -8271,8 +8291,18 @@ function test_scripts_254_morning_cleanup_trashes_stale_omc_state_and_stam() {
 
   run env HOME="$fake_home" MORNING_CLEANUP_NO_NOTIFY=1 bash "$script"
   assert_success
-  [ ! -d "$fake_home/Projects/demo/.omc" ]
-  [ -f "$fake_home/.local/state/morning-cleanup/last-run" ]
+  assert_dir_not_exists "$fake_home/Projects/demo/.omc"
+  # "Trashed", not deleted. The script moves the dir into ~/.scratchpad and the
+  # purge step only reclaims it days later; a regression to rm -rf would leave
+  # the source gone all the same, so the destination is what carries the undo
+  # window.
+  run find "$fake_home/.scratchpad" -mindepth 1 -maxdepth 1 -type d -name 'omc-*'
+  assert_success
+  assert_equal "${#lines[@]}" 1
+  assert_file_exists "${lines[0]}/state.json"
+  # The stamp is a date, not a touch file: test 256 reads this content to decide
+  # that a second run of the same day is a no-op.
+  assert_equal "$(cat "$fake_home/.local/state/morning-cleanup/last-run")" "$(date +%Y-%m-%d)"
 }
 
 function test_scripts_255_morning_cleanup_keeps_a_recently_active_omc_dir() {
@@ -9306,28 +9336,53 @@ function test_scripts_273_skills_dispatch_validates_inert_argv_and_uses_global_r
   assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<update><--global><owned>$'
 
   rm -f "$BATS_TEST_TMPDIR/tmp/npx.log"
+  # Same SKILLS_MANIFEST the legs above carry, so the chezmoi guard cannot be
+  # the reason this fails: what is left is the argv check the title claims.
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
-    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" bash "$SKILLS_WRAPPER" add 'owner/repo;touch'
-  assert_failure
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" SKILLS_MANIFEST="$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest" \
+    bash "$SKILLS_WRAPPER" add 'owner/repo;touch'
+  assert_failure 1
+  assert_output --partial 'skills: invalid source: owner/repo;touch'
   assert_file_not_exists "$BATS_TEST_TMPDIR/tmp/npx.log"
 }
 
 function test_scripts_274_skills_rejects_malformed_lock_before_npx() {
   _bats_test_init 274 'skills sync fails closed on malformed live lock without npx mutation'
-  local stub lock
+  local stub lock manifest
   stub="$(skills_stub_npx)"
+  manifest="$BATS_TEST_TMPDIR/manifest"
   lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
-  mkdir -p "$(dirname "$lock")"
+  # sync has several earlier exits -- unreadable manifest, unreadable
+  # repository-owned manifest, invalid wildcard exclusion. The fixture supplies
+  # a valid one of each so the only thing left to fail on is the lock.
+  mkdir -p "$(dirname "$lock")" "$BATS_TEST_TMPDIR/home/.agents/skills"
+  : > "$BATS_TEST_TMPDIR/repository-owned"
+  printf '%s\n' 'example/upstream-skills *' > "$manifest"
   printf '%s\n' '{not-json' > "$lock"
   cp "$lock" "$BATS_TEST_TMPDIR/lock.before"
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
-    SKILLS_MANIFEST="$SOURCE_ROOT/private_dot_config/agent-skills/manifest" bash "$SKILLS_WRAPPER" sync
-  assert_failure
+    SKILLS_MANIFEST="$manifest" \
+    SKILLS_REPOSITORY_OWNED_MANIFEST="$BATS_TEST_TMPDIR/repository-owned" \
+    bash "$SKILLS_WRAPPER" sync
+  assert_failure 1
+  assert_output --partial 'skills: malformed or unsupported global lock'
   run cmp "$BATS_TEST_TMPDIR/lock.before" "$lock"
   assert_success
   assert_file_not_exists "$BATS_TEST_TMPDIR/tmp/npx.log"
+
+  # The control: one character of the fixture changes -- the lock parses -- and
+  # the same sync reaches npx. Without it, "npx never ran" is satisfied by every
+  # unrelated way sync can fall over first.
+  printf '%s\n' '{"version":3,"skills":{}}' > "$lock"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$manifest" \
+    SKILLS_REPOSITORY_OWNED_MANIFEST="$BATS_TEST_TMPDIR/repository-owned" \
+    bash "$SKILLS_WRAPPER" sync
+  assert_success
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '^ARGS=<--yes><skills@latest><add><example/upstream-skills><--skill><\*><--global>'
 }
 
 function test_scripts_275_skills_sync_stops_on_failed_install_without_drift_report() {
@@ -9378,6 +9433,21 @@ function test_scripts_276_skills_remove_uses_explicit_and_default_xdg_locks_iden
     bash "$SKILLS_WRAPPER" remove owner/repo owned
   assert_success
   run grep -c '<remove><--global><owned><--yes>' "$BATS_TEST_TMPDIR/tmp/npx.log"
+  assert_success
+  assert_output '2'
+
+  # The negative control the two success legs cannot give. Same argv, same
+  # manifest, same wrapper -- only the lock's recorded owner differs. Without
+  # it, a wrapper that never opened either lock would pass the legs above.
+  printf '%s\n' '{"version":3,"skills":{"owned":{"source":"someone/else"}}}' > "$state_lock"
+  printf '%s\n' 'owner/repo owned' > "$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" SKILLS_MANIFEST="$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest" \
+    bash "$SKILLS_WRAPPER" remove owner/repo owned
+  assert_failure 1
+  assert_output --partial 'skills: lock does not own owned as owner/repo'
+  run grep -c '<remove><--global><owned><--yes>' "$BATS_TEST_TMPDIR/tmp/npx.log"
+  assert_success
   assert_output '2'
 }
 
@@ -9432,8 +9502,10 @@ SH
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
     SKILLS_MANIFEST="$manifest" bash "$SKILLS_WRAPPER" sync
-  assert_failure
+  assert_failure 1
+  assert_output --partial 'skills: canonical skill collides with repository-owned skill: local-skill'
   run cat "$canonical/local-skill/SKILL.md"
+  assert_success
   assert_output original
   run python3 - "$lock" <<'PY'
 import json, sys
