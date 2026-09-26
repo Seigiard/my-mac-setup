@@ -454,7 +454,8 @@ case "$1 $2" in
     exit 1
     ;;
   'pane get')
-    printf '{"id":"cli:pane:get","result":{"pane":{"agent_session":{"agent":"claude","kind":"id","source":"herdr:claude","value":"%s"},"pane_id":"%s"},"type":"pane_info"}}\n' \
+    printf '{"id":"cli:pane:get","result":{"pane":{"agent_session":{"agent":"%s","kind":"id","source":"herdr:%s","value":"%s"},"pane_id":"%s"},"type":"pane_info"}}\n' \
+      "${PANE_SESSION_AGENT:-claude}" "${PANE_SESSION_AGENT:-claude}" \
       "${PANE_SESSION:-3f21c0de-earlier-session}" "$3"
     exit 0
     ;;
@@ -490,6 +491,24 @@ SH
   assert_equal "$(grep -c 'pane release-agent' "$log")" 0
 
   # #then it holds no claim and leaves the rename for the first prompt
+  assert_file_not_exists "$marker"
+  assert_equal "$(cat "$note")" 'ochre-okapi'
+
+  # #given the identity left by a client of another kind. Herdr refuses a
+  # declaration on such a pane exactly as it does after Claude -- measured on
+  # herdr 0.9.1, where `--agent opencode` and `--agent codex` are answered
+  # without error and create nothing -- so this pane takes the same route. It is
+  # the case that fails if the read is ever narrowed to the claude identity.
+  : > "$log"; rm -f "$note" "$marker"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
+    PANE_SESSION_AGENT=opencode HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" claude
+
+  # #then Claude still enrolls without declaring anything
+  assert_success
+  assert_output --partial '<--name><ochre-okapi><--claude><'
+  assert_equal "$(grep -c 'pane report-agent' "$log")" 0
+  assert_equal "$(grep -c 'agent rename' "$log")" 0
   assert_file_not_exists "$marker"
   assert_equal "$(cat "$note")" 'ochre-okapi'
 

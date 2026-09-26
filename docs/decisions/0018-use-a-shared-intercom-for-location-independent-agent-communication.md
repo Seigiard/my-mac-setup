@@ -238,13 +238,17 @@ decided by the server rather than by a name chosen locally. A record that
 already exists is never renamed; it belongs to whoever created it.
 
 Declaring works once per pane, and the fallback below is why a relaunch still
-enrolls. A pane that has hosted a Claude session keeps the `claude`
-agent-session identity that client's `SessionStart` hook reported. That identity
-is write-once per pane: nothing clears it, a later identity from the same source
-does not replace it, and `pane release-agent` does not touch it — it only
-withdraws the lifecycle record its own source owns. From then on the pane ignores
-`pane report-agent` for that agent kind and reports success while creating
-nothing, so the rename has no record to act on. Clearing the identity when a
+enrolls. A pane that has hosted an agent session keeps the agent-session identity
+that client's own integration hook reported — Claude Code's `SessionStart` hook is
+the one this launcher meets, and OpenCode's and Pi's integrations report the same
+field. That identity is write-once per pane: nothing clears it, a later identity
+from the same source does not replace it, and `pane release-agent` does not touch
+it — it only withdraws the lifecycle record its own source owns. From then on the
+pane ignores every `pane report-agent`, whatever agent kind that report names, and
+reports success while creating nothing, so the rename has no record to act on.
+A pane whose previous occupant was OpenCode or Pi is therefore just as undeclarable
+as one that hosted Claude, which is why the route is chosen from the field's
+presence and never from its `agent` value. Clearing the identity when a
 session ends would be the fix that keeps one path for every launch, and it is not
 available. `pane release-agent` withdraws a record and leaves the identity.
 `pane.clear_agent_authority`, which the socket API carries and the CLI does not

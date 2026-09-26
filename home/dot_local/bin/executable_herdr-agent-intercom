@@ -197,10 +197,15 @@ if [[ -z "$intercom_name" && "$agent" == claude && -n "${HERDR_PANE_ID:-}" ]] &&
     # the only place it stays visible, because `agent get` has no record left to
     # carry it. Measured on herdr 0.9.1: that field is write-once per pane.
     # Nothing clears it, a fresh identity from the same source does not replace
-    # it, and while it is set the pane ignores every `pane report-agent` for
-    # that agent kind while still reporting success. So this one read decides
-    # the route before a single pool name is spent, and the pane's own record is
-    # the evidence rather than the wording of a rejection.
+    # it, and while it is set the pane ignores every `pane report-agent` while
+    # still reporting success -- whatever agent kind that report names, not only
+    # the kind the identity carries. A pane whose first client was OpenCode or Pi
+    # is as undeclarable as one that hosted Claude, so this tests for the field
+    # and deliberately not for its `agent` value: narrowing it to `claude` would
+    # send every pi- or opencode-used pane back to the route that cannot work.
+    # So this one read decides the route before a single pool name is spent, and
+    # the pane's own record is the evidence rather than the wording of a
+    # rejection.
     pane_probe="$(herdr pane get "$HERDR_PANE_ID" 2>/dev/null)" || pane_probe=""
     if [[ "$pane_probe" == *'"agent_session"'* ]]; then
       candidate="$(herdr-peer-alias "$claim_seed" 2>/dev/null)" || candidate=""
