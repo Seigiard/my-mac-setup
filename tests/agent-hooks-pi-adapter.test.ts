@@ -72,12 +72,34 @@ async function loadExtension(coreDir?: string): Promise<Host> {
  */
 async function callToolCall(host: Host, raw: any): Promise<any> {
   const handler = host.handlers["tool_call"];
-  if (!handler) return undefined;
+  // An absent handler is exactly the `undefined` the allow tests below expect,
+  // so a broken $HOME symlink, a moved index.ts or a renamed dispatch export
+  // would read as "the tool call proceeded". Refuse to answer for the
+  // extension when the extension never registered.
+  expect(handler).toBeTypeOf("function");
   return await handler(raw);
 }
 
+// pi's own wire spellings for the tools the policy corpus exercises, written out
+// here rather than produced by the core's encoder. `encodeEvent` is the WRITERS
+// half of normalize.ts and the handler feeds its result straight into the
+// READERS half, so an encoder-derived event is the inverse of the parser it is
+// about to exercise: a pair that agreed on a wrong field name would keep every
+// test below green while real pi traffic reached no policy. Source is the same
+// as the corpus's hand-written `raw.pi` entries — the shipped adapter, with
+// `ffgrep`/`pattern` as pi-fff spells them in its default tools-and-ui mode.
+const PI_WIRE: Record<string, { toolName: string; fields: Record<string, string> }> = {
+  bash: { toolName: "bash", fields: { command: "command" } },
+  "fff-grep": { toolName: "ffgrep", fields: { query: "pattern" } },
+};
+
+/** undefined = pi has no wire shape for that tool, i.e. no route exists. */
 function piRawFor(fixture: any): any | undefined {
-  return normalize.encodeEvent("pi", fixture.tool, fixture.payload, REGISTRY);
+  const wire = PI_WIRE[fixture.tool];
+  if (wire === undefined) return undefined;
+  const input: Record<string, unknown> = {};
+  for (const [field, value] of Object.entries(fixture.payload)) input[wire.fields[field]] = value;
+  return { toolName: wire.toolName, input };
 }
 
 function policyFixture(policy: string, name: string): any {
@@ -95,9 +117,11 @@ describe("tool_call deny and allow (R3)", () => {
     // #when the handler sees it
     const decision = await callToolCall(host, piRawFor(fixture));
 
-    // #then pi's own deny envelope carries the core's reason verbatim
+    // #then pi's own deny envelope carries the core's reason verbatim. The
+    // prefix contract on that reason belongs to the core's R9 test, which can
+    // observe it for every block-capable policy; asserting it here would only
+    // restate a property of the corpus entry this test just loaded.
     expect(decision).toEqual({ block: true, reason: fixture.text });
-    expect(fixture.text.startsWith("zsh-reserved-name-guard:")).toBe(true);
   });
 
   test("the valid control differing only in the variable name is not denied", async () => {
@@ -146,7 +170,11 @@ describe("openai-codex tool_call dialect (R3)", () => {
     const policy = policyFixture("zsh-reserved-name-guard", "zsh/flags the status capture idiom");
     const fixture = corpus.fixture("codex exec command");
     const host = await loadExtension(CORE_DIR);
-    expect(fixture.payload.command).toBe(policy.payload.command);
+    // Setup, not an assertion: `policy.text` is only the right expected value
+    // below while the two corpus entries carry the same command.
+    if (fixture.payload.command !== policy.payload.command) {
+      throw new Error("the codex and policy fixtures no longer share one command");
+    }
 
     // #when the handler receives the provider's real tool spelling and field
     const decision = await callToolCall(host, fixture.raw.pi);
@@ -182,6 +210,16 @@ describe("pi arg dialect reaches Claude's verdicts (R3, KTD8)", () => {
     const shared = corpus.POLICY_FIXTURES.filter((fixture: any) => piRawFor(fixture) !== undefined);
     let denials = 0;
     let clearances = 0;
+    // Cardinality before the loop: `shared` is selected by this file's own wire
+    // table, so a route that disappears from it shrinks the loop instead of
+    // failing it. 19 is the corpus's own count of bash and fff-grep fixtures,
+    // 9 of which deny -- an independent side from the wire table doing the
+    // selecting.
+    expect([
+      shared.length,
+      shared.filter((fixture: any) => fixture.tool === "bash").length,
+      shared.filter((fixture: any) => fixture.tool === "fff-grep").length,
+    ]).toEqual([19, 14, 5]);
 
     for (const fixture of shared) {
       // #when the pi dialect goes through the handler and the claude dialect
@@ -201,13 +239,15 @@ describe("pi arg dialect reaches Claude's verdicts (R3, KTD8)", () => {
       } else {
         clearances += 1;
         expect(`${fixture.name}: ${JSON.stringify(decision)}`).toBe(`${fixture.name}: undefined`);
-        expect(claudeDecision.verdict).not.toBe("block");
+        // `shared` holds only the bash and fff-grep fixtures, so allow is the
+        // one non-block outcome here: a stray context decision is a defect,
+        // not something this branch may accept.
+        expect(claudeDecision).toEqual({ verdict: "allow" });
       }
     }
 
-    // Both branches must have been reached, or the loop above proves nothing.
-    expect(denials).toBeGreaterThan(0);
-    expect(clearances).toBeGreaterThan(0);
+    // Both branches reached, and each for its whole share of the corpus.
+    expect([denials, clearances]).toEqual([9, 10]);
   });
 
   test("the fff route pi exposes denies a multi-token query and allows one identifier", async () => {
@@ -255,5 +295,25 @@ describe("fail-open when the core cannot be imported (R4, KTD5)", () => {
 
     // #then the same absence, not a handler that silently allows
     expect(host.events).toEqual([]);
+  });
+
+  test("a dispatch that throws at call time still lets the tool call proceed", async () => {
+    // #given a core that imports cleanly but whose dispatch throws
+    const throwing = temporaryDir("agent-hooks-throwing-core-");
+    await Bun.write(
+      join(throwing, "index.ts"),
+      "export function dispatch() { throw new Error('policy exploded'); }\n",
+    );
+    const host = await loadExtension(throwing);
+
+    // #when a known-bad command reaches the registered handler
+    const fixture = policyFixture("zsh-reserved-name-guard", "zsh/blocks status");
+    const decision = await callToolCall(host, piRawFor(fixture));
+
+    // #then the handler exists and the call is allowed through: R4 requires a
+    // dispatch exception to fail open rather than to reach pi as a throw, which
+    // is not a deny in pi's contract.
+    expect(host.events).toEqual(["tool_call"]);
+    expect(decision).toBeUndefined();
   });
 });

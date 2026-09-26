@@ -10,6 +10,13 @@ import unittest
 REPOSITORY = Path(__file__).resolve().parents[1]
 WORKFLOW = REPOSITORY / ".github" / "workflows" / "test-dotfiles.yml"
 
+# The jobs the workflow declares, in file order. Both "every job ..." tests
+# below iterate the parsed list, so a parser that returned a short list -- or
+# none -- would assert less instead of failing. Named here rather than
+# counted, so adding a job is a decision about whether it must carry the same
+# guarantees, not a silent gap.
+DECLARED_JOBS = ["test-ubuntu", "test-macos", "lint"]
+
 
 class TestDotfilesWorkflow(unittest.TestCase):
     def workflow_text(self):
@@ -39,33 +46,11 @@ class TestDotfilesWorkflow(unittest.TestCase):
         self.assertTrue(triggers, "no triggers parsed from the on: block")
         return triggers
 
-    def events_selected_by_expression(self, expr, declared, context):
-        """Events an arbitrary workflow expression selects, as a subset of
-        the declared triggers. Assumes the expression is a positive
-        membership test over `github.event_name` (any spelling: `==`
-        chains, fromJSON lists) -- true of every trigger-gated step `if:`
-        condition and of the MMS_CI_MINIMAL env expression in this
-        workflow. The positive-membership assumption cannot survive
-        negation (e.g. `!=`); reject such expressions instead of silently
-        misreading a negated condition as selecting the events it names."""
-        self.assertIn("github.event_name", expr, "%s must reference github.event_name" % context)
-        self.assertNotIn(
-            "!", expr, "negated %s breaks this parser's assumption: %s" % (context, expr)
-        )
-        selected = {
-            event
-            for event in declared
-            if re.search(r"\b%s\b" % re.escape(event), expr)
-        }
-        self.assertTrue(selected, "%s selects none of the declared triggers: %s" % (context, expr))
-        return selected
-
-    def events_selected_by_condition(self, step, declared):
-        """Events a step's `if:` condition selects -- see
-        events_selected_by_expression for the shared parsing assumption."""
+    def step_condition(self, step):
+        """A step's literal `if:` expression, as GitHub Actions receives it."""
         match = re.search(r"^        if: (?P<expr>.+)$", step, re.MULTILINE)
         self.assertIsNotNone(match, "step must be gated by an if: condition")
-        return self.events_selected_by_expression(match.group("expr"), declared, "condition")
+        return match.group("expr").strip()
 
     def step_value(self, step, key, indent="          "):
         match = re.search(r"^%s%s: (.+)$" % (indent, re.escape(key)), step, re.MULTILINE)
@@ -86,26 +71,37 @@ class TestDotfilesWorkflow(unittest.TestCase):
     # restored cache entry, and they seed the cache for the next ordinary run.
     FULL_VERIFICATION_EVENTS = frozenset({"schedule", "workflow_dispatch"})
 
+    # The expression GitHub Actions evaluates to decide the install size. It
+    # is pinned literally because the decision lives in the VALUE branches,
+    # not in the event names: swapping `'1'` and `''` gives every push and PR
+    # the full install and every nightly run the minimal one, while any local
+    # "which event names appear" parser reports the same selection for both.
+    # GitHub's expression semantics have no local oracle, so the text it
+    # consumes verbatim is the contract.
+    MMS_CI_MINIMAL_EXPRESSION = (
+        "${{ (github.event_name == 'push' || github.event_name == 'pull_request')"
+        " && '1' || '' }}"
+    )
+    # The `if:` wrapper both cache steps use; the condition goes in the slot.
+    CONDITION_ON_EVENTS = "${{ %s }}"
+
     def test_mms_ci_minimal_selects_exactly_the_minimal_events(self):
         # MMS_CI_MINIMAL decides whether a run installs the full Brewfile or
         # only what tests resolve from brew. The consumer side (rendering
         # under MMS_CI_MINIMAL=1) is covered by templates_test.sh and
         # scripts_test.sh; this is the only coverage of WHICH CI events set
-        # it. Compared against the pinned policy (an independent oracle from
-        # the workflow file) so a full-verification event silently gaining
-        # the minimal install -- or an ordinary event losing it -- fails
-        # here instead of only showing up as installed-package drift.
+        # it. A full-verification event silently gaining the minimal install
+        # -- or an ordinary event losing it -- fails here instead of only
+        # showing up as installed-package drift.
         text = self.workflow_text()
-        declared = self.declared_triggers(text)
         minimal_line = re.search(r"^  MMS_CI_MINIMAL: (?P<expr>.+)$", text, re.MULTILINE)
         self.assertIsNotNone(minimal_line, "workflow must declare MMS_CI_MINIMAL")
-        expr = minimal_line.group("expr")
-        selected = self.events_selected_by_expression(expr, declared, "MMS_CI_MINIMAL")
         self.assertEqual(
-            selected,
-            self.MINIMAL_EVENTS,
-            "MMS_CI_MINIMAL must select exactly the pinned minimal-install "
-            "events, and no full-verification event: %s" % expr,
+            minimal_line.group("expr").strip(),
+            self.MMS_CI_MINIMAL_EXPRESSION,
+            "MMS_CI_MINIMAL must set '1' for exactly the pinned minimal-install "
+            "events (%s) and '' for every other event"
+            % ", ".join(sorted(self.MINIMAL_EVENTS)),
         )
 
     def test_cache_restore_and_save_triggers_partition_the_declared_set(self):
@@ -122,7 +118,6 @@ class TestDotfilesWorkflow(unittest.TestCase):
             "(minimal ∪ full-verification); a new trigger must be classified "
             "into one of the two sets above, not silently added to neither",
         )
-        minimal_events = self.MINIMAL_EVENTS
 
         for job_name in ("test-ubuntu", "test-macos"):
             with self.subTest(job=job_name):
@@ -130,37 +125,59 @@ class TestDotfilesWorkflow(unittest.TestCase):
                 restore = self.named_step_block(job, "Restore Homebrew downloads cache")
                 save = self.named_step_block(job, "Save Homebrew downloads cache")
 
-                restore_events = self.events_selected_by_condition(restore, declared)
-                save_events = self.events_selected_by_condition(save, declared)
-
+                # Literal, for the reason MMS_CI_MINIMAL_EXPRESSION is
+                # literal: only GitHub evaluates these, and a condition that
+                # names the right events can still select none of them
+                # (`&& false`) or all of them (`|| true`).
                 self.assertEqual(
-                    restore_events,
-                    minimal_events,
+                    self.step_condition(restore),
+                    self.CONDITION_ON_EVENTS % (
+                        "github.event_name == 'push' "
+                        "|| github.event_name == 'pull_request'"
+                    ),
                     "only ordinary minimal-install events may restore old downloads",
                 )
                 self.assertEqual(
-                    save_events,
-                    self.FULL_VERIFICATION_EVENTS,
+                    self.step_condition(save),
+                    self.CONDITION_ON_EVENTS % (
+                        "github.event_name == 'schedule' "
+                        "|| github.event_name == 'workflow_dispatch'"
+                    ),
                     "every full-verification event must save fresh downloads",
                 )
 
                 # A save step that can also restore would let scheduled runs
                 # pull an old archive and mask upstream fetch decay.
-                restore_uses = self.step_value(restore, "uses", indent="        ")
-                save_uses = self.step_value(save, "uses", indent="        ")
-                self.assertIn("/save", save_uses)
-                self.assertNotIn("/save", restore_uses)
+                # `actions/cache@` restores AND saves; only `actions/cache/save@`
+                # is save-only, so the action name is matched at its prefix
+                # rather than by a `/save` substring that `actions/cache@v4`
+                # would also satisfy from a comment or a suffix.
+                self.assertTrue(
+                    self.step_value(save, "uses", indent="        ").startswith(
+                        "actions/cache/save@"
+                    ),
+                    "the save step must use the save-only action: %s"
+                    % self.step_value(save, "uses", indent="        "),
+                )
+                self.assertTrue(
+                    self.step_value(restore, "uses", indent="        ").startswith(
+                        "actions/cache@"
+                    ),
+                    "the restore step must use the restore/save action: %s"
+                    % self.step_value(restore, "uses", indent="        "),
+                )
 
                 # A saved entry no restore-keys prefix can find is dead weight.
-                # The per-OS path fragment is Homebrew's own contract: a
-                # swapped or invented path warms nothing.
+                # The per-OS path is Homebrew's own contract: a swapped or
+                # invented path warms nothing, and caching the parent
+                # directory instead of downloads/ is a different contract.
                 restore_path = self.step_value(restore, "path")
                 self.assertEqual(restore_path, self.step_value(save, "path"))
-                expected_fragment = {
-                    "test-ubuntu": ".cache/Homebrew",
-                    "test-macos": "Library/Caches/Homebrew",
+                expected_path = {
+                    "test-ubuntu": "~/.cache/Homebrew/downloads",
+                    "test-macos": "~/Library/Caches/Homebrew/downloads",
                 }[job_name]
-                self.assertIn(expected_fragment, restore_path)
+                self.assertEqual(restore_path, expected_path)
                 save_key = self.step_value(save, "key")
                 restore_keys_block = re.search(
                     r"^          restore-keys: \|\n(?P<keys>(?:^            .+\n?)+)",
@@ -250,8 +267,17 @@ class TestDotfilesWorkflow(unittest.TestCase):
         git("merge", "-q", "--no-ff", "-m", "merge", head)
         return repository, base, head
 
+    # What the gate writes to $GITHUB_ENV in each decision. `install_full`
+    # appends `MMS_CI_MINIMAL=` so the runner clears the top-level `1`;
+    # keeping the minimal install writes nothing at all. Both are exact,
+    # and the difference between them is a single character: a regression
+    # that wrote `MMS_CI_MINIMAL=1` would force the minimal install on a
+    # Brewfile PR while any "the name appears" check still reads it as full.
+    GATE_SELECTS_FULL_INSTALL = "MMS_CI_MINIMAL=\n"
+    GATE_KEEPS_MINIMAL_INSTALL = ""
+
     def run_gate(self, script, repository, event_name, base_sha, head_sha):
-        """The gate's decision: (selects_full_install, stdout)."""
+        """The gate's decision: (the $GITHUB_ENV file's contents, stdout)."""
         github_env = repository.parent / "github_env"
         github_env.write_text("", encoding="utf-8")
         environment = self.git_environment(repository.parent)
@@ -273,7 +299,7 @@ class TestDotfilesWorkflow(unittest.TestCase):
             0,
             "gate script failed: %s%s" % (result.stdout, result.stderr),
         )
-        return "MMS_CI_MINIMAL=" in github_env.read_text(encoding="utf-8"), result.stdout
+        return github_env.read_text(encoding="utf-8"), result.stdout
 
     def test_gate_reads_the_pull_request_head_not_the_merge_commit(self):
         # On a `pull_request` run, HEAD is the merge of the PR head with the
@@ -291,11 +317,12 @@ class TestDotfilesWorkflow(unittest.TestCase):
                     repository, base, head = self.build_pull_request_checkout(
                         root, pr_touches_brewfile=False
                     )
-                    full, output = self.run_gate(
+                    written, output = self.run_gate(
                         script, repository, "pull_request", base, head
                     )
-                self.assertFalse(
-                    full,
+                self.assertEqual(
+                    written,
+                    self.GATE_KEEPS_MINIMAL_INSTALL,
                     "a PR that touches no Brewfile must keep the minimal "
                     "install even when main has since edited one: %s" % output,
                 )
@@ -312,11 +339,12 @@ class TestDotfilesWorkflow(unittest.TestCase):
                     repository, base, head = self.build_pull_request_checkout(
                         root, pr_touches_brewfile=True
                     )
-                    full, output = self.run_gate(
+                    written, output = self.run_gate(
                         script, repository, "pull_request", base, head
                     )
-                self.assertTrue(
-                    full,
+                self.assertEqual(
+                    written,
+                    self.GATE_SELECTS_FULL_INSTALL,
                     "a PR that edits a Brewfile must install the full set: %s" % output,
                 )
 
@@ -342,8 +370,16 @@ class TestDotfilesWorkflow(unittest.TestCase):
         text = self.workflow_text()
         job = self.job_block(text, "test-ubuntu")
         step = self.named_step_block(job, "Install gitleaks")
+        # The version itself is a valid configuration choice; a bump must not
+        # require editing this test. What gitleaks OWNS -- and what a hand-
+        # written URL gets wrong -- is the release layout the version is
+        # substituted into, so the expected URL is built from whatever version
+        # the step declares.
         version = self.step_value(step, "GITLEAKS_VERSION").strip('"')
-        self.assertEqual(version, "8.30.1")
+        expected_url = (
+            "https://github.com/gitleaks/gitleaks/releases/download/"
+            "v%s/gitleaks_%s_linux_x64.tar.gz" % (version, version)
+        )
         script = self.step_script(text, "test-ubuntu", "Install gitleaks")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -401,8 +437,7 @@ class TestDotfilesWorkflow(unittest.TestCase):
             self.assertEqual(result.stdout.strip(), "fixture-gitleaks")
             self.assertTrue((bin_dir / "gitleaks").is_file())
             self.assertIn(
-                "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/"
-                "gitleaks_8.30.1_linux_x64.tar.gz",
+                expected_url,
                 curl_log.read_text(encoding="utf-8").splitlines(),
             )
 
@@ -411,7 +446,7 @@ class TestDotfilesWorkflow(unittest.TestCase):
         # A job without a timeout burns the 360-minute default when it hangs.
         text = self.workflow_text()
         names = self.job_names(text)
-        self.assertGreaterEqual(len(names), 3, "job parser found fewer jobs than the workflow runs")
+        self.assertEqual(names, DECLARED_JOBS)
         for name in names:
             with self.subTest(job=name):
                 self.assertRegex(
@@ -423,7 +458,7 @@ class TestDotfilesWorkflow(unittest.TestCase):
     def test_every_job_runs_the_general_python_gate(self):
         text = self.workflow_text()
         names = self.job_names(text)
-        self.assertGreaterEqual(len(names), 3, "job parser found fewer jobs than the workflow runs")
+        self.assertEqual(names, DECLARED_JOBS)
         for name in names:
             with self.subTest(job=name):
                 step = self.named_step_block(

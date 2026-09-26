@@ -66,16 +66,13 @@ The formatter `git_ref_for()` (same script, line 816) consumes these variables i
 
 **What keeps it removed.** `tests/bashunit/scripts_test.sh:6827-6849` (test 1208) is the mutation oracle: it copies the source tree, rewrites `ICON_BRANCH` to a glyph the grammar never uses (U+2714), loads the harness against the mutated tree, and asserts `HPL_ICON_BRANCH` did not follow. A derived constant tracks the mutation and fails; a pinned one does not. Rewriting the whole assignment keeps the test independent of whichever codepoint `ICON_BRANCH` holds today.
 
-**A second, narrower pin.** `tests/bashunit/smoke_test.sh:1038-1047` asserts the five octal sequences appear in the engine as literals and that the raw lead byte appears nowhere in it:
-
-```bash
-assert_file_contains "$engine" '\\356\\261\\257' # nf-cod-git_branch U+EC6F
-# ... four more ...
-run env LC_ALL=C grep -n "$(printf '\356')" "$engine" "$config"
-assert_failure
-```
-
-That is a second independent oracle, narrower than test 1208: it protects the *engine's* source encoding, where 1208 protects the *harness's* independence from it.
+**The second, narrower pin is gone.** Until #349, `tests/bashunit/smoke_test.sh` test 1059 asserted the
+five octal sequences appeared in the deployed engine as literals and that the raw lead byte appeared
+nowhere in it. The engine moved to `Seigiard/herdr-pane-labels` in #298, so its source encoding is
+upstream-owned and has no local oracle; the pin was retired with its contract named
+(`source-greps-need-a-second-side.md`). The harness pointers above (`tests/helpers/herdr_pane_labels.bash`,
+`scripts_test.sh` test 1208) describe the pre-#298 layout and no longer resolve either; what this
+repository still owns is the deployment half, covered by smoke tests 1060 and 1061.
 
 To derive the octal bytes for a new icon:
 

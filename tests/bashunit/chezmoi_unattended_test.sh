@@ -137,6 +137,17 @@ run_full() {
     run "$LAUNCHER" --profile full-fixture -- "$@"
 }
 
+# One version fixture, one exact gate message. The version probe has four
+# rejection branches and the bare token 'version' appears in three of them —
+# and inside two of the fixture strings themselves — so only the exact line
+# says which gate answered.
+assert_version_rejected() {
+  FAKE_CHEZMOI_VERSION="$1" run_host verify
+  assert_failure 2
+  assert_output "$2"
+  assert_final_not_reached
+}
+
 assert_final_not_reached() {
   # oracle: the controlled child creates this marker only for a final command.
   assert_file_not_exists "$FAKE_STATE/argv"
@@ -167,8 +178,8 @@ function test_chezmoi_unattended_001_requires_exact_selector_with_valid_control(
       PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED="$selector" \
         run "$LAUNCHER" --profile host-partial -- verify
     fi
-    assert_failure
-    assert_output --partial 'MMS_CHEZMOI_UNATTENDED must equal 1'
+    assert_failure 2
+    assert_output 'chezmoi-unattended: MMS_CHEZMOI_UNATTENDED must equal 1'
     assert_final_not_reached
   done
 
@@ -179,15 +190,18 @@ function test_chezmoi_unattended_001_requires_exact_selector_with_valid_control(
 
 function test_chezmoi_unattended_002_rejects_missing_or_malformed_profile() {
   _bats_test_init 2 'rejects missing or malformed profile before final execution'
+  # Exact line, not the token 'profile': that word is also in the usage header
+  # and in MMS_CHEZMOI_UNATTENDED_PROFILE, so any other gate that mentions it
+  # would satisfy a partial match and hide which one answered.
   PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 run "$LAUNCHER" -- verify
-  assert_failure
-  assert_output --partial 'profile'
+  assert_failure 2
+  assert_output 'chezmoi-unattended: --profile must be full-fixture or host-partial'
   assert_final_not_reached
 
   PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
     run "$LAUNCHER" --profile automatic -- verify
-  assert_failure
-  assert_output --partial 'full-fixture or host-partial'
+  assert_failure 2
+  assert_output 'chezmoi-unattended: --profile must be full-fixture or host-partial'
   assert_final_not_reached
 }
 
@@ -217,18 +231,17 @@ function test_chezmoi_unattended_004_rejects_bad_versions_with_valid_boundaries(
   mv "$FAKE_BIN/chezmoi" "$FAKE_BIN/not-chezmoi"
   PATH="$FAKE_BIN" MMS_CHEZMOI_UNATTENDED=1 \
     run /bin/bash "$LAUNCHER" --profile host-partial -- verify
-  assert_failure
-  assert_output --partial 'chezmoi executable'
+  assert_failure 2
+  assert_output 'chezmoi-unattended: chezmoi executable is not available on PATH'
   assert_final_not_reached
   mv "$FAKE_BIN/not-chezmoi" "$FAKE_BIN/chezmoi"
 
-  local version
-  for version in broken 'chezmoi version latest' 'chezmoi version v2.72.0, commit fake'; do
-    FAKE_CHEZMOI_VERSION="$version" run_host verify
-    assert_failure
-    assert_output --partial 'version'
-    assert_final_not_reached
-  done
+  assert_version_rejected broken \
+    'chezmoi-unattended: malformed chezmoi version output: broken'
+  assert_version_rejected 'chezmoi version latest' \
+    'chezmoi-unattended: malformed chezmoi version: latest'
+  assert_version_rejected 'chezmoi version v2.72.0, commit fake' \
+    'chezmoi-unattended: chezmoi version 2.72.0 is older than required 2.72.1'
 
   FAKE_CHEZMOI_VERSION='chezmoi version v2.72.1, commit fake' run_host verify
   assert_success
@@ -250,13 +263,16 @@ function test_chezmoi_unattended_005_enforces_disposable_authority() {
     MMS_CHEZMOI_FIXTURE_VRT_R2_ACCESS_KEY_ID=x \
     MMS_CHEZMOI_FIXTURE_VRT_R2_SECRET_ACCESS_KEY=x \
     run "$LAUNCHER" --profile full-fixture -- verify
-  assert_failure
-  assert_output --partial 'MMS_DISPOSABLE_HOME must equal 1'
+  assert_failure 2
+  # Exact line per gate. The two gates below print different messages; the
+  # shared prefix 'MMS_DISPOSABLE_HOME must equal 1' matches either, so a
+  # full-fixture run rejected by the write-capable branch would still pass.
+  assert_output 'chezmoi-unattended: MMS_DISPOSABLE_HOME must equal 1 for full-fixture'
   assert_final_not_reached
 
   run_host apply
-  assert_failure
-  assert_output --partial 'MMS_DISPOSABLE_HOME must equal 1'
+  assert_failure 2
+  assert_output 'chezmoi-unattended: MMS_DISPOSABLE_HOME must equal 1 for write-capable command: apply'
   assert_final_not_reached
 
   PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 MMS_DISPOSABLE_HOME=1 \
@@ -293,8 +309,8 @@ function test_chezmoi_unattended_006_requires_each_full_fixture() {
       MMS_CHEZMOI_FIXTURE_VRT_R2_ACCESS_KEY_ID=vrt-r2-access-key \
       MMS_CHEZMOI_FIXTURE_VRT_R2_SECRET_ACCESS_KEY=vrt-r2-secret-key \
       "$missing=" "$LAUNCHER" --profile full-fixture -- verify
-    assert_failure
-    assert_output --partial "$missing"
+    assert_failure 2
+    assert_output "chezmoi-unattended: required fixture is empty or unset: $missing"
     assert_final_not_reached
   done
 
@@ -336,8 +352,8 @@ os.close(master)
 os.close(slave)
 sys.exit(result.returncode)
 ' "$TEST_PATH" "$LAUNCHER"
-  assert_failure
-  assert_output --partial '--finite-stdin requires non-terminal stdin'
+  assert_failure 2
+  assert_output 'chezmoi-unattended: --finite-stdin requires non-terminal stdin'
   assert_final_not_reached
 }
 
@@ -395,12 +411,13 @@ function test_chezmoi_unattended_010_diff_omits_exact_inventory_destinations() {
     MMS_CHEZMOI_FIXTURE_VRT_R2_SECRET_ACCESS_KEY=DO_NOT_LEAK_VRT_R2_SECRET_KEY \
     run "$LAUNCHER" --profile host-partial -- diff --source '/tmp/source tree'
   assert_success
-  assert_output --partial 'partial coverage'
-  assert_output --partial 'home/dot_zshenv.tmpl'
-  assert_output --partial '~/.zshenv'
-  assert_output --partial 'home/modify_dot_claude.json'
-  assert_output --partial '~/.claude.json'
-  refute_output --partial 'DO_NOT_LEAK'
+  # Exact, whole output: the inventory holds two rows, the fake writes nothing
+  # to stdout, so the notice block is fully determined. Partials on 'partial
+  # coverage' or a single path passed when the other row's notice was missing,
+  # duplicated, or paired with the wrong destination. The exact match also
+  # subsumes the DO_NOT_LEAK refutation this replaced.
+  assert_output 'chezmoi-unattended: partial coverage; omitted source home/dot_zshenv.tmpl -> destination ~/.zshenv
+chezmoi-unattended: partial coverage; omitted source home/modify_dot_claude.json -> destination ~/.claude.json'
   assert_recorded_args --no-tty --no-pager --skip-secrets diff --source \
     '/tmp/source tree' "$HOME/.zshenv.backup" \
     "$HOME/.config/ordinary target" "$HOME/.config/line
@@ -409,6 +426,15 @@ break"
 
 function test_chezmoi_unattended_0101_large_host_diff_stays_below_linux_exec_string_limit() {
   _bats_test_init 101 'large host diff keeps CHEZMOI_ARGS below the Linux exec string limit'
+  # Known limit: the fake flattens argv with the same len(bin) + Σ(len(arg)+1)
+  # accounting the launcher budgets batches with, so a shared off-by-N in how
+  # chezmoi really flattens CHEZMOI_ARGS would pass both sides. What keeps the
+  # check honest is the ceiling: 128 KiB minus the variable name and NUL is
+  # Linux's documented per-string exec limit, an external number, and the
+  # launcher budgets 96 KiB against it, so the assertion has real headroom to
+  # measure. The batch count is a direction because the exact number depends on
+  # the length of $HOME; `> 1` is also what proves the size loop below is not
+  # reading an empty file.
   local target_count=2000 final_invocations=0 invocation serialized_size
   local linux_max_env_string_bytes=$((128 * 1024))
   local chezmoi_args_name_and_nul_bytes=14
@@ -428,9 +454,15 @@ function test_chezmoi_unattended_0101_large_host_diff_stays_below_linux_exec_str
   run cmp "$FAKE_STATE/managed-targets" "$FAKE_STATE/received-targets"
   assert_success
 
+  local size_records=0
   while IFS= read -r serialized_size; do
+    size_records=$((size_records + 1))
     assert_equal "$((serialized_size <= max_chezmoi_args_bytes))" 1
   done < "$FAKE_STATE/serialized-args-sizes"
+  # One record per final invocation. The bound above is asserted per record, so
+  # a short or empty record file would leave whole batches unmeasured and still
+  # pass; the invocation log is the independent count of what actually ran.
+  assert_equal "$size_records" "$final_invocations"
 }
 
 function test_chezmoi_unattended_011_malformed_inventory_fails_closed() {
@@ -444,8 +476,12 @@ function test_chezmoi_unattended_011_malformed_inventory_fails_closed() {
 
   PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
     run "$copied/chezmoi-unattended" --profile host-partial -- verify
-  assert_failure
-  assert_output --partial 'inventory'
+  assert_failure 2
+  # Exact row message. 'inventory' alone also matches "is missing or unreadable"
+  # and "contains no target rows", so a launcher that failed to locate its
+  # sidecar next to the copy -- the resolution this copied directory exists to
+  # exercise -- would pass on the wrong branch.
+  assert_output 'chezmoi-unattended: malformed inventory row 1: expected five tab-separated fields'
   assert_final_not_reached
 }
 
@@ -453,8 +489,8 @@ function test_chezmoi_unattended_012_empty_filtered_target_set_fails_closed() {
   _bats_test_init 12 'host diff rejects an empty filtered target set'
   PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 FAKE_MANAGED_ONLY_OMITTED=1 \
     run "$LAUNCHER" --profile host-partial -- diff --source /tmp/source
-  assert_failure
-  assert_output --partial 'no non-sensitive managed targets remain'
+  assert_failure 2
+  assert_output 'chezmoi-unattended: no non-sensitive managed targets remain after host-partial filtering'
   assert_final_not_reached
 }
 
@@ -462,20 +498,20 @@ function test_chezmoi_unattended_013_rejects_malformed_launcher_invocations() {
   _bats_test_init 13 'rejects malformed launcher invocations before final execution'
   PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
     run "$LAUNCHER" --profile host-partial --bogus -- verify
-  assert_failure
-  assert_output --partial 'unknown launcher option before --: --bogus'
+  assert_failure 2
+  assert_output 'chezmoi-unattended: unknown launcher option before --: --bogus'
   assert_final_not_reached
 
   PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
     run "$LAUNCHER" --profile host-partial
-  assert_failure
-  assert_output --partial 'launcher options must end with --'
+  assert_failure 2
+  assert_output 'chezmoi-unattended: launcher options must end with --'
   assert_final_not_reached
 
   PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
     run "$LAUNCHER" --profile host-partial --
-  assert_failure
-  assert_output --partial 'a chezmoi command is required after --'
+  assert_failure 2
+  assert_output 'chezmoi-unattended: a chezmoi command is required after --'
   assert_final_not_reached
 
   run_host verify
@@ -495,8 +531,8 @@ function test_chezmoi_unattended_014_inventory_requires_exactly_ten_fixture_iden
     > "$copied/chezmoi-unattended-targets.tsv"
   PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
     run "$copied/chezmoi-unattended" --profile host-partial -- verify
-  assert_failure
-  assert_output --partial 'inventory must register exactly ten distinct fixture identities'
+  assert_failure 2
+  assert_output 'chezmoi-unattended: inventory must register exactly ten distinct fixture identities'
   assert_final_not_reached
 
   # Eleven distinct identities: "exactly ten" also rejects an over-count.
@@ -504,8 +540,8 @@ function test_chezmoi_unattended_014_inventory_requires_exactly_ten_fixture_iden
     > "$copied/chezmoi-unattended-targets.tsv"
   PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
     run "$copied/chezmoi-unattended" --profile host-partial -- verify
-  assert_failure
-  assert_output --partial 'inventory must register exactly ten distinct fixture identities'
+  assert_failure 2
+  assert_output 'chezmoi-unattended: inventory must register exactly ten distinct fixture identities'
   assert_final_not_reached
 
   printf 'home/dot_a.tmpl\t~/.a\tsecret-template\tomit\tMMS_CHEZMOI_FIXTURE_A,MMS_CHEZMOI_FIXTURE_B,MMS_CHEZMOI_FIXTURE_C,MMS_CHEZMOI_FIXTURE_D,MMS_CHEZMOI_FIXTURE_E,MMS_CHEZMOI_FIXTURE_F,MMS_CHEZMOI_FIXTURE_G,MMS_CHEZMOI_FIXTURE_H,MMS_CHEZMOI_FIXTURE_I,MMS_CHEZMOI_FIXTURE_J\n' \
@@ -520,8 +556,11 @@ function test_chezmoi_unattended_015_single_oversized_managed_target_fails_close
   _bats_test_init 15 'host diff fails closed on a single oversized managed target'
   PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 FAKE_MANAGED_OVERSIZED_TARGET=1 \
     run "$LAUNCHER" --profile host-partial -- diff --source /tmp/source
-  assert_failure
-  assert_output --partial 'managed target is too long to invoke safely'
+  assert_failure 2
+  # Partial: the reported target carries 96 KiB of filler, so an exact line
+  # would assert the fixture. The destination prefix still proves the gate
+  # named the oversized target rather than a neighbouring one.
+  assert_output --partial "managed target is too long to invoke safely: $HOME/.config/oversized-"
   assert_final_not_reached
 
   # Control: the default managed targets fit one batch and pass the same gate.

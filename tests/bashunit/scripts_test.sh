@@ -17,15 +17,35 @@ setup() {
   unset HERDR_AGENT_INTERCOM_PANE
   unset HERDR_AGENT_INTERCOM_PI_LOAD
   unset HERDR_CHILD_NAME
+  # herdr-child reads its mode, parent identity and tuning from the
+  # environment, so any of these left in the runner's own environment decides
+  # a case instead of the case deciding it. Running the suite from inside a
+  # Herdr child pane exports HERDR_CHILD_LAUNCH_MODE and the captured parent
+  # identity, which sent tests 76 and 79 down the detached ask path and failed
+  # them on a host that only differs by where the runner was started. Every
+  # case states the variables it needs; this clears the rest.
   unset HERDR_CHILD_LAUNCH
+  unset HERDR_CHILD_LAUNCH_MODE
   unset HERDR_CHILD_PARENT_PANE
+  unset HERDR_CHILD_PARENT_TERMINAL
+  unset HERDR_CHILD_PARENT_SESSION
   unset HERDR_CHILD_STATE_DIR
+  unset HERDR_CHILD_HERDR_CLI
   unset HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY
+  unset HERDR_CHILD_POLL_INTERVAL
+  unset HERDR_CHILD_PANE_BUSY_RETRY_DELAY
+  unset HERDR_CHILD_WAIT_SLICE_MS
+  unset HERDR_CHILD_DELIVERY_RETRY_INITIAL
+  unset HERDR_CHILD_DELIVERY_RETRY_MAX
   unset HERDR_WORKSPACE_ID
   unset HERDR_PANE_ID
   unset OPENCODE_INTERCOM_NAME
   unset INTERCOM_DIR
   unset HERDR_CHILD_MAX_DELIVERY_RETRIES
+  unset HERDR_CHILD_TEST_SKIP_RETRY_SLEEP
+  unset HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS
+  unset HERDR_CHILD_TEST_WATCHER_PID_FILE
+  unset HERDR_CHILD_TEST_WATCHER_RELEASE
   unset HERDR_CHILD_TEST_RETRY_LOG
   unset HERDR_CHILD_TEST_FAILURE_PUBLISH_BARRIER
   unset HERDR_CHILD_TEST_LIVENESS_PUBLISH_BARRIER
@@ -117,26 +137,29 @@ function test_scripts_1331_agent_intercom_launcher_propagates_a_child_alias_to_e
   local stub
   stub="$(agent_intercom_stub_bin)"
 
+  local home="$BATS_TEST_TMPDIR/agent-intercom-home"
   export HERDR_PANE_ID=w1:p2 HERDR_ALIAS_ALLOCATOR="$stub/allocator"
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  # The binary name leads the line. A partial that starts at `active=` accepts
+  # `claude` exec'd directly, which is the one thing this adapter exists to
+  # prevent.
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude \
     --dangerously-skip-permissions --model sonnet
   assert_success
-  assert_output --partial 'active=<1> pi_load=<><--model><sonnet><--dangerously-skip-permissions><--tui><--transport><mcp><--name><ochre-okapi><--claude><'
-  assert_output --partial '/herdr-agent-intercom-claude>'
+  assert_output "cci name=<> args= active=<1> pi_load=<><--model><sonnet><--dangerously-skip-permissions><--tui><--transport><mcp><--name><ochre-okapi><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" opencode --model test/model
   assert_success
   assert_output 'opencode name=<ochre-okapi> args= active=<1> pi_load=<><--model><test/model>'
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" pi --provider anthropic
   assert_success
   assert_output 'pi name=<> args= active=<1> pi_load=<self><--name><ochre-okapi><--provider><anthropic>'
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" pi --name wrong -n wrong-again -- --name message
   assert_success
   assert_output 'pi name=<> args= active=<1> pi_load=<self><--name><ochre-okapi><--><--name><message>'
@@ -211,24 +234,27 @@ SH
       HERDR_AGENT_INTERCOM_NAME=parent-alias OPENCODE_INTERCOM_NAME=parent-alias \
       HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" bash "$launcher" opencode
     assert_success
-    assert_output --partial 'canonical pane alias unavailable; starting opencode without Intercom'
-    assert_output --partial 'opencode name=<> args= active=<> pi_load=<>'
+    assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting opencode without Intercom
+opencode name=<> args= active=<> pi_load=<>'
   done
 
   run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 PROBE_NAME=silver-ibis PROBE_PANE=w1:p9 \
     HERDR_ALIAS_ALLOCATOR="$stub/allocator" PATH="$stub:$PATH" bash "$launcher" opencode
   assert_success
-  assert_output --partial 'opencode name=<> args= active=<> pi_load=<>'
+  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting opencode without Intercom
+opencode name=<> args= active=<> pi_load=<>'
 
   run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 PROBE_NAME=silver-ibis PROBE_STATUS=1 \
     HERDR_ALIAS_ALLOCATOR="$stub/allocator" PATH="$stub:$PATH" bash "$launcher" opencode
   assert_success
-  assert_output --partial 'opencode name=<> args= active=<> pi_load=<>'
+  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting opencode without Intercom
+opencode name=<> args= active=<> pi_load=<>'
 
   run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 PROBE_NAME=silver-ibis \
     HERDR_ALIAS_ALLOCATOR=/nonexistent/allocator PATH="$stub:$PATH" bash "$launcher" opencode
   assert_success
-  assert_output --partial 'opencode name=<> args= active=<> pi_load=<>'
+  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting opencode without Intercom
+opencode name=<> args= active=<> pi_load=<>'
 }
 
 function test_scripts_1346_agent_intercom_launcher_claims_an_alias_for_a_pane_with_no_record() {
@@ -290,12 +316,12 @@ SH
 
   # #then it enrolls under the allocated name instead of warning
   assert_success
-  assert_output --partial '<--name><ochre-okapi><--claude><'
+  assert_output "cci name=<> args= active=<1> pi_load=<><--tui><--transport><mcp><--name><ochre-okapi><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
   assert_file_contains "$log" 'pane report-agent w1:p2 --source herdr-agent-intercom --agent claude --state unknown'
   assert_file_contains "$log" 'agent rename w1:p2 ochre-okapi'
 
   # #then the claim it recorded is the one the release command acts on
-  assert_file_contains "$marker" 'claude'
+  assert_file_contains "$marker" '^claude$'
   : > "$log"
   run env HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" HOME="$home" PATH="$stub:$PATH" bash "$release"
   assert_success
@@ -310,7 +336,7 @@ SH
 
   # #then it gives the first claim back and enrolls under the next candidate
   assert_success
-  assert_output --partial '<--name><silver-ibis><--claude><'
+  assert_output "cci name=<> args= active=<1> pi_load=<><--tui><--transport><mcp><--name><silver-ibis><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
   assert_file_contains "$log" 'pane release-agent w1:p2 --source herdr-agent-intercom --agent claude'
 
   # #when the allocator can only answer with an out-of-pool placeholder
@@ -321,7 +347,8 @@ SH
 
   # #then it reports nothing and releases nothing, and the client starts bare
   assert_success
-  assert_output --partial 'canonical pane alias unavailable; starting claude without Intercom'
+  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting claude without Intercom
+claude name=<> args= active=<> pi_load=<>'
   assert_equal "$(grep -c 'pane report-agent' "$log")" 0
   assert_equal "$(grep -c 'pane release-agent' "$log")" 0
   assert_file_not_exists "$marker"
@@ -334,7 +361,8 @@ SH
 
   # #then it takes no claim at all rather than leaking one for the session
   assert_success
-  assert_output --partial 'canonical pane alias unavailable; starting opencode without Intercom'
+  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting opencode without Intercom
+opencode name=<> args= active=<> pi_load=<>'
   assert_equal "$(grep -c 'pane report-agent' "$log")" 0
   assert_file_not_exists "$marker"
 
@@ -347,7 +375,8 @@ SH
 
   # #then the pane keeps its unclaimed state and the client starts without Intercom
   assert_success
-  assert_output --partial 'canonical pane alias unavailable; starting claude without Intercom'
+  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting claude without Intercom
+claude name=<> args= active=<> pi_load=<>'
   assert_equal "$(grep -c 'pane report-agent' "$log")" 0
 }
 
@@ -644,8 +673,8 @@ function test_scripts_1333_agent_intercom_launcher_passes_through_an_unidentifie
     HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" bash "$launcher" pi
 
   assert_success
-  assert_output --partial 'canonical pane alias unavailable; starting pi without Intercom'
-  assert_output --partial 'pi name=<> args= active=<> pi_load=<>'
+  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting pi without Intercom
+pi name=<> args= active=<> pi_load=<>'
 
   cat > "$stub/herdr" <<'SH'
 #!/usr/bin/env bash
@@ -655,8 +684,8 @@ SH
   run env HERDR_ENV=1 HERDR_CHILD_NAME= HERDR_PANE_ID=w1:p2 \
     HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" bash "$launcher" claude
   assert_success
-  assert_output --partial 'canonical pane alias unavailable; starting claude without Intercom'
-  assert_output --partial 'claude name=<> args= active=<> pi_load=<>'
+  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting claude without Intercom
+claude name=<> args= active=<> pi_load=<>'
 }
 
 function test_scripts_1334_agent_intercom_shell_wrappers_only_intercept_herdr_launches() {
@@ -684,51 +713,51 @@ function test_scripts_1334_agent_intercom_shell_wrappers_only_intercept_herdr_la
 function test_scripts_1337_agent_intercom_launcher_preserves_utility_and_nested_commands() {
   _bats_test_init 1337 'agent intercom launcher preserves utility commands and nested launches'
   local launcher="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom"
-  local stub
+  local stub home="$BATS_TEST_TMPDIR/agent-intercom-home"
   stub="$(agent_intercom_stub_bin)"
   export HERDR_PANE_ID=w1:p2 HERDR_ALIAS_ALLOCATOR="$stub/allocator"
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude mcp list
   assert_success
   assert_output 'claude name=<> args= active=<> pi_load=<><mcp><list>'
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude --verbose plugins list
   assert_success
   assert_output 'claude name=<> args= active=<> pi_load=<><--verbose><plugins><list>'
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude --plugin-dir /tmp mcp list
   assert_success
   assert_output 'claude name=<> args= active=<> pi_load=<><--plugin-dir></tmp><mcp><list>'
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude -c --no-session-persistence mcp list
   assert_success
   assert_output 'claude name=<> args= active=<> pi_load=<><-c><--no-session-persistence><mcp><list>'
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude upgrade
   assert_success
   assert_output 'claude name=<> args= active=<> pi_load=<><upgrade>'
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude --debug mcp list
   assert_success
-  assert_output --partial 'active=<1> pi_load=<><--tui><--transport><mcp><--name><ochre-okapi>'
+  assert_output "cci name=<> args= active=<1> pi_load=<><--tui><--transport><mcp><--name><ochre-okapi><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude --mcp-config mcp --model sonnet
   assert_success
-  assert_output --partial 'active=<1> pi_load=<><--model><sonnet><--tui><--transport><mcp><--name><ochre-okapi>'
+  assert_output "cci name=<> args= active=<1> pi_load=<><--model><sonnet><--tui><--transport><mcp><--name><ochre-okapi><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude --tools Read mcp list
   assert_success
-  assert_output --partial 'active=<1> pi_load=<><--tui><--transport><mcp><--name><ochre-okapi>'
+  assert_output "cci name=<> args= active=<1> pi_load=<><--tui><--transport><mcp><--name><ochre-okapi><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
 
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude --model sonnet -p prompt
   assert_success
   assert_output 'claude name=<> args= active=<> pi_load=<><--model><sonnet><-p><prompt>'
@@ -754,7 +783,7 @@ function test_scripts_1337_agent_intercom_launcher_preserves_utility_and_nested_
   assert_output 'claude name=<> args= active=<1> pi_load=<>'
 
   rm -f "$BATS_TEST_TMPDIR/agent-intercom-home/.local/share/agent-intercom/node_modules/@dataforxyz/agent-intercom-claude/dist/inbox-monitor.mjs"
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude
   assert_success
   assert_output 'claude name=<> args= active=<1> pi_load=<>'
@@ -964,14 +993,27 @@ SH
       printf "\n"
       process_start_matches 42 "  Sat Sep 12 06:18:05 2026    "
       process_start_matches 42 "sam 12 sep 2026 06:18:05 UTC"
-      ! process_start_matches 42 "wrong process start"
-      ! process_start_marker invalid
     ' _ "$process_library"
 
   assert_success
   assert_output 'Sat Sep 12 06:18:05 2026'
   assert_file_contains "$log" '^C$'
   assert_file_contains "$log" '^<unset>$'
+
+  # Each rejection needs its own exit status. `! cmd` under `set -e` is exempt
+  # from errexit, so a negative folded into the script above would report the
+  # status of the last line only and accept a wrong identity silently.
+  run env -u LC_ALL -u LC_CTYPE -u LANG PATH="$stub:$PATH" \
+    PROCESS_IDENTITY_LOCALE_LOG="$log" bash -c \
+    'source "$1"; process_start_matches 42 "wrong process start"' _ "$process_library"
+  assert_failure 1
+  assert_output ''
+
+  run env -u LC_ALL -u LC_CTYPE -u LANG PATH="$stub:$PATH" \
+    PROCESS_IDENTITY_LOCALE_LOG="$log" bash -c \
+    'source "$1"; process_start_marker invalid' _ "$process_library"
+  assert_failure 1
+  assert_output ''
 }
 
 function test_scripts_1210_worktree_identity_state_library_claims_live_owners_and_recovers_dead_owners() {
@@ -1017,9 +1059,19 @@ process_start=$(encode_value '')"
   acquire_claim "$malformed" 3 || fail 'empty process-start claim was not recovered'
   release_claim "$malformed" "$claim_owner_id"
 
-  : > "${interrupted}.candidate.abandoned"
+  # An owner killed between publishing the lock and writing its record leaves a
+  # blank owner_id. It must not be deleted on first sight -- a live writer could
+  # still be finishing -- but it must not hold the lock forever either.
+  atomic_write "$interrupted" "owner_id=
+pid=$$
+process_start=$(encode_value "$(process_start_marker $$)")"
+  run acquire_claim "$interrupted" 1
+  assert_failure 2
+  assert_file_exists "$interrupted"
   acquire_claim "$interrupted" 3 || fail 'interrupted owner write was not recovered'
+  assert_equal "$(read_state_field "$interrupted" owner_id)" "$claim_owner_id"
   release_claim "$interrupted" "$claim_owner_id"
+  assert_file_not_exists "$interrupted"
 
   hwi_start_claim_holder "$held" || fail 'second process did not acquire its claim'
   run acquire_claim "$held" 1
@@ -1137,7 +1189,7 @@ function test_scripts_1215_worktree_identity_keeps_unresolved_events_retryable_a
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'retry later'
   assert_success
-  local unresolved="$HWI_STATE/sessions/$(printf '%s' session-1 | base64 | tr '/+' '_-' | tr -d '=\n').state"
+  local unresolved="$(hwi_session_state_path session-1)"
   assert_equal "$(read_state_field "$unresolved" outcome)" unresolved
   assert_file_contains "${unresolved%.state}.diagnostics.log" 'reason=pane-unreachable'
 
@@ -1183,7 +1235,7 @@ function test_scripts_1217_worktree_identity_declines_primary_checkouts_and_unma
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'primary checkout'
   assert_success
-  local state="$HWI_STATE/sessions/$(printf '%s' session-1 | base64 | tr '/+' '_-' | tr -d '=\n').state"
+  local state="$(hwi_session_state_path session-1)"
   assert_equal "$(read_state_field "$state" outcome)" declined
   assert_file_contains "${state%.state}.diagnostics.log" 'reason=primary-checkout .*checkout='
 
@@ -1191,7 +1243,7 @@ function test_scripts_1217_worktree_identity_declines_primary_checkouts_and_unma
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
     bash "$HWI_ENGINE" --worker --agent codex --session session-2 --workspace workspace-1 <<< 'no pane for this session'
   assert_success
-  state="$HWI_STATE/sessions/$(printf '%s' session-2 | base64 | tr '/+' '_-' | tr -d '=\n').state"
+  state="$(hwi_session_state_path session-2)"
   assert_equal "$(read_state_field "$state" outcome)" unresolved
   assert_file_contains "${state%.state}.diagnostics.log" 'reason=pane-unresolved .*pane=missing'
 
@@ -1222,6 +1274,7 @@ function test_scripts_1218_worktree_identity_foreground_hands_off_to_a_detached_
     sleep 0.01
   done
   assert_file_exists "$HWI_WORK/pane-get.ready"
+  assert_file_exists "$HWI_WORK/herdr.calls"
   assert_file_not_contains "$HWI_WORK/herdr.calls" 'do not place this prompt on argv'
   : > "$HWI_WORK/pane-get.release"
 }
@@ -1334,6 +1387,7 @@ function test_scripts_1219_worktree_identity_uses_normalized_multi_word_pi_ident
   assert_equal "$(read_state_field "$state" title)" normalize-api-tokens
   assert_equal "$(read_state_field "$state" slug)" normalize-api-tokens
   assert_file_contains "$HWI_WORK/pi.stdin" 'First prompt of the session:'
+  assert_file_exists "$HWI_WORK/pi.calls"
   assert_file_not_contains "$HWI_WORK/pi.calls" 'Normalize API tokens from model output'
   assert_equal "$(cat "$HWI_WORK/pi.guard")" 1
   assert_file_not_exists "$HWI_WORK/claude.calls"
@@ -1389,13 +1443,11 @@ function test_scripts_1221_worktree_identity_falls_back_without_model_clis_and_c
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'a different prompt'
   assert_success
   state="$(hwi_identity_state_path)"
-  local slug="$(read_state_field "$state" slug)"
-  assert_equal "$(read_state_field "$state" title)" "$slug"
-  assert_equal "${#slug}" 40
-  run test "${slug%-}" = "$slug"
-  assert_success
-  run test "$(printf '%s' "$slug" | tr '-' '\n' | grep -c '.')" -ge 2
-  assert_success
+  # The model output is fixed, so the capped slug is one literal: the first 40
+  # characters of it with any trailing dash stripped. Length and dash-count
+  # properties alone admit every other 40-character cut of the same input.
+  assert_equal "$(read_state_field "$state" slug)" unusuallylongword-verylongsecondword-ver
+  assert_equal "$(read_state_field "$state" title)" unusuallylongword-verylongsecondword-ver
 }
 
 # Consumer: the naming chain when an engine wraps its object in a markdown
@@ -1589,6 +1641,7 @@ function test_scripts_1183_worktree_identity_records_branch_and_attribution_fail
   assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" "$HWI_BRANCH"
   assert_equal "$(read_state_field "$state" outcome)" branch-failed
   assert_file_contains "${state%.state}.diagnostics.log" '^reason=branch-rename-failed '
+  assert_file_exists "$marker"
   assert_file_not_contains "$marker" 'Intentional rename by herdr-worktree-identity'
 
   rm "$HWI_WORK/fail-git-branch-m"
@@ -1699,6 +1752,7 @@ function test_scripts_1186_worktree_identity_reconciles_terminal_workspace_to_th
   assert_equal "$(read_state_field "$state" outcome)" complete
   assert_equal "$(cat "$HWI_WORK/workspace.label")" "$branch"
   assert_equal "$(hwi_workspace_rename_count)" 1
+  assert_file_exists "$HWI_WORK/herdr.calls"
   assert_file_not_contains "$HWI_WORK/herdr.calls" 'pane rename '
   assert_file_not_contains "$HWI_WORK/herdr.calls" 'tab rename '
   assert_file_not_contains "$HWI_WORK/herdr.calls" 'agent rename '
@@ -1740,7 +1794,11 @@ function test_scripts_1187_worktree_identity_labels_workspace_only_for_upstream_
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Keep agent reverted branch'
   assert_success
-  local renamed="$(git -C "$HWI_CHECKOUT" branch --show-current)"
+  # The control for the revert leg below: without a rename here, "does not
+  # restore the agent branch" would pass on a branch that was never renamed.
+  # The slug is the session's first prompt, which the engine pins once, so it
+  # stays `preserve-upstream-workspace` however later prompts read.
+  assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" preserve-upstream-workspace
   git -C "$HWI_CHECKOUT" branch -m "$HWI_BRANCH"
   run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Do not restore agent branch'
@@ -1749,10 +1807,10 @@ function test_scripts_1187_worktree_identity_labels_workspace_only_for_upstream_
   assert_equal "$(read_state_field "$state" outcome)" workspace-only
   assert_equal "$(git -C "$HWI_CHECKOUT" reflog --format='%gs' "$HWI_BRANCH" | grep -c '^Branch: renamed ')" 2
   assert_equal "$(hwi_workspace_rename_count)" 3
+  assert_file_exists "$HWI_WORK/herdr.calls"
   assert_file_not_contains "$HWI_WORK/herdr.calls" 'pane rename '
   assert_file_not_contains "$HWI_WORK/herdr.calls" 'tab rename '
   assert_file_not_contains "$HWI_WORK/herdr.calls" 'agent rename '
-  [ -n "$renamed" ] || fail 'control rename did not occur'
 }
 
 function test_scripts_1190_worktree_identity_revalidates_marker_before_ref_mutation() {
@@ -1878,7 +1936,7 @@ function test_scripts_1194_worktree_identity_bounds_herdr_pane_reads() {
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Bound pane read'
   assert_success
   assert_file_exists "$HWI_WORK/pane-get.ready"
-  local state="$HWI_STATE/sessions/$(encode_key session-1).state"
+  local state="$(hwi_session_state_path session-1)"
   assert_equal "$(read_state_field "$state" outcome)" unresolved
   assert_file_contains "${state%.state}.diagnostics.log" '^reason=pane-unreachable '
 }
@@ -2234,7 +2292,7 @@ function test_scripts_1205_worktree_identity_timeout_kills_term_ignoring_descend
   done
   run kill -0 "$child_pid"
   assert_failure
-  local state="$HWI_STATE/sessions/$(encode_key session-1).state"
+  local state="$(hwi_session_state_path session-1)"
   assert_equal "$(read_state_field "$state" outcome)" unresolved
 }
 
@@ -2264,7 +2322,15 @@ function test_scripts_1188_worktree_identity_declines_marker_and_retries_content
     HERDR_WORKTREE_IDENTITY_BRANCH_CLAIM_ATTEMPTS=1 \
     bash "$HWI_ENGINE" --worker --agent codex --session session-1 --pane pane-1 --workspace workspace-1 <<< 'Retry contention label'
   assert_success
+  # Contention is retryable, so the record has to survive it intact: authorized,
+  # no terminal outcome, no branch. A bare `outcome == ""` also accepts "the
+  # engine wrote nothing at all", which the retry legs below could not recover.
+  assert_file_exists "$state"
+  assert_equal "$(read_state_field "$state" authorization)" authorized
+  assert_equal "$(read_state_field "$state" original_branch)" "$HWI_BRANCH"
+  assert_equal "$(read_state_field "$state" branch)" ''
   assert_equal "$(read_state_field "$state" outcome)" ''
+  assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" "$HWI_BRANCH"
   assert_file_contains "${state%.state}.diagnostics.log" '^reason=contended '
   : > "$HWI_HOLDER_RELEASE"
   wait "$HWI_HOLDER_PID"
@@ -2280,6 +2346,42 @@ function test_scripts_1188_worktree_identity_declines_marker_and_retries_content
   assert_success
   assert_equal "$(read_state_field "$state" outcome)" complete
   assert_equal "$(hwi_workspace_rename_count)" 2
+}
+
+# Two libraries carry their own copy of this encoder -- `encode_key` in
+# herdr-worktree-state.sh and `context_usage_encode_key` in context-usage.sh --
+# and the suites that exercise them derive some expected paths with a third
+# spelling. Nothing in that arrangement can say the formula is right: a shared
+# mistake produces a matching wrong expectation. These vectors are the
+# independent side, url-safe unpadded base64 per RFC 4648 section 5, so both
+# libraries answer to a value written by hand rather than to each other.
+#
+# `aa~aa?a` is the discriminating one: its base64 carries a '+', a '/' and two
+# '=' at once, so dropping any one of the three substitutions fails here. The
+# long path is over 57 bytes, the width at which GNU base64 wraps its output, so
+# a library that stops deleting newlines fails on Linux.
+function test_scripts_1206_state_key_encoders_produce_url_safe_unpadded_base64() {
+  _bats_test_init 1206 'both state-key encoders produce url-safe unpadded base64'
+  local -a vectors=(
+    'session-1|c2Vzc2lvbi0x'
+    'aa~aa?a|YWF-YWE_YQ'
+    '/Users/agent/.worktrees/my-mac-setup/audit-339/deep/nested/path/segment|L1VzZXJzL2FnZW50Ly53b3JrdHJlZXMvbXktbWFjLXNldHVwL2F1ZGl0LTMzOS9kZWVwL25lc3RlZC9wYXRoL3NlZ21lbnQ'
+  )
+  local vector input expected
+  for vector in "${vectors[@]}"; do
+    input="${vector%%|*}"
+    expected="${vector##*|}"
+
+    run bash -c '. "$1"; encode_key "$2"' _ \
+      "$SOURCE_ROOT/dot_local/lib/herdr-worktree-state.sh" "$input"
+    assert_success
+    assert_output "$expected"
+
+    run bash -c '. "$1"; context_usage_encode_key "$2"' _ \
+      "$SOURCE_ROOT/dot_local/lib/context-usage.sh" "$input"
+    assert_success
+    assert_output "$expected"
+  done
 }
 
 function test_scripts_1189_worktree_identity_revalidates_occupant_before_workspace_rename() {
@@ -2478,13 +2580,6 @@ function test_scripts_006_install_packages_script_renders_as_valid_bash() {
 # macOS tunes script
 # ===========================================
 
-function test_scripts_007_macos_tunes_script_is_valid_bash() {
-  _bats_test_init 7 'macos-tunes script is valid bash'
-  local script="$SOURCE_ROOT/.chezmoiscripts/darwin/run_once_after_macos-tunes.sh"
-  run bash -n "$script"
-  assert_success
-}
-
 function test_scripts_008_darwin_scripts_excluded_from_managed_list_on_lin() {
   _bats_test_init 8 'darwin scripts excluded from managed list on Linux'
   is_linux || skip "Only relevant on Linux"
@@ -2596,21 +2691,28 @@ SH
   assert_failure
   run grep -Fx "plugin install dio16/herdr-auto-update -y" "$calls"
   assert_success
-  run grep -Fx "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y" "$calls"
+  # The pinned commit is an installation choice with no oracle outside the
+  # template it is copied from, so these match the install command and the
+  # shape of a pinned ref. A ref bump must not edit a test.
+  run grep -Ex "plugin install Seigiard/herdr-command-palette --ref [0-9a-f]{40} -y" "$calls"
   assert_success
-  run grep -Fx "plugin install Seigiard/herdr-pane-labels --ref aba61eb788c5fe0630dc570d96fd14683e2f63c7 -y" "$calls"
+  run grep -Ex "plugin install Seigiard/herdr-pane-labels --ref [0-9a-f]{40} -y" "$calls"
   assert_success
   run grep -Fx "plugin enable seigi.pane-labels" "$calls"
   assert_success
   run grep -Fx "plugin enable seigi.command-palette" "$calls"
   assert_success
-  run grep -Fx "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y" "$calls"
-  assert_success
-  run grep -Fx "plugin install Seigiard/herdr-pane-labels --ref aba61eb788c5fe0630dc570d96fd14683e2f63c7 -y" "$calls"
+  run grep -Ex "plugin install Seigiard/herdr-worktree-setup --ref [0-9a-f]{40} -y" "$calls"
   assert_success
   run grep -Fx "plugin enable seigi.worktree-setup" "$calls"
   assert_success
-  run grep -Fx "plugin install usrivastava92/herdr-wakeup/plugin --ref 43db0b9f88a4b1bc560593b0ce8f2a7d2a940f04 -y" "$calls"
+  run grep -Ex "plugin install usrivastava92/herdr-wakeup/plugin --ref [0-9a-f]{40} -y" "$calls"
+  assert_success
+  # The Darwin-only positive control for the refutation in 08511: this render
+  # installs and enables focus-notify, the Linux render must not.
+  run grep -Ex "plugin install yankewei/herdr-focus-notify --ref [0-9a-f]{40} -y" "$calls"
+  assert_success
+  run grep -Fx "plugin enable herdr-focus-notify" "$calls"
   assert_success
   run grep -Fx "plugin action invoke stop --plugin herdr-wakeup" "$calls"
   assert_success
@@ -2652,10 +2754,11 @@ SH
   assert_failure
   run grep -Fx "plugin uninstall seigi.worktree-setup" "$calls"
   assert_failure
-  run grep -Fx "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y" "$calls"
+  run grep -Ex "plugin install Seigiard/herdr-command-palette --ref [0-9a-f]{40} -y" "$calls"
   assert_success
-  run grep -Fx "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y" "$calls"
+  run grep -Ex "plugin install Seigiard/herdr-worktree-setup --ref [0-9a-f]{40} -y" "$calls"
   assert_success
+  # Controlled by the Darwin install assertions in 0851.
   run grep -F "herdr-focus-notify" "$calls"
   assert_failure
   run grep -F "herdr-auto-update" "$calls"
@@ -2764,7 +2867,7 @@ case "$*" in
       printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.worktree-setup","source":{"kind":"local"}}]}}'
     fi
     ;;
-  "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y")
+  "plugin install Seigiard/herdr-worktree-setup --ref "*" -y")
     [ "${HERDR_FAIL_STEP:-}" != install ]
     ;;
   "plugin uninstall seigi.worktree-setup")
@@ -2837,7 +2940,7 @@ function test_scripts_0853_worktree_setup_migration_retries_after_install_failur
   run worktree_migration_apply "$work"
   assert_success
   assert_dir_not_exists "$work/home/.config/herdr/plugins/worktree-setup"
-  run grep -Fc "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y" "$work/herdr.calls"
+  run grep -Ec "plugin install Seigiard/herdr-worktree-setup --ref [0-9a-f]{40} -y" "$work/herdr.calls"
   assert_success
   assert_output "2"
 }
@@ -2877,7 +2980,7 @@ function test_scripts_08532_worktree_setup_migration_replaces_a_stale_local_regi
   assert_success
   run grep -Fx "plugin uninstall seigi.worktree-setup" "$work/herdr.calls"
   assert_success
-  run grep -Fx "plugin install Seigiard/herdr-worktree-setup --ref 70048c616979719aa592df36f37ec076227b2ac8 -y" "$work/herdr.calls"
+  run grep -Ex "plugin install Seigiard/herdr-worktree-setup --ref [0-9a-f]{40} -y" "$work/herdr.calls"
   assert_success
 }
 
@@ -3027,7 +3130,7 @@ case "$*" in
   "plugin list --json")
     printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","source":{"kind":"local"}}]}}'
     ;;
-  "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y")
+  "plugin install Seigiard/herdr-command-palette --ref "*" -y")
     [ "${HERDR_FAIL_STEP:-}" != install ]
     ;;
   "plugin enable seigi.command-palette")
@@ -3066,7 +3169,7 @@ function test_scripts_08521_command_palette_migration_retries_after_install_fail
   assert_success
   assert_dir_not_exists "$work/home/.config/herdr/plugins/command-palette"
   assert_file_exists "$work/home/.config/herdr/command-palette/commands.toml"
-  run grep -Fc "plugin install Seigiard/herdr-command-palette --ref 9c92d2d0b0d275183880c9033e73657e513d3da1 -y" "$work/herdr.calls"
+  run grep -Ec "plugin install Seigiard/herdr-command-palette --ref [0-9a-f]{40} -y" "$work/herdr.calls"
   assert_success
   assert_output "2"
 }
@@ -3093,49 +3196,130 @@ function test_scripts_08522_command_palette_migration_retries_after_enable_failu
   assert_output "2"
 }
 
-function test_scripts_08523_plugin_list_fake_fields_match_real_herdr() {
-  _bats_test_init 8523 'plugin-list fake fields match the installed Herdr contract'
-  command_exists herdr || skip "herdr is not installed"
-  local plugin_json
-
-  run env -i HOME="$HOME" PATH="$PATH" \
-    HERDR_SOCKET_PATH="/tmp/mms-herdr-plugin-contract-$$.sock" herdr plugin list --json
-  [[ $status -eq 0 ]] || skip "real herdr returned no plugin list: $output"
-  plugin_json="$output"
-
-  run env PLUGIN_JSON="$plugin_json" python3 - <<'PY'
+# The field contract every herdr plugin-list fake in this file reproduces, and
+# the only part of the payload the migrations read: `plugin_is_local` and
+# `plugin_is_enabled` in home/.chezmoiscripts/run_once_after_*-migrate-herdr-*
+# and run_onchange_after_7-install-herdr-github-plugins take
+# result.plugins[].plugin_id, .enabled and .source.kind and nothing else. The
+# expected side is the installed binary's own payload; the depth stops here on
+# purpose, because anything deeper restates a shape herdr owns and would go red
+# on its next release for no local reason
+# (docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md).
+assert_herdr_plugin_field_contract() {
+  local payload="$1" plugin_id="$2" expected_kind="$3"
+  run python3 - "$payload" "$plugin_id" "$expected_kind" <<'PY'
 import json
-import os
+import sys
 
-plugins = json.loads(os.environ["PLUGIN_JSON"])["result"]["plugins"]
-assert plugins, "real herdr returned no plugins"
-kinds = set()
-for plugin in plugins:
-    assert isinstance(plugin.get("plugin_id"), str), plugin
-    assert isinstance(plugin.get("enabled"), bool), plugin
-    source = plugin.get("source")
-    assert isinstance(source, dict) and isinstance(source.get("kind"), str), plugin
-    kinds.add(source["kind"])
-assert kinds <= {"local", "github"}, kinds
-print(" ".join(sorted(kinds)))
+payload, wanted, expected_kind = sys.argv[1:]
+plugins = json.loads(open(payload, encoding="utf-8").read())["result"]["plugins"]
+matches = [plugin for plugin in plugins if plugin.get("plugin_id") == wanted]
+assert len(matches) == 1, matches
+plugin = matches[0]
+print(json.dumps({
+    "plugin_id": type(plugin["plugin_id"]).__name__,
+    "enabled": type(plugin["enabled"]).__name__,
+    "source.kind": plugin["source"]["kind"],
+}, sort_keys=True))
 PY
   assert_success
-  [[ " $output " == *" local "* && " $output " == *" github "* ]] \
-    || skip "real registry does not currently expose both local and github source kinds: $output"
+  assert_output \
+    "{\"enabled\": \"bool\", \"plugin_id\": \"str\", \"source.kind\": \"$expected_kind\"}"
+}
 
-  run env -i HOME="$HOME" PATH="$PATH" \
+function test_scripts_08523_plugin_list_fake_fields_match_real_herdr() {
+  _bats_test_init 8523 'plugin-list fake local-source fields match the installed Herdr contract'
+  # The PATH wrapper alone is not an oracle: on a CI runner it is deployed with
+  # no real herdr behind it and answers 127.
+  command_exists herdr && herdr --version >/dev/null 2>&1 \
+    || skip "no working herdr executable is installed behind the PATH wrapper"
+  local work="$BATS_TEST_TMPDIR/plugin-contract-local"
+  mkdir -p "$work/home/.config" "$work/plug"
+
+  # The local-source observation is constructed rather than borrowed from the
+  # host registry: the real binary registers a throwaway plugin in a config home
+  # of this test's own and reports back what it recorded. No environment has to
+  # happen to hold a local registration -- which is what used to fold this whole
+  # calibration into a single skip, leaving the `local` half of every fake below
+  # (lines with "kind":"local") adjudicated by nothing.
+  cat > "$work/plug/herdr-plugin.toml" <<'TOML'
+id = "mms.plugin-contract-probe"
+name = "Plugin Contract Probe"
+version = "0.0.1"
+min_herdr_version = "0.7.0"
+description = "throwaway local registration used to read herdr's plugin-list contract"
+platforms = ["macos", "linux"]
+TOML
+  # An explicit short socket path: herdr derives one from the config home, and a
+  # path under BATS_TEST_TMPDIR overruns sun_path.
+  run env -i HOME="$work/home" PATH="$PATH" XDG_CONFIG_HOME="$work/home/.config" \
+    HERDR_SOCKET_PATH="/tmp/mms-herdr-plugin-contract-$$.sock" \
+    herdr plugin link "$work/plug" --enabled
+  assert_success
+  run env -i HOME="$work/home" PATH="$PATH" XDG_CONFIG_HOME="$work/home/.config" \
+    HERDR_SOCKET_PATH="/tmp/mms-herdr-plugin-contract-$$.sock" \
+    herdr plugin list --json
+  assert_success
+  printf '%s\n' "$output" > "$work/real.json"
+  assert_herdr_plugin_field_contract "$work/real.json" mms.plugin-contract-probe local
+
+  # The offline `plugin enable` error payload the fakes at tests 08513 and 08514
+  # reproduce, read from the real binary against a socket no server answers.
+  run env -i HOME="$work/home" PATH="$PATH" \
     HERDR_SOCKET_PATH="/tmp/mms-herdr-plugin-contract-$$.sock" \
     herdr plugin enable missing.plugin
   assert_failure
-  local enable_error="$output"
-  run env ENABLE_ERROR="$enable_error" python3 - <<'PY'
-import json
-import os
+  run python3 -c 'import json,sys; print(json.loads(sys.argv[1])["error"]["code"])' "$output"
+  assert_success
+  assert_output 'server_not_running'
+}
 
-error = json.loads(os.environ["ENABLE_ERROR"])["error"]
-assert error["code"] == "server_not_running", error
+function test_scripts_08530_plugin_list_fake_github_source_matches_real_herdr() {
+  _bats_test_init 8530 'plugin-list fake github-source fields match the installed Herdr contract'
+  # The PATH wrapper alone is not an oracle: on a CI runner it is deployed with
+  # no real herdr behind it and answers 127.
+  command_exists herdr && herdr --version >/dev/null 2>&1 \
+    || skip "no working herdr executable is installed behind the PATH wrapper"
+  # A github-source registration cannot be constructed offline -- `plugin
+  # install` resolves a ref over the network -- so this half reads the host
+  # registry and carries its own visible skip. It is a separate test from 08523
+  # on purpose: folded into one, this precondition skipped the local half too and
+  # the run reported one "skipped" where one side had in fact been verified.
+  local work="$BATS_TEST_TMPDIR/plugin-contract-github" probe
+  mkdir -p "$work"
+  run env -i HOME="$HOME" PATH="$PATH" \
+    HERDR_SOCKET_PATH="/tmp/mms-herdr-plugin-contract-$$.sock" herdr plugin list --json
+  assert_success
+  printf '%s\n' "$output" > "$work/real.json"
+  run python3 - "$work/real.json" <<'PY'
+import json
+import sys
+
+plugins = json.loads(open(sys.argv[1], encoding="utf-8").read())["result"]["plugins"]
+github = [p for p in plugins if (p.get("source") or {}).get("kind") == "github"]
+print(github[0]["plugin_id"] if github else "")
 PY
   assert_success
+  probe="$output"
+  [[ -n "$probe" ]] \
+    || skip "the host herdr registry holds no github-source plugin to read the contract from"
+  assert_herdr_plugin_field_contract "$work/real.json" "$probe" github
+
+  # Every source kind the fakes below produce is one of two. A third kind
+  # appearing upstream is what would make the local/github branch in
+  # `plugin_is_local` stop partitioning the registry.
+  run python3 - "$work/real.json" <<'PY'
+import json
+import sys
+
+plugins = json.loads(open(sys.argv[1], encoding="utf-8").read())["result"]["plugins"]
+print(" ".join(sorted({p["source"]["kind"] for p in plugins})))
+PY
+  assert_success
+  case "$output" in
+    github|local|'github local') : ;;
+    *) fail "real herdr reports a source kind the migrations do not partition: $output" ;;
+  esac
 }
 
 function test_scripts_08524_worktree_setup_is_installed_enabled_and_pinned() {
@@ -3143,6 +3327,10 @@ function test_scripts_08524_worktree_setup_is_installed_enabled_and_pinned() {
   command_exists herdr && herdr --version >/dev/null 2>&1 \
     || skip "a working upstream herdr is not installed"
   [[ "${MMS_DISPOSABLE_HOME:-}" == 1 ]] || skip "requires the disposable post-apply registry"
+  # This is the one test that keeps the pinned commit as a literal. Here it is not
+  # copied from the template being exercised: the real herdr reports the commit it
+  # actually resolved, so the literal compares two independent sides. Every other
+  # site matches the shape of a pinned ref instead.
   local plugin_json
   run env -i HOME="$HOME" PATH="$PATH" \
     HERDR_SOCKET_PATH="/tmp/mms-herdr-worktree-setup-$$.sock" herdr plugin list --json
@@ -3199,11 +3387,18 @@ SH
   cat > "$fake_bin/herdr" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$HERDR_CALLS"
+# Every precondition below encodes one step of the cut-over order. Name the step
+# in the order log so a wrong order reads as prose in the failed apply's output
+# instead of as an opaque exit code the reader has to decode from this stub.
+out_of_order() {
+  printf 'herdr stub: out of order: %s\n' "$1" >> "$HERDR_CALLS.order"
+  exit 1
+}
 case "$*" in
   "plugin list --json")
     printf '%s\n' '{"result":{"plugins":[{"plugin_id":"keepawake.caffeinate","source":{"kind":"local"}}]}}'
     ;;
-  "plugin install usrivastava92/herdr-wakeup/plugin --ref 43db0b9f88a4b1bc560593b0ce8f2a7d2a940f04 -y")
+  "plugin install usrivastava92/herdr-wakeup/plugin --ref "*" -y")
     [ "$HERDR_FAIL_STEP" != install ] || exit 1
     : > "$HOME/replacement-installed"
     ;;
@@ -3212,25 +3407,26 @@ case "$*" in
     ;;
   "plugin enable herdr-wakeup")
     [ "$HERDR_FAIL_STEP" != enable ] || exit 1
-    [ -f "$HOME/replacement-installed" ] || exit 3
-    [ -L "$HOME/.config/herdr/plugins/config/herdr-wakeup/sessions/f60c672338465554/config.json" ] || exit 4
+    [ -f "$HOME/replacement-installed" ] || out_of_order "enable herdr-wakeup before installing it"
+    [ -L "$HOME/.config/herdr/plugins/config/herdr-wakeup/sessions/f60c672338465554/config.json" ] || \
+      out_of_order "enable herdr-wakeup before linking its managed session policy"
     : > "$HOME/replacement-enabled"
     ;;
   "plugin action invoke stop --plugin keepawake.caffeinate")
     [ -d "$HOME/.config/herdr/plugins/herdr-caffeinate" ] || exit 1
-    [ -f "$HOME/replacement-enabled" ] || exit 5
+    [ -f "$HOME/replacement-enabled" ] || out_of_order "stop the local owner before enabling herdr-wakeup"
     : > "$HOME/legacy-stopped"
     ;;
   "plugin action invoke status --plugin keepawake.caffeinate")
-    [ -f "$HOME/legacy-reconciled" ] || exit 10
+    [ -f "$HOME/legacy-reconciled" ] || out_of_order "query the local owner before reconciling it"
     ;;
   "plugin disable keepawake.caffeinate")
     [ ! -d "$HOME/.config/herdr/plugins/herdr-caffeinate" ] || \
-      [ -f "$HOME/legacy-stopped" ] || exit 6
+      [ -f "$HOME/legacy-stopped" ] || out_of_order "disable the local owner before stopping it"
     : > "$HOME/legacy-disabled"
     ;;
   "server reload-config")
-    [ -f "$HOME/legacy-disabled" ] || exit 7
+    [ -f "$HOME/legacy-disabled" ] || out_of_order "reload before disabling the local owner"
     if [ "$HERDR_FAIL_STEP" = reload ] && [ ! -f "$HOME/activation-reload-failed" ]; then
       : > "$HOME/activation-reload-failed"
       exit 1
@@ -3238,11 +3434,11 @@ case "$*" in
     : > "$HOME/server-reloaded"
     ;;
   "plugin action invoke start --plugin herdr-wakeup")
-    [ -f "$HOME/server-reloaded" ] || exit 8
+    [ -f "$HOME/server-reloaded" ] || out_of_order "start herdr-wakeup before reloading"
     : > "$HOME/replacement-started"
     ;;
   "plugin uninstall keepawake.caffeinate")
-    [ -f "$HOME/replacement-started" ] || exit 9
+    [ -f "$HOME/replacement-started" ] || out_of_order "uninstall the local owner before herdr-wakeup runs"
     ;;
   *)
     exit 0
@@ -3251,15 +3447,38 @@ esac
 SH
   chmod +x "$fake_bin/herdr"
   : > "$work/herdr.calls"
+  rm -f "$work/herdr.calls.order"
 }
 
 caffeinate_migration_run() {
-  local work="$1" fail_step="${2:-}"
+  local work="$1" fail_step="${2:-}" run_status=0
   HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" \
     PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
     HERDR_FAIL_STEP="$fail_step" HERDR_SOCKET_PATH=/tmp/mms-herdr-wakeup-test.sock \
     chezmoi_full_fixture apply --source "$work/source" --destination "$work/home" \
-      --config "$work/chezmoi.yaml"
+      --config "$work/chezmoi.yaml" || run_status=$?
+  # Diagnostics, not an expectation: carry the stub's named ordering violations
+  # into this command's output so a failed apply names the step that moved.
+  [ ! -s "$work/herdr.calls.order" ] || cat "$work/herdr.calls.order" >&2
+  return "$run_status"
+}
+
+# The cut-over order is the migration's contract. The stub enforces it through
+# preconditions that surface as opaque exit codes 3-10 inside a failed apply, so
+# the sequence is asserted by name here instead. The pinned ref is normalized
+# out: which commit is installed is not part of the ordering contract.
+caffeinate_cutover_calls() {
+  local observed
+  observed="$(grep -Ex \
+    -e 'plugin install usrivastava92/herdr-wakeup/plugin --ref [0-9a-f]{40} -y' \
+    -e 'plugin enable herdr-wakeup' \
+    -e 'plugin action invoke stop --plugin keepawake.caffeinate' \
+    -e 'plugin disable keepawake.caffeinate' \
+    -e 'server reload-config' \
+    -e 'plugin action invoke start --plugin herdr-wakeup' \
+    -e 'plugin uninstall keepawake.caffeinate' \
+    "$1")" || return 1
+  printf '%s\n' "$observed" | sed -E 's/--ref [0-9a-f]{40} /--ref <pinned> /'
 }
 
 function test_scripts_08524_caffeinate_migration_cuts_over_only_after_the_replacement_is_ready() {
@@ -3274,14 +3493,15 @@ function test_scripts_08524_caffeinate_migration_cuts_over_only_after_the_replac
   run readlink "$wakeup_config/sessions/f60c672338465554/config.json"
   assert_success
   assert_output "$wakeup_config/config.json"
-  run grep -Fx "plugin action invoke stop --plugin keepawake.caffeinate" "$work/herdr.calls"
+  run caffeinate_cutover_calls "$work/herdr.calls"
   assert_success
-  run grep -Fx "plugin uninstall keepawake.caffeinate" "$work/herdr.calls"
-  assert_success
-  run grep -Fx "plugin install usrivastava92/herdr-wakeup/plugin --ref 43db0b9f88a4b1bc560593b0ce8f2a7d2a940f04 -y" "$work/herdr.calls"
-  assert_success
-  run grep -Fx "plugin enable herdr-wakeup" "$work/herdr.calls"
-  assert_success
+  assert_output "plugin install usrivastava92/herdr-wakeup/plugin --ref <pinned> -y
+plugin enable herdr-wakeup
+plugin action invoke stop --plugin keepawake.caffeinate
+plugin disable keepawake.caffeinate
+server reload-config
+plugin action invoke start --plugin herdr-wakeup
+plugin uninstall keepawake.caffeinate"
 }
 
 function test_scripts_08525_caffeinate_migration_keeps_the_local_owner_when_installation_fails() {
@@ -3301,7 +3521,7 @@ function test_scripts_08525_caffeinate_migration_keeps_the_local_owner_when_inst
   run caffeinate_migration_run "$work"
   assert_success
   assert_dir_not_exists "$work/home/.config/herdr/plugins/herdr-caffeinate"
-  run grep -Fc "plugin install usrivastava92/herdr-wakeup/plugin --ref 43db0b9f88a4b1bc560593b0ce8f2a7d2a940f04 -y" "$work/herdr.calls"
+  run grep -Ec "plugin install usrivastava92/herdr-wakeup/plugin --ref [0-9a-f]{40} -y" "$work/herdr.calls"
   assert_success
   assert_output "2"
 }
@@ -3339,19 +3559,54 @@ function test_scripts_08527_caffeinate_migration_restores_the_local_owner_when_r
   assert_failure
 }
 
-function test_scripts_08528_caffeinate_migration_skips_a_broken_wrapper_without_legacy_files() {
-  _bats_test_init 8528 'caffeinate migration skips a broken wrapper without legacy files'
-  local work="$BATS_TEST_TMPDIR/caffeinate-migration-wrapper-only"
-  caffeinate_migration_prepare "$work" absent
-  cat > "$work/bin/herdr" <<'SH'
+# A wrapper that is present but cannot run. It still records its argv, so a test
+# can tell which probe the migration made before deciding to skip or refuse.
+caffeinate_break_herdr_wrapper() {
+  cat > "$1/bin/herdr" <<'SH'
 #!/bin/sh
+printf '%s\n' "$*" >> "$HERDR_CALLS"
 exit 127
 SH
-  chmod +x "$work/bin/herdr"
+  chmod +x "$1/bin/herdr"
+}
 
+function test_scripts_08528_caffeinate_migration_skips_a_broken_wrapper_without_legacy_files() {
+  _bats_test_init 8528 'caffeinate migration skips a broken wrapper without legacy files'
+  # #given a broken herdr wrapper and no legacy Caffeinate files
+  local work="$BATS_TEST_TMPDIR/caffeinate-migration-wrapper-only"
+  caffeinate_migration_prepare "$work" absent
+  caffeinate_break_herdr_wrapper "$work"
+
+  # #when
   run caffeinate_migration_run "$work"
 
+  # #then the migration probed the wrapper and stopped there. Status alone cannot
+  # tell a deliberate skip from a migration that stopped probing herdr at all,
+  # so the recorded argv must be exactly the one probe and nothing else.
   assert_success
+  run cat "$work/herdr.calls"
+  assert_success
+  assert_output "--version"
+}
+
+function test_scripts_08529_caffeinate_migration_refuses_a_broken_wrapper_while_legacy_files_remain() {
+  _bats_test_init 8529 'caffeinate migration refuses a broken wrapper while legacy files remain'
+  # #given a broken herdr wrapper and the legacy Caffeinate plugin still on disk
+  local work="$BATS_TEST_TMPDIR/caffeinate-migration-wrapper-with-legacy"
+  caffeinate_migration_prepare "$work" present
+  caffeinate_break_herdr_wrapper "$work"
+
+  # #when
+  run caffeinate_migration_run "$work"
+
+  # #then it refuses and keeps the local owner: the discriminating control for
+  # 08528, which must not be able to pass by doing nothing at all.
+  assert_failure 1
+  assert_output --partial "Caffeinate migration needs herdr; retry after herdr is installed"
+  assert_dir_exists "$work/home/.config/herdr/plugins/herdr-caffeinate"
+  run cat "$work/herdr.calls"
+  assert_success
+  assert_output "--version"
 }
 
 # ask-in-herdr skill script
@@ -3390,8 +3645,10 @@ TOML
 
   run bash "$PRE_EXTERNAL_SECRET_SCAN" "$clean_dir" "$leak_dir"
   assert_failure 1
-  assert_output --partial 'pre-external secret gate REFUSED'
-  assert_output --partial 'FOUND secrets'
+  # One phrase, not two fragments: split, the refusal banner and the finding
+  # could come from different lines -- a clean directory scanned after a failed
+  # one satisfies both.
+  assert_output --partial 'pre-external secret gate REFUSED: FOUND secrets in '
   refute_output --partial "$token"
 
   run bash -c 'printf "prompt=%s\n" "$3" | bash "$1" --stdin "$2"' \
@@ -3443,18 +3700,21 @@ SH
 
   run env PATH="$empty_bin:/usr/bin:/bin" /bin/bash "$PRE_EXTERNAL_SECRET_SCAN" "$scan_dir"
   assert_failure 1
-  assert_output --partial 'gitleaks is not on PATH'
-  assert_output --partial 'Nothing was sent externally'
+  # One line each. Split, the refusal reason and the "nothing was sent"
+  # reassurance need not come from the same gate, and all three gates below
+  # print the reassurance.
+  assert_output 'pre-external secret gate REFUSED: gitleaks is not on PATH. Nothing was sent externally.'
 
   run env PATH="$bad_bin:/usr/bin:/bin" /bin/bash "$PRE_EXTERNAL_SECRET_SCAN" "$scan_dir"
   assert_failure 1
-  assert_output --partial 'unexpected code 7'
-  assert_output --partial 'Nothing was sent externally'
+  # Partial: the scanned path is resolved through /private on macOS, so the
+  # line cannot be matched whole; the merged phrase still binds the reason and
+  # the exit code to one gate.
+  assert_output --partial 'pre-external secret gate REFUSED: gitleaks exited with unexpected code 7 while scanning '
 
   run bash "$PRE_EXTERNAL_SECRET_SCAN" "$scan_dir/missing"
   assert_failure 1
-  assert_output --partial 'scan target does not exist'
-  assert_output --partial 'Nothing was sent externally'
+  assert_output "pre-external secret gate REFUSED: scan target does not exist: $scan_dir/missing. Nothing was sent externally."
 }
 
 ask_live_stub() {
@@ -3605,14 +3865,14 @@ function test_scripts_1053_ask_sh_refuses_outside_herdr_and_when_herdr_child_is_
   assert_output --partial "status=refused"
   [ ! -f "$CHILD_STUB/child.log" ]
 
-  local no_child; no_child="$(mktemp -d)"
+  local no_child="$BATS_TEST_TMPDIR/no-child"
+  mkdir -p "$no_child"
   cp "$CHILD_STUB/herdr" "$no_child/herdr"
   run env PATH="$no_child:/usr/bin:/bin" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$ASK_HERDR_SCRIPT" claude question
   assert_failure 2
   assert_output --partial "herdr-child is not on PATH"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=refused"
-  rm -rf "$no_child"
 }
 
 function test_scripts_1227_ask_sh_refuses_before_launch_when_the_secret_scan_is_not_clean() {
@@ -3656,6 +3916,8 @@ function test_scripts_1228_ask_in_herdr_follow_up_rescans_the_question_before_pr
     STUB_PANE_CWD="$secret_cwd" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$ASK_HERDR_FOLLOW_UP" prompt red-wolf wT:p9 clean-question
   assert_failure 2
+  # Exit 2 is also an argument-parse refusal, so the trailer names the reason.
+  assert_line --index "$(( ${#lines[@]} - 1 ))" 'follow-up.sh: status=refused'
   assert_file_not_exists "$CHILD_STUB/child.log"
 
   ask_live_stub
@@ -3667,7 +3929,25 @@ function test_scripts_1228_ask_in_herdr_follow_up_rescans_the_question_before_pr
     STUB_PANE_CWD="$clean_cwd" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$ASK_HERDR_FOLLOW_UP" prompt red-wolf wT:p9 clean-question --skills "$secret_skills"
   assert_failure 2
+  assert_line --index "$(( ${#lines[@]} - 1 ))" 'follow-up.sh: status=refused'
   assert_file_not_exists "$CHILD_STUB/child.log"
+
+  # Control for both directory-scan refusals: the same scanning configuration over a
+  # clean pane cwd and a clean --skills tree must still deliver. Without it a
+  # follow-up.sh that refuses whenever --skills is present passes both refusals, and
+  # the delivering legs above never exercise a scanner that reads directories.
+  ask_live_stub
+  local clean_scan_cwd="$BATS_TEST_TMPDIR/follow-up-clean-scan-cwd"
+  local clean_skills="$BATS_TEST_TMPDIR/follow-up-clean-skills"
+  mkdir -p "$clean_scan_cwd" "$clean_skills"
+  printf '%s\n' 'no marker in this tree' > "$clean_scan_cwd/notes"
+  printf '%s\n' 'no marker in this tree' > "$clean_skills/SKILL.md"
+  run env PATH="$CHILD_STUB:$PATH" STUB_SCAN_MATCH=follow-up-secret-marker STUB_SCAN_DIRS=1 \
+    STUB_PANE_CWD="$clean_scan_cwd" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_FOLLOW_UP" prompt red-wolf wT:p9 clean-question --skills "$clean_skills"
+  assert_success
+  assert_line --index "$(( ${#lines[@]} - 1 ))" 'follow-up.sh: status=delivered'
+  assert_file_contains "$CHILD_STUB/child.log" '^prompt --to red-wolf --pane wT:p9 --wait clean-question'
 
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_PROMPT_STATUS=124 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -3688,9 +3968,12 @@ function test_scripts_1054_ask_sh_starts_a_read_only_live_child_and_returns_its_
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$ASK_HERDR_SCRIPT" claude "hi there"
   assert_success
-  assert_output --partial "ANSWER from child"
-  assert_output --partial "close with: herdr-child reap --to red-wolf --pane wT:p9"
-  assert_output --partial "ask.sh: status=answered"
+  # The whole relay, exactly: the answer, the pane notice naming the child and
+  # the pane, and the status line, in that order. As three partials the notice
+  # could precede the answer, or a second status line could follow.
+  assert_output 'ANSWER from child
+ask.sh: consult is in herdr pane wT:p9 (left open; close with: herdr-child reap --to red-wolf --pane wT:p9)
+ask.sh: status=answered'
   run grep -E -- '^start --kind claude --posture ro ' "$CHILD_STUB/child.log"
   assert_success
   run grep -E -- '--prompt-file .* --wait --timeout 1800000' "$CHILD_STUB/child.log"
@@ -3748,9 +4031,16 @@ function test_scripts_1057_ask_sh_performs_no_agent_list_preflight_or_query_and_
   assert_failure
   run sed -n '1p' "$CHILD_STUB/order.log"
   assert_output --partial "child start"
-  run grep -c '^herdr agent list' "$CHILD_STUB/herdr.log"
-  assert_failure
-  assert_output 0
+  # herdr.log records bare argv, so the pattern carries no `herdr ` prefix. The
+  # `agent read` count below is the positive control: it proves the same pattern
+  # shape does match a call the script really makes, so the refutation above
+  # cannot be satisfied by a log the grep can never read.
+  run grep -c '^agent list ' "$CHILD_STUB/herdr.log"
+  assert_failure 1
+  assert_output "0"
+  run grep -c '^agent read ' "$CHILD_STUB/herdr.log"
+  assert_success
+  assert_output "1"
   run grep -c '^verify --to red-wolf --pane wT:p9 ' "$CHILD_STUB/child.log"
   assert_success
   assert_output 2
@@ -3763,7 +4053,7 @@ function test_scripts_1058_ask_sh_discards_buffered_output_when_either_pair_vali
     bash "$ASK_HERDR_SCRIPT" claude question
   assert_failure 1
   refute_output --partial "ANSWER from child"
-  assert_output --partial "status=undelivered"
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=undelivered"
 
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_PAIR_TERMINAL_CHANGE_AT=2 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -3771,6 +4061,7 @@ function test_scripts_1058_ask_sh_discards_buffered_output_when_either_pair_vali
   assert_failure 1
   refute_output --partial "ANSWER from child"
   assert_output --partial "output discarded"
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=undelivered"
 }
 
 function test_scripts_1059_ask_sh_reports_blocked_children_after_printing_their_an() {
@@ -3856,7 +4147,9 @@ function test_scripts_1063_ask_sh_maps_child_start_failures_to_refused_or_undeli
 function test_scripts_1064_ask_sh_names_a_report_path_outside_the_checkout_in_the_de() {
   _bats_test_init 1064 'ask.sh names a report path outside the checkout in the delivered question'
   ask_live_stub
-  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+  local tmp_root="$BATS_TEST_TMPDIR/ask-transport-root"
+  mkdir -p "$tmp_root"
+  run env PATH="$CHILD_STUB:$PATH" TMPDIR="$tmp_root" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$ASK_HERDR_SCRIPT" claude 'what is set -e'
   assert_success
 
@@ -3867,11 +4160,15 @@ function test_scripts_1064_ask_sh_names_a_report_path_outside_the_checkout_in_th
   assert_file_contains "$CHILD_STUB/prompt.txt" 'answer\.report'
   assert_file_contains "$CHILD_STUB/prompt.txt" 'what is set -e'
 
-  report_line="$(grep -o '/[^ ]*/answer\.report' "$CHILD_STUB/prompt.txt" | head -1)"
-  [ -n "$report_line" ]
-  case "$report_line" in
-    "$SOURCE_ROOT"*) printf 'report path is inside the checkout: %s\n' "$report_line" >&2; return 1 ;;
-  esac
+  # The transport belongs in the caller's temp root, never in a checkout the child
+  # could commit from. This test owns that root, so the expected parent directory is
+  # exact; refuting one checkout prefix left a transport under the repository root
+  # or the caller's $PWD passing.
+  local report_path report_dir
+  report_path="$(grep -o '/[^ ]*/answer\.report' "$CHILD_STUB/prompt.txt" | head -1)"
+  report_dir="$(dirname "$report_path")"
+  assert_equal "$(dirname "$report_dir")" "$tmp_root"
+  assert_equal "$(basename "$report_path")" "answer.report"
 }
 
 function test_scripts_1065_ask_sh_tells_a_read_only_child_to_write_the_report_throug() {
@@ -3911,8 +4208,12 @@ function test_scripts_1067_ask_sh_returns_the_transport_file_not_the_pane_text()
     bash "$ASK_HERDR_SCRIPT" claude question
   assert_success
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=answered"
-  assert_output --partial 'report line 1'
-  assert_output --partial 'report line 250'
+  # Whole lines and the whole count: 'report line 1' as a substring is also
+  # satisfied by 'report line 100', so the pair could pass on a relay that
+  # dropped most of the transport.
+  assert_equal "$(grep -c '^report line ' <<< "$output")" 250
+  assert_line 'report line 1'
+  assert_line 'report line 250'
   refute_output --partial 'ANSWER from child'
 }
 
@@ -4260,6 +4561,14 @@ case "${1:-} ${2:-}" in
     printf '{"result":{"agent":{"interactive_ready":true}}}\n'
     ;;
   "agent get")
+    # Read failures scoped to the caller's own environment. A watcher armed
+    # before these were set keeps reading a healthy child, so a
+    # continuation-side failure does not disturb the generation under test.
+    [ "${STUB_AGENT_GET_FAIL:-0}" != 1 ] || {
+      printf '{"error":{"code":"internal_error","message":"agent read failed"}}\n' >&2
+      exit 1
+    }
+    [ "${STUB_AGENT_GET_MALFORMED:-0}" != 1 ] || { printf 'not-json\n'; exit 0; }
     count="$(read_value get-count 0)"
     count=$((count + 1))
     printf '%s\n' "$count" > "$CHILD_STUB/get-count"
@@ -4285,7 +4594,7 @@ case "${1:-} ${2:-}" in
       done
     fi
     child_name="$(read_value started-name child)"
-    child_terminal="$(read_value child-terminal term-child)"
+    child_terminal="${STUB_AGENT_GET_TERMINAL:-$(read_value child-terminal term-child)}"
     child_session="$(read_value child-session child-session)"
     child="$(agent_json "$child_name" wT:p9 "$child_terminal" "$child_session" "$child_status" "$child_seq")"
     if [ "$child_status" = working ] && [ "$child_seq" -gt 10 ]; then
@@ -4576,8 +4885,11 @@ function test_scripts_021_herdr_child_requires_a_subcommand_and_herdr_envi() {
   child_stub_herdr
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV= HERDR_PANE_ID=wT:p0 \
     bash "$HERDR_CHILD" start --kind claude --wait --prompt task
-  assert_failure
-  [ ! -f "$CHILD_STUB/calls.log" ]
+  # Any non-zero status also accepts an argument-parse crash or the mode guard,
+  # and then the absent calls.log proves nothing about which guard fired.
+  assert_failure 1
+  assert_output --partial "this command requires HERDR_ENV=1"
+  assert_file_not_exists "$CHILD_STUB/calls.log"
 }
 
 function test_scripts_022_herdr_child_refuses_pi_read_only_before_splittin() {
@@ -4714,11 +5026,12 @@ function test_scripts_1240_herdr_child_preserves_a_verified_child_when_parentage
 
   STUB_PARENTAGE_FAIL=1 run child_start --kind claude --wait
   assert_failure 75
-  assert_output --partial 'injected parentage failure'
-  assert_output --partial 'parentage recording failed after Agent start'
-  assert_output --partial 'child preserved'
-  assert_output --partial 'automatic launch retry is unsafe'
-  assert_output --partial "\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\""
+  # Whole output. Split into fragments, the diagnostic could lose the pane the
+  # caller has to clean up by hand, or report a different child, and still
+  # match every piece.
+  assert_output "injected parentage failure
+herdr-child: parentage recording failed after Agent start; child preserved and automatic launch retry is unsafe
+{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
   assert_file_contains "$CHILD_STUB/resource-tree.log" '^record-child --pane wT:p9 --terminal term-child'
   run grep -Eq '^(pane close|agent prompt)' "$CHILD_STUB/calls.log"
   assert_failure
@@ -4730,9 +5043,8 @@ function test_scripts_1241_herdr_child_preserves_a_wrapper_partial_success_witho
 
   STUB_SPLIT_STATUS=70 run child_start --kind claude --wait
   assert_failure 70
-  assert_output --partial '"pane_id":"wT:p9"'
-  assert_output --partial 'pane creation returned status 70 after reporting pane wT:p9'
-  assert_output --partial 'automatic creation retry is unsafe'
+  assert_output '{"result":{"pane":{"pane_id":"wT:p9","terminal_id":"term-child"}}}
+herdr-child: pane creation returned status 70 after reporting pane wT:p9 terminal term-child; resource preserved and automatic creation retry is unsafe'
   run grep -Ec '^(pane split|agent start|pane close)' "$CHILD_STUB/calls.log"
   assert_success
   assert_output '1'
@@ -4743,7 +5055,7 @@ function test_scripts_027_herdr_child_detached_mode_fails_closed_without_a() {
   _bats_test_init 27 'herdr-child detached mode fails closed without a parent session'
   child_stub_herdr
   STUB_PARENT_SESSION_MISSING=1 run child_start --kind claude --detach
-  assert_failure
+  assert_failure 1
   assert_output --partial "parent agent_session is unavailable"
   assert_file_contains "$CHILD_STUB/calls.log" '^agent list'
   run grep -Eq '^(pane split|agent start|agent prompt|pane report-metadata)' "$CHILD_STUB/calls.log"
@@ -4756,7 +5068,7 @@ function test_scripts_1242_herdr_child_attached_mode_keeps_unknown_parent_launch
 
   STUB_PARENT_SESSION_MISSING=1 run child_start --kind claude --wait
   assert_success
-  assert_output --partial '"pane":"wT:p9"'
+  assert_output "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
   assert_file_not_exists "$CHILD_STUB/resource-tree.log"
 }
 
@@ -4812,7 +5124,7 @@ function test_scripts_1245_herdr_child_attached_mode_keeps_unknown_child_session
   # identity. Attached mode records no edge rather than failing a live child.
   STUB_CHILD_SESSION_MISSING=1 run child_start --kind claude --wait
   assert_success
-  assert_output --partial '"pane":"wT:p9"'
+  assert_output "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
   assert_file_contains "$CHILD_STUB/calls.log" '^agent prompt'
   assert_file_not_exists "$CHILD_STUB/resource-tree.log"
 }
@@ -4826,8 +5138,8 @@ function test_scripts_1246_herdr_child_replays_an_unparseable_partial_creation_r
   # caller if the native result is replayed before parsing.
   STUB_SPLIT_NO_TERMINAL=1 STUB_SPLIT_STATUS=70 run child_start --kind claude --wait
   assert_failure 70
-  assert_output --partial '"pane_id":"wT:p9"'
-  assert_output --partial 'pane split failed'
+  assert_output '{"result":{"pane":{"pane_id":"wT:p9","terminal_id":""}}}
+herdr-child: pane split failed'
   run grep -Eq '^(agent start|pane close)' "$CHILD_STUB/calls.log"
   assert_failure
 }
@@ -4836,7 +5148,7 @@ function test_scripts_028_herdr_child_detached_mode_closes_only_its_new_pa() {
   _bats_test_init 28 'herdr-child detached mode closes only its new pane without a child session'
   child_stub_herdr
   STUB_CHILD_SESSION_MISSING=1 run child_start --kind claude --detach
-  assert_failure
+  assert_failure 1
   assert_output --partial "child agent_session is unavailable"
   assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
   run grep -q '^agent prompt' "$CHILD_STUB/calls.log"
@@ -4849,12 +5161,14 @@ function test_scripts_029_herdr_child_detached_mode_returns_only_after_liv() {
   child_stub_herdr
   run child_start --kind claude --detach --supervision-timeout 60000
   assert_success
-  assert_output --partial "\"agent\":\"$(child_started_name)\""
-  assert_output --partial '"supervision":{"status":"armed"'
-  assert_output --partial '"timeout_ms":60000'
   assert_file_exists "$CHILD_STUB/watcher.pid"
   local generation
   generation="$(cat "$CHILD_STUB/generation")"
+  # The whole envelope, with the generation read back from the run the watcher
+  # was armed against. Three partials never checked the generation at all, so
+  # an envelope quoting a different run -- the one thing a caller needs to reap
+  # the right child -- matched every one of them.
+  assert_output "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\",\"supervision\":{\"status\":\"armed\",\"generation\":\"$generation\",\"timeout_ms\":60000}}"
   run cat "$CHILD_STUB/state/runs/$generation/launch.state"
   assert_success
   assert_output "$(printf '%s\n' 'mode=detach' "generation=$generation" 'timeout_ms=60000' \
@@ -4875,15 +5189,35 @@ function test_scripts_029_herdr_child_detached_mode_returns_only_after_liv() {
 function test_scripts_030_herdr_child_detached_arm_failure_preserves_the_c() {
   _bats_test_init 30 'herdr-child detached arm failure preserves the child and returns recovery JSON'
   child_stub_herdr
-  HERDR_CHILD_TEST_ARM_FAIL=1 run child_start --kind claude --detach
-  assert_failure
-  assert_output --partial "\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\""
-  assert_output --partial '"supervision":{"status":"failed","reason":"watcher-arm-failed"'
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 STUB_START_CONTEXT=1 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+    HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
+    HERDR_CHILD_TEST_ARM_BARRIER="$CHILD_STUB/arm" \
+    bash "$HERDR_CHILD" start --kind claude --detach \
+    --prompt "test task" >"$CHILD_STUB/start.out" 2>"$CHILD_STUB/start.err" &
+  local launcher_pid=$!
+  child_wait_for_file "$CHILD_STUB/arm.ready"
+  set -- "$CHILD_STUB/state/runs/"*
+  assert_equal "$#" 1
+  mkdir "$1/armed.state"
+  : > "$CHILD_STUB/arm.release"
+  local launch_status
+  if wait "$launcher_pid"; then
+    launch_status=0
+  else
+    launch_status=$?
+  fi
+  assert_equal "$launch_status" 1
+  run cat "$CHILD_STUB/start.out"
+  assert_success
+  # Whole output, generation wildcarded. The two partials never checked that
+  # the diagnostic names the same run the failure record was written under --
+  # the one field a caller needs to find the preserved child.
+  assert_output --regexp "^\{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\",\"supervision\":\{\"status\":\"failed\",\"reason\":\"armed-write-failed\",\"generation\":\"[0-9a-f]{32}\",\"diagnostic\":\"[0-9a-f]{32}\"\}\}$"
+  assert_file_contains "$CHILD_STUB/start.err" '^herdr-child: prompt was accepted but supervision failed to arm: armed-write-failed; child preserved$'
   assert_file_contains "$CHILD_STUB/calls.log" '^agent prompt'
-  assert_file_contains "$CHILD_STUB/calls.log" 'token supervision_failure_reason=watcher-arm-failed'
   set -- "$CHILD_STUB/state/runs/"*
   [ "$#" -eq 1 ]
-  assert_file_exists "$1/failed.state"
   assert_file_permission 700 "$1"
   run grep -q '^pane close' "$CHILD_STUB/calls.log"
   assert_failure
@@ -5226,7 +5560,11 @@ function test_scripts_0371_herdr_child_detached_delivery_retries_prompt_tr() {
 function test_scripts_038_herdr_child_detached_delivery_uses_capped_increa() {
   _bats_test_init 38 'herdr-child detached delivery uses capped increasing retry backoff and one terminal failure'
   child_lifecycle_stub_herdr
-  export HERDR_CHILD_MAX_DELIVERY_RETRIES=4
+  # Six attempts against a cap of three: the doubling has to reach the cap and
+  # stay there. With the shipped cap of 15 the sequence stops at 1 2 4, which
+  # a removed clamp would produce just as well.
+  export HERDR_CHILD_MAX_DELIVERY_RETRIES=6
+  export HERDR_CHILD_DELIVERY_RETRY_MAX=3
   export HERDR_CHILD_TEST_RETRY_LOG="$CHILD_STUB/retry.log"
   printf '20\n' > "$CHILD_STUB/prompt-fail-count"
   run child_lifecycle_start --supervision-timeout 5000
@@ -5236,7 +5574,7 @@ function test_scripts_038_herdr_child_detached_delivery_uses_capped_increa() {
   child_wait_for_log 'supervision_failure_reason=prompt-error'
   run cat "$CHILD_STUB/retry.log"
   assert_success
-  assert_output $'1\n2\n4'
+  assert_output $'1\n2\n3\n3\n3'
   run grep -c 'supervision_failure_reason=prompt-error' "$CHILD_STUB/calls.log"
   assert_success
   assert_output 1
@@ -5278,6 +5616,7 @@ function test_scripts_040_herdr_child_superseded_watcher_cannot_publish_fa() {
     attempt=$((attempt + 1))
     sleep 0.01
   done
+  [ "$attempt" -lt 500 ] || fail 'superseded watcher never exited'
   assert_dir_not_exists "$old_run"
 }
 
@@ -5468,14 +5807,21 @@ function test_scripts_044_herdr_child_detached_watcher_rejects_malformed_s() {
   child_lifecycle_stub_herdr
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
+  local watcher_pid run_dir attempt=0
+  run_dir="$CHILD_STUB/state/runs/$(cat "$CHILD_STUB/generation")"
+  watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
   printf 'replacement-session\n' > "$CHILD_STUB/child-session"
   printf 'idle 11\n' > "$CHILD_STUB/child-state"
-  local watcher_pid attempt=0
-  watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
   while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 500 ]; do
     attempt=$((attempt + 1))
     sleep 0.01
   done
+  # A watcher that loops forever on the mismatch, and one that dies on a bash
+  # error before reading the state, both satisfy "no event was delivered".
+  # watcher_fail_without_publish tears the run down, so the removed run
+  # directory is what separates the intended retirement from either of them.
+  [ "$attempt" -lt 500 ] || fail 'watcher never exited after child identity replacement'
+  assert_dir_not_exists "$run_dir"
   run grep -q 'event=' "$CHILD_STUB/calls.log"
   assert_failure
 }
@@ -5586,6 +5932,10 @@ function test_scripts_046_herdr_child_failed_reap_restores_supervision_for() {
   printf 'idle 11\n' > "$CHILD_STUB/child-state"
   child_wait_for_file "$CHILD_STUB/agent-get.ready"
 
+  # This fixture hand-writes the reap code's private state schema, so a schema
+  # change breaks it without any behaviour change. Test 59 shows the honest
+  # shape: start a real reap and kill -KILL it at the pane-close barrier.
+  # Rewrite this block that way the next time the reap state files change.
   local stale_token=00000000000000000000000000000001
   printf 'status=pending\nowner_pid=%s\nowner_token=%s\n' "$$" "$stale_token" > "$run_dir/reap-pending.state"
   printf 'reason=reap\n' > "$run_dir/invalidated.state"
@@ -5612,8 +5962,9 @@ function test_scripts_047_herdr_child_detached_ask_follows_parent_identity() {
   child_lifecycle_stub_herdr
   run child_lifecycle_start --supervision-timeout 600000
   assert_success
-  local generation watcher_pid attempt=0
+  local generation run_dir watcher_pid attempt=0
   generation="$(cat "$CHILD_STUB/generation")"
+  run_dir="$CHILD_STUB/state/runs/$generation"
   watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
   printf 'wT:p7\n' > "$CHILD_STUB/parent-pane"
 
@@ -5631,7 +5982,19 @@ function test_scripts_047_herdr_child_detached_ask_follows_parent_identity() {
     attempt=$((attempt + 1))
     sleep 0.01
   done
-  [ "$attempt" -lt 500 ]
+  # An exit is not the contract on its own: a crash and a
+  # child-identity-mismatch also exit without delivering blocked-11. A
+  # confirmed callback retires the run instead, so the removed run directory
+  # is the terminal state that names the reason.
+  [ "$attempt" -lt 500 ] || fail 'watcher never retired after the confirmed callback'
+  # The watcher's exit is not ordered after its own remove_supervision_run, so
+  # wait for the directory rather than reading it the instant the pid goes.
+  while [ -d "$run_dir" ] && [ "$attempt" -lt 1000 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  [ "$attempt" -lt 1000 ] || fail 'run directory outlived the retired watcher'
+  assert_dir_not_exists "$run_dir"
   run grep -q 'event=blocked-11' "$CHILD_STUB/calls.log"
   assert_failure
 }
@@ -5684,7 +6047,17 @@ function test_scripts_049_herdr_child_callback_intent_suppresses_blocked_w() {
     attempt=$((attempt + 1))
     sleep 0.01
   done
-  [ "$attempt" -lt 500 ]
+  # Same discrimination as 047: only the retired run directory tells the
+  # intended suppression apart from a crash or an identity mismatch.
+  [ "$attempt" -lt 500 ] || fail 'watcher never retired after the confirmed receipt'
+  # The watcher's exit is not ordered after its own remove_supervision_run, so
+  # wait for the directory rather than reading it the instant the pid goes.
+  while [ -d "$run_dir" ] && [ "$attempt" -lt 1000 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  [ "$attempt" -lt 1000 ] || fail 'run directory outlived the retired watcher'
+  assert_dir_not_exists "$run_dir"
   run grep -q 'event=blocked-11' "$CHILD_STUB/calls.log"
   assert_failure
 }
@@ -5861,15 +6234,42 @@ function test_scripts_055_herdr_child_managed_detached_prompt_advances_gen() {
   assert_success
   old_generation="$(cat "$CHILD_STUB/generation")"
   local old_run="$CHILD_STUB/state/runs/$old_generation"
-  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
     HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
-    HERDR_CHILD_TEST_ARM_FAIL=1 HERDR_CHILD_POLL_INTERVAL=0.01 \
+    HERDR_CHILD_TEST_ARM_BARRIER="$CHILD_STUB/arm" HERDR_CHILD_POLL_INTERVAL=0.01 \
     bash "$HERDR_CHILD" prompt --to "$(child_started_name)" --pane wT:p9 --detach \
-    --supervision-timeout 5000 "ordinary follow-up"
-  assert_failure
-  assert_output --partial '"supervision":{"status":"failed","reason":"watcher-arm-failed"'
-  [ ! -d "$old_run" ] || [ -f "$old_run/invalidated.state" ]
+    --supervision-timeout 5000 "ordinary follow-up" \
+    >"$CHILD_STUB/prompt.out" 2>"$CHILD_STUB/prompt.err" &
+  local prompt_pid=$!
+  child_wait_for_file "$CHILD_STUB/arm.ready"
+  local new_run
+  for new_run in "$CHILD_STUB/state/runs/"*; do
+    [ "$new_run" = "$old_run" ] || break
+  done
+  [ "$new_run" != "$old_run" ] || fail "continuation did not create a new run directory"
+  mkdir "$new_run/armed.state"
+  : > "$CHILD_STUB/arm.release"
+  local prompt_status
+  if wait "$prompt_pid"; then
+    prompt_status=0
+  else
+    prompt_status=$?
+  fi
+  assert_equal "$prompt_status" 1
+  run cat "$CHILD_STUB/prompt.out"
+  assert_success
+  assert_output --regexp "^\{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\",\"supervision\":\{\"status\":\"failed\",\"reason\":\"armed-write-failed\",\"generation\":\"[0-9a-f]{32}\",\"diagnostic\":\"[0-9a-f]{32}\"\}\}$"
+  # The continuation invalidates the prior generation before it rearms, and the
+  # superseded watcher then tears its own run down. Wait for that one end
+  # state rather than accepting either half of it.
+  local rearm_attempt=0
+  while [ -d "$old_run" ] && [ "$rearm_attempt" -lt 500 ]; do
+    rearm_attempt=$((rearm_attempt + 1))
+    sleep 0.01
+  done
+  [ "$rearm_attempt" -lt 500 ] || fail "superseded run directory retained: $old_run"
+  assert_dir_not_exists "$old_run"
   run cat "$CHILD_STUB/generation"
   assert_success
   refute_output "$old_generation"
@@ -5928,6 +6328,12 @@ function test_scripts_056_herdr_child_continuation_preflight_failures_pres() {
   _bats_test_init 56 'herdr-child continuation preflight failures preserve the prior generation'
   local old_generation old_run old_watcher
 
+  # Every case below fails the real herdr boundary the preflight reads, scoped
+  # to the continuation process so the armed watcher keeps running. A hook
+  # placed in front of the branch would print the same diagnostic whether or
+  # not the branch behind it still preserved the prior generation.
+
+  # #given a live detached generation, #when the baseline read fails outright
   child_lifecycle_stub_herdr
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
@@ -5935,15 +6341,19 @@ function test_scripts_056_herdr_child_continuation_preflight_failures_pres() {
   old_run="$CHILD_STUB/state/runs/$old_generation"
   old_watcher="$(cat "$CHILD_STUB/watcher.pid")"
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_TEST_BASELINE_FAIL=1 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" STUB_AGENT_GET_FAIL=1 \
     bash "$HERDR_CHILD" prompt --to "$(child_started_name)" --pane wT:p9 --detach "next task"
-  assert_failure
-  assert_output --partial 'baseline state could not be read'
+  # #then the prior generation, its run directory and its watcher all survive
+  assert_failure 1
+  assert_output --partial 'herdr-child: child baseline state could not be read before detached prompt'
   assert_file_not_exists "$old_run/invalidated.state"
   run cat "$CHILD_STUB/generation"
   assert_output "$old_generation"
   kill -0 "$old_watcher"
+  set -- "$CHILD_STUB/state/runs/"*
+  [ "$#" -eq 1 ] || fail "continuation left a second run directory behind: $*"
 
+  # #when the baseline read answers with something that is not JSON
   teardown
   setup
   child_lifecycle_stub_herdr
@@ -5953,15 +6363,19 @@ function test_scripts_056_herdr_child_continuation_preflight_failures_pres() {
   old_run="$CHILD_STUB/state/runs/$old_generation"
   old_watcher="$(cat "$CHILD_STUB/watcher.pid")"
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_TEST_SETUP_FAIL=1 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" STUB_AGENT_GET_MALFORMED=1 \
     bash "$HERDR_CHILD" prompt --to "$(child_started_name)" --pane wT:p9 --detach "next task"
-  assert_failure
-  assert_output --partial 'setup failed before supervision takeover'
+  assert_failure 1
+  assert_output --partial 'herdr-child: child baseline state was malformed before detached prompt'
   assert_file_not_exists "$old_run/invalidated.state"
   run cat "$CHILD_STUB/generation"
   assert_output "$old_generation"
   kill -0 "$old_watcher"
+  set -- "$CHILD_STUB/state/runs/"*
+  [ "$#" -eq 1 ] || fail "continuation left a second run directory behind: $*"
 
+  # #when the child the baseline read returns is no longer the child the alias
+  # listing named
   teardown
   setup
   child_lifecycle_stub_herdr
@@ -5971,14 +6385,17 @@ function test_scripts_056_herdr_child_continuation_preflight_failures_pres() {
   old_run="$CHILD_STUB/state/runs/$old_generation"
   old_watcher="$(cat "$CHILD_STUB/watcher.pid")"
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_TEST_PREPARE_FAIL=1 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" STUB_AGENT_GET_TERMINAL=term-replaced \
     bash "$HERDR_CHILD" prompt --to "$(child_started_name)" --pane wT:p9 --detach "next task"
-  assert_failure
-  assert_output --partial 'watcher failed before supervision takeover'
+  assert_failure 1
+  assert_output --partial 'herdr-child: child identity changed before detached prompt'
   assert_file_not_exists "$old_run/invalidated.state"
   run cat "$CHILD_STUB/generation"
   assert_output "$old_generation"
   kill -0 "$old_watcher"
+  set -- "$CHILD_STUB/state/runs/"*
+  [ "$#" -eq 1 ] || fail "continuation left a second run directory behind: $*"
+
 }
 
 function test_scripts_057_herdr_child_attached_child_promoted_to_detach_as() {
@@ -6071,6 +6488,9 @@ function test_scripts_058_herdr_child_markers_round_trip_documented_shape() {
   for token in $tokens; do
     # Without a herdr environment every real subcommand fails for an env
     # reason; only a token the CLI dropped fails with "unknown subcommand".
+    # This arm is negative-only on purpose and is weaker for it: rewording the
+    # unknown-subcommand error silently retires the sweep. The marker halves
+    # above carry the test's real verdict.
     run env PATH="$CHILD_STUB:$PATH" HERDR_ENV= HERDR_PANE_ID= bash "$HERDR_CHILD" "$token"
     assert_failure
     refute_output --partial 'unknown subcommand'
@@ -6233,18 +6653,30 @@ function test_scripts_060_herdr_child_maps_claude_postures_effort_and_skill_dire
   assert_failure
 }
 
+# calls.log records argv through printf %q, and which characters that escapes
+# differs between bash 3.2 and bash 5. Undo the escaping so a value assertion
+# reads the string the child process actually receives.
+child_logged_value() {
+  grep -o "$1=[^ ]*" "$CHILD_STUB/calls.log" | head -n1 | sed 's/\\\(.\)/\1/g'
+}
+
 function test_scripts_061_herdr_child_maps_opencode_permissions_model_and() {
   _bats_test_init 61 'herdr-child maps opencode permissions, model, and configured agent'
   child_stub_herdr
-  run child_start --kind opencode --agent reviewer --wait
+  # OPENCODE_PERMISSION is a literal opencode parses: a loose match accepts
+  # {"question":"allow",...,"x":"deny"} just as happily, so the key-to-value
+  # pairing only holds if the whole value is asserted.
+  run child_start --kind opencode --agent reviewer --model custom/model --wait
   assert_success
-  assert_file_contains "$CHILD_STUB/calls.log" 'OPENCODE_PERMISSION=.*question.*deny.*edit.*deny'
-  assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--model openai/gpt-5.5 --agent reviewer'
+  assert_equal "$(child_logged_value OPENCODE_PERMISSION)" \
+    'OPENCODE_PERMISSION={"question":"deny","edit":"deny"}'
+  assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--model custom/model --agent reviewer'
 
   : > "$CHILD_STUB/calls.log"
   run child_start --kind opencode --posture rw --wait
   assert_success
-  assert_file_contains "$CHILD_STUB/calls.log" 'OPENCODE_PERMISSION=.*question.*deny'
+  assert_equal "$(child_logged_value OPENCODE_PERMISSION)" \
+    'OPENCODE_PERMISSION={"question":"deny"}'
   run grep -q 'OPENCODE_PERMISSION=.*edit' "$CHILD_STUB/calls.log"
   assert_failure
 }
@@ -6252,9 +6684,12 @@ function test_scripts_061_herdr_child_maps_opencode_permissions_model_and() {
 function test_scripts_062_herdr_child_maps_pi_model_effort_skills_and_ques() {
   _bats_test_init 62 'herdr-child maps pi model, effort, skills, and question exclusion'
   child_stub_herdr
+  # The shipped default model is a product choice a user may change without
+  # breaking any contract, so only the mapping is asserted here; the second
+  # run below is the discriminating case for --model.
   run child_start --kind pi --posture rw --skills A --skills B --wait
   assert_success
-  assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--exclude-tools ask_user --model openai-codex/gpt-5.5 --thinking medium --skill A --skill B'
+  assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--exclude-tools ask_user --model .* --thinking medium --skill A --skill B'
 
   : > "$CHILD_STUB/calls.log"
   run child_start --kind pi --posture rw --model custom/model --effort high --wait
@@ -6462,8 +6897,7 @@ function test_scripts_067_herdr_child_tab_mode_composes_with_detached_supe() {
   child_lifecycle_stub_herdr
   HERDR_WORKSPACE_ID=w1 run child_lifecycle_start --tab --supervision-timeout 5000
   assert_success
-  assert_output --partial '"tab":"wT:tA"'
-  assert_output --partial '"supervision":{"status":"armed"'
+  assert_output --regexp "^\{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\",\"tab\":\"wT:tA\",\"supervision\":\{\"status\":\"armed\",\"generation\":\"[0-9a-f]{32}\",\"timeout_ms\":5000\}\}$"
   assert_file_contains "$CHILD_STUB/calls.log" '^tab create --workspace w1'
   assert_file_contains "$CHILD_STUB/calls.log" 'pane report-metadata wT:p9 --source child-agent-tab.*child-tab=wT:tA'
   assert_file_contains "$CHILD_STUB/calls.log" 'pane report-metadata wT:p9 --source child-agent.*child_mode=detach'
@@ -6481,6 +6915,31 @@ function test_scripts_068_herdr_child_tab_mode_preserves_malformed_creatio() {
   assert_failure
 }
 
+function test_scripts_0682_herdr_child_tab_mode_rejects_creations_it_cannot() {
+  _bats_test_init 0682 'herdr-child tab mode rejects a failed creation and a tab root pane without a terminal'
+  # Both stub knobs shipped with no test driving them. 68 covers a response
+  # with no pane at all; these are the two neighbours it cannot separate: a
+  # creation that never happened, and one that reports a pane but withholds
+  # the terminal the parentage edge needs.
+  child_stub_herdr
+  STUB_TAB_CREATE_FAIL=1 HERDR_WORKSPACE_ID=w1 run child_start \
+    --kind claude --tab --wait
+  assert_failure 1
+  # Exact, whole output: it subsumes the refutation, which could only speak
+  # for the one phrase it named.
+  assert_output 'herdr-child: tab create failed'
+  run grep -Eq '^(pane report-metadata|agent start|pane close)' "$CHILD_STUB/calls.log"
+  assert_failure
+
+  child_stub_herdr
+  STUB_TAB_CREATE_NO_TERMINAL=1 HERDR_WORKSPACE_ID=w1 run child_start \
+    --kind claude --tab --wait
+  assert_failure 1
+  assert_output --partial 'herdr-child: tab create returned no usable pane/tab identity; tab wT:tA was preserved and needs manual cleanup'
+  run grep -Eq '^(pane report-metadata|agent start|pane close)' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
 function test_scripts_1243_herdr_child_tab_mode_preserves_wrapper_partial_success_without_retrying() {
   _bats_test_init 1243 'herdr-child tab mode preserves wrapper partial success without retrying'
   child_stub_herdr
@@ -6488,9 +6947,8 @@ function test_scripts_1243_herdr_child_tab_mode_preserves_wrapper_partial_succes
   STUB_TAB_CREATE_STATUS=70 HERDR_WORKSPACE_ID=w1 run child_start \
     --kind claude --tab --wait
   assert_failure 70
-  assert_output --partial '"pane_id":"wT:p9"'
-  assert_output --partial 'tab creation returned status 70 after reporting pane wT:p9'
-  assert_output --partial 'automatic creation retry is unsafe'
+  assert_output '{"result":{"root_pane":{"pane_id":"wT:p9","terminal_id":"term-child"},"tab":{"tab_id":"wT:tA"}}}
+herdr-child: tab creation returned status 70 after reporting pane wT:p9 terminal term-child in tab wT:tA; resources preserved and automatic creation retry is unsafe'
   run grep -Ec '^(tab create|pane report-metadata|agent start|pane close)' "$CHILD_STUB/calls.log"
   assert_success
   assert_output '1'
@@ -6525,7 +6983,7 @@ function test_scripts_0691_herdr_child_tab_mode_names_the_tab_on_launch_fa() {
   child_stub_herdr
   STUB_START_MODE=busy HERDR_WORKSPACE_ID=w1 run child_start \
     --kind claude --tab --wait
-  assert_failure
+  assert_failure 1
   assert_output --partial "three agent start attempts (tab wT:tA)"
   assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
 }
@@ -6548,13 +7006,15 @@ function test_scripts_071_herdr_child_retries_only_the_pane_readiness_star() {
   STUB_START_MODE=busy-once run child_start --kind claude --wait
   assert_success
   run grep -c '^agent start' "$CHILD_STUB/calls.log"
+  assert_success
   assert_output 2
 
   child_stub_herdr
   STUB_START_MODE=error run child_start --kind claude --wait
-  assert_failure
+  assert_failure 1
   assert_output --partial "agent start failed"
   run grep -c '^agent start' "$CHILD_STUB/calls.log"
+  assert_success
   assert_output 1
   assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
 }
@@ -6563,9 +7023,10 @@ function test_scripts_072_herdr_child_closes_its_pane_after_three_readines() {
   _bats_test_init 72 'herdr-child closes its pane after three readiness failures'
   child_stub_herdr
   STUB_START_MODE=busy run child_start --kind claude --wait
-  assert_failure
+  assert_failure 1
   assert_output --partial "three agent start attempts"
   run grep -c '^agent start' "$CHILD_STUB/calls.log"
+  assert_success
   assert_output 3
   assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p9'
 }
@@ -6579,8 +7040,9 @@ function test_scripts_073_herdr_child_preserves_the_child_when_the_initia() {
   child_stub_herdr
   STUB_PROMPT_FAIL=1 run child_start --kind claude --wait
   assert_failure 124
-  assert_output --partial "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
-  assert_output --partial "initial prompt stalled"
+  assert_output "{\"error\":{\"code\":\"agent_prompt_stalled\"}}
+herdr-child: initial prompt stalled; child preserved for recovery
+{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
   run grep -q '^pane close' "$CHILD_STUB/calls.log"
   assert_failure
 }
@@ -6711,6 +7173,11 @@ SH
   assert_failure
 }
 
+# A meta-test: the unit under test is this file's own child_reap_all_stubs /
+# child_stub_watcher_pids, not shipped behaviour. Its oracle is still
+# independent (process-table liveness, and the incident the comments name), and
+# a leaked watcher stalls the whole suite, so it stays - counted as scaffolding
+# coverage rather than repository coverage.
 function test_scripts_0732_stub_teardown_reaps_a_watcher_from_every_stub_a() {
   _bats_test_init 0732 'stub teardown reaps a watcher from every stub a test created, not only the last'
   local first second probe probe_pid attempt
@@ -6774,8 +7241,9 @@ function test_scripts_074_herdr_child_preserves_a_working_pane_when_the_wa() {
   child_stub_herdr
   STUB_PROMPT_TIMEOUT=1 run child_start --kind claude --wait
   assert_failure 124
-  assert_output --partial "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
-  assert_output --partial "wait timed out"
+  assert_output "{\"error\":{\"code\":\"timeout\"}}
+herdr-child: initial prompt was delivered, but the wait timed out
+{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
   run grep -q '^pane close' "$CHILD_STUB/calls.log"
   assert_failure
 }
@@ -6853,13 +7321,20 @@ function test_scripts_077_herdr_child_ask_leaves_the_label_when_parent_loo() {
   run grep -q 'clear-state-labels' "$CHILD_STUB/calls.log"
   assert_failure
 
+  # The listing has to name the asking pane too, or the run stops at the alias
+  # lookup and never reaches delivery - the failure this case is named for.
   child_stub_herdr
-  local agents='{"result":{"agents":[{"name":"parent","pane_id":"wT:p0"}]}}'
+  local agents='{"result":{"agents":[{"name":"parent","agent":"claude","pane_id":"wT:p0","terminal_id":"term-parent","revision":1,"state_change_seq":1},{"name":"orange-panda","agent":"claude","pane_id":"wT:p9","terminal_id":"term-child","revision":1,"state_change_seq":10}]}}'
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_PROMPT_FAIL=1 \
     HERDR_ENV=1 HERDR_PANE_ID=wT:p9 HERDR_CHILD_LAUNCH=1 HERDR_CHILD_PARENT_PANE=wT:p0 \
     bash "$HERDR_CHILD" ask question
+  assert_failure 1
+  assert_output --partial "herdr-child: delivery to parent failed; waiting label remains published"
+  assert_file_contains "$CHILD_STUB/calls.log" '^agent prompt wT:p0'
+  # Same observable as the first case: the label survives because herdr was
+  # never asked to clear it.
+  run grep -q 'clear-state-labels' "$CHILD_STUB/calls.log"
   assert_failure
-  assert_output --partial "waiting label remains published"
 }
 
 function test_scripts_078_herdr_child_reply_validates_the_live_pair_delive() {
@@ -6882,13 +7357,15 @@ function test_scripts_078_herdr_child_reply_validates_the_live_pair_delive() {
     HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$HERDR_CHILD" reply --to orange-panda --pane wT:p9 decision
   assert_failure
-  assert_output --partial "reply delivered to orange-panda in wT:p9"
-  assert_output --partial "waiting label could not be cleared"
+  assert_output 'herdr-child: reply delivered to orange-panda in wT:p9, but the waiting label could not be cleared'
 
   child_stub_herdr
+  # A usage error, a stub crash or a missing environment would satisfy
+  # "nothing was delivered" too, so the pair check has to name itself.
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$HERDR_CHILD" reply --to orange-panda --pane wT:p8 decision
-  assert_failure
+  assert_failure 1
+  assert_output --partial "herdr-child: child name and pane do not identify the same live agent"
   run grep -q '^agent prompt' "$CHILD_STUB/calls.log"
   assert_failure
 }
@@ -6920,7 +7397,9 @@ function test_scripts_080_herdr_child_reply_keeps_the_label_when_delivery() {
   local agents='{"result":{"agents":[{"name":"orange-panda","agent":"claude","pane_id":"wT:p9","terminal_id":"term-child","revision":1,"state_change_seq":10}]}}'
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_PROMPT_FAIL=1 \
     HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reply --to orange-panda --pane wT:p9 decision
-  assert_failure
+  assert_failure 1
+  assert_output --partial "herdr-child: reply delivery failed; waiting label remains published"
+  assert_file_contains "$CHILD_STUB/calls.log" '^agent prompt'
   run grep -q 'clear-state-labels' "$CHILD_STUB/calls.log"
   assert_failure
 
@@ -6937,9 +7416,9 @@ function test_scripts_101_herdr_child_reap_closes_an_unfocused_idle_pane() {
   run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$HERDR_CHILD" reap --to idle-a --pane wT:p1
   assert_success
-  assert_output --partial "idle-a: closed pane wT:p1"
-  refute_output --partial "--pane: skipped"
+  assert_output 'idle-a: closed pane wT:p1'
   run grep -c '^pane close wT:p1' "$CHILD_STUB/calls.log"
+  assert_success
   assert_output 1
 }
 
@@ -6984,7 +7463,10 @@ function test_scripts_086_herdr_child_reap_refuses_outside_herdr_and_from() {
   child_stub_herdr
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV= HERDR_PANE_ID=wT:p0 \
     bash "$HERDR_CHILD" reap --to orange-panda --pane wT:p9
-  assert_failure
+  assert_failure 1
+  assert_output --partial 'requires HERDR_ENV=1'
+  # The refusal is only a refusal if nothing reached herdr first.
+  assert_file_not_exists "$CHILD_STUB/calls.log"
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
     HERDR_CHILD_PARENT_PANE=wT:p0 bash "$HERDR_CHILD" reap --to orange-panda --pane wT:p9
   assert_failure
@@ -7035,6 +7517,12 @@ function test_scripts_090_herdr_child_reap_closes_the_child_pane_but_repor() {
     STUB_TAB_PANE_COUNT=2 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reap --to tab-a --pane wT:p1
   assert_success
   assert_output --partial "tab-a: closed pane wT:p1; tab wT:tA kept with 2 panes"
+  # The line is a report; these two are the acts it reports. A reap that printed
+  # the line and then took the tab with the siblings in it would pass without
+  # them.
+  assert_file_contains "$CHILD_STUB/calls.log" '^pane close wT:p1'
+  run grep -q '^tab close' "$CHILD_STUB/calls.log"
+  assert_failure
 }
 
 function test_scripts_091_herdr_child_reap_preserves_ambiguous_tab_ownersh() {
@@ -7072,10 +7560,6 @@ function test_scripts_092_herdr_child_tab_reap_invalidates_detached_superv() {
 # ===========================================
 
 PEER_ALIAS_SCRIPT="$SOURCE_ROOT/dot_local/bin/executable_herdr-peer-alias"
-peer_alias_candidate() {
-  "$HERDR_ALIAS_ALLOCATOR" --alias-candidates "$1" | sed -n "${2}p"
-}
-
 peer_alias_stub() {
   local stub="$BATS_TEST_TMPDIR/stub"
   mkdir -p "$stub"
@@ -7114,22 +7598,18 @@ function test_scripts_1401_herdr_peer_alias_skips_live_and_reserved_aliase() {
   _bats_test_init 1401 'herdr-peer-alias skips live and reserved aliases'
   command -v jq >/dev/null || skip "jq not available"
   local seed="claude|peer-alias-suite|$BATS_TEST_TMPDIR"
-  local stub live reserved expected allocated
+  local stub
   stub="$(peer_alias_stub)"
-  live="$(peer_alias_candidate "$seed" 1)"
-  reserved="$(peer_alias_candidate "$seed" 2)"
-  expected="$(peer_alias_candidate "$seed" 3)"
-
+  # tests/helpers/herdr_alias_allocator answers every seed with the same fixed
+  # pool: red-wolf blue-fox green-otter amber-badger silver-koala purple-raven.
+  # The literals are written out rather than read back from the allocator, so an
+  # allocator that started printing something else fails this test instead of
+  # relabelling its own expectation.
   run env PATH="$stub:$PATH" \
-    STUB_AGENT_LIST="{\"result\":{\"agents\":[{\"name\":\"$live\",\"pane_id\":\"wT:p1\"},{\"name\":null,\"pane_id\":\"wT:p2\"}]}}" \
-    bash "$PEER_ALIAS_SCRIPT" "$seed" "$reserved"
+    STUB_AGENT_LIST='{"result":{"agents":[{"name":"red-wolf","pane_id":"wT:p1"},{"name":null,"pane_id":"wT:p2"}]}}' \
+    bash "$PEER_ALIAS_SCRIPT" "$seed" blue-fox
   assert_success
-  assert_output "$expected"
-  allocated="$output"
-
-  if [[ ! "$allocated" =~ ^[a-z]+-[a-z]+$ ]]; then
-    fail "allocator returned an invalid alias: $allocated"
-  fi
+  assert_output green-otter
 }
 
 # An agent record missing pane_id is a truncated list: its alias may be live
@@ -7366,13 +7846,22 @@ function test_scripts_094_dispatcher_denies_a_fff_query_of_several_bare_wo() {
 {"tool_name":"mcp__fff__grep","tool_input":{"query":"TODO FIXME scheduling launchd cron"}}
 EOF
   assert_success
-  assert_output --partial '"permissionDecision": "deny"'
   assert_output --partial "fff-grep-guard:"
   # R9 wants a named alternative, not a client's spelling of one. The reason is
   # shown to every client the policy is applicable to, so pinning Claude's
   # mcp__fff__multi_grep here would re-assert the bug that made an OpenCode deny
   # point at a tool OpenCode does not have.
   assert_output --partial "fff multi-grep tool"
+  # The decision is a field of a document the client parses, not a line of text.
+  # A substring match on the pretty-printed pair pins this shim's whitespace and
+  # would still pass with the value filed under the wrong key.
+  run python3 -c '
+import json, sys
+hook = json.loads(sys.argv[1])["hookSpecificOutput"]
+if hook.get("permissionDecision") != "deny":
+    raise SystemExit("permissionDecision is %r" % (hook.get("permissionDecision"),))
+' "$output"
+  assert_success
 }
 
 function test_scripts_095_dispatcher_stays_silent_on_a_single_identifier() {
@@ -7419,10 +7908,20 @@ function test_scripts_098_dispatcher_adds_context_for_a_plain_webfetch_url() {
 {"tool_name":"WebFetch","tool_input":{"url":"https://example.com/docs"}}
 EOF
   assert_success
-  assert_output --partial '"additionalContext"'
-  assert_output --partial "/markdown-new"
-  # A context-only policy routed through a deny would turn a hint into a wall.
-  refute_output --partial "permissionDecision"
+  # Both halves read out of the parsed document: a bare '"additionalContext"'
+  # substring passes on the key name appearing anywhere, including inside a
+  # string, and the absent-decision half is the discriminator -- a context-only
+  # policy routed through a deny would turn a hint into a wall.
+  run python3 -c '
+import json, sys
+hook = json.loads(sys.argv[1])["hookSpecificOutput"]
+if "permissionDecision" in hook:
+    raise SystemExit("context-only policy carries a decision: %r" % (hook["permissionDecision"],))
+context = hook.get("additionalContext")
+if context is None or "/markdown-new" not in context:
+    raise SystemExit("additionalContext does not name the skill: %r" % (context,))
+' "$output"
+  assert_success
 }
 
 function test_scripts_099_dispatcher_stays_silent_when_the_url_already_uses() {
@@ -7657,9 +8156,9 @@ function test_scripts_1337_pane_labels_migration_activates_and_removes_the_legac
   run pane_labels_migration_apply "$work"
   assert_success
   assert_dir_not_exists "$work/home/.config/herdr/plugins/herdr-pane-labels"
-  assert_file_contains "$work/home/.local/bin/herdr-pane-labels" '^#!/bin/sh$'
-  assert_file_contains "$work/home/.local/lib/herdr-aliases.sh" '^package-aliases$'
-  assert_file_contains "$work/home/.local/lib/herdr-process.sh" '^package-process$'
+  # The package engine and its two libs are written by the stub's own install
+  # branch, so re-reading them proves only that install ran -- which the install
+  # argv below proves directly. The migration never touches those paths.
   assert_file_contains "$work/home/.local/bin/herdr-child" '^legacy-child$'
   assert_file_contains "$work/herdr.calls" '^plugin install Seigiard/herdr-pane-labels --ref aba61eb788c5fe0630dc570d96fd14683e2f63c7 -y$'
   assert_file_exists "$work/home/.local/lib/herdr-pane-labels.version"
@@ -8026,9 +8525,11 @@ function test_scripts_1327_claude_settings_modifier_reports_1password_read_error
   # oracle: only the controlled fake helper can create this launch marker, so an
   # unattended run that never reaches `op` cannot pass on empty stderr alone.
   assert_file_exists "$CLAUDE_MODIFIER_OP_MARKER"
-  assert_stderr --partial 'op: account is not signed in'
-  assert_stderr --partial 'modify_dot_claude.json: could not read Jina API Key from 1Password; skipping its MCP server'
-  refute_stderr --partial '1Password returned no Jina API Key'
+  # Exact, whole stderr: the helper's own error must reach the operator ahead of
+  # the modifier's notice, and nothing else may be added. That subsumes the
+  # refutation of the generic wording this replaced.
+  assert_stderr 'op: account is not signed in
+modify_dot_claude.json: could not read Jina API Key from 1Password; skipping its MCP server'
   run jq -e '.mcpServers | has("jina") | not' <<< "$output"
   assert_success
 }
@@ -8100,8 +8601,14 @@ function test_scripts_252_pi_terminal_theme_uses_only_terminal_palette_col() {
   # sections of the file: every colour either inherits (empty string) or
   # names a slot the vars block declares, so no colour can hardcode a value
   # the user's terminal does not control.
+  # The two length guards are not content assertions -- they are the anti-vacuity
+  # gates that keep `all` and the empty-list check below from passing on a theme
+  # whose vars or colors object is empty, which is the shape a truncated or
+  # half-written theme file has.
   run jq -e '
     .name == "terminal" and
+    (.vars | length > 0) and
+    (.colors | length > 0) and
     ([.vars[]] | all(type == "number" and . >= 0 and . <= 15)) and
     (. as $theme
       | [$theme.colors[]
@@ -8151,8 +8658,18 @@ function test_scripts_254_morning_cleanup_trashes_stale_omc_state_and_stam() {
 
   run env HOME="$fake_home" MORNING_CLEANUP_NO_NOTIFY=1 bash "$script"
   assert_success
-  [ ! -d "$fake_home/Projects/demo/.omc" ]
-  [ -f "$fake_home/.local/state/morning-cleanup/last-run" ]
+  assert_dir_not_exists "$fake_home/Projects/demo/.omc"
+  # "Trashed", not deleted. The script moves the dir into ~/.scratchpad and the
+  # purge step only reclaims it days later; a regression to rm -rf would leave
+  # the source gone all the same, so the destination is what carries the undo
+  # window.
+  run find "$fake_home/.scratchpad" -mindepth 1 -maxdepth 1 -type d -name 'omc-*'
+  assert_success
+  assert_equal "${#lines[@]}" 1
+  assert_file_exists "${lines[0]}/state.json"
+  # The stamp is a date, not a touch file: test 256 reads this content to decide
+  # that a second run of the same day is a no-op.
+  assert_equal "$(cat "$fake_home/.local/state/morning-cleanup/last-run")" "$(date +%Y-%m-%d)"
 }
 
 function test_scripts_255_morning_cleanup_keeps_a_recently_active_omc_dir() {
@@ -8777,6 +9294,14 @@ SH
   printf '%s' "$stub"
 }
 
+# A fake of the Skills CLI, not of anything this repository owns: it reproduces
+# `skills add`'s lock-file writes and `skills remove`'s exit codes. What it
+# emulates, read from the real thing rather than assumed -- skills 1.7.0, as
+# `npx --yes skills@latest --version` reported on 2026-09-25. Test 3074 is the
+# oracle that keeps the record honest: it runs the same `add` against the real
+# CLI and compares the lock entries this stub writes to the ones the CLI writes.
+# Nothing asserted beside this stub can adjudicate it
+# (docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md).
 skills_exclusion_stub_npx() {
   local stub="$BATS_TEST_TMPDIR/skills-exclusion-stub"
   mkdir -p "$stub"
@@ -8972,10 +9497,10 @@ SH
   run --separate-stderr env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     bash "$SKILLS_WRAPPER" --verbose update
   assert_success
-  assert_output --partial 'upstream stdout'
-  refute_output --partial 'upstream stderr'
-  assert_stderr --partial 'upstream stderr'
-  refute_stderr --partial 'upstream stdout'
+  # Exact on each separated stream; the exactness is what keeps the other
+  # stream's text out, so the two refutations beside it added nothing.
+  assert_output 'upstream stdout'
+  assert_stderr 'upstream stderr'
 
   run --separate-stderr env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     bash "$SKILLS_WRAPPER" --verbose update fail
@@ -9186,28 +9711,53 @@ function test_scripts_273_skills_dispatch_validates_inert_argv_and_uses_global_r
   assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<update><--global><owned>$'
 
   rm -f "$BATS_TEST_TMPDIR/tmp/npx.log"
+  # Same SKILLS_MANIFEST the legs above carry, so the chezmoi guard cannot be
+  # the reason this fails: what is left is the argv check the title claims.
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
-    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" bash "$SKILLS_WRAPPER" add 'owner/repo;touch'
-  assert_failure
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" SKILLS_MANIFEST="$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest" \
+    bash "$SKILLS_WRAPPER" add 'owner/repo;touch'
+  assert_failure 1
+  assert_output --partial 'skills: invalid source: owner/repo;touch'
   assert_file_not_exists "$BATS_TEST_TMPDIR/tmp/npx.log"
 }
 
 function test_scripts_274_skills_rejects_malformed_lock_before_npx() {
   _bats_test_init 274 'skills sync fails closed on malformed live lock without npx mutation'
-  local stub lock
+  local stub lock manifest
   stub="$(skills_stub_npx)"
+  manifest="$BATS_TEST_TMPDIR/manifest"
   lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
-  mkdir -p "$(dirname "$lock")"
+  # sync has several earlier exits -- unreadable manifest, unreadable
+  # repository-owned manifest, invalid wildcard exclusion. The fixture supplies
+  # a valid one of each so the only thing left to fail on is the lock.
+  mkdir -p "$(dirname "$lock")" "$BATS_TEST_TMPDIR/home/.agents/skills"
+  : > "$BATS_TEST_TMPDIR/repository-owned"
+  printf '%s\n' 'example/upstream-skills *' > "$manifest"
   printf '%s\n' '{not-json' > "$lock"
   cp "$lock" "$BATS_TEST_TMPDIR/lock.before"
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
-    SKILLS_MANIFEST="$SOURCE_ROOT/private_dot_config/agent-skills/manifest" bash "$SKILLS_WRAPPER" sync
-  assert_failure
+    SKILLS_MANIFEST="$manifest" \
+    SKILLS_REPOSITORY_OWNED_MANIFEST="$BATS_TEST_TMPDIR/repository-owned" \
+    bash "$SKILLS_WRAPPER" sync
+  assert_failure 1
+  assert_output --partial 'skills: malformed or unsupported global lock'
   run cmp "$BATS_TEST_TMPDIR/lock.before" "$lock"
   assert_success
   assert_file_not_exists "$BATS_TEST_TMPDIR/tmp/npx.log"
+
+  # The control: one character of the fixture changes -- the lock parses -- and
+  # the same sync reaches npx. Without it, "npx never ran" is satisfied by every
+  # unrelated way sync can fall over first.
+  printf '%s\n' '{"version":3,"skills":{}}' > "$lock"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$manifest" \
+    SKILLS_REPOSITORY_OWNED_MANIFEST="$BATS_TEST_TMPDIR/repository-owned" \
+    bash "$SKILLS_WRAPPER" sync
+  assert_success
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '^ARGS=<--yes><skills@latest><add><example/upstream-skills><--skill><\*><--global>'
 }
 
 function test_scripts_275_skills_sync_stops_on_failed_install_without_drift_report() {
@@ -9258,6 +9808,21 @@ function test_scripts_276_skills_remove_uses_explicit_and_default_xdg_locks_iden
     bash "$SKILLS_WRAPPER" remove owner/repo owned
   assert_success
   run grep -c '<remove><--global><owned><--yes>' "$BATS_TEST_TMPDIR/tmp/npx.log"
+  assert_success
+  assert_output '2'
+
+  # The negative control the two success legs cannot give. Same argv, same
+  # manifest, same wrapper -- only the lock's recorded owner differs. Without
+  # it, a wrapper that never opened either lock would pass the legs above.
+  printf '%s\n' '{"version":3,"skills":{"owned":{"source":"someone/else"}}}' > "$state_lock"
+  printf '%s\n' 'owner/repo owned' > "$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" SKILLS_MANIFEST="$BATS_TEST_TMPDIR/home/.config/agent-skills/manifest" \
+    bash "$SKILLS_WRAPPER" remove owner/repo owned
+  assert_failure 1
+  assert_output --partial 'skills: lock does not own owned as owner/repo'
+  run grep -c '<remove><--global><owned><--yes>' "$BATS_TEST_TMPDIR/tmp/npx.log"
+  assert_success
   assert_output '2'
 }
 
@@ -9312,8 +9877,10 @@ SH
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
     SKILLS_MANIFEST="$manifest" bash "$SKILLS_WRAPPER" sync
-  assert_failure
+  assert_failure 1
+  assert_output --partial 'skills: canonical skill collides with repository-owned skill: local-skill'
   run cat "$canonical/local-skill/SKILL.md"
+  assert_success
   assert_output original
   run python3 - "$lock" <<'PY'
 import json, sys
@@ -9427,13 +9994,15 @@ function test_scripts_279_skills_sync_offers_to_remove_or_save_named_drift_but_n
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
     SKILLS_MANIFEST="$manifest" SKILLS_CANONICAL_ROOT="$canonical" bash "$SKILLS_WRAPPER" sync
   assert_success
-  assert_output --partial 'Installing skills from example/upstream-skills: *'
-  assert_output --partial 'Installing skills from owner/repo: desired'
-  assert_output --partial 'drift: skills remove owner/repo stale'
-  assert_output --partial 'keep:  skills add owner/repo stale'
-  assert_output --partial 'drift: skills remove gone/repo orphan'
-  assert_output --partial 'keep:  skills add gone/repo orphan'
-  refute_output --partial 'drift: skills remove example/upstream-skills upstream-skill'
+  # The whole plan, in order. Six partials could not see an extra row, a row
+  # pairing the wrong source with the wrong skill, or drift reported before the
+  # installs -- and the exact match subsumes the wildcard refutation below it.
+  assert_output 'Installing skills from example/upstream-skills: *
+Installing skills from owner/repo: desired
+drift: skills remove owner/repo stale
+keep:  skills add owner/repo stale
+drift: skills remove gone/repo orphan
+keep:  skills add gone/repo orphan'
 }
 
 function test_scripts_307_skills_sync_removes_wildcard_path_exclusions() {
@@ -9643,9 +10212,27 @@ except subprocess.TimeoutExpired as error:
     print("real Skills CLI fixture timed out after %ss" % error.timeout)
     sys.exit(124)
 sys.stdout.buffer.write(stdout)
+# Separate "the oracle could not be reached" from "the oracle answered and
+# disagreed". Only the first is an environment precondition; the second is the
+# upstream contract change this calibration exists to catch, and it must go red.
+UNREACHABLE = (
+    "enotfound", "eai_again", "etimedout", "econnreset", "econnrefused",
+    "getaddrinfo", "network", "offline", "socket hang up", "err_socket",
+    "registry.npmjs.org", "rate limit", "429",
+)
+if process.returncode != 0:
+    text = stdout.decode("utf-8", "replace").lower()
+    if any(marker in text for marker in UNREACHABLE):
+        sys.exit(125)
 sys.exit(process.returncode)
 PY
-  [ "$status" -eq 0 ] || skip "real Skills CLI fixture is unavailable: $output"
+  # 124 is this wrapper's timeout and 125 its unreachable-upstream verdict.
+  # Both are named environment preconditions; every other non-zero status is
+  # the real CLI rejecting the fixture, which is the regression under test.
+  if [ "$status" -eq 124 ] || [ "$status" -eq 125 ]; then
+    skip "the real Skills CLI could not be reached as an oracle: $output"
+  fi
+  assert_success
   run python3 - "$real_state/skills/.skill-lock.json" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding="utf-8") as stream:
@@ -9998,16 +10585,17 @@ function test_scripts_1226_claude_resource_context_is_session_scoped_and_marks_u
   assert_output --partial 'pane "owned"'
 
   # A successful empty projection invalidates stale generated context without
-  # inventing an empty resource listing.
+  # inventing an empty resource listing. The notice is the hook's own literal
+  # and the model reads it verbatim, so the whole sentence is the contract: an
+  # exact match separates it from the unavailable notice, which would be the
+  # wrong verdict here, and from a listing header with nothing under it.
   : > "$root/context"
   run hrc_run "$root" UserPromptSubmit session-old
   assert_success
   local cleared="$output"
-  run jq -e '.hookSpecificOutput.additionalContext | length > 0' <<< "$cleared"
-  assert_success
   run jq -r '.hookSpecificOutput.additionalContext' <<< "$cleared"
   assert_success
-  refute_output --partial 'Resources:'
+  assert_output 'Agent resource context update: the earlier generated resource context is stale; there are now no resources or parent to report.'
 
   # The shared query rejects a stale pane occupant through the expected session
   # arguments. Query failure must not be presented as a complete empty tree.
@@ -10016,9 +10604,9 @@ function test_scripts_1226_claude_resource_context_is_session_scoped_and_marks_u
   local unavailable="$output"
   run jq -r '.hookSpecificOutput.additionalContext' <<< "$unavailable"
   assert_success
-  assert_output --partial 'Agent resource context unavailable'
-  assert_output --partial 'earlier generated resource context is stale'
-  assert_output --partial 'must not be treated as an empty resource branch'
+  # One sentence, exactly. Its three clauses have to arrive together: split,
+  # the 'stale' clause is also in the neighbouring update notice above.
+  assert_output 'Agent resource context unavailable: the shared resource query failed. The earlier generated resource context is stale, and this must not be treated as an empty resource branch.'
   run paste -sd ' ' "$root/query-argv"
   assert_success
   assert_output '--context --caller-agent claude --caller-session-id session-fresh'
@@ -10162,11 +10750,21 @@ TS
   assert_success
   assert_output --partial 'OpenCode stdin sentinel'
   assert_output --partial 'Second OpenCode prompt'
+  # Per-line and in order, as the Claude sibling (1222) asserts it. A bare
+  # `opencode` match would also be satisfied by `pane-opencode`, so a plugin
+  # that dropped `--agent` and passed only the pane id would still pass.
   run sh -c 'cat "$1"/call-*/argv' _ "$root"
   assert_success
-  refute_output --partial 'OpenCode stdin sentinel'
-  refute_output --partial 'Second OpenCode prompt'
-  assert_output --partial 'opencode'
+  refute_line --partial 'OpenCode stdin sentinel'
+  refute_line --partial 'Second OpenCode prompt'
+  assert_line --index 0 '--agent'
+  assert_line --index 1 'opencode'
+  assert_line --index 2 '--session'
+  assert_line --index 3 'session-opencode'
+  assert_line --index 4 '--pane'
+  assert_line --index 5 'pane-opencode'
+  assert_line --index 6 '--workspace'
+  assert_line --index 7 'workspace-opencode'
   : > "$root/release"
 
   run env HOME="$home" HERDR_ENV= HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" \
@@ -10252,18 +10850,22 @@ function test_scripts_2842_statusline_figure_and_percentage_agree() {
 function test_scripts_2814_statusline_renders_without_the_shared_library() {
   _bats_test_init 2814 'statusline renders when the library or the context window is missing'
   local statusline="$SOURCE_ROOT/private_dot_claude/hooks/executable_statusline.sh"
-  local library home="$BATS_TEST_TMPDIR/home"
+  local library home="$BATS_TEST_TMPDIR/home" rendered
   library="$(context_usage_lib)"
   mkdir -p "$home"
 
   # A partially applied home has the status line but not yet the library. The
   # bar must still render: the operator's prompt is not a place to surface a
-  # deployment race.
+  # deployment race. Every part of the line is fixed by the payload -- the
+  # folder, the model, and a bar at the plain 372k-of-1M share, because an
+  # unsourced library leaves no allowance to subtract. "Printed something" would
+  # also accept a `source: no such file` diagnostic on a zero exit.
   run env HOME="$home" HERDR_ENV= CONTEXT_USAGE_LIBRARY="$BATS_TEST_TMPDIR/absent-library.sh" \
     bash "$statusline" \
     <<< "$(context_usage_statusline_payload nolib 372000 1000000)"
   assert_success
-  refute_output ''
+  rendered="$(printf '%s' "$output" | sed -e $'s/\033\[[0-9;]*m//g')"
+  assert_equal "$rendered" 'tmp ❯ Opus 5 ▓▓▓▓░░░░░░'
 
   # A payload without a context window renders the zero-percent bar rather than
   # dividing by nothing.
@@ -10433,9 +11035,12 @@ function test_scripts_2844_handoff_pre_compact_hands_the_extractor_a_usable_goal
     <<< "$(handoff_payload bareprompt "$root" manual '')"
   assert_success
   assert_file_exists "$prompt"
-  block="$(sed -n '/<goal>/,/<\/goal>/p' "$prompt" | sed '1d;$d' | tr -d '[:space:]')"
-  run bash -c '[ -n "$1" ] && printf named || printf "the goal block was empty"' _ "$block"
-  assert_output 'named'
+  # The consumer is another model, so the instruction itself is the interface:
+  # the exact sentence, not merely some text. "Non-blank" would also accept the
+  # `handoff:` marker the first half forbids, a `null` from an unguarded jq, or
+  # the raw instructions field.
+  block="$(sed -n '/<goal>/,/<\/goal>/p' "$prompt" | sed '1d;$d')"
+  assert_equal "$block" 'The operator did not state a goal. Read the session and name the goal yourself: the work that is underway and still unfinished at the point of compaction. Treat what you name as the goal for every step below, and open your handoff by stating it.'
 }
 
 function test_scripts_2837_handoff_hooks_fail_open_without_a_home() {
@@ -10496,8 +11101,22 @@ handoff_session_start_hook() {
   printf '%s' "$SOURCE_ROOT/private_dot_claude/hooks/executable_handoff-session-start.sh"
 }
 
+# The store file for a session id, by literal name. Re-deriving it with the
+# hook's own url-safe-base64 formula made the lookup agree with a broken encoder
+# instead of catching it; these session ids are fixed strings, so their file
+# names are written out. Test 1206 owns the encoding itself.
 handoff_store_path() {
-  printf '%s/%s.json' "$1" "$(printf '%s' "$2" | base64 | tr '/+' '_-' | tr -d '=\n')"
+  local encoded
+  case "$2" in
+    bare) encoded=YmFyZQ ;;
+    auto) encoded=YXV0bw ;;
+    injected) encoded=aW5qZWN0ZWQ ;;
+    neighbour) encoded=bmVpZ2hib3Vy ;;
+    startup) encoded=c3RhcnR1cA ;;
+    replaced) encoded=cmVwbGFjZWQ ;;
+    *) printf 'no literal store name for session id %s\n' "$2" >&2; return 1 ;;
+  esac
+  printf '%s/%s.json' "$1" "$encoded"
 }
 
 handoff_stage_stored() {
@@ -10728,31 +11347,42 @@ pins_baseline_value() {
 # The externals file the fixture should hold after an accepted fff-mcp bump:
 # the pinned tag replaced, and each platform's checksum replaced by the one the
 # stub serves for that platform's asset.
+#
+# Every value here is a literal. The earlier form re-ran the script's own four
+# `sed -n` expressions, its asset-name substitution and its positional
+# target/checksum pairing, then called the fetcher for the sums -- so a wrong
+# pairing in the script produced a matching wrong expectation and 1453 stayed
+# green. The stub serves one fixed sum per platform, and the target name sits
+# on the line above the checksum it belongs to, so the expectation can be built
+# from the file's own text without sharing any parsing with the script.
 pins_expected_fff_bump() {
   local out="$BATS_TEST_TMPDIR/expected-externals"
-  local work="$BATS_TEST_TMPDIR/expected-externals.work"
-  local old_tag template asset sum index=0
-  local targets=() shas=()
-
-  old_tag="$(pins_baseline_value 's|.*/releases/download/\([^/"]*\)/.*|\1|p')"
-  template="$(pins_baseline_value 's|.*/releases/download/[^/"]*/\([^"]*\)".*|\1|p')"
-  while IFS= read -r asset; do
-    targets[${#targets[@]}]="$asset"
-  done < <(sed -n 's|.*\$fffMcpTarget = "\([^"]*\)".*|\1|p' "$PINS_BASELINE/externals")
-  while IFS= read -r sum; do
-    shas[${#shas[@]}]="$sum"
-  done < <(sed -n 's|.*\$fffMcpSha256 = "\([0-9a-f]\{64\}\)".*|\1|p' "$PINS_BASELINE/externals")
-
-  sed "s|/releases/download/$old_tag/|/releases/download/$PINS_STUB_TAG/|" \
-    "$PINS_BASELINE/externals" >"$out"
-  while [ "$index" -lt "${#targets[@]}" ]; do
-    asset="${template%%\{\{*}${targets[$index]}${template##*\}\}}"
-    sum="$(STUB_CHECKSUM_FAILS_FOR= "$PINS_FETCHER" checksum repo "$PINS_STUB_TAG" "$asset" |
-      awk '{ print $1 }')"
-    sed "s|\"${shas[$index]}\"|\"$sum\"|" "$out" >"$work"
-    mv "$work" "$out"
-    index=$((index + 1))
-  done
+  awk -v tag="$PINS_STUB_TAG" '
+    BEGIN {
+      sum["aarch64-apple-darwin"]       = "1111111111111111111111111111111111111111111111111111111111111111"
+      sum["x86_64-apple-darwin"]        = "2222222222222222222222222222222222222222222222222222222222222222"
+      sum["aarch64-unknown-linux-musl"] = "3333333333333333333333333333333333333333333333333333333333333333"
+      sum["x86_64-unknown-linux-musl"]  = "4444444444444444444444444444444444444444444444444444444444444444"
+    }
+    /\$fffMcpTarget = "/ {
+      target = $0
+      sub(/^.*\$fffMcpTarget = "/, "", target)
+      sub(/".*$/, "", target)
+      if (!(target in sum)) {
+        print "unknown fff-mcp target in the fixture: " target > "/dev/stderr"
+        exit 1
+      }
+    }
+    /\$fffMcpSha256 = "/ {
+      sub(/\$fffMcpSha256 = "[0-9a-f]+"/, "$fffMcpSha256 = \"" sum[target] "\"")
+    }
+    # The fff-mcp release URL, and only it: other pins in this file carry
+    # release downloads of their own that this bump must leave alone.
+    /releases\/download\// && /fff-mcp-/ {
+      sub(/\/releases\/download\/[^\/"]+\//, "/releases/download/" tag "/")
+    }
+    { print }
+  ' "$PINS_BASELINE/externals" >"$out" || return 1
   printf '%s\n' "$out"
 }
 
@@ -10848,9 +11478,12 @@ y
 
   # #then the pin keeps its whole consistent set and the run names what it needs
   assert_success
-  assert_output --partial 'pin left unchanged'
-  assert_output --partial 'the values a manual bump needs'
-  assert_output --partial 'aarch64-unknown-linux-musl: unavailable'
+  # Full text on each: 'pin left unchanged' alone does not say which pin or
+  # which tag, and 'unavailable' alone does not say it was reported against the
+  # release URL the operator has to fetch by hand.
+  assert_output --partial 'update-pins: could not fetch every dmtrKovalenko/fff checksum for v99.0.0; pin left unchanged'
+  assert_output --partial 'update-pins: the values a manual bump needs:'
+  assert_output --partial 'update-pins:   aarch64-unknown-linux-musl: unavailable <- https://github.com/dmtrKovalenko/fff/releases/download/v99.0.0/fff-mcp-aarch64-unknown-linux-musl.sha256'
   assert_pins_files_unchanged
 }
 
@@ -11072,6 +11705,24 @@ agent_limits_fixture() {
   chmod +x "$home/bin/codex"
 }
 
+# The `account/rateLimits/read` reply codex_refresh parses, declared once so one
+# calibration can adjudicate every test that answers with it. Captured from the
+# installed binary on 2026-09-25, codex-cli 0.157.0, by speaking the same
+# newline-delimited JSON-RPC the refresh path speaks:
+#   codex app-server  # then initialize, initialized,
+#                     # account/rateLimits/read {"excludeResetCreditDetails":true}
+# The real reply carries far more than this (accountId, planType, credits,
+# rateLimitsByLimitId, ...). Only the five fields below are reproduced, because
+# those are the five codex_refresh reads; the rest is a shape codex owns and
+# would break this suite on its next release for no local reason
+# (docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md).
+# Test 27209 is what keeps the record honest.
+codex_app_server_reply() {
+  local used_percent="$1" window_minutes="$2" resets_at="$3" credits="$4"
+  printf '{"jsonrpc":"2.0","id":2,"result":{"rateLimits":{"primary":{"usedPercent":%s,"windowDurationMins":%s,"resetsAt":%s}},"ordinaryUsageAllowed":true,"rateLimitResetCredits":{"availableCount":%s}}}' \
+    "$used_percent" "$window_minutes" "$resets_at" "$credits"
+}
+
 # The cache the refresh writes and the bar reads, as a single window.
 codex_limits_cache() {
   local home="$1" pct="$2" resets_at="$3" blocked="$4" credits="$5" fetched_at="$6"
@@ -11100,20 +11751,36 @@ function test_scripts_27204_agent_limits_drops_windows_whose_reset_has_passed() 
 
   # #then each provider contributes its live window
   assert_success
-  assert_output --partial '  5h/3%'
-  assert_output --partial '  7d/15%'
+  # The whole rendered entry. Every field here is fixed by the cache fixture
+  # this test wrote, so a partial only ever claimed one window while the other
+  # could carry any value -- and the exact match subsumes the refutations.
+  assert_output '  5h/3% ↻59m ·   7d/15% ↻23:59'
 
-  # #given the same numbers, but after both windows have reset
+  # #given the same numbers, but with the Claude window reset and the Codex one
+  # still open, so a dropped window leaves a line that is still rendered
+  agent_limits_fixture "$home" -3600 90050
+
+  # #when the status entry runs again
+  agent_limits_run "$home"
+
+  # #then the finished window is gone entirely -- not its percentage alone, and
+  # not its provider glyph or the separator beside it -- while the live one
+  # renders unchanged. Forbidding two substrings would also be satisfied by a
+  # run that printed nothing at all, which is what a missing python3 or a
+  # swallowed parse error looks like.
+  assert_success
+  assert_output '  7d/15% ↻1d1h'
+
+  # #given both windows have now reset
   agent_limits_fixture "$home" -3600 -86400
 
   # #when the status entry runs again
   agent_limits_run "$home"
 
-  # #then neither percentage is shown: a finished window describes a period
-  # that is over, and a stale number in a status bar misleads silently
+  # #then the bar is empty: with no live window there is nothing left to say,
+  # and the run above is the control that the fixture and the renderer work
   assert_success
-  refute_output --partial '3%'
-  refute_output --partial '15%'
+  assert_output ''
 }
 
 function test_scripts_27205_agent_limits_prefers_the_live_cache_over_the_stale_claude_json() {
@@ -11133,8 +11800,7 @@ function test_scripts_27205_agent_limits_prefers_the_live_cache_over_the_stale_c
 
   # #then the live figure wins and the stale one never reaches the bar
   assert_success
-  assert_output --partial '  5h/3%'
-  refute_output --partial '88%'
+  assert_output '  5h/3% ↻59m ·   7d/15% ↻23:59'
 
   # #given the live cache is gone, as on a home that has not run Claude yet
   rm -f "$home/.cache/claude-rate-limits/latest.json"
@@ -11142,11 +11808,11 @@ function test_scripts_27205_agent_limits_prefers_the_live_cache_over_the_stale_c
   # #when the status entry runs
   agent_limits_run "$home"
 
-  # #then the fallback figure appears, labelled with its age rather than
-  # passed off as current
+  # #then the fallback figure appears, labelled with its exact age rather than
+  # passed off as current. The fixture fixes that age at seven days, so `old)`
+  # on its own would also accept a mis-scaled one.
   assert_success
-  assert_output --partial '  5h/88%'
-  assert_output --partial 'old)'
+  assert_output --partial '  5h/88% (7d old)'
 }
 
 function test_scripts_27206_agent_limits_marks_a_spent_window_without_rounding_into_it() {
@@ -11161,27 +11827,28 @@ function test_scripts_27206_agent_limits_marks_a_spent_window_without_rounding_i
   printf '{"fetched_at":%s,"five_hour":{"used_percentage":100,"resets_at":%s}}' \
     "$now" "$((now + 3600))" > "$home/.cache/claude-rate-limits/latest.json"
 
-  # #when the status entry runs
-  run env -i HOME="$home" bash "$AGENT_LIMITS_SCRIPT"
+  # #when the status entry runs on the hermetic PATH its neighbours use: bare
+  # `env -i` drops python3's directory, so an absent interpreter would fail
+  # this test on setup and read as a rendering regression
+  agent_limits_run "$home"
 
   # #then it reads as a state rather than a stuck gauge, and still says when
   # the allowance comes back
   assert_success
-  assert_output --partial "${exhausted}100%"
-  assert_output --partial '↻'
+  assert_output "  5h/${exhausted}100% ↻59m"
 
   # #given a window that is merely close to spent
   printf '{"fetched_at":%s,"five_hour":{"used_percentage":99.6,"resets_at":%s}}' \
     "$now" "$((now + 3600))" > "$home/.cache/claude-rate-limits/latest.json"
 
   # #when the status entry runs
-  run env -i HOME="$home" bash "$AGENT_LIMITS_SCRIPT"
+  agent_limits_run "$home"
 
   # #then rounding never manufactures an exhaustion that has not happened
   assert_success
-  assert_output --partial '5h/99%'
-  refute_output --partial '100%'
-  refute_output --partial "$exhausted"
+  # The whole rendered entry. The exact match is what rules out a rounded 100%
+  # or the exhaustion glyph, so the two refutations beside it are subsumed.
+  assert_output '  5h/99% ↻59m'
 }
 
 function test_scripts_27207_agent_limits_says_what_a_blocked_codex_account_can_still_do() {
@@ -11212,8 +11879,7 @@ function test_scripts_27207_agent_limits_says_what_a_blocked_codex_account_can_s
 
   # #then nothing claims a credit that is not there
   assert_success
-  refute_output --partial '×0'
-  refute_output --partial ' ×'
+  assert_output "  5h/3% ↻59m ·   7d/${exhausted}100% ↻23:59"
 
   # #given an account blocked while its window still reads below 100%, which
   # is what spend control and depleted credits look like
@@ -11254,8 +11920,7 @@ function test_scripts_27208_agent_limits_labels_a_codex_figure_the_refresh_stopp
 
   # #then the last known figure remains available without a 19m-old warning
   assert_success
-  assert_output --partial '  7d/40%'
-  refute_output --partial 'old)'
+  assert_output '  5h/3% ↻59m ·   7d/40% ↻23:59'
 
   # #given refreshes have failed for a full hour
   codex_limits_cache "$home" 40 "$((now + 86400))" false 0 "$((now - 3600))"
@@ -11275,8 +11940,7 @@ function test_scripts_27208_agent_limits_labels_a_codex_figure_the_refresh_stopp
 
   # #then the bar says nothing about age, because there is nothing to qualify
   assert_success
-  assert_output --partial '  7d/40%'
-  refute_output --partial 'old)'
+  assert_output '  5h/3% ↻59m ·   7d/40% ↻23:59'
 }
 
 function test_scripts_27209_codex_limits_refresh_fills_its_cache_from_the_real_app_server() {
@@ -11316,6 +11980,81 @@ print("ok")
 ' "$cache"
   assert_success
   assert_output --partial 'ok'
+
+  # #then the reply the fake in test 27210 answers with still matches the reply
+  # the installed binary sends. The cache above is our own output; without this
+  # leg nothing compares codex's payload to the payload that fake reproduces, so
+  # a renamed field would leave 27210 and 27213 green while the bar went blank.
+  run env CODEX_HOME="$HOME/.codex" FAKE_REPLY="$(codex_app_server_reply 7 10080 0 1)" \
+    python3 - <<'CALIBRATE'
+import json
+import os
+import subprocess
+import threading
+
+# Only the five fields codex_refresh reads, by name and Python type. Deeper and
+# this would restate a payload codex owns; shallower and a retyped field passes.
+def contract(reply):
+    result = reply["result"]
+    primary = result["rateLimits"]["primary"]
+    return {
+        "ordinaryUsageAllowed": type(result["ordinaryUsageAllowed"]).__name__,
+        "rateLimitResetCredits.availableCount":
+            type(result["rateLimitResetCredits"]["availableCount"]).__name__,
+        "rateLimits.primary.resetsAt": type(primary["resetsAt"]).__name__,
+        "rateLimits.primary.usedPercent": type(primary["usedPercent"]).__name__,
+        "rateLimits.primary.windowDurationMins":
+            type(primary["windowDurationMins"]).__name__,
+    }
+
+process = subprocess.Popen(
+    ["codex", "app-server"],
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+    text=True, bufsize=1,
+)
+captured = {}
+
+def pump():
+    for line in process.stdout:
+        try:
+            message = json.loads(line)
+        except ValueError:
+            continue
+        if message.get("id") == 2:
+            captured["reply"] = message
+            return
+
+def send(obj):
+    process.stdin.write(json.dumps(obj) + "\n")
+    process.stdin.flush()
+
+try:
+    send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+          "params": {"clientInfo": {"name": "mms-calibration", "version": "1"}}})
+    send({"jsonrpc": "2.0", "method": "initialized"})
+    send({"jsonrpc": "2.0", "id": 2, "method": "account/rateLimits/read",
+          "params": {"excludeResetCreditDetails": True}})
+    reader = threading.Thread(target=pump, daemon=True)
+    reader.start()
+    reader.join(30)
+finally:
+    process.kill()
+
+if "reply" not in captured:
+    raise SystemExit(77)
+real = contract(captured["reply"])
+fake = contract(json.loads(os.environ["FAKE_REPLY"]))
+if real != fake:
+    raise SystemExit("codex reply %s != fake reply %s" % (real, fake))
+print("calibrated")
+CALIBRATE
+  # 77 is this leg's one named precondition: the app-server answered nothing, so
+  # there is no oracle. Every other non-zero status is codex disagreeing with the
+  # fake, which is the drift this leg exists to catch.
+  [[ "$status" -ne 77 ]] \
+    || skip "codex app-server sent no rateLimits reply to calibrate the fake against"
+  assert_success
+  assert_output 'calibrated'
 }
 
 function test_scripts_27210_agent_limits_refreshes_stale_codex_data_before_rendering() {
@@ -11334,7 +12073,7 @@ printf 'called\n' > "$marker"
 while IFS= read -r request; do
   case "\$request" in
     *'"id": 2'*)
-      printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"rateLimits":{"primary":{"usedPercent":7,"windowDurationMins":10080,"resetsAt":$((now + 86400))}},"ordinaryUsageAllowed":true,"rateLimitResetCredits":{"availableCount":1}}}'
+      printf '%s\n' '$(codex_app_server_reply 7 10080 "$((now + 86400))" 1)'
       exit 0
       ;;
   esac
@@ -11347,8 +12086,7 @@ EOF
 
   # #then the cache is rendered without asking the backend
   assert_success
-  assert_output --partial '  7d/40%'
-  refute_output --partial '  7d/7%'
+  assert_output '  5h/3% ↻59m ·   7d/40% ↻23:59'
   assert_file_not_exists "$marker"
 
   # #given the same snapshot has crossed the refresh interval
@@ -11360,9 +12098,10 @@ EOF
   # #then that invocation waits for the bounded refresh and renders its result;
   # no background descendant or leaked lock is needed for a later redraw
   assert_success
-  assert_output --partial '  7d/7%'
-  assert_output --partial '×1'
-  refute_output --partial 'old)'
+  # The whole entry, both windows and the credit marker. Partials could not see
+  # a stale-age suffix moved elsewhere in the line, and the exact match already
+  # rules out the '(Nd old)' suffix the refutation named.
+  assert_output '  5h/3% ↻59m ·   7d/7% ↻23:59 ×1'
   assert_file_exists "$marker"
   assert_dir_not_exists "$home/.cache/codex-rate-limits/refresh.lock"
 }
@@ -11379,8 +12118,7 @@ function test_scripts_27211_agent_limits_compacts_reset_countdowns() {
 
   # #then units already carried by position are not repeated
   assert_success
-  assert_output --partial '  5h/3% ↻2:00'
-  assert_output --partial '  7d/15% ↻1d1h'
+  assert_output '  5h/3% ↻2:00 ·   7d/15% ↻1d1h'
 }
 
 function test_scripts_27212_agent_limits_renders_the_compact_provider_layout() {

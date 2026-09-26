@@ -205,7 +205,7 @@ The control rejects command dispatch, strict-mode reset, traps, directory change
 | `HERDR_CHILD_TEST_CALLBACK_RECEIPT_BARRIER` | continuation | fires after callback delivery and before confirmed receipt persistence. |
 | `HERDR_CHILD_TEST_REAP_INVALIDATED_BARRIER` | reap | fires after successful reap invalidation and before pane closure. |
 
-Each hook remains immediately before or after the named transition.
+Each hook remains immediately before or after the named transition. Superseded on 2026-09-25 (#329, #341): `HERDR_CHILD_TEST_BASELINE_FAIL`, `HERDR_CHILD_TEST_SETUP_FAIL`, `HERDR_CHILD_TEST_PREPARE_FAIL` and `HERDR_CHILD_TEST_ARM_FAIL` were removed; their failure paths are driven through the real boundaries instead (`docs/solutions/design-patterns/test-only-production-branches-are-not-oracles.md`). The barrier and pid hooks in this table stay.
 Race-owner red controls deliberately move one hook across its anchor and require the existing test to lose or reverse its verdict before restoration.
 
 ### Sequencing

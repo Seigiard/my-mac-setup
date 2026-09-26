@@ -17,10 +17,14 @@ class ClientDiscoveryTests(unittest.TestCase):
         self.assertFalse(Path(opencode_skill.readlink()).is_absolute())
         self.assertEqual(skill, opencode_skill.resolve() / "SKILL.md")
 
+        # The contract is that Pi reaches the repository's own skill through a
+        # relative path; which OTHER skill roots Pi is also pointed at, and
+        # what else .pi/settings.json configures, are valid configuration
+        # choices that must not need a test edit.
         pi_settings = REPOSITORY / ".pi" / "settings.json"
-        self.assertEqual(
-            {"skills": ["~/.claude/skills", "../.claude/skills"]},
-            json.loads(pi_settings.read_text()),
+        self.assertIn(
+            "../.claude/skills",
+            json.loads(pi_settings.read_text())["skills"],
         )
 
         agents = REPOSITORY / "AGENTS.md"

@@ -159,20 +159,18 @@ function test_idempotent_009_guard_github_actions_without_the_marker_yields_m() 
 
 function test_idempotent_010_guard_every_disposable_environment_declares_the() {
   _bats_test_init 10 'guard: every disposable environment declares the marker'
-  # Never skipped. A skip here would be indistinguishable from this file going
-  # inert, which is exactly the rot the test exists to catch.
+  # One assertion path, and it is the CI/Docker one. A workstation has no
+  # disposable-$HOME declaration to check, so it skips visibly rather than
+  # asserting something weaker: the old workstation branch accepted `run` or
+  # `skip` from the live shell, which passes whether or not the marker is
+  # exported, and then repeated test 003 without its env scrubbing.
+  #
+  # The skip cannot hide the rot this test exists to catch. GITHUB_ACTIONS and
+  # /.dockerenv are written by GitHub and the container runtime, so every
+  # environment where the scenarios above would really apply takes the
+  # assertion path below; only a machine where they are meant to skip skips.
   if [[ -z "${GITHUB_ACTIONS:-}" ]] && [[ ! -f /.dockerenv ]]; then
-    # Nothing reports this $HOME disposable. Do not assert `!= misconfigured`
-    # here — this branch's own condition makes that verdict unreachable.
-    # Deliberately unscrubbed: the marker must win over whatever this shell
-    # exports, a claim the env -u guard tests above cannot make.
-    local live marked
-    live="$(mms_disposable_home_verdict)"
-    [[ "$live" == "run" || "$live" == "skip" ]] || \
-      fail "No platform fact reports a disposable \$HOME here, yet the predicate returned '$live' instead of run or skip."
-    marked="$(MMS_DISPOSABLE_HOME=1 mms_disposable_home_verdict)"
-    assert_equal "$marked" "run"
-    return 0
+    skip "no platform fact reports this \$HOME disposable, so nothing here has a marker to declare"
   fi
 
   [[ "${MMS_DISPOSABLE_HOME:-}" == "1" ]] || \
@@ -206,6 +204,9 @@ function test_idempotent_012_guard_the_skip_message_names_make_test_ubuntu_an() 
   }
 
   run captured_skip_message
+  # Status first: a require_disposable_home that returned non-zero on the skip
+  # path would still print text these assertions accept.
+  assert_success
   assert_output --partial "make test-ubuntu"
   assert_output --partial "MMS_DISPOSABLE_HOME"
 }
@@ -219,33 +220,99 @@ function test_idempotent_013_guard_the_misconfigured_message_names_the_marker() 
   }
 
   run captured_fail_message
+  # Status first, and the status is part of the contract: the misconfigured
+  # verdict must fail the caller, not skip it. The stub keeps fail() itself at 0,
+  # so this reads require_disposable_home's own `return 1`.
+  assert_failure 1
   # One text assertion, kept for the human who reads this failure: the message
   # has to name the marker it is asking for. The file names it also carries are
   # not pinned as strings -- copied out of the message they would only restate
   # it -- but read back out of the message and checked against the tree.
   assert_output --partial "MMS_DISPOSABLE_HOME"
 
+}
+
+function test_idempotent_0131_guard_the_named_launch_sites_declare_the_marker() {
+  _bats_test_init 131 'guard: the launch sites the misconfigured message names declare the marker'
   # Two independently maintained sides: the message in tests/helpers/common.bash
   # claims which launch sites declare the marker, and those launch sites have to
   # actually declare it. The rot this catches is a dropped `env:` block in the
   # workflow or a dropped `environment:` entry in a compose service -- after
-  # which the scenarios above skip in CI and the suite stays green.
+  # which the apply scenarios skip in CI and the suite stays green.
   #
   # The repo root only exists where the full checkout does: the host, and the
   # macOS CI job. `make test-ubuntu` mounts home/ and tests/ alone, so the
-  # cross-check is unreachable there and the file-name half of this contract is
-  # owned by the host and macOS runs.
-  local repo_root named rel
+  # cross-check is unreachable there -- a visible skip, not a silent `if`, so a
+  # run that never reached it says so instead of passing on the token above.
+  local repo_root message
   repo_root="$BATS_TEST_DIRNAME/.."
-  named="$(printf '%s\n' "$output" | grep -oE '[A-Za-z0-9_./-]+\.ya?ml')"
-  [[ -n "$named" ]] || fail "the misconfigured message names no marker-declaring file: $output"
-  if [[ -d "$repo_root/.github" ]]; then
-    while IFS= read -r rel; do
-      assert_file_exists "$repo_root/$rel"
-      grep -qE "MMS_DISPOSABLE_HOME[=:][[:space:]]*[\"']?1[\"']?" "$repo_root/$rel" || \
-        fail "$rel is named as a site that declares MMS_DISPOSABLE_HOME=1, but does not set it"
-    done <<< "$named"
-  fi
+  [[ -d "$repo_root/.github" ]] || \
+    skip "the repository root is not mounted here, so the launch sites this message names cannot be read"
+  assert_python3_available
+  captured_fail_message() {
+    mms_disposable_home_verdict() { echo "misconfigured"; }
+    fail() { printf '%s' "$*"; return 0; }
+    require_disposable_home
+  }
+  run captured_fail_message
+  assert_failure 1
+  message="$BATS_TEST_TMPDIR/misconfigured-message"
+  printf '%s' "$output" > "$message"
+  run python3 - "$message" "$repo_root" <<'PY'
+import os
+import re
+import sys
+
+message = open(sys.argv[1], encoding="utf-8").read()
+root = sys.argv[2]
+marker = re.compile(r'MMS_DISPOSABLE_HOME[=:]\s*"?1"?\s*$', re.MULTILINE)
+
+def top_level_block(text, key):
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if line != f"{key}:":
+            continue
+        block = []
+        for follower in lines[index + 1:]:
+            if follower and not follower[0].isspace():
+                break
+            block.append(follower)
+        return "\n".join(block)
+    raise AssertionError(f"no top-level {key}: block")
+
+def service_block(text, name):
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if line != f"  {name}:":
+            continue
+        block = []
+        for follower in lines[index + 1:]:
+            if follower.strip() and not follower.startswith("    "):
+                break
+            block.append(follower)
+        return "\n".join(block)
+    raise AssertionError(f"no service named {name}")
+
+claims = re.findall(r"([A-Za-z0-9_./-]+\.ya?ml) \(([^)]*)\)", message)
+assert claims, f"the misconfigured message names no marker-declaring file: {message}"
+for relative, detail in claims:
+    path = os.path.join(root, relative)
+    assert os.path.isfile(path), f"{relative} is named but missing"
+    text = open(path, encoding="utf-8").read()
+    services = re.fullmatch(r"services? (.+)", detail)
+    if detail.startswith("top-level env"):
+        scopes = {"top-level env:": top_level_block(text, "env")}
+    elif services:
+        names = [name.strip() for name in services.group(1).split(",") if name.strip()]
+        assert names, detail
+        scopes = {f"service {name}": service_block(text, name) for name in names}
+    else:
+        raise AssertionError(f"unrecognised scope claim for {relative}: {detail!r}")
+    for label, block in scopes.items():
+        assert marker.search(block), \
+            f"{relative} is named as a site that declares MMS_DISPOSABLE_HOME=1, but {label} does not set it"
+PY
+  assert_success
 }
 
 function set_up_before_script() {

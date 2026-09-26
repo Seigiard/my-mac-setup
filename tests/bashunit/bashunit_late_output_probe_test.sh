@@ -5,6 +5,9 @@
 # inherits the captured stdout can append output after the ##...## payload
 # line, which stock upstream 0.50.1 parses as the result line. The guard is
 # owned by test_scripts_260 in tests/bashunit/scripts_test.sh.
+# Its own `run true` / assert_success is tautological by design: the observable
+# behavior is how the outer runner parses this file's result, which only the
+# owning guard can judge. Read as coverage it proves nothing; it is a fixture.
 # Vocabulary (run, assert_*, BATS_* contract) comes from
 # tests/bashunit/test-dsl.bash.
 source "$(dirname "${BASH_SOURCE[0]}")/test-dsl.bash"
