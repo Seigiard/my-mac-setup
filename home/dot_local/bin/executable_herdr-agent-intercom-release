@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# herdr-agent-intercom-release -- hand pane state back to Herdr's own detection.
+# herdr-agent-intercom-release -- settle a launch's pane identity once the client
+# is detectable: release a held claim, or finish a rename the launcher could only
+# start.
 #
 # `herdr-agent-intercom` declares a pane agent record before it starts a client,
 # because Herdr allocates the alias the launcher needs only after detecting that
@@ -28,8 +30,67 @@ if [[ -n "${HERDR_AGENT_INTERCOM_CLAIM:-}" && "$HERDR_AGENT_INTERCOM_CLAIM" != "
   exit 0
 fi
 
+pane_key="${pane//[^A-Za-z0-9]/_}"
+
+# A launch that could not declare its record enrolled under a name Herdr does
+# not know, so this pane's sidebar alias and its Intercom identity differ until
+# the record Herdr's own detection creates is renamed to that name. Only the
+# session that enrolled under it may do so -- the name is matched against this
+# session's own identity -- so a leftover note is inert for anyone else, and the
+# launcher overwrites it on the next enrolment. Reconciling runs before the
+# claim release below because the two paths are exclusive: a session holds
+# either a claim or a pending rename, never both.
+reconcile_dir="${XDG_STATE_HOME:-$HOME/.local/state}/agent-intercom/reconcile"
+reconcile_note="$reconcile_dir/$pane_key"
+
+reconcile_pending_rename() {
+  local pending current rename_result
+  [[ -f "$reconcile_note" ]] || return 0
+  [[ -n "${HERDR_AGENT_INTERCOM_NAME:-}" ]] || return 0
+  pending="$(head -n 1 "$reconcile_note" 2>/dev/null)" || pending=""
+  [[ "$pending" == "$HERDR_AGENT_INTERCOM_NAME" ]] || return 0
+
+  current="$(herdr agent get "$pane" 2>/dev/null | python3 -c '
+import json
+import sys
+
+try:
+    agent = json.load(sys.stdin)["result"]["agent"]
+    if agent["pane_id"] != sys.argv[1]:
+        raise SystemExit(1)
+except (KeyError, TypeError, json.JSONDecodeError):
+    raise SystemExit(1)
+sys.stdout.write(agent.get("name") or "")
+' "$pane")" || current=""
+  # No record yet means detection has not run, so a later prompt gets the turn.
+  [[ -n "$current" ]] || return 0
+  if [[ "$current" == "$pending" ]]; then
+    rm -f "$reconcile_note"
+    return 0
+  fi
+
+  # A taken name is the one failure worth giving up on: nothing can rename an
+  # Intercom session that is already running, so retrying at every prompt would
+  # report the same collision forever. Keeping the note on any other failure is
+  # what lets a later prompt finish the job.
+  #
+  # The collision is permanent for this session, and a peer reading the sidebar
+  # will address the name's other owner from here on. Report it on stdout, which
+  # the first-prompt hook hands to the session itself: stderr alone scrolls past
+  # unseen, leaving the one divergence nothing else can repair unannounced.
+  if rename_result="$(herdr agent rename "$pane" "$pending" 2>&1)"; then
+    rm -f "$reconcile_note"
+  elif [[ "$rename_result" == *agent_name_taken* ]]; then
+    printf 'herdr-agent-intercom: %s is taken, so this session answers to it in Intercom while Herdr shows %s\n' \
+      "$pending" "$current"
+    rm -f "$reconcile_note"
+  fi
+}
+
+reconcile_pending_rename
+
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/agent-intercom/claims"
-marker="$state_dir/${pane//[^A-Za-z0-9]/_}"
+marker="$state_dir/$pane_key"
 [[ -f "$marker" ]] || exit 0
 
 agent="$(head -n 1 "$marker" 2>/dev/null)" || agent=""

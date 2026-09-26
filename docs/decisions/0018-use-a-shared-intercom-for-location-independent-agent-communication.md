@@ -237,6 +237,24 @@ That rename is also the collision boundary, because `agent_name_taken` is
 decided by the server rather than by a name chosen locally. A record that
 already exists is never renamed; it belongs to whoever created it.
 
+Declaring works once per pane, and the fallback below is why a relaunch still
+enrolls. A pane that has hosted a Claude session keeps the `claude`
+agent-session identity that client's `SessionStart` hook reported, and Herdr
+exposes no way to clear, replace, or age it out: from then on the pane ignores
+`pane report-agent` for that agent kind and reports success while creating
+nothing, so the rename has no record to act on. The launcher tells that refusal
+apart from a taken name — only `agent_name_taken` is worth another candidate —
+and keeps the alias it allocated, enrolling under a name Herdr does not yet
+know. It records the pending rename, and the first-prompt hook renames the
+record Herdr's own detection created. This gives up the property the paragraph
+above relies on: for that one case the collision boundary moves after the
+client starts, and the Herdr alias and the Intercom name differ until the first
+prompt. Accepted because the alternative is no Intercom at all on every
+relaunch, the divergence is bounded and self-healing, and a name lost to a
+collision meanwhile is reported rather than retried forever. A session that
+cannot record its pending rename starts without Intercom instead, because a name
+no peer can discover is worse than a warning.
+
 Only Claude Code takes this path. Declaring the record claims the pane's
 lifecycle authority, which suppresses Herdr's own screen detection until it is
 released, and the only release surface this repository deploys is Claude Code's

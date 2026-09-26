@@ -185,8 +185,10 @@ if [[ -z "$intercom_name" && "$agent" == claude && -n "${HERDR_PANE_ID:-}" ]] &&
     }
     trap release_unfinished_claim EXIT INT TERM
 
+    pane_key="${HERDR_PANE_ID//[^A-Za-z0-9]/_}"
     claim_seed="${HERDR_SOCKET_PATH:-no-socket}|$HERDR_PANE_ID|$agent|$$|$(date +%s)-$RANDOM"
     claimed=0
+    unreconciled_name=""
     reserved=()
     attempt=1
     while [[ "$attempt" -le 3 ]]; do
@@ -198,7 +200,7 @@ if [[ -z "$intercom_name" && "$agent" == claude && -n "${HERDR_PANE_ID:-}" ]] &&
       herdr pane report-agent "$HERDR_PANE_ID" --source herdr-agent-intercom \
         --agent "$agent" --state unknown --seq "$(date +%s%N)" >/dev/null 2>&1 || break
       claim_held=1
-      if herdr agent rename "$HERDR_PANE_ID" "$candidate" >/dev/null 2>&1; then
+      if rename_result="$(herdr agent rename "$HERDR_PANE_ID" "$candidate" 2>&1)"; then
         intercom_name="$candidate"
         claimed=1
         break
@@ -206,6 +208,18 @@ if [[ -z "$intercom_name" && "$agent" == claude && -n "${HERDR_PANE_ID:-}" ]] &&
       # Releasing a claim on a pane with no running client destroys the record,
       # which is exactly the state to return to before trying the next name.
       release_unfinished_claim
+      # Only a taken name is worth another candidate. Any other rejection means
+      # the declaration itself never landed: a pane that has already hosted a
+      # Claude session keeps an agent-session identity Herdr offers no way to
+      # clear, replace, or age out, and from then on it ignores
+      # `pane report-agent` for that agent kind -- silently, reporting success.
+      # The record the rename needs therefore cannot appear, and every further
+      # candidate fails the same way, so keep this one and have the client's
+      # first prompt rename the record Herdr's own detection will create.
+      if [[ "$rename_result" != *agent_name_taken* ]]; then
+        unreconciled_name="$candidate"
+        break
+      fi
       reserved+=("$candidate")
       attempt=$((attempt + 1))
     done
@@ -217,13 +231,28 @@ if [[ -z "$intercom_name" && "$agent" == claude && -n "${HERDR_PANE_ID:-}" ]] &&
       # so a claim that cannot be recorded is given back instead of leaked.
       claim_dir="${XDG_STATE_HOME:-$HOME/.local/state}/agent-intercom/claims"
       if mkdir -p "$claim_dir" 2>/dev/null &&
-        printf '%s\n' "$agent" > "$claim_dir/${HERDR_PANE_ID//[^A-Za-z0-9]/_}" 2>/dev/null; then
+        printf '%s\n' "$agent" > "$claim_dir/$pane_key" 2>/dev/null; then
         export HERDR_AGENT_INTERCOM_CLAIM="$HERDR_PANE_ID"
         export HERDR_AGENT_INTERCOM_CLAIM_AGENT="$agent"
       else
         printf 'herdr-agent-intercom: cannot record the pane claim; releasing it\n' >&2
         release_unfinished_claim
         intercom_name=""
+      fi
+    elif [[ -n "$unreconciled_name" ]]; then
+      # The name is a real Intercom identity immediately, but Herdr does not
+      # know it until detection creates the record, so until the first prompt
+      # the sidebar alias and the Intercom name differ. Recording the pending
+      # rename is what makes closing that gap possible at all: the hook cannot
+      # re-derive which alias this session enrolled under. A session that cannot
+      # be reconciled would keep a name no peer can discover, so it starts
+      # without Intercom instead -- the same trade the claim marker makes.
+      reconcile_dir="${XDG_STATE_HOME:-$HOME/.local/state}/agent-intercom/reconcile"
+      if mkdir -p "$reconcile_dir" 2>/dev/null &&
+        printf '%s\n' "$unreconciled_name" > "$reconcile_dir/$pane_key" 2>/dev/null; then
+        intercom_name="$unreconciled_name"
+      else
+        printf 'herdr-agent-intercom: cannot record the pending rename for %s\n' "$unreconciled_name" >&2
       fi
     fi
     # Give back only a claim that bought nothing. A successful claim is held
@@ -252,6 +281,12 @@ case "$agent" in
     claude_server="$intercom_root/node_modules/@dataforxyz/agent-intercom-claude/dist/claude-server.mjs"
     inbox_monitor="$intercom_root/node_modules/@dataforxyz/agent-intercom-claude/dist/inbox-monitor.mjs"
     if [[ ! -x "$cci" || ! -x "$bridge" || ! -f "$claude_server" || ! -f "$inbox_monitor" ]]; then
+      # Nothing will answer to the name here, so the pending rename must not
+      # publish it: a sidebar alias no session serves sends every peer that
+      # reads it nowhere, which is worse than this pane keeping Herdr's own.
+      if [[ -n "${reconcile_dir:-}" && -n "${pane_key:-}" ]]; then
+        rm -f "$reconcile_dir/$pane_key"
+      fi
       exec "$agent_command" "$@"
     fi
     export AGENT_INTERCOM_CLAUDE_COMMAND="$agent_command"

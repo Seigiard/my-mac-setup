@@ -259,7 +259,14 @@ case "$1 $2" in
     ;;
   'pane report-agent'|'pane release-agent') exit 0 ;;
   'agent rename')
-    [[ "$4" == "${RENAME_REJECT:-}" ]] && exit 1
+    # A taken name is the rejection this feature retries against, and the
+    # launcher tells it apart from every other failure by the code herdr
+    # returns. Measured against herdr v0.9.1: the error JSON arrives on stderr
+    # with exit 1.
+    [[ "$4" == "${RENAME_REJECT:-}" ]] && {
+      printf '{"error":{"code":"agent_name_taken","message":"agent name %s is already used; candidates: pane_id=w1:p7"},"id":"cli:agent:rename"}\n' "$4" >&2
+      exit 1
+    }
     exit 0
     ;;
 esac
@@ -417,6 +424,150 @@ SH
   assert_success
   assert_equal "$(wc -c < "$log" | tr -d ' ')" 0
   assert_file_exists "$marker"
+}
+
+function test_scripts_1348_agent_intercom_enrolls_a_pane_that_refuses_a_declared_record() {
+  _bats_test_init 1348 'agent intercom enrolls a pane that refuses a declared record'
+  local launcher="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom"
+  local release="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom-release"
+  local stub home log note marker
+  stub="$(agent_intercom_stub_bin)"
+  home="$BATS_TEST_TMPDIR/agent-intercom-home"
+  log="$BATS_TEST_TMPDIR/refused-calls"
+  note="$home/.local/state/agent-intercom/reconcile/w1_p2"
+  marker="$home/.local/state/agent-intercom/claims/w1_p2"
+
+  # #given a pane Herdr will not let this source declare: it keeps a claude
+  # agent-session identity from an earlier session in the same pane, so
+  # `pane report-agent` reports success and creates nothing, and the rename that
+  # needs the record answers `agent_not_found`. Every string here was measured
+  # against herdr v0.9.1 -- the rename error arrives on stderr with exit 1 --
+  # rather than taken from the launcher.
+  cat > "$stub/herdr" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$CLAIM_LOG"
+case "$1 $2" in
+  'agent get')
+    printf '{"error":{"code":"agent_not_found","message":"agent target %s not found"},"id":"cli:agent:get"}\n' "$3" >&2
+    exit 1
+    ;;
+  'pane report-agent'|'pane release-agent') exit 0 ;;
+  'agent rename')
+    printf '{"error":{"code":"agent_not_found","message":"agent target %s not found"},"id":"cli:agent:rename"}\n' "$3" >&2
+    exit 1
+    ;;
+esac
+exit 2
+SH
+  cat > "$stub/herdr-peer-alias" <<'SH'
+#!/usr/bin/env bash
+printf 'ochre-okapi\n'
+SH
+  chmod +x "$stub/herdr" "$stub/herdr-peer-alias"
+
+  # #when Claude starts by hand in that pane
+  : > "$log"; rm -f "$note" "$marker"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
+    HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" claude
+
+  # #then it enrolls under the allocated name instead of warning
+  assert_success
+  assert_output --partial '<--name><ochre-okapi><--claude><'
+
+  # #then it spends one candidate rather than burning the pool on a refusal
+  # no further name can survive
+  assert_equal "$(grep -c 'agent rename' "$log")" 1
+  assert_equal "$(grep -c 'pane report-agent' "$log")" 1
+  assert_file_contains "$log" 'pane release-agent w1:p2 --source herdr-agent-intercom --agent claude'
+
+  # #then it holds no claim and leaves the rename for the first prompt
+  assert_file_not_exists "$marker"
+  assert_equal "$(cat "$note")" 'ochre-okapi'
+
+  # #when the same launch finds no Intercom runtime to start
+  rm -f "$home/.local/share/agent-intercom/node_modules/.bin/cci"
+  : > "$log"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
+    HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" claude
+
+  # #then it drops the pending rename, so no first prompt publishes an alias
+  # this session cannot answer to
+  assert_success
+  assert_output --partial 'claude name=<> args= active=<1>'
+  assert_file_not_exists "$note"
+  ln -sf "$stub/cci" "$home/.local/share/agent-intercom/node_modules/.bin/cci"
+
+  # #given the record Herdr's own detection created, under its own alias
+  cat > "$stub/herdr" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$CLAIM_LOG"
+case "$1 $2" in
+  'agent get')
+    [[ -z "${NO_RECORD:-}" ]] || {
+      printf '{"error":{"code":"agent_not_found","message":"agent target %s not found"},"id":"cli:agent:get"}\n' "$3" >&2
+      exit 1
+    }
+    printf '{"id":"cli:agent:get","result":{"agent":{"agent":"claude","name":"%s","pane_id":"%s"}}}\n' \
+      "${RECORD_NAME:-plum-dingo}" "$3"
+    exit 0
+    ;;
+  'agent rename')
+    [[ "$4" != "${RENAME_TAKEN:-}" ]] || {
+      printf '{"error":{"code":"agent_name_taken","message":"agent name %s is already used; candidates: pane_id=w1:p7"},"id":"cli:agent:rename"}\n' "$4" >&2
+      exit 1
+    }
+    exit 0
+    ;;
+  'agent explain')
+    printf 'agent: claude\nstate: working\nrule: osc_title_working (region=osc_title priority=1100)\n'
+    exit 0
+    ;;
+esac
+exit 0
+SH
+  chmod +x "$stub/herdr"
+
+  # #when the first prompt runs the release command for that session
+  printf 'ochre-okapi\n' > "$note"; : > "$log"
+  run env HERDR_PANE_ID=w1:p2 HERDR_AGENT_INTERCOM_NAME=ochre-okapi CLAIM_LOG="$log" \
+    HOME="$home" PATH="$stub:$PATH" bash "$release"
+
+  # #then the Herdr record takes the name Intercom already answers to
+  assert_success
+  assert_file_contains "$log" 'agent rename w1:p2 ochre-okapi'
+  assert_file_not_exists "$note"
+
+  # #given the same note but no record yet, because detection has not run
+  printf 'ochre-okapi\n' > "$note"; : > "$log"
+  # #when the release command runs
+  run env HERDR_PANE_ID=w1:p2 HERDR_AGENT_INTERCOM_NAME=ochre-okapi NO_RECORD=1 \
+    CLAIM_LOG="$log" HOME="$home" PATH="$stub:$PATH" bash "$release"
+  # #then it keeps the note so a later prompt can finish the rename
+  assert_success
+  assert_equal "$(grep -c 'agent rename' "$log")" 0
+  assert_file_exists "$note"
+
+  # #given a peer that took the name between exec and this prompt
+  printf 'ochre-okapi\n' > "$note"; : > "$log"
+  # #when the release command runs
+  run env HERDR_PANE_ID=w1:p2 HERDR_AGENT_INTERCOM_NAME=ochre-okapi \
+    RENAME_TAKEN=ochre-okapi CLAIM_LOG="$log" HOME="$home" PATH="$stub:$PATH" bash "$release"
+  # #then it says the two names stay apart and stops retrying a lost race
+  assert_success
+  assert_output --partial 'ochre-okapi is taken, so this session answers to it in Intercom while Herdr shows plum-dingo'
+  assert_file_not_exists "$note"
+
+  # #given a note left by a session other than this one
+  printf 'ochre-okapi\n' > "$note"; : > "$log"
+  # #when a session enrolled under a different name runs the release command
+  run env HERDR_PANE_ID=w1:p2 HERDR_AGENT_INTERCOM_NAME=azure-otter \
+    CLAIM_LOG="$log" HOME="$home" PATH="$stub:$PATH" bash "$release"
+  # #then it renames nothing: the note belongs to whoever enrolled under it
+  assert_success
+  assert_equal "$(grep -c 'agent rename' "$log")" 0
+  assert_file_exists "$note"
 }
 
 function test_scripts_1333_agent_intercom_launcher_passes_through_an_unidentified_herdr_session() {
