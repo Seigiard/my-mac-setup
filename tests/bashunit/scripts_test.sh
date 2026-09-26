@@ -5772,6 +5772,13 @@ function test_scripts_047_herdr_child_detached_ask_follows_parent_identity() {
   # confirmed callback retires the run instead, so the removed run directory
   # is the terminal state that names the reason.
   [ "$attempt" -lt 500 ] || fail 'watcher never retired after the confirmed callback'
+  # The watcher's exit is not ordered after its own remove_supervision_run, so
+  # wait for the directory rather than reading it the instant the pid goes.
+  while [ -d "$run_dir" ] && [ "$attempt" -lt 1000 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  [ "$attempt" -lt 1000 ] || fail 'run directory outlived the retired watcher'
   assert_dir_not_exists "$run_dir"
   run grep -q 'event=blocked-11' "$CHILD_STUB/calls.log"
   assert_failure
@@ -5828,6 +5835,13 @@ function test_scripts_049_herdr_child_callback_intent_suppresses_blocked_w() {
   # Same discrimination as 047: only the retired run directory tells the
   # intended suppression apart from a crash or an identity mismatch.
   [ "$attempt" -lt 500 ] || fail 'watcher never retired after the confirmed receipt'
+  # The watcher's exit is not ordered after its own remove_supervision_run, so
+  # wait for the directory rather than reading it the instant the pid goes.
+  while [ -d "$run_dir" ] && [ "$attempt" -lt 1000 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  [ "$attempt" -lt 1000 ] || fail 'run directory outlived the retired watcher'
   assert_dir_not_exists "$run_dir"
   run grep -q 'event=blocked-11' "$CHILD_STUB/calls.log"
   assert_failure
