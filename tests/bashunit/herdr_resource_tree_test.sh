@@ -294,39 +294,6 @@ teardown() {
   # developer's live session append them to this file as well.
   if command_exists herdr; then
     local recorded_kind recorded
-    # A split whose follow-up snapshot failed left no pane id behind (the file
-    # is removed once the pane is known); close what the split's own tab holds
-    # beyond the set recorded before it, and nothing in any other tab.
-    if [[ -s "${TREE_WORK:-}/live-panes-before" && -x "${TREE_LIVE_HERDR:-}" ]]; then
-      "$TREE_WORK/run-bounded" "$TREE_LIVE_HERDR" api snapshot \
-        > "$TREE_WORK/live-panes-now" 2>/dev/null || true
-      python3 - "$TREE_WORK/live-panes-before" "$TREE_WORK/live-panes-now" <<'PY' >> "$TREE_WORK/live-panes" 2>/dev/null || true
-import json
-import sys
-
-
-def panes(text):
-    try:
-        return json.loads(text)["result"]["snapshot"]["panes"]
-    except (json.JSONDecodeError, KeyError, TypeError):
-        return []
-
-
-try:
-    with open(sys.argv[1], encoding="utf-8") as handle:
-        target_pane, before_text = handle.read().split("\n", 1)
-    with open(sys.argv[2], encoding="utf-8") as handle:
-        now_text = handle.read()
-except (OSError, ValueError):
-    raise SystemExit(0)
-before = panes(before_text)
-tabs = {pane["tab_id"] for pane in before if pane["pane_id"] == target_pane}
-known = {pane["pane_id"] for pane in before}
-for pane in panes(now_text):
-    if pane["tab_id"] in tabs and pane["pane_id"] not in known:
-        print(pane["pane_id"])
-PY
-    fi
     for recorded_kind in panes workspaces; do
       [[ -s "${TREE_WORK:-}/live-$recorded_kind" ]] || continue
       while read -r recorded; do
@@ -1146,11 +1113,13 @@ PY
   # wrapper's own exit status and diagnostic, which is what failed.
   run "$TREE_WORK/run-bounded" "$TREE_LIVE_HERDR" api snapshot
   local after_split="$output"
-  # If this snapshot failed, TREE_LIVE_PANE stays empty and live-panes gets no
-  # entry; teardown then diffs a fresh snapshot against this pre-split set,
-  # limited to the tab the split targeted, because sibling tests run in the same
-  # live server at the same time and own the panes they create elsewhere.
-  printf '%s\n%s' "$current_pane" "$before_split" > "$TREE_WORK/live-panes-before"
+  # Known cost: if this snapshot fails, the pane the split created is not
+  # identified and teardown cannot close it, so it leaks into the live session.
+  # A fallback that diffed snapshots was tried and removed -- appearing in the
+  # window between two snapshots does not establish that this test created a
+  # pane, so the fallback closed panes a sibling test, or the user, had just
+  # opened. Leaking a pane the failure message names is cheaper than closing
+  # somebody else's.
   TREE_LIVE_PANE="$(python3 - "$before_split" "$after_split" <<'PY'
 import json
 import sys
@@ -1171,7 +1140,6 @@ PY
 )"
   if [[ -n "$TREE_LIVE_PANE" ]]; then
     printf '%s\n' "$TREE_LIVE_PANE" >> "$TREE_WORK/live-panes"
-    rm -f "$TREE_WORK/live-panes-before"
   fi
 
   status="$split_status"
