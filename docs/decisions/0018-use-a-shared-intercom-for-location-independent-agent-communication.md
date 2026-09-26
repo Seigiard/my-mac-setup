@@ -237,6 +237,41 @@ That rename is also the collision boundary, because `agent_name_taken` is
 decided by the server rather than by a name chosen locally. A record that
 already exists is never renamed; it belongs to whoever created it.
 
+Declaring works once per pane, and the fallback below is why a relaunch still
+enrolls. A pane that has hosted an agent session keeps the agent-session identity
+that client's own integration hook reported — Claude Code's `SessionStart` hook is
+the one this launcher meets, and OpenCode's and Pi's integrations report the same
+field. That identity is write-once per pane: nothing clears it, a later identity
+from the same source does not replace it, and `pane release-agent` does not touch
+it — it only withdraws the lifecycle record its own source owns. From then on the
+pane ignores every `pane report-agent`, whatever agent kind that report names, and
+reports success while creating nothing, so the rename has no record to act on.
+A pane whose previous occupant was OpenCode or Pi is therefore just as undeclarable
+as one that hosted Claude, which is why the route is chosen from the field's
+presence and never from its `agent` value. Clearing the identity when a
+session ends would be the fix that keeps one path for every launch, and it is not
+available. `pane release-agent` withdraws a record and leaves the identity.
+`pane.clear_agent_authority`, which the socket API carries and the CLI does not
+expose, answers `ok` and changes nothing, with or without the owning source.
+Upstream has the measurements on herdrdev/herdr#4463.
+
+The launcher therefore reads which case it is in before it spends anything.
+`herdr agent get` has no record to report on such a pane, but `herdr pane get`
+still carries the identity — the only place it stays readable — so one read
+separates a pane that has hosted a client from one that never has. On a pane that
+carries an identity the launcher declares nothing, keeps the alias it allocated,
+and enrolls under a name Herdr does not yet know. A rejection's wording decides
+nothing on this route; it remains a backstop for a refusal this launcher does not
+model, where keeping the name is right for the same reason. It records the pending rename, and the first-prompt hook renames the
+record Herdr's own detection created. This gives up the property the paragraph
+above relies on: for that one case the collision boundary moves after the
+client starts, and the Herdr alias and the Intercom name differ until the first
+prompt. Accepted because the alternative is no Intercom at all on every
+relaunch, the divergence is bounded and self-healing, and a name lost to a
+collision meanwhile is reported rather than retried forever. A session that
+cannot record its pending rename starts without Intercom instead, because a name
+no peer can discover is worse than a warning.
+
 Only Claude Code takes this path. Declaring the record claims the pane's
 lifecycle authority, which suppresses Herdr's own screen detection until it is
 released, and the only release surface this repository deploys is Claude Code's
