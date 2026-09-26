@@ -412,7 +412,7 @@ class TestDockerContract(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             failed, _ = self.run_make_test_local(Path(tmp), managed_rc="19")
         self.assertEqual(failed.returncode, 2, failed.stdout + failed.stderr)
-        self.assertRegex(failed.stderr, r"(?m)^make: \*\*\* \[test-local\] Error 19$")
+        self.assertRegex(failed.stderr, r"(?m)^make: \*\*\* \[(?:Makefile:\d+: )?test-local\] Error 19$")
 
     def run_template_override(self, root, env_overrides=None):
         target = re.search(
@@ -818,7 +818,7 @@ class TestDockerContract(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             failing = self.run_make_test_ubuntu(Path(tmp), docker_exit_code=7)
         self.assertEqual(failing.returncode, 2, failing.stdout + failing.stderr)
-        self.assertRegex(failing.stderr, r"(?m)^make: \*\*\* \[test-ubuntu\] Error 7$")
+        self.assertRegex(failing.stderr, r"(?m)^make: \*\*\* \[(?:Makefile:\d+: )?test-ubuntu\] Error 7$")
 
     def test_make_test_ubuntu_succeeds_when_the_container_succeeds(self):
         # Control: the same recipe and the same fake docker, succeeding.

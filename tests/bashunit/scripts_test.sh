@@ -3014,7 +3014,10 @@ PY
 
 function test_scripts_08523_plugin_list_fake_fields_match_real_herdr() {
   _bats_test_init 8523 'plugin-list fake local-source fields match the installed Herdr contract'
-  command_exists herdr || skip "herdr is not installed"
+  # The PATH wrapper alone is not an oracle: on a CI runner it is deployed with
+  # no real herdr behind it and answers 127.
+  command_exists herdr && herdr --version >/dev/null 2>&1 \
+    || skip "no working herdr executable is installed behind the PATH wrapper"
   local work="$BATS_TEST_TMPDIR/plugin-contract-local"
   mkdir -p "$work/home/.config" "$work/plug"
 
@@ -3058,7 +3061,10 @@ TOML
 
 function test_scripts_08530_plugin_list_fake_github_source_matches_real_herdr() {
   _bats_test_init 8530 'plugin-list fake github-source fields match the installed Herdr contract'
-  command_exists herdr || skip "herdr is not installed"
+  # The PATH wrapper alone is not an oracle: on a CI runner it is deployed with
+  # no real herdr behind it and answers 127.
+  command_exists herdr && herdr --version >/dev/null 2>&1 \
+    || skip "no working herdr executable is installed behind the PATH wrapper"
   # A github-source registration cannot be constructed offline -- `plugin
   # install` resolves a ref over the network -- so this half reads the host
   # registry and carries its own visible skip. It is a separate test from 08523
