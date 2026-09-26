@@ -26,6 +26,7 @@ setup() {
   # case states the variables it needs; this clears the rest.
   unset HERDR_CHILD_LAUNCH
   unset HERDR_CHILD_LAUNCH_MODE
+  unset HERDR_CHILD_LAUNCH_TIMEOUT_MS
   unset HERDR_CHILD_PARENT_PANE
   unset HERDR_CHILD_PARENT_TERMINAL
   unset HERDR_CHILD_PARENT_SESSION
@@ -4538,9 +4539,20 @@ agent_json() {
     "$name" "$pane" "$terminal" "$session" "$status" "$seq"
 }
 
+child_session_value() {
+  if [ -f "$CHILD_STUB/session-after-prompt" ] && [ ! -f "$CHILD_STUB/session-visible" ]; then
+    return 0
+  fi
+  read_value child-session child-session
+}
+
 case "${1:-} ${2:-}" in
   "agent list")
     parent_pane="$(read_value parent-pane 'wT:p0')"
+    if [ -f "$CHILD_STUB/prompt-seen" ]; then
+      [ "${STUB_SESSION_READ_FAIL:-0}" != 1 ] || exit 1
+      [ "${STUB_SESSION_READ_MALFORMED:-0}" != 1 ] || { printf 'not-json\n'; exit 0; }
+    fi
     parent_session="$(read_value parent-session parent-session)"
     parent_status="$(read_value parent-status working)"
     if [ "$parent_status" = blocked ] && [ -f "$CHILD_STUB/generation" ]; then
@@ -4550,7 +4562,16 @@ case "${1:-} ${2:-}" in
     if [ -f "$CHILD_STUB/started-name" ] && [ ! -f "$CHILD_STUB/child-gone" ]; then
       child_name="$(cat "$CHILD_STUB/started-name")"
       child_terminal="$(read_value child-terminal term-child)"
-      child_session="$(read_value child-session child-session)"
+      if [ -f "$CHILD_STUB/prompt-seen" ] && [ -f "$CHILD_STUB/session-after-prompt" ]; then
+        remaining="$(read_value session-after-prompt 0)"
+        if [ "$remaining" -gt 0 ]; then
+          : > "$CHILD_STUB/session-wait-observed"
+          printf '%s\n' "$((remaining - 1))" > "$CHILD_STUB/session-after-prompt"
+        else
+          : > "$CHILD_STUB/session-visible"
+        fi
+      fi
+      child_session="$(child_session_value)"
       read -r child_status child_seq < "$CHILD_STUB/child-state"
       child_status="$(read_value child-list-status "$child_status")"
       child="$(agent_json "$child_name" wT:p9 "$child_terminal" "$child_session" "$child_status" "$child_seq")"
@@ -4604,7 +4625,7 @@ case "${1:-} ${2:-}" in
     fi
     child_name="$(read_value started-name child)"
     child_terminal="${STUB_AGENT_GET_TERMINAL:-$(read_value child-terminal term-child)}"
-    child_session="$(read_value child-session child-session)"
+    child_session="$(child_session_value)"
     child="$(agent_json "$child_name" wT:p9 "$child_terminal" "$child_session" "$child_status" "$child_seq")"
     if [ "$child_status" = working ] && [ "$child_seq" -gt 10 ]; then
       : > "$CHILD_STUB/fresh-working-observed"
@@ -4662,8 +4683,18 @@ case "${1:-} ${2:-}" in
         done
       fi
       printf '%s\n' "${4:-}" >> "$CHILD_STUB/successful-prompts.log"
-    elif [ -f "$CHILD_STUB/advance-on-prompt" ]; then
-      printf 'idle 12\n' > "$CHILD_STUB/child-state"
+    else
+      : > "$CHILD_STUB/prompt-seen"
+      [ "${STUB_PROMPT_FAIL:-0}" != 1 ] || {
+        printf '{"error":{"code":"agent_prompt_stalled"}}\n' >&2
+        exit 1
+      }
+      if [ -n "${STUB_REPLACE_TERMINAL_ON_PROMPT:-}" ]; then
+        printf '%s\n' "$STUB_REPLACE_TERMINAL_ON_PROMPT" > "$CHILD_STUB/child-terminal"
+      fi
+      if [ -f "$CHILD_STUB/advance-on-prompt" ]; then
+        printf 'idle 12\n' > "$CHILD_STUB/child-state"
+      fi
     fi
     printf '{"result":{"agent":{"agent_status":"working"}}}\n'
     ;;
@@ -4674,6 +4705,9 @@ case "${1:-} ${2:-}" in
     seq_next=0
     seq_value=
     for arg in "$@"; do
+      if [[ "$arg" == supervised=* ]] && [ "${STUB_SUPERVISION_REPORT_FAIL:-0}" = 1 ]; then
+        exit 1
+      fi
       if [ "$seq_next" -eq 1 ]; then
         seq_value="$arg"
         seq_next=0
@@ -4779,8 +4813,14 @@ case "${1:-} ${2:-}" in
       exit 0
     fi
     child_terminal="$(read_value child-terminal term-child)"
-    child_session="$(read_value child-session child-session)"
+    child_session="$(child_session_value)"
     generation="$(read_value generation '')"
+    if [ "${HERDR_PANE_ID:-}" = wT:p9 ] && [ -z "$generation" ]; then
+      if [ -f "$CHILD_STUB/ask-before-metadata" ] && [ "${STUB_ASK_TERMINAL_REPLACED:-0}" = 1 ]; then
+        child_terminal=term-replacement
+      fi
+      : > "$CHILD_STUB/ask-before-metadata"
+    fi
     child_tab="$(read_value child-tab '')"
     tab_token=""
     tab_field=""
@@ -5193,6 +5233,283 @@ function test_scripts_029_herdr_child_detached_mode_returns_only_after_liv() {
   assert_file_contains "$CHILD_STUB/calls.log" 'pane report-metadata.*--token child_mode=detach'
   assert_file_contains "$CHILD_STUB/calls.log" 'pane report-metadata.*--token parent_session=parent-session'
   assert_file_contains "$CHILD_STUB/calls.log" 'pane report-metadata.*--token child_session=child-session'
+}
+
+function test_scripts_345_detached_children_bind_sessions_created_by_the_first_prompt() {
+  _bats_test_init 345 'detached OpenCode and Pi bind the first-prompt session and deliver its early settlement'
+  local kind generation
+  for kind in opencode pi; do
+    # #given — no session until two identity reads after prompt submission
+    child_lifecycle_stub_herdr
+    printf '2\n' > "$CHILD_STUB/session-after-prompt"
+    : > "$CHILD_STUB/advance-on-prompt"
+
+    # #when — the first turn settles before the watcher can bind its session
+    HERDR_WORKSPACE_ID=wT HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 run child_lifecycle_start \
+      --kind "$kind" --posture rw --tab --label test-345 --supervision-timeout 60000
+
+    # #then — startup confirms supervision and the parent receives that turn
+    assert_success
+    generation="$(cat "$CHILD_STUB/generation")"
+    assert_output "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\",\"tab\":\"wT:tA\",\"supervision\":{\"status\":\"armed\",\"generation\":\"$generation\",\"timeout_ms\":60000}}"
+    child_wait_for_log 'event=settled-12' "$CHILD_STUB/successful-prompts.log"
+    run grep -c '^agent prompt [^w]' "$CHILD_STUB/calls.log"
+    assert_success
+    assert_output 1
+    assert_file_contains "$CHILD_STUB/resource-tree.log" '^record-child --pane wT:p9 --terminal term-child'
+    assert_file_not_exists "$CHILD_STUB/pane-closed"
+  done
+}
+
+child_assert_lazy_session_failure() {
+  local reason="$1" expected_status="${2:-1}" generation
+  assert_failure "$expected_status"
+  set -- "$CHILD_STUB/state/runs/"*
+  assert_equal "$#" 1
+  assert_dir_exists "$1"
+  generation="${1##*/}"
+  assert_output --partial "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\",\"supervision\":{\"status\":\"failed\",\"reason\":\"$reason\",\"generation\":\"$generation\",\"diagnostic\":\"$generation\"}}"
+  assert_file_contains "$1/failed.state" "^reason=$reason$"
+  run grep -c '^agent prompt [^w]' "$CHILD_STUB/calls.log"
+  assert_success
+  assert_output 1
+  assert_file_not_exists "$CHILD_STUB/pane-closed"
+}
+
+function test_scripts_3451_detached_session_timeout_preserves_the_submitted_child() {
+  _bats_test_init 3451 'detached session timeout preserves the submitted child with recovery coordinates'
+  # #given — a child that never publishes its session within the launch timeout
+  child_lifecycle_stub_herdr
+  printf '100000\n' > "$CHILD_STUB/session-after-prompt"
+  # #when
+  HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 run child_lifecycle_start \
+    --kind opencode --timeout 50
+  # #then
+  child_assert_lazy_session_failure child-session-timeout
+  assert_file_not_exists "$CHILD_STUB/watcher.pid"
+}
+
+function test_scripts_3452_detached_session_binding_rejects_a_replaced_terminal() {
+  _bats_test_init 3452 'detached session binding rejects a replaced terminal without closing it'
+  # #given
+  child_lifecycle_stub_herdr
+  printf '0\n' > "$CHILD_STUB/session-after-prompt"
+  # #when
+  STUB_REPLACE_TERMINAL_ON_PROMPT=term-replacement HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 \
+    run child_lifecycle_start --kind opencode
+  # #then
+  child_assert_lazy_session_failure child-session-identity
+  assert_file_not_exists "$CHILD_STUB/watcher.pid"
+}
+
+function test_scripts_3453_detached_session_read_failure_preserves_the_child() {
+  _bats_test_init 3453 'detached session read failure preserves the child'
+  # #given
+  child_lifecycle_stub_herdr
+  printf '0\n' > "$CHILD_STUB/session-after-prompt"
+  # #when
+  STUB_SESSION_READ_FAIL=1 HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 \
+    run child_lifecycle_start --kind opencode
+  # #then
+  child_assert_lazy_session_failure child-session-read
+}
+
+function test_scripts_3454_detached_malformed_session_identity_preserves_the_child() {
+  _bats_test_init 3454 'detached malformed session identity preserves the child'
+  # #given
+  child_lifecycle_stub_herdr
+  printf '0\n' > "$CHILD_STUB/session-after-prompt"
+  # #when
+  STUB_SESSION_READ_MALFORMED=1 HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 \
+    run child_lifecycle_start --kind opencode
+  # #then
+  child_assert_lazy_session_failure child-session-identity
+}
+
+function test_scripts_3455_detached_lazy_session_parentage_failure_preserves_the_child() {
+  _bats_test_init 3455 'detached lazy-session parentage failure preserves the submitted child'
+  # #given
+  child_lifecycle_stub_herdr
+  printf '0\n' > "$CHILD_STUB/session-after-prompt"
+  # #when
+  STUB_PARENTAGE_FAIL=1 HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 \
+    run child_lifecycle_start --kind opencode
+  # #then
+  child_assert_lazy_session_failure parentage-recording 75
+}
+
+function test_scripts_3456_detached_lazy_session_watcher_failure_preserves_the_child() {
+  _bats_test_init 3456 'detached lazy-session watcher readiness failure preserves the submitted child'
+  # #given
+  child_lifecycle_stub_herdr
+  printf '0\n' > "$CHILD_STUB/session-after-prompt"
+  # #when
+  STUB_SUPERVISION_REPORT_FAIL=1 HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 \
+    run child_lifecycle_start --kind opencode
+  # #then
+  child_assert_lazy_session_failure liveness-publish-failed
+}
+
+function test_scripts_3457_detached_lazy_session_prompt_failure_is_not_retried() {
+  _bats_test_init 3457 'detached lazy-session ambiguous prompt result preserves the child without retry'
+  # #given
+  child_lifecycle_stub_herdr
+  printf '0\n' > "$CHILD_STUB/session-after-prompt"
+  # #when
+  STUB_PROMPT_FAIL=1 HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 \
+    run child_lifecycle_start --kind opencode
+  # #then
+  child_assert_lazy_session_failure prompt-result-ambiguous
+  assert_file_not_exists "$CHILD_STUB/watcher.pid"
+}
+
+function test_scripts_3458_detached_signal_while_waiting_for_session_preserves_the_child() {
+  _bats_test_init 3458 'detached launcher interrupted while waiting for its session preserves the child'
+  # #given — prompt accepted, but the session has not appeared
+  child_lifecycle_stub_herdr
+  printf '100000\n' > "$CHILD_STUB/session-after-prompt"
+  # #when — interrupt the real launcher at the observed session-wait boundary
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 \
+    HERDR_CHILD_POLL_INTERVAL=0.01 CHILD_SCRIPT="$HERDR_CHILD" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import time
+
+stub = Path(os.environ['CHILD_STUB'])
+proc = subprocess.Popen(
+    ['bash', os.environ['CHILD_SCRIPT'], 'start', '--kind', 'opencode',
+     '--detach', '--timeout', '60000', '--prompt', 'test task'],
+    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+)
+try:
+    deadline = time.monotonic() + 10
+    while not (stub / 'session-wait-observed').exists():
+        if proc.poll() is not None or time.monotonic() >= deadline:
+            raise AssertionError('launcher never reached the session-wait boundary')
+        time.sleep(0.01)
+    proc.send_signal(signal.SIGTERM)
+    stdout, stderr = proc.communicate(timeout=10)
+    assert proc.returncode == 143, (proc.returncode, stdout, stderr)
+    result = json.loads(stdout)
+    generation = result['supervision']['generation']
+    assert result == {
+        'agent': (stub / 'started-name').read_text(), 'pane': 'wT:p9',
+        'supervision': {'status': 'failed', 'reason': 'launch-signal-TERM',
+                        'generation': generation, 'diagnostic': generation},
+    }, result
+    assert (stub / 'state' / 'runs' / generation / 'failed.state').read_text() == 'reason=launch-signal-TERM\n'
+finally:
+    if proc.poll() is None:
+        proc.kill()
+        proc.communicate(timeout=10)
+PY
+  # #then
+  assert_success
+  assert_file_not_exists "$CHILD_STUB/pane-closed"
+}
+
+function test_scripts_3459_detached_early_question_waits_for_session_binding() {
+  _bats_test_init 3459 'detached early question reaches the parent once after session binding'
+  # #given — the child asks while the launcher still awaits its session
+  child_lifecycle_stub_herdr
+  printf '100000\n' > "$CHILD_STUB/session-after-prompt"
+  # #when — allow the session to appear only after ask has read the bare pane
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 \
+    HERDR_CHILD_POLL_INTERVAL=0.01 CHILD_SCRIPT="$HERDR_CHILD" python3 - <<'PY'
+import os
+from pathlib import Path
+import subprocess
+import time
+
+stub = Path(os.environ['CHILD_STUB'])
+script = os.environ['CHILD_SCRIPT']
+launcher = subprocess.Popen(
+    ['bash', script, 'start', '--kind', 'opencode', '--detach', '--timeout', '5000', '--prompt', 'test task'],
+    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+)
+processes = [launcher]
+
+def wait_for(name):
+    deadline = time.monotonic() + 10
+    while not (stub / name).exists():
+        assert launcher.poll() is None, 'launcher exited before ' + name
+        assert time.monotonic() < deadline, 'boundary not reached: ' + name
+        time.sleep(0.01)
+
+try:
+    wait_for('session-wait-observed')
+    env = dict(os.environ, HERDR_PANE_ID='wT:p9', HERDR_CHILD_LAUNCH='1',
+               HERDR_CHILD_LAUNCH_MODE='detach', HERDR_CHILD_LAUNCH_TIMEOUT_MS='5000',
+               HERDR_CHILD_PARENT_PANE='wT:p0', HERDR_CHILD_PARENT_TERMINAL='term-parent',
+               HERDR_CHILD_PARENT_SESSION='parent-session')
+    ask = subprocess.Popen(['bash', script, 'ask', 'Which option should I use?'],
+                           env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    processes.append(ask)
+    wait_for('ask-before-metadata')
+    (stub / 'session-after-prompt').write_text('0\n')
+    launch_out, launch_err = launcher.communicate(timeout=15)
+    assert launcher.returncode == 0, (launch_out, launch_err)
+    ask_out, ask_err = ask.communicate(timeout=15)
+    assert ask.returncode == 0, (ask_out, ask_err)
+    assert ask_out == 'Question delivered. End this turn and wait for the parent reply.\n', ask_out
+    prompts = (stub / 'successful-prompts.log').read_text()
+    assert prompts.count('Which option should I use?') == 1, prompts
+    assert prompts.startswith('[child-ask v2 generation='), prompts
+finally:
+    for proc in processes:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate(timeout=10)
+PY
+  # #then
+  assert_success
+  assert_file_contains "$CHILD_STUB/calls.log" 'HERDR_CHILD_LAUNCH_TIMEOUT_MS=5000'
+  assert_file_not_exists "$CHILD_STUB/pane-closed"
+}
+
+child_early_ask() {
+  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_LAUNCH=1 \
+    HERDR_CHILD_LAUNCH_MODE=detach HERDR_CHILD_LAUNCH_TIMEOUT_MS="$1" \
+    HERDR_CHILD_POLL_INTERVAL=0.01 HERDR_CHILD_PARENT_PANE=wT:p0 \
+    HERDR_CHILD_PARENT_TERMINAL=term-parent HERDR_CHILD_PARENT_SESSION=parent-session \
+    python3 -c 'import subprocess, sys
+raise SystemExit(subprocess.run(sys.argv[1:], timeout=5).returncode)' \
+    bash "$HERDR_CHILD" ask 'Which option should I use?'
+}
+
+function test_scripts_34510_detached_early_question_metadata_wait_is_bounded() {
+  _bats_test_init 34510 'detached early question metadata wait expires without delivering an unbound callback'
+  # #given — the launch never publishes its metadata
+  child_lifecycle_stub_herdr
+  printf 'red-wolf' > "$CHILD_STUB/started-name"
+  # #when — the inherited launch budget expires (five seconds guards a hang)
+  run child_early_ask 50
+  # #then
+  assert_failure 1
+  assert_output 'herdr-child: detached child metadata is unavailable; waiting label remains published'
+  assert_file_exists "$CHILD_STUB/ask-before-metadata"
+  assert_file_exists "$CHILD_STUB/waiting-label"
+  assert_file_not_exists "$CHILD_STUB/successful-prompts.log"
+}
+
+function test_scripts_34511_detached_early_question_rejects_terminal_replacement() {
+  _bats_test_init 34511 'detached early question fails closed if its terminal changes during metadata wait'
+  # #given — the pane gets a different terminal after the first metadata read
+  child_lifecycle_stub_herdr
+  printf 'red-wolf' > "$CHILD_STUB/started-name"
+  # #when
+  STUB_ASK_TERMINAL_REPLACED=1 run child_early_ask 30000
+  # #then
+  assert_failure 1
+  assert_output 'herdr-child: child identity changed while awaiting detached metadata; waiting label remains published'
+  assert_file_exists "$CHILD_STUB/ask-before-metadata"
+  assert_file_not_exists "$CHILD_STUB/successful-prompts.log"
 }
 
 function test_scripts_030_herdr_child_detached_arm_failure_preserves_the_c() {
