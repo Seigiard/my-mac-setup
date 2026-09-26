@@ -204,6 +204,8 @@ herdr-child prompt --to <alias> --pane <pane-id> --detach 'Address the verified 
 
 `--detach` returns success only after prompt acceptance and watcher readiness. Its JSON contains the child pair, supervision generation, and timeout. A detached read-write task must declare a cooperative exclusive file scope in its prompt; the parent must not edit those paths until settlement or explicit abandonment. This is coordination, not filesystem enforcement.
 
+OpenCode and Pi may create their session only after the first prompt. Their detached launch captures the state baseline before submission, then waits up to `--timeout` milliseconds for the session before arming supervision. An early `herdr-child ask` waits for the launch metadata within the inherited launch timeout, then validates the full session binding before delivering the question.
+
 After prompt acceptance, detached `start`, `prompt`, or `reply` can return nonzero with recovery JSON instead of closing the child. The child may be preserved even though supervision failed to arm. Do not retry `start`: first inspect the returned alias-plus-pane pair with `herdr agent get <pane-id>` and read its output. Rearm supervision with a managed `herdr-child prompt --detach`, or run `herdr-child reap --to <alias> --pane <pane-id>` when the child is settled and no continuation is needed.
 
 `--tab [--label TEXT]` is orthogonal to `--wait|--detach`: it changes placement, not lifecycle. It creates a new tab in `HERDR_WORKSPACE_ID`, returns its id as `"tab"`, and cannot be combined with `--direction`. The optional label is presentation metadata and may later be reconciled by Herdr's label sweep.

@@ -206,11 +206,12 @@ try:
  session=agent.get("agent_session",{}).get("value","")
  pane=agent["pane_id"]
  name=agent.get("name","")
- if status not in ("idle","working","blocked","done","unknown") or not isinstance(seq,int) or not terminal or not session or not pane:
+ if status not in ("idle","working","blocked","done","unknown") or not isinstance(seq,int) or not terminal or not pane:
   raise ValueError()
+ if not session and sys.argv[1] != "allow-missing-session": raise ValueError()
 except Exception:
  raise SystemExit(1)
-print("%s\t%s\t%s\t%s\t%s\t%s" % (status,seq,terminal,session,name,pane))'
+print("%s\t%s\t%s\t%s\t%s\t%s" % (status,seq,terminal,session,name,pane))' "${1:-require-session}"
 }
 
 json_generation_status() {

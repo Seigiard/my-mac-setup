@@ -224,23 +224,52 @@ ask_parent() {
   local pane_json context pane_terminal pane_session mode generation run_dir
   local supervision_timeout stored_parent_terminal stored_parent_session
   local stored_child_terminal stored_child_session route_terminal="" route_session=""
+  local launch_wait="${HERDR_CHILD_LAUNCH_TIMEOUT_MS:-0}" metadata_deadline
+  local initial_terminal="" initial_session="" metadata_waited=0
+  case "$launch_wait" in '' | *[!0-9]*) launch_wait=0 ;; esac
+  metadata_deadline=$(( $(now_ms) + launch_wait ))
   seq="$(metadata_report "$HERDR_PANE_ID" --source "$SOURCE_ID" \
     --state-label 'blocked=waiting for parent' --ttl-ms "$WAITING_TTL_MS")"
-  list_json="$(herdr agent list)" || {
-    printf 'herdr-child: child or parent lookup failed; waiting label remains published\n' >&2
-    exit 1
+  read_callback_aliases() {
+    list_json="$(herdr agent list)" || {
+      printf 'herdr-child: child or parent lookup failed; waiting label remains published\n' >&2
+      exit 1
+    }
+    current_name="$(printf '%s' "$list_json" | json_current_name_for_pane "$HERDR_PANE_ID")" || {
+      printf 'herdr-child: current pane has no unique registered alias; waiting label remains published\n' >&2
+      exit 1
+    }
   }
-  current_name="$(printf '%s' "$list_json" | json_current_name_for_pane "$HERDR_PANE_ID")" || {
-    printf 'herdr-child: current pane has no unique registered alias; waiting label remains published\n' >&2
-    exit 1
-  }
+  read_callback_aliases
 
-  pane_json="$(herdr pane get "$HERDR_PANE_ID" 2>/dev/null || true)"
-  context="$(printf '%s' "$pane_json" | json_child_context 2>/dev/null || true)"
-  IFS=$'\t' read -r pane_terminal pane_session mode generation supervision_timeout \
-    stored_parent_terminal stored_parent_session stored_child_terminal stored_child_session <<EOF
+  # OpenCode and Pi can ask during their first turn, before the launcher has
+  # bound the new session. Wait only for absent metadata, never an inconsistent
+  # binding, and retain the observed identity throughout the bounded wait.
+  while :; do
+    pane_json="$(herdr pane get "$HERDR_PANE_ID" 2>/dev/null || true)"
+    context="$(printf '%s' "$pane_json" | json_child_context 2>/dev/null || true)"
+    IFS=$'\t' read -r pane_terminal pane_session mode generation supervision_timeout \
+      stored_parent_terminal stored_parent_session stored_child_terminal stored_child_session <<EOF
 $context
 EOF
+    if { [ -n "$initial_terminal" ] && [ "$pane_terminal" != "$initial_terminal" ]; } || \
+      { [ -n "$initial_session" ] && [ "$pane_session" != "$initial_session" ]; }; then
+      printf 'herdr-child: child identity changed while awaiting detached metadata; waiting label remains published\n' >&2
+      exit 1
+    fi
+    initial_terminal="$pane_terminal"
+    initial_session="$pane_session"
+    if [ "${HERDR_CHILD_LAUNCH_MODE:-}" != detach ] || [ "$launch_wait" -eq 0 ] || \
+      [ -z "$pane_terminal" ] || [ -n "$mode$generation$stored_parent_terminal$stored_parent_session$stored_child_terminal$stored_child_session" ] || \
+      [ "$(now_ms)" -ge "$metadata_deadline" ]; then
+      break
+    fi
+    metadata_waited=1
+    sleep "$POLL_INTERVAL"
+  done
+
+  [ "$metadata_waited" -eq 0 ] || read_callback_aliases
+
   event="callback-$seq"
   if [ "$mode" = detach ] || [ -n "$generation" ] || [ -n "$stored_parent_terminal" ] || \
      [ -n "$stored_parent_session" ] || [ -n "$stored_child_terminal" ] || [ -n "$stored_child_session" ]; then
