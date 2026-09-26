@@ -246,8 +246,10 @@ withdraws the lifecycle record its own source owns. From then on the pane ignore
 `pane report-agent` for that agent kind and reports success while creating
 nothing, so the rename has no record to act on. Clearing the identity when a
 session ends would be the fix that keeps one path for every launch, and it is not
-available: the operation does not exist, and the one that sounds like it leaves
-the identity in place.
+available. `pane release-agent` withdraws a record and leaves the identity.
+`pane.clear_agent_authority`, which the socket API carries and the CLI does not
+expose, answers `ok` and changes nothing, with or without the owning source.
+Upstream has the measurements on herdrdev/herdr#4463.
 
 The launcher therefore reads which case it is in before it spends anything.
 `herdr agent get` has no record to report on such a pane, but `herdr pane get`
