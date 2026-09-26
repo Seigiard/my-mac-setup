@@ -1,6 +1,6 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -91,8 +91,9 @@ describe("Pi AGENTS.local.md extension selection", () => {
   test("skips a broken symlink and warns once per session", async () => {
     const root = await temporaryProject();
     await symlink("missing-target.md", join(root, "AGENTS.local.md"));
-    const fallbackSentinel = "SENTINEL_FALLBACK_9f1c";
-    await writeFile(join(root, "CLAUDE.local.md"), `Fallback instructions ${fallbackSentinel}.\n`);
+    const contents = "Fallback instructions SENTINEL_FALLBACK_9f1c.\n";
+    await writeFile(join(root, "CLAUDE.local.md"), contents);
+    const fallbackRealPath = await realpath(join(root, "CLAUDE.local.md"));
     const { handlers } = fakePi();
     const { ctx, notifications } = fakeContext(root);
 
@@ -101,14 +102,28 @@ describe("Pi AGENTS.local.md extension selection", () => {
 
     // The broken AGENTS.local.md symlink cannot supply a prompt, so the
     // extension must fall back to CLAUDE.local.md's real content on every call.
-    expect(first.systemPrompt.startsWith(BASE_PROMPT)).toBe(true);
-    expect(first.systemPrompt).toContain(fallbackSentinel);
-    expect(second.systemPrompt.startsWith(BASE_PROMPT)).toBe(true);
-    expect(second.systemPrompt).toContain(fallbackSentinel);
+    // Both the prompt and the warning are exact-knowable: a substring match on
+    // "broken symlink" also accepts a warning raised for the wrong file.
+    const expectedPrompt = [
+      BASE_PROMPT,
+      "",
+      "## Local Private Project Instructions",
+      "",
+      `Loaded from ${fallbackRealPath}. These instructions are private and local. Follow them in addition to repository instructions.`,
+      "",
+      "### CLAUDE.local.md",
+      "",
+      contents,
+    ].join("\n");
+    expect(first.systemPrompt).toBe(expectedPrompt);
+    expect(second.systemPrompt).toBe(expectedPrompt);
 
-    expect(notifications).toHaveLength(1);
-    expect(notifications[0].level).toBe("warning");
-    expect(notifications[0].message).toContain("broken symlink");
+    expect(notifications).toEqual([
+      {
+        message: `${join(root, "AGENTS.local.md")} is a broken symlink; skipping local instructions from AGENTS.local.md.`,
+        level: "warning",
+      },
+    ]);
   });
 
   test("skips a too-large file and falls back to the other local file", async () => {
@@ -119,7 +134,12 @@ describe("Pi AGENTS.local.md extension selection", () => {
     const selection = await inspectLocalInstructions(root);
 
     expect(selection.selected?.name).toBe("CLAUDE.local.md");
-    expect(selection.warnings[0]).toContain("above the 51200 byte limit");
+    // The whole warning, and only one of them: the substring said nothing about
+    // which file was skipped or how big it actually was, so a warning naming the
+    // fallback file satisfied it just as well.
+    expect(selection.warnings).toEqual([
+      `${join(root, "AGENTS.local.md")} is ${MAX_LOCAL_INSTRUCTIONS_BYTES + 1} bytes, above the ${MAX_LOCAL_INSTRUCTIONS_BYTES} byte limit; skipping local instructions from AGENTS.local.md.`,
+    ]);
   });
 
   test("skips an outside-project symlink and falls back to the other local file", async () => {
@@ -132,8 +152,12 @@ describe("Pi AGENTS.local.md extension selection", () => {
 
     const selection = await inspectLocalInstructions(root);
 
+    // The exact warning names both the skipped file and where it resolved to;
+    // "resolves outside the project" alone checks neither.
     expect(selection.selected?.name).toBe("CLAUDE.local.md");
-    expect(selection.warnings[0]).toContain("resolves outside the project");
+    expect(selection.warnings).toEqual([
+      `${join(root, "AGENTS.local.md")} resolves outside the project to ${await realpath(outsideInstructions)}; skipping local instructions from AGENTS.local.md.`,
+    ]);
   });
 
   test("skips a directory without warning", async () => {

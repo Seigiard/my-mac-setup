@@ -24,6 +24,21 @@ FIXTURE_CANARIES = dict(
 )
 
 
+def top_level_make_environment(**overrides):
+    """An environment in which a nested `make` behaves like a top-level one.
+
+    MAKELEVEL and MAKEFLAGS are inherited when these tests themselves run
+    under `make test-python`: the first renames every diagnostic to `make[1]:`
+    and the second can carry `-k` or `-i` into the child, which is precisely
+    the failure suppression some of these tests exist to detect.
+    """
+    environment = dict(os.environ)
+    for variable in ("MAKELEVEL", "MAKEFLAGS", "MFLAGS"):
+        environment.pop(variable, None)
+    environment.update(overrides)
+    return environment
+
+
 class TestDockerContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -39,31 +54,56 @@ class TestDockerContract(unittest.TestCase):
         self.assertTrue(names, "no services parsed from docker-compose.yml")
         return names
 
-    def test_general_python_target_discovers_general_tests(self):
+    def run_general_python_target(self, root, body):
+        """`make test-python` against a checkout holding one fixture test.
+
+        The fixture's marker is printed from inside the test METHOD, not at
+        module level: a module-level print only proves the file was imported,
+        which a discovery pattern that imports but collects nothing also
+        achieves.
+        """
+        (root / "Makefile").write_bytes(MAKEFILE.read_bytes())
+        tests = root / "tests"
+        tests.mkdir()
+        (tests / "test_general.py").write_text(
+            "import unittest\n\n"
+            "class GeneralTest(unittest.TestCase):\n"
+            "    def test_general_contract(self):\n"
+            "        print('general-contract-ran')\n"
+            "%s\n" % body,
+            encoding="utf-8",
+        )
+        return subprocess.run(
+            ["make", "test-python"],
+            cwd=root,
+            env=top_level_make_environment(),
+            capture_output=True,
+            text=True,
+        )
+
+    def test_general_python_target_executes_general_tests(self):
         # The copied Makefile is the real producer, so this proves the public
         # target still discovers and executes repository Python tests.
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            (root / "Makefile").write_bytes(MAKEFILE.read_bytes())
-            tests = root / "tests"
-            tests.mkdir()
-            (tests / "test_general.py").write_text(
-                "import unittest\n\n"
-                "print('general-contract-imported')\n\n"
-                "class GeneralTest(unittest.TestCase):\n"
-                "    def test_general_contract(self):\n"
-                "        self.assertTrue(True)\n",
-                encoding="utf-8",
-            )
-            result = subprocess.run(
-                ["make", "test-python"],
-                cwd=root,
-                capture_output=True,
-                text=True,
-            )
+            result = self.run_general_python_target(Path(tmp), "        self.assertTrue(True)")
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("general-contract-imported", result.stdout)
+        self.assertIn("general-contract-ran", result.stdout)
+        # unittest writes its own count of what it collected and ran.
+        self.assertRegex(result.stderr, r"(?m)^Ran 1 test in ")
+
+    def test_general_python_target_fails_when_a_general_test_fails(self):
+        # Without this control the gate is decorative: a discovery pattern
+        # that collects nothing, or a recipe that swallowed the exit code,
+        # leaves the test above green on the marker alone.
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self.run_general_python_target(
+                Path(tmp), "        self.fail('general-contract-failed')"
+            )
+
+        # make reports a failed recipe as exit 2.
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("general-contract-failed", result.stderr)
 
     def service_block(self, service_name):
         pattern = r"^  %s:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:\n|^\S|\Z)" % re.escape(service_name)
@@ -129,8 +169,10 @@ class TestDockerContract(unittest.TestCase):
                 self.service_command_script(self.service_block(name)) or "",
             )
         ]
-        # An empty selection would let every caller pass vacuously.
-        self.assertGreaterEqual(len(names), 2, "expected at least two full-apply services")
+        # Which services apply, not how many: every caller loops over this
+        # list, so a service whose launcher line stops matching takes its whole
+        # share of the assertions out of the run instead of failing one.
+        self.assertEqual(names, ["test-full", "test-ubuntu"])
         return names
 
     def test_make_test_ubuntu_routes_to_a_full_apply_service(self):
@@ -163,21 +205,52 @@ class TestDockerContract(unittest.TestCase):
         # flakiness. That is the externally-consumed-literal shape, kept.
         #
         # MMS_DISPOSABLE_HOME is consumed inside this repo, so trusting the
-        # spelling here would be a source copy. Cross-check it against its
-        # reader instead: tests/helpers/disposable-home.bash is what lets
-        # idempotent_test.sh run its real chezmoi commands, and a rename there
-        # that missed compose would drop that coverage silently.
+        # spelling here would be a source copy, and a grep of the reader's
+        # source is no better -- its header comment names the variable nine
+        # times, so a rename in the function body stays green. Ask the reader
+        # instead. tests/helpers/disposable-home.bash is dependency-free by
+        # design (its own header) so that a plain `bash -c` can source it,
+        # which is exactly how idempotent_test.sh decides whether to run real
+        # chezmoi commands: feed it each service's environment and require the
+        # `run` verdict that unlocks that coverage.
         marker = "MMS_DISPOSABLE_HOME"
-        self.assertIn(
-            marker,
-            (REPOSITORY / "tests" / "helpers" / "disposable-home.bash").read_text(encoding="utf-8"),
-            "%s must be the marker tests/helpers/disposable-home.bash reads" % marker,
-        )
         for name in self.apply_service_names():
             with self.subTest(service=name):
                 env = self.service_env(self.service_block(name))
-                self.assertEqual(env.get(marker), "1")
                 self.assertEqual(env.get("HOMEBREW_BUNDLE_NO_UPGRADE"), "1")
+                self.assertEqual(
+                    self.disposable_home_verdict({marker: env.get(marker)}),
+                    "run",
+                    "%s's environment must unlock the real-apply suite" % name,
+                )
+
+    def disposable_home_verdict(self, environment):
+        """What tests/helpers/disposable-home.bash answers for `environment`."""
+        helper = REPOSITORY / "tests" / "helpers" / "disposable-home.bash"
+        clean = dict(os.environ)
+        # GITHUB_ACTIONS would turn a missing marker into `misconfigured`
+        # instead of `skip`, so the negative control below could not tell the
+        # two apart on a CI runner.
+        clean.pop("GITHUB_ACTIONS", None)
+        for key, value in environment.items():
+            if value is None:
+                clean.pop(key, None)
+            else:
+                clean[key] = value
+        result = subprocess.run(
+            ["bash", "-c", 'source "$1"; mms_disposable_home_verdict', "bash", str(helper)],
+            env=clean,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return result.stdout.strip()
+
+    def test_disposable_home_helper_grants_the_run_verdict_only_for_the_marker(self):
+        # The control for the assertion above: without the marker the helper
+        # must not answer `run`, so a helper that answered `run` for every
+        # environment could not make that assertion pass by accident.
+        self.assertEqual(self.disposable_home_verdict({"MMS_DISPOSABLE_HOME": None}), "skip")
 
     def test_disposable_services_supply_the_complete_fixture_set(self):
         disposable = []
@@ -192,7 +265,41 @@ class TestDockerContract(unittest.TestCase):
                 for fixture, canary in FIXTURE_CANARIES.items():
                     self.assertEqual(env.get(fixture), canary)
                     self.assertEqual(build_args.get(fixture), canary)
-        self.assertTrue(disposable, "expected at least one disposable Docker service")
+        # Every declared service is disposable, named rather than counted: a
+        # service that loses MMS_DISPOSABLE_HOME=1 would otherwise leave the
+        # loop and keep this test green on the services that remain.
+        self.assertEqual(disposable, ["ubuntu", "test-full", "test-ubuntu"])
+
+    # The three launcher steps every applying CI job runs, with the exact
+    # command each must carry. Literal wiring, like `make test-python`: the
+    # profile name and the `--` separator are the launcher's own interface,
+    # and `--verbose` on the apply is what makes a CI failure diagnosable.
+    LAUNCHER_STEPS = (
+        (
+            "Initialize chezmoi",
+            "tests/helpers/chezmoi-unattended --profile full-fixture -- init --source=./home",
+        ),
+        (
+            "Apply dotfiles (dry-run first)",
+            "tests/helpers/chezmoi-unattended --profile full-fixture -- diff --source=./home",
+        ),
+        (
+            "Apply dotfiles",
+            "tests/helpers/chezmoi-unattended --profile full-fixture -- apply "
+            "--source=./home --verbose",
+        ),
+    )
+
+    def named_step_block(self, job, step_name):
+        pattern = r"^      - name: %s\n(?P<body>.*?)(?=^      - name: |\Z)" % re.escape(step_name)
+        match = re.search(pattern, job, re.MULTILINE | re.DOTALL)
+        self.assertIsNotNone(match, "%s step is missing" % step_name)
+        return match.group("body")
+
+    def step_run(self, step, step_name):
+        run = re.search(r"^        run: (?P<command>.+)$", step, re.MULTILINE)
+        self.assertIsNotNone(run, "%s step must declare a run: command" % step_name)
+        return run.group("command").strip()
 
     def test_ci_apply_jobs_inherit_complete_fixtures_and_use_unsuppressed_launcher(self):
         top_env = re.search(
@@ -219,62 +326,93 @@ class TestDockerContract(unittest.TestCase):
             if not re.search(r"chezmoi-unattended\b[^\n]*\s--\s+apply\b", body):
                 continue
             applying.append(name)
-            self.assertRegex(body, r"chezmoi-unattended\b[^\n]*\s--\s+init\b")
-            diff = re.search(
-                r"^\s*run:\s*(?P<command>.*chezmoi-unattended\b.*\s--\s+diff\b.*)$",
-                body,
-                re.MULTILINE,
-            )
-            self.assertIsNotNone(diff, "%s must run a launcher-based dry-run" % name)
-            self.assertNotIn("||", diff.group("command"))
-        self.assertGreaterEqual(len(applying), 2)
+            for step_name, command in self.LAUNCHER_STEPS:
+                with self.subTest(job=name, step=step_name):
+                    step = self.named_step_block(body, step_name)
+                    # The whole `run:` value, not a token denylist. An earlier
+                    # version rejected `||` on the dry-run line and accepted
+                    # every equivalent -- `; true`, `| true`, `|| :` -- and
+                    # was satisfied by a comment that merely named the
+                    # command, because it was not line-anchored.
+                    self.assertEqual(self.step_run(step, step_name), command)
+                    # `continue-on-error: true` suppresses the step's failure
+                    # outside the `run:` value, where no assertion on the
+                    # command itself can see it.
+                    self.assertNotIn("continue-on-error", step)
+        # Which jobs apply, not how many: a job whose launcher line stops
+        # matching skips the three step assertions above without failing one.
+        self.assertEqual(applying, ["test-ubuntu", "test-macos"])
 
-    def test_make_test_local_executes_host_partial_and_propagates_failures(self):
+    def run_make_test_local(self, root, managed_rc=None):
+        """`make test-local` against a chezmoi that reports three managed
+        targets, two of them the credential-sensitive ones the host-partial
+        profile exists to omit.
+
+        Returns (completed process, the argv of the `diff` call). The stub
+        RECORDS its argv instead of discarding it: without that, a launcher
+        that forwarded every managed target -- including ~/.zshenv and
+        ~/.claude.json -- is indistinguishable from one that filtered them.
+        """
+        bin_dir = root / "bin"
+        bin_dir.mkdir()
+        diff_argv = root / "diff-argv"
+        fake = bin_dir / "chezmoi"
+        fake.write_text(
+            "#!/bin/sh\n"
+            "if [ \"$1\" = --version ]; then echo 'chezmoi version 2.72.1'; exit 0; fi\n"
+            "for arg in \"$@\"; do\n"
+            "  if [ \"$arg\" = managed ]; then\n"
+            "    [ \"${MMS_TEST_MANAGED_RC:-0}\" -eq 0 ] || exit \"$MMS_TEST_MANAGED_RC\"\n"
+            "    printf '%s\\0' \"$HOME/.zshenv\" \"$HOME/.claude.json\" \"$HOME/.gitconfig\"\n"
+            "    exit 0\n"
+            "  fi\n"
+            "done\n"
+            "printf '%s\\n' \"$@\" > \"$MMS_TEST_DIFF_ARGV\"\n"
+        )
+        fake.chmod(0o755)
+        env = top_level_make_environment()
+        env["HOME"] = str(root / "home")
+        env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
+        env["MMS_TEST_DIFF_ARGV"] = str(diff_argv)
+        if managed_rc is not None:
+            env["MMS_TEST_MANAGED_RC"] = managed_rc
+        completed = subprocess.run(
+            ["make", "test-local"],
+            cwd=REPOSITORY,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        return completed, diff_argv
+
+    def test_make_test_local_omits_the_credential_sensitive_targets(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            bin_dir = root / "bin"
-            bin_dir.mkdir()
-            fake = bin_dir / "chezmoi"
-            fake.write_text(
-                "#!/bin/sh\n"
-                "if [ \"$1\" = --version ]; then echo 'chezmoi version 2.72.1'; exit 0; fi\n"
-                "for arg in \"$@\"; do\n"
-                "  if [ \"$arg\" = managed ]; then\n"
-                "    [ \"${MMS_TEST_MANAGED_RC:-0}\" -eq 0 ] || exit \"$MMS_TEST_MANAGED_RC\"\n"
-                "    printf '%s\\0' \"$HOME/.zshenv\" \"$HOME/.claude.json\" \"$HOME/.gitconfig\"\n"
-                "    exit 0\n"
-                "  fi\n"
-                "done\n"
-                "echo checked-non-sensitive-state\n"
-            )
-            fake.chmod(0o755)
-            env = os.environ.copy()
-            env["HOME"] = str(root / "home")
-            env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
+            home = root / "home"
+            passed, diff_argv = self.run_make_test_local(root)
+            self.assertEqual(passed.returncode, 0, passed.stdout + passed.stderr)
+            forwarded = diff_argv.read_text(encoding="utf-8").splitlines()
 
-            passed = subprocess.run(
-                ["make", "test-local"],
-                cwd=REPOSITORY,
-                env=env,
-                capture_output=True,
-                text=True,
-            )
-            self.assertEqual(passed.returncode, 0, passed.stderr)
-            self.assertIn("checked-non-sensitive-state", passed.stdout)
-            self.assertIn("home/dot_zshenv.tmpl", passed.stderr)
-            self.assertIn("~/.zshenv", passed.stderr)
-            self.assertIn("home/modify_dot_claude.json", passed.stderr)
-            self.assertIn("~/.claude.json", passed.stderr)
+        # Everything the launcher forwarded that names a managed destination.
+        # The two omitted ones are the whole point of the host-partial
+        # profile; the third proves the filter did not simply drop every
+        # target, which would also satisfy an "absent" assertion.
+        self.assertEqual(
+            [argument for argument in forwarded if argument.startswith(str(home))],
+            [str(home / ".gitconfig")],
+        )
 
-            env["MMS_TEST_MANAGED_RC"] = "19"
-            failed = subprocess.run(
-                ["make", "test-local"],
-                cwd=REPOSITORY,
-                env=env,
-                capture_output=True,
-                text=True,
-            )
-            self.assertNotEqual(failed.returncode, 0)
+    def test_make_test_local_propagates_the_chezmoi_exit_code(self):
+        # The launcher does `exit "$managed_rc"`, so the code is knowable and
+        # 19 is this test's own value. `!= 0` would also pass when the stub is
+        # never found and the run dies during setup -- a failure that cannot
+        # be told from the one under test. make collapses any recipe failure
+        # to its own exit 2 and names the recipe's real code in its report
+        # line, so that line is where the forwarded value is observable.
+        with tempfile.TemporaryDirectory() as tmp:
+            failed, _ = self.run_make_test_local(Path(tmp), managed_rc="19")
+        self.assertEqual(failed.returncode, 2, failed.stdout + failed.stderr)
+        self.assertRegex(failed.stderr, r"(?m)^make: \*\*\* \[(?:Makefile:\d+: )?test-local\] Error 19$")
 
     def run_template_override(self, root, env_overrides=None):
         target = re.search(
@@ -385,7 +523,7 @@ class TestDockerContract(unittest.TestCase):
             INVENTORY.read_bytes()
         )
 
-    def test_staging_lands_general_files_without_the_local_issue_tracker(self):
+    def test_staging_lands_the_files_the_container_runs(self):
         # Sources are created where the declared volume mounts put them, so a
         # stale cp referencing a removed mount fails here before the container
         # can run any tests.
@@ -416,9 +554,10 @@ class TestDockerContract(unittest.TestCase):
                     )
                     self.assertEqual(result.returncode, 0, result.stderr)
 
+                    # No mount source and no staging line can produce a local
+                    # issue-tracker directory, so asserting its absence here
+                    # could never go red; what remains is the positive half.
                     worktree = root / "home/testuser/worktree"
-                    self.assertFalse((worktree / "scripts/issues").exists())
-                    self.assertFalse((worktree / "docs/issues").exists())
                     self.assertTrue((worktree / "scripts/check_bats_assertions.py").is_file())
                     self.assertTrue((worktree / "Makefile").is_file())
                     self.assertTrue((worktree / "tests/helpers/chezmoi-unattended").is_file())
@@ -510,7 +649,12 @@ class TestDockerContract(unittest.TestCase):
                         wrapper_exit_code=0,
                         env_overrides={missing_fixture: None},
                     )
-                    self.assertNotEqual(failed.returncode, 0)
+                    # The launcher's `fail` exits 2, and `set -e` carries
+                    # that out of the service script unchanged. `!= 0` would
+                    # also accept a script that died on its own staging.
+                    self.assertEqual(
+                        failed.returncode, 2, failed.stdout + failed.stderr
+                    )
                     self.assertFalse(calls.exists(), failed.stdout + failed.stderr)
                     self.assertFalse(post_apply.exists(), failed.stdout + failed.stderr)
 
@@ -528,15 +672,18 @@ class TestDockerContract(unittest.TestCase):
         # right command name is present, not that its exit code survives.
         for name in self.apply_service_names():
             with self.subTest(service=name):
+                # 7 rather than 1: forwarding the wrapper's own code and
+                # "failing somehow" are different contracts, and 1 cannot
+                # tell them apart.
                 with tempfile.TemporaryDirectory() as tmp:
                     failing, _, _ = self.run_apply_service_script(
-                        name, Path(tmp), wrapper_exit_code=1
+                        name, Path(tmp), wrapper_exit_code=7
                     )
-                self.assertNotEqual(
+                self.assertEqual(
                     failing.returncode,
-                    0,
-                    "%s's command script must fail when tests/run-post-apply.sh full "
-                    "fails, but exited 0:\nstdout=%s\nstderr=%s"
+                    7,
+                    "%s's command script must exit with tests/run-post-apply.sh full's "
+                    "own code:\nstdout=%s\nstderr=%s"
                     % (name, failing.stdout, failing.stderr),
                 )
 
@@ -555,29 +702,18 @@ class TestDockerContract(unittest.TestCase):
                     "succeeds:\nstdout=%s\nstderr=%s" % (name, passing.stdout, passing.stderr),
                 )
 
-    def test_docker_build_uses_the_launcher_with_the_compose_canaries(self):
-        copy_launcher = self.dockerfile.index(
-            "COPY --chown=testuser tests/helpers/chezmoi-unattended "
-        )
-        copy_inventory = self.dockerfile.index(
-            "COPY --chown=testuser tests/helpers/chezmoi-unattended-targets.tsv "
-        )
-        render = self.dockerfile.index(
-            "/tmp/chezmoi-helpers/chezmoi-unattended",
-            self.dockerfile.index("RUN MMS_DISPOSABLE_HOME=1"),
-        )
-        self.assertLess(copy_launcher, render)
-        self.assertLess(copy_inventory, render)
-
-        for fixture, canary in FIXTURE_CANARIES.items():
-            with self.subTest(fixture=fixture):
-                self.assertIn("ARG %s" % fixture, self.dockerfile)
-                self.assertRegex(
-                    self.compose,
-                    r"(?m)^\s{%d}%s:\s*%s\s*$"
-                    % (8, re.escape(fixture), re.escape(canary)),
-                )
-                self.assertIn('%s="$%s"' % (fixture, fixture), self.dockerfile)
+    # A test that greps docker/Dockerfile.ubuntu for the COPY/ARG/render
+    # strings used to live here. It was deleted: every grep still matched
+    # after moving the `ARG` lines below the `RUN` that reads them (the break
+    # it existed to catch, which leaves the build with empty fixtures), and
+    # any of them went red on a harmless rename of /tmp/chezmoi-helpers.
+    #
+    # The contract -- the image builds with the complete fixture set -- is
+    # owned by `make build-docker` / `make test-ubuntu`, this repository's
+    # Docker gate: the launcher inside that RUN exits 2 on any empty fixture,
+    # so the build itself fails loudly. The compose side of the fixture set
+    # (each build arg carries its canary) is owned by
+    # test_disposable_services_supply_the_complete_fixture_set above.
 
     def test_run_post_apply_propagates_a_failing_suite(self):
         # The innermost gate: tests/run-post-apply.sh tracks each suite
@@ -589,7 +725,10 @@ class TestDockerContract(unittest.TestCase):
         # their own child's exit code.
         with tempfile.TemporaryDirectory() as tmp:
             stub = Path(tmp) / "bashunit"
-            stub.write_text("#!/bin/sh\nexit 1\n")
+            # 7, not 1: the wrapper's contract is `rc=$frc` then `exit "$rc"`,
+            # and a wrapper that merely exited 1 on any failure would satisfy
+            # an injected 1 while having lost the code.
+            stub.write_text("#!/bin/sh\nexit 7\n")
             stub.chmod(0o755)
             env = os.environ.copy()
             env["MMS_BASHUNIT_BIN"] = str(stub)
@@ -622,10 +761,11 @@ class TestDockerContract(unittest.TestCase):
                 capture_output=True,
                 text=True,
             )
-            self.assertNotEqual(
+            self.assertEqual(
                 failing.returncode,
-                0,
-                "run-post-apply.sh must exit nonzero when a suite fails:\n%s" % failing.stderr,
+                7,
+                "run-post-apply.sh must exit with the failing suite's own code:\n%s"
+                % failing.stderr,
             )
 
             # Control: same wrapper, env shape, and stubbed ps; stub now
@@ -646,42 +786,47 @@ class TestDockerContract(unittest.TestCase):
                 "run-post-apply.sh must exit zero when every suite succeeds:\n%s" % passing.stderr,
             )
 
-    def test_make_test_ubuntu_recipe_does_not_swallow_a_failing_run(self):
-        # `docker compose run` already returns the container's real exit
-        # code, so the only way `make test-ubuntu` could still report success
-        # on a real failure is the recipe body adding anything around that
-        # invocation: a leading `-`, `set +e`, a second recipe line, or a
-        # trailing suppression clause. An earlier version of this check
-        # enumerated specific suppression spellings (`|| true`, `; true`) and
-        # missed just-as-common equivalents like `|| :`, `|| exit 0`, or
-        # `| true` -- a denylist of shell idioms can never be exhaustive.
-        # Assert an allowlist instead: the recipe body must be EXACTLY the
-        # docker compose invocation, alone, with nothing appended. This is a
-        # literal-shape check on purpose: the suppression syntax IS the
-        # contract here, the same way make's own leading-`-` convention is;
-        # exact-match is just a stronger literal check than a denylist scan.
-        target = re.search(
-            r"^test-ubuntu:.*\n(?P<body>(?:\t.*\n?)+)", self.makefile, re.MULTILINE
+    def run_make_test_ubuntu(self, root, docker_exit_code):
+        """`make test-ubuntu` with a fake `docker` that exits with
+        `docker_exit_code`, and both of the target's own prerequisites marked
+        already-made so only the container invocation runs."""
+        (root / "Makefile").write_bytes(MAKEFILE.read_bytes())
+        bin_dir = root / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "docker").write_text("#!/bin/sh\nexit %d\n" % docker_exit_code)
+        (bin_dir / "docker").chmod(0o755)
+        env = top_level_make_environment()
+        env["PATH"] = str(bin_dir) + os.pathsep + env["PATH"]
+        return subprocess.run(
+            ["make", "-o", "test-python", "-o", "build-docker", "test-ubuntu"],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
         )
-        self.assertIsNotNone(target, "Makefile must define the test-ubuntu target")
-        body = target.group("body")
-        self.assertTrue(body.strip(), "test-ubuntu target has no recipe body")
-        recipe_lines = [line[1:] for line in body.splitlines() if line.startswith("\t")]
-        self.assertEqual(
-            len(recipe_lines),
-            1,
-            "test-ubuntu's recipe must be a single command line -- a second "
-            "line could suppress the first's exit code (e.g. 'set +e', or "
-            "any command that resets $?): %r" % recipe_lines,
-        )
-        self.assertEqual(
-            recipe_lines[0].strip(),
-            "docker compose -f docker/docker-compose.yml run --rm test-ubuntu",
-            "test-ubuntu's recipe must be exactly the docker compose "
-            "invocation with nothing appended (no leading '-', and no "
-            "trailing '||', ';', '|', or comment) that could swallow its "
-            "exit code: %r" % recipe_lines[0],
-        )
+
+    def test_make_test_ubuntu_fails_when_the_container_fails(self):
+        # `docker compose run` returns the container's exit code, so the only
+        # way `make test-ubuntu` reports success on a real failure is the
+        # recipe adding something around that invocation: a leading `-`,
+        # `set +e`, a second recipe line, `|| true`, `; true`, `| true`,
+        # `|| :`. An earlier version of this test enumerated the spellings it
+        # rejected, then froze the literal recipe text instead -- which went
+        # red on `--build` or a renamed service while still missing `.IGNORE:`
+        # and `MAKEFLAGS` lines elsewhere in the file. Run the recipe and
+        # watch what it does with a failure instead.
+        with tempfile.TemporaryDirectory() as tmp:
+            failing = self.run_make_test_ubuntu(Path(tmp), docker_exit_code=7)
+        self.assertEqual(failing.returncode, 2, failing.stdout + failing.stderr)
+        self.assertRegex(failing.stderr, r"(?m)^make: \*\*\* \[(?:Makefile:\d+: )?test-ubuntu\] Error 7$")
+
+    def test_make_test_ubuntu_succeeds_when_the_container_succeeds(self):
+        # Control: the same recipe and the same fake docker, succeeding.
+        # Proves the failure above comes from the injected exit code rather
+        # than from the target never reaching its container invocation at all.
+        with tempfile.TemporaryDirectory() as tmp:
+            passing = self.run_make_test_ubuntu(Path(tmp), docker_exit_code=0)
+        self.assertEqual(passing.returncode, 0, passing.stdout + passing.stderr)
 
 
 if __name__ == "__main__":

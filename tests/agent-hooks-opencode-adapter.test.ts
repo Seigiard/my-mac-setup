@@ -63,6 +63,10 @@ async function loadPlugin(coreDir?: string): Promise<Host> {
  * adapter has to read from where.
  */
 async function callBefore(host: Host, raw: any): Promise<string | undefined> {
+  // The catch below turns anything thrown into the deny text, so an absent hook
+  // would arrive as a TypeError message rather than as "the plugin never
+  // registered". Refuse to answer for the plugin when the plugin never hooked.
+  expect(host.hooks["tool.execute.before"]).toBeTypeOf("function");
   try {
     await host.hooks["tool.execute.before"]({ tool: raw.tool }, { args: raw.args });
     return undefined;
@@ -71,8 +75,28 @@ async function callBefore(host: Host, raw: any): Promise<string | undefined> {
   }
 }
 
+// opencode's own wire spellings for the tools the policy corpus exercises,
+// written out here rather than produced by the core's encoder. `encodeEvent` is
+// the WRITERS half of normalize.ts and the adapter feeds its result straight
+// into the READERS half, so an encoder-derived event is the inverse of the
+// parser it is about to exercise: a pair that agreed on a wrong field name
+// (`args.cmd` for `args.command`) would keep every test below green while real
+// opencode traffic reached no policy at all. Source is the same as the corpus's
+// hand-written `raw.opencode` entries — the shipped adapter. `fff_grep` is the
+// flattened MCP spelling observed against the deployed fff server (U4); a deny
+// only fires below if the registry still agrees with it.
+const OPENCODE_WIRE: Record<string, { tool: string; argNames: Record<string, string> }> = {
+  bash: { tool: "bash", argNames: { command: "command" } },
+  "fff-grep": { tool: "fff_grep", argNames: { query: "query" } },
+};
+
+/** undefined = opencode has no wire shape for that tool, i.e. no route exists. */
 function opencodeRawFor(fixture: any): any | undefined {
-  return normalize.encodeEvent("opencode", fixture.tool, fixture.payload, REGISTRY);
+  const wire = OPENCODE_WIRE[fixture.tool];
+  if (wire === undefined) return undefined;
+  const args: Record<string, unknown> = {};
+  for (const [field, value] of Object.entries(fixture.payload)) args[wire.argNames[field]] = value;
+  return { tool: wire.tool, args };
 }
 
 // --- scenario 1: the handler contract ---------------------------------------
@@ -157,6 +181,28 @@ describe("fail-open when the core cannot be imported (R4, KTD5)", () => {
     // #then the same absence, not a handler that silently allows
     expect(Object.keys(host.hooks)).toEqual([]);
   });
+
+  test("a dispatch that throws at call time still lets the tool call proceed", async () => {
+    // #given a core that imports cleanly but whose dispatch throws
+    const throwing = temporaryDir("agent-hooks-throwing-core-");
+    await Bun.write(
+      join(throwing, "index.ts"),
+      "export function dispatch() { throw new Error('policy exploded'); }\n",
+    );
+    const host = await loadPlugin(throwing);
+
+    // #when a known-bad command reaches the registered handler
+    const fixture = corpus
+      .policyFixtures("zsh-reserved-name-guard")
+      .find((candidate: any) => candidate.name === "zsh/blocks status");
+    const thrown = await callBefore(host, opencodeRawFor(fixture));
+
+    // #then the handler exists and the call is allowed through: R4 requires a
+    // dispatch exception to fail open, not to surface as a deny opencode would
+    // present to the model as a refusal.
+    expect(Object.keys(host.hooks)).toEqual(["tool.execute.before"]);
+    expect(thrown).toBeUndefined();
+  });
 });
 
 // --- scenario 3: dialect parity with Claude ---------------------------------
@@ -170,6 +216,16 @@ describe("opencode arg dialect reaches Claude's verdicts (R3, KTD8)", () => {
     );
     let denials = 0;
     let clearances = 0;
+    // Cardinality before the loop: `shared` is selected by this file's own wire
+    // table, so a route that disappears from it shrinks the loop instead of
+    // failing it. 19 is the corpus's own count of bash and fff-grep fixtures,
+    // 9 of which deny -- an independent side from the wire table doing the
+    // selecting.
+    expect([
+      shared.length,
+      shared.filter((fixture: any) => fixture.tool === "bash").length,
+      shared.filter((fixture: any) => fixture.tool === "fff-grep").length,
+    ]).toEqual([19, 14, 5]);
 
     for (const fixture of shared) {
       // #when the opencode dialect goes through the handler and the claude
@@ -187,13 +243,15 @@ describe("opencode arg dialect reaches Claude's verdicts (R3, KTD8)", () => {
       } else {
         clearances += 1;
         expect(`${fixture.name}: ${thrown}`).toBe(`${fixture.name}: undefined`);
-        expect(claudeDecision.verdict).not.toBe("block");
+        // `shared` holds only the bash and fff-grep fixtures, so allow is the
+        // one non-block outcome here: a stray context decision is a defect,
+        // not something this branch may accept.
+        expect(claudeDecision).toEqual({ verdict: "allow" });
       }
     }
 
-    // Both branches must have been reached, or the loop above proves nothing.
-    expect(denials).toBeGreaterThan(0);
-    expect(clearances).toBeGreaterThan(0);
+    // Both branches reached, and each for its whole share of the corpus.
+    expect([denials, clearances]).toEqual([9, 10]);
   });
 
   test("the fff route opencode exposes decides like Claude's", async () => {
@@ -207,12 +265,12 @@ describe("opencode arg dialect reaches Claude's verdicts (R3, KTD8)", () => {
     const host = await loadPlugin(CORE_DIR);
 
     // #when both go through opencode's verified fff tool spelling
-    const raw: any = opencodeRawFor(fixture);
-    const thrown = await callBefore(host, raw);
+    const thrown = await callBefore(host, opencodeRawFor(fixture));
     const allowed = await callBefore(host, opencodeRawFor(control));
 
-    // #then the identifier is the one observed against the deployed MCP server
-    expect(raw.tool).toBe("fff_grep");
+    // #then only the multi-token query is refused. The deny is what proves the
+    // registry still spells this route `fff_grep`: an unmapped tool name falls
+    // open and `thrown` would be undefined.
     expect(thrown).toBe(fixture.text);
     expect(allowed).toBeUndefined();
   });

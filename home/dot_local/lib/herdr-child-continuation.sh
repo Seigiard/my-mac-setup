@@ -36,10 +36,6 @@ managed_detached_prompt() {
   local baseline_json baseline_snapshot baseline_seq generation run_dir self watcher_pid
   local prompt_out prompt_err prompt_pid="" prompt_status takeover_complete=0
 
-  [ "${HERDR_CHILD_TEST_BASELINE_FAIL:-0}" != 1 ] || {
-    printf 'herdr-child: child baseline state could not be read before detached prompt\n' >&2
-    return 1
-  }
   baseline_json="$(herdr agent get "$pane")" || {
     printf 'herdr-child: child baseline state could not be read before detached prompt\n' >&2
     return 1
@@ -69,11 +65,6 @@ EOF
   write_launch_state "$run_dir/launch.state" "$generation" "$supervision_timeout" \
     "$HERDR_PANE_ID" "$parent_terminal" "$parent_session" "$name" "$pane" \
     "$child_terminal" "$child_session" "$baseline_seq" || { remove_supervision_run "$run_dir"; return 1; }
-  if [ "${HERDR_CHILD_TEST_SETUP_FAIL:-0}" = 1 ]; then
-    remove_supervision_run "$run_dir"
-    printf 'herdr-child: detached continuation setup failed before supervision takeover\n' >&2
-    return 1
-  fi
 
   self="$(script_path)" || { remove_supervision_run "$run_dir"; return 1; }
   set -m

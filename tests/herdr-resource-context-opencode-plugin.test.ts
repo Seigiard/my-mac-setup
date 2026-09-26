@@ -159,35 +159,40 @@ describe("OpenCode model-request resource context", () => {
 
   test("each model request re-queries the same conversation and rejects a new pane occupant", async () => {
     const root = temporaryDir("herdr-resource-context-session-");
+    const firstBranch = 'Resources:\n- pane "first" [w1:p1]';
+    const refreshedBranch = 'Resources:\n- pane "refreshed" [w1:p2]';
     writeFileSync(join(root, "context"), "");
-    writeFileSync(join(root, "context-session-B"), 'Resources:\n- pane "first" [w1:p1]');
+    writeFileSync(join(root, "context-session-B"), firstBranch);
     writeFileSync(join(root, "fail-session-new"), "caller identity changed before context projection\n");
     const host = await loadTransform(root);
 
     const first = ["ordinary request"];
     await host.transform({ sessionID: "session-B" }, { system: first });
-    expect(first.join("\n")).toContain('pane "first"');
+    expect(first).toEqual(["ordinary request", `${HEADING}\n${firstBranch}`]);
 
-    writeFileSync(join(root, "context-session-B"), 'Resources:\n- pane "refreshed" [w1:p2]');
+    writeFileSync(join(root, "context-session-B"), refreshedBranch);
     const next = ["next request"];
     await host.transform({ sessionID: "session-B" }, { system: next });
-    expect(next.join("\n")).toContain('pane "refreshed"');
-    expect(next.join("\n")).not.toContain('pane "first"');
+    expect(next).toEqual(["next request", `${HEADING}\n${refreshedBranch}`]);
 
     // OpenCode exposes no request-kind discriminator here. Ordinary, restored,
     // and compaction model calls all rebuild `system` and invoke this transform.
     const restored = ["restored request"];
     await host.transform({ sessionID: "session-B" }, { system: restored });
-    expect(restored.join("\n")).toContain('pane "refreshed"');
+    expect(restored).toEqual(["restored request", `${HEADING}\n${refreshedBranch}`]);
 
     const compaction = ["compaction request"];
     await host.transform({ sessionID: "session-B" }, { system: compaction });
-    expect(compaction.join("\n")).toContain('pane "refreshed"');
+    expect(compaction).toEqual(["compaction request", `${HEADING}\n${refreshedBranch}`]);
 
+    // The query failed for the new occupant, so the reason has to be the failed
+    // query, not the "no session identity" text a substring match accepts too.
     const replacement = ["new conversation"];
     await host.transform({ sessionID: "session-new" }, { system: replacement });
-    expect(replacement.join("\n")).toContain("Herdr resource context unavailable");
-    expect(replacement.join("\n")).not.toContain('pane "refreshed"');
+    expect(replacement).toEqual([
+      "new conversation",
+      `${HEADING}\nHerdr resource context unavailable: the shared resource query failed. This must not be treated as an empty resource branch.`,
+    ]);
     expect(host.promptAsyncCalls()).toBe(0);
   });
 
@@ -198,7 +203,9 @@ describe("OpenCode model-request resource context", () => {
 
     const system = ["You are OpenCode."];
     await host.transform({ sessionID: "session-B" }, { system });
-    expect(system.join("\n")).toContain('pane "owned"');
+    // Exact, like the other projections in this file: the retraction below is
+    // only meaningful if the branch it retracts was rendered whole first.
+    expect(system).toEqual(["You are OpenCode.", `${HEADING}\nResources:\n- pane "owned" [w1:p1]`]);
 
     // sessionID is optional in the plugin API, so an absent one is a supported
     // state. Returning early would leave the previous request's branch in the

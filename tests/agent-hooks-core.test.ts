@@ -109,15 +109,37 @@ const TEST_REGISTRY = registryWith([reservedNameGuard(), contentGuard(), context
 
 // --- scenario 1: dialect normalization --------------------------------------
 
+// The canonical payload every policy's `evaluate()` reads, spelled out rather
+// than taken from `core.emptyPayload()`. Building the expectation from the same
+// function the normalizer fills means a field added to one side and never read
+// from any dialect arrives on both sides as "", and the loop below stays green
+// for a field no client can actually deliver. A new canonical field has to be
+// added here and given a dialect fixture before this suite accepts it.
+const EMPTY_PAYLOAD = { filePath: "", content: "", command: "", query: "", url: "" };
+
 describe("normalization of the three arg dialects", () => {
   test("every dialect of a fixture normalizes to one canonical payload", () => {
-    // #given the shared corpus, written in the wire shapes the shipped adapters read
-    expect(corpus.DIALECT_FIXTURES.length).toBeGreaterThan(3);
+    // #given the shared corpus, written in the wire shapes the shipped adapters read.
+    // The whole fixture-to-dialect map first: every assertion below sits inside
+    // two nested loops over it, so a corpus that lost a fixture -- or a fixture
+    // that lost a client -- would run fewer assertions and stay green.
+    expect(
+      corpus.DIALECT_FIXTURES.map((fixture: any) => `${fixture.name}: ${Object.keys(fixture.raw).join(" ")}`),
+    ).toEqual([
+      "write with content only: claude opencode pi",
+      "single edit replacement: claude opencode pi",
+      "multi-edit aggregation: claude opencode pi",
+      "bash command: claude opencode pi",
+      "codex exec command: pi",
+      "fff grep query: claude",
+      "web fetch url: claude",
+    ]);
+    // The shipped payload record and the literal above name the same fields.
+    expect(Object.keys(core.emptyPayload()).sort()).toEqual(Object.keys(EMPTY_PAYLOAD).sort());
 
     for (const fixture of corpus.DIALECT_FIXTURES) {
-      const expected = { ...core.emptyPayload(), ...fixture.payload };
+      const expected = { ...EMPTY_PAYLOAD, ...fixture.payload };
       const clients = Object.keys(fixture.raw);
-      expect(clients.length).toBeGreaterThan(0);
 
       for (const client of clients) {
         // #when the client's raw event goes through the core normalizer
@@ -180,8 +202,10 @@ describe("dispatch ordering", () => {
     });
 
     // #then only the first ran and its reason is the verdict
-    expect(trace.decision.verdict).toBe("block");
-    expect(trace.decision.reason.startsWith("fixture-deny-first:")).toBe(true);
+    expect(trace.decision).toEqual({
+      verdict: "block",
+      reason: "fixture-deny-first: denied. Use a different command instead.",
+    });
     expect(trace.invoked).toEqual(["fixture-deny-first"]);
     expect(invocations["fixture-deny-second"]).toBe(0);
   });
@@ -190,6 +214,12 @@ describe("dispatch ordering", () => {
 // --- scenario 3: fail-open bias, pinned by mutation -------------------------
 
 describe("fail-open bias (R4)", () => {
+  // Calibrated by mutation on 2026-09-25: replacing the `decision = ALLOW;`
+  // line in runPolicies' catch clause (index.ts) with a block makes this test
+  // fail with `Expected: "allow" / Received: "block"`. The mutation is a
+  // one-time red-state proof, not a permanent test: a resident copy of it
+  // greps index.ts for one exact line and breaks on any harmless re-indent or
+  // rename while proving nothing about the shipped core.
   test("a policy that throws yields allow", () => {
     // #given a policy that raises on the event
     const registry = registryWith([throwingPolicy()]);
@@ -198,29 +228,7 @@ describe("fail-open bias (R4)", () => {
     const decision = core.dispatch("pi", corpus.fixture("bash command").raw.pi, { registry, env: {} });
 
     // #then the tool call proceeds
-    expect(decision.verdict).toBe("allow");
-  });
-
-  test("inverting the catch to deny fails the fail-open assertion", async () => {
-    // #given a copy of the core whose catch clause is mutated into a deny
-    const mutantDir = temporaryDir("agent-hooks-mutant-");
-    cpSync(CORE_DIR, mutantDir, { recursive: true });
-    const indexPath = join(mutantDir, "index.ts");
-    const original = readFileSync(indexPath, "utf8");
-    const failOpenLine = "      decision = ALLOW;\n";
-    expect(original.split(failOpenLine).length - 1).toBe(1);
-    writeFileSync(
-      indexPath,
-      original.replace(failOpenLine, '      decision = { verdict: "block", reason: "mutant: policy threw" };\n'),
-    );
-
-    // #when the same throwing policy is dispatched through the mutant
-    const mutant: any = await import(indexPath);
-    const registry = mutant.createRegistry({ policies: [throwingPolicy()] });
-    const decision = mutant.dispatch("pi", corpus.fixture("bash command").raw.pi, { registry, env: {} });
-
-    // #then the mutant denies, so the assertion above is what pins the bias
-    expect(decision.verdict).toBe("block");
+    expect(decision).toEqual({ verdict: "allow" });
   });
 });
 
@@ -270,8 +278,12 @@ describe("AGENT_HOOKS_DISABLE (R8)", () => {
     const decision = core.dispatch("claude", selfDisabling, { registry, env: {} });
 
     // #then the policy still denies: only the process environment is read
-    expect(decision.verdict).toBe("block");
-    expect(decision.reason.startsWith("fixture-reserved-guard:")).toBe(true);
+    expect(decision).toEqual({
+      verdict: "block",
+      reason:
+        "fixture-reserved-guard: this command assigns to a parameter zsh reserves. " +
+        "Use rc=$? instead, or prefix the command with fixture-ok: to override.",
+    });
   });
 });
 
@@ -338,14 +350,20 @@ describe("cross-client parity (KTD8)", () => {
   test("every multi-client policy yields one verdict and one reason everywhere", () => {
     // #given each registry policy applicable in more than one client
     const registries = [TEST_REGISTRY, core.CORE_REGISTRY];
-    let compared = 0;
+    const compared: string[] = [];
 
     for (const registry of registries) {
       for (const policy of registry.policies) {
         const clients = core.applicableClients(registry, policy);
         if (clients.length < 2 || !policy.canary) continue;
 
-        // #when its canary fixture is encoded into each applicable dialect
+        // #when its canary fixture is encoded into each applicable dialect.
+        // `encodeEvent` is the writers half feeding the readers half, which
+        // cannot adjudicate a wire spelling: a writer and a reader agreeing on
+        // `args.cmd` would keep all three decisions identically wrong. That
+        // half is owned by the dialect loop above, whose `raw` samples are
+        // hand-written per client; here the encoder is only the way to obtain
+        // N dialects of one payload, and the assertion is their agreement.
         const decisions = clients.map((client: string) => {
           const raw = normalize.encodeEvent(client, policy.canary.tool, policy.canary.payload, registry);
           expect(raw).toBeDefined();
@@ -354,54 +372,84 @@ describe("cross-client parity (KTD8)", () => {
 
         // #then the decision object is identical across dialects
         for (const decision of decisions) expect(decision).toEqual(decisions[0]);
-        compared += 1;
+        compared.push(`${policy.name}: ${clients.join("/")}`);
       }
     }
 
-    expect(compared).toBeGreaterThanOrEqual(2);
+    // Which routes were actually compared, not how many: the selection above
+    // is a filter, so a policy that lost a client -- or a registry that lost a
+    // policy -- drops silently out of the loop and every assertion in it.
+    expect(compared).toEqual([
+      "fixture-reserved-guard: claude/opencode/pi",
+      "fixture-content-guard: claude/opencode/pi",
+      "zsh-reserved-name-guard: claude/opencode/pi",
+      "fff-grep-guard: claude/opencode/pi",
+    ]);
   });
 });
 
 // --- scenario 7: reason contract (R9) ---------------------------------------
 
-const ALTERNATIVE_MARKERS = ["Use ", "Run ", "Pick ", "Add ", "Assert ", "Prefer ", "Replace ", "instead"];
+// R9: a denial names a concrete alternative action. For a policy with an
+// escape hatch that is the hatch token; for one without, it is the literal
+// alternative its reason must carry. A block-capable policy missing from this
+// map reports `alternative=unlisted` and fails the exact list below, so a new
+// policy has to declare its alternative here rather than inherit a pass.
+const R9_ALTERNATIVES: Record<string, string> = {
+  "fixture-reserved-guard": "fixture-ok:",
+  "fixture-content-guard": "Assert the capability that remains",
+  "zsh-reserved-name-guard": "zsh-ok:",
+  "fff-grep-guard": "Pick one: search a single identifier",
+};
+
 
 describe("reason contract (R9)", () => {
-  test("every block-capable policy names itself and offers a way forward", () => {
+  // The exact reason text of every shipped policy is owned by the corpus loop
+  // below. What R9 adds here is the two properties that hold for any policy:
+  // the reason opens with the policy's own name, and a policy that declares an
+  // escape hatch repeats that token in the reason it denies with.
+  test("every block-capable policy names itself and repeats its escape hatch", () => {
     // #given the block-capable policies of each registry
     const registries = [TEST_REGISTRY, core.CORE_REGISTRY];
-    let checked = 0;
-    let withoutEscapeHatch = 0;
+    const observed: string[] = [];
 
     for (const registry of registries) {
       for (const policy of registry.policies) {
         if (!core.isBlockCapable(policy)) continue;
-        expect(policy.canary).toBeDefined();
-
+        const canary = policy.canary ?? { tool: "no-canary-declared", payload: {} };
         for (const client of core.applicableClients(registry, policy)) {
-          const raw = normalize.encodeEvent(client, policy.canary.tool, policy.canary.payload, registry);
+          const raw = normalize.encodeEvent(client, canary.tool, canary.payload, registry);
 
           // #when the known-bad canary is dispatched
           const decision = core.dispatch(client, raw, { registry, env: {} });
 
-          // #then the reason is prefixed, substantial, and actionable
-          expect(`${policy.name}@${client}: ${decision.verdict}`).toBe(`${policy.name}@${client}: block`);
-          expect(decision.reason.startsWith(`${policy.name}:`)).toBe(true);
-          const body = decision.reason.slice(policy.name.length + 1).trim();
-          expect(body.length).toBeGreaterThan(20);
-          if (policy.escapeHatch) {
-            expect(body).toContain(policy.escapeHatch);
-          } else {
-            withoutEscapeHatch += 1;
-            expect(ALTERNATIVE_MARKERS.some((marker) => body.includes(marker))).toBe(true);
-          }
-          checked += 1;
+          // #then every route denies, names itself, and names its alternative
+          const alternative = R9_ALTERNATIVES[policy.name];
+          const named =
+            alternative === undefined ? "unlisted" : String(decision.reason?.includes(alternative));
+          observed.push(
+            `${policy.name}@${client}: ${decision.verdict}` +
+              ` prefixed=${decision.reason?.startsWith(`${policy.name}:`)}` +
+              ` alternative=${named}`,
+          );
         }
       }
     }
 
-    expect(checked).toBeGreaterThanOrEqual(2);
-    expect(withoutEscapeHatch).toBeGreaterThanOrEqual(1);
+    expect(observed).toEqual([
+      "fixture-reserved-guard@claude: block prefixed=true alternative=true",
+      "fixture-reserved-guard@opencode: block prefixed=true alternative=true",
+      "fixture-reserved-guard@pi: block prefixed=true alternative=true",
+      "fixture-content-guard@claude: block prefixed=true alternative=true",
+      "fixture-content-guard@opencode: block prefixed=true alternative=true",
+      "fixture-content-guard@pi: block prefixed=true alternative=true",
+      "zsh-reserved-name-guard@claude: block prefixed=true alternative=true",
+      "zsh-reserved-name-guard@opencode: block prefixed=true alternative=true",
+      "zsh-reserved-name-guard@pi: block prefixed=true alternative=true",
+      "fff-grep-guard@claude: block prefixed=true alternative=true",
+      "fff-grep-guard@opencode: block prefixed=true alternative=true",
+      "fff-grep-guard@pi: block prefixed=true alternative=true",
+    ]);
   });
 });
 
@@ -420,6 +468,10 @@ function clientNameViolations(dir: string): string[] {
 }
 
 describe("layering (KTD1)", () => {
+  // Control, not coverage: the unit under test here is this file's own
+  // `clientNameViolations` helper. It exists so that the empty result of the
+  // next test is a discriminating verdict rather than a scanner that reports
+  // nothing whatever it reads.
   test("the scan detects a policy module that names a client", () => {
     // #given one compliant and one offending policy module
     const dir = temporaryDir("agent-hooks-layering-");
@@ -433,6 +485,11 @@ describe("layering (KTD1)", () => {
     expect(violations.map((path) => path.endsWith("leaky.ts"))).toEqual([true]);
   });
 
+  // A layering lint over source text, not a behavior test: the literal shape
+  // *is* the contract KTD1 states. Its two known limits: `\bpi\b` also flags a
+  // harmless mention in a comment, and client knowledge spelled without the
+  // word (a tool name such as `mcp__fff__grep`) passes. It belongs with
+  // `make lint` rather than here once shellcheck gains a TypeScript sibling.
   test("no shipped policy module references a client", () => {
     // #given the core's policy directory
     const dir = join(CORE_DIR, "policies");
@@ -459,24 +516,42 @@ describe("selfcheck canary", () => {
     // #when the registry-derived canaries run
     const results = selfcheck.runCanaries(registryWith([live, dead]));
 
-    // #then every route of the live policy blocks and the dead route is named
-    const liveResults = results.filter((result: any) => result.policy === live.name);
-    expect(liveResults.length).toBeGreaterThanOrEqual(2);
-    expect(liveResults.every((result: any) => result.ok)).toBe(true);
-    expect(results.filter((result: any) => result.policy === "fixture-dead-route" && !result.ok).length)
-      .toBeGreaterThanOrEqual(1);
+    // #then every route of the live policy blocks and every dead route is named
+    expect(
+      results.map((result: any) => `${result.policy}@${result.client}: ${result.ok} ${result.detail}`),
+    ).toEqual([
+      "fixture-reserved-guard@claude: true blocked",
+      "fixture-reserved-guard@opencode: true blocked",
+      "fixture-reserved-guard@pi: true blocked",
+      "fixture-dead-route@claude: false expected block, got allow",
+      "fixture-dead-route@opencode: false expected block, got allow",
+      "fixture-dead-route@pi: false expected block, got allow",
+    ]);
   });
 
   test("a session-level disable cannot make a dead route look alive", () => {
     // #given the selfcheck process itself running with the policy disabled
+    const registry = registryWith([reservedNameGuard()]);
     const previous = process.env.AGENT_HOOKS_DISABLE;
     process.env.AGENT_HOOKS_DISABLE = "fixture-reserved-guard";
     try {
-      // #when the canaries run
-      const results = selfcheck.runCanaries(registryWith([reservedNameGuard()]));
+      // #when the canaries run, and the same event is dispatched with the
+      // process environment the canary deliberately ignores
+      const results = selfcheck.runCanaries(registry);
+      const withProcessEnv = core.dispatch("claude", corpus.fixture("bash command").raw.claude, {
+        registry,
+        env: process.env,
+      });
 
-      // #then the canary still exercises the route
-      expect(results.every((result: any) => result.ok)).toBe(true);
+      // #then the disable was live in this process, and the canary blocked anyway
+      expect(withProcessEnv).toEqual({ verdict: "allow" });
+      expect(
+        results.map((result: any) => `${result.policy}@${result.client}: ${result.ok} ${result.detail}`),
+      ).toEqual([
+        "fixture-reserved-guard@claude: true blocked",
+        "fixture-reserved-guard@opencode: true blocked",
+        "fixture-reserved-guard@pi: true blocked",
+      ]);
     } finally {
       if (previous === undefined) delete process.env.AGENT_HOOKS_DISABLE;
       else process.env.AGENT_HOOKS_DISABLE = previous;
@@ -510,10 +585,15 @@ describe("selfcheck loaded-identity markers (KTD5)", () => {
     // #when identity is inspected
     const report = inspect(stateDir, () => true);
 
-    // #then resident clients are unknown and nothing claims to be current
-    expect(statusOf(report, "opencode").status).toBe("unknown");
-    expect(statusOf(report, "pi").status).toBe("unknown");
-    expect(report.clients.some((entry: any) => entry.status === "current")).toBe(false);
+    // #then resident clients are unknown and nothing claims to be current.
+    // The whole client list rather than a `some(...)` over it: an empty report
+    // has no entry claiming to be current either, so the search alone cannot
+    // tell "nothing is current" from "nothing was inspected".
+    expect(report.clients.map((entry: any) => `${entry.client}: ${entry.status}`)).toEqual([
+      "claude: per-call",
+      "opencode: unknown",
+      "pi: unknown",
+    ]);
   });
 
   test("a live marker older than the deployed core names the stale session", () => {
@@ -578,10 +658,17 @@ describe("selfcheck report", () => {
     // #when the client profiles are read back
     const claude = snapshot.clients.find((entry: any) => entry.client === "claude");
 
-    // #then tool spellings and outcomes round-trip through JSON
+    // #then the whole profile survives the JSON round-trip, spelling for spelling
     expect(JSON.parse(JSON.stringify(snapshot))).toEqual(snapshot);
-    expect(Object.keys(claude.tools)).toContain("mcp__fff__grep");
-    expect(claude.outcomes).toContain("context");
+    expect(claude.tools).toEqual({
+      Edit: "edit",
+      MultiEdit: "edit",
+      Write: "write",
+      Bash: "bash",
+      mcp__fff__grep: "fff-grep",
+      WebFetch: "web-fetch",
+    });
+    expect(claude.outcomes).toEqual(["block", "context"]);
     expect(snapshot.clients.map((entry: any) => entry.client)).toEqual([...CLIENTS]);
   });
 
@@ -593,10 +680,23 @@ describe("selfcheck report", () => {
     const report = selfcheck.selfcheck(registry, { stateDir: temporaryDir("agent-hooks-state-") });
     const text = selfcheck.formatReport(report);
 
-    // #then the failure is visible and the report is not ok
+    // #then the report is not ok and every dead route has its own line.
+    // The first three lines carry the core path, the bun version and the
+    // deployed hash, which are properties of the machine rather than of the
+    // registry under test; everything below them is fixed by this fixture.
     expect(report.ok).toBe(false);
-    expect(text).toContain("fixture-dead-route");
-    expect(text).toContain("FAIL");
+    expect(text.split("\n").slice(3)).toEqual([
+      "policies: 1",
+      "canaries:",
+      "  [FAIL] fixture-dead-route @ claude: expected block, got allow",
+      "  [FAIL] fixture-dead-route @ opencode: expected block, got allow",
+      "  [FAIL] fixture-dead-route @ pi: expected block, got allow",
+      "loaded identity:",
+      "  claude: per-call",
+      "  opencode: unknown",
+      "  pi: unknown",
+      "result: FAILED",
+    ]);
   });
 });
 
@@ -606,12 +706,6 @@ describe("selfcheck report", () => {
 // the two inline hook rules; the expected strings are transcribed from the
 // shipped engines' stdout. Both sides of every comparison below are therefore
 // independent of the policy modules under test.
-
-const SHIPPED_POLICIES = [
-  "fff-grep-guard",
-  "webfetch-markdown-hint",
-  "zsh-reserved-name-guard",
-];
 
 function policyByName(name: string): any {
   const found = core.CORE_REGISTRY.policies.find((policy: any) => policy.name === name);
@@ -630,16 +724,10 @@ function dispatchFixture(fixture: any): any[] {
   });
 }
 
+// Registry membership is not frozen by a list here: `policyByName` throws for
+// every fixture whose policy is missing, the canary test below pins the exact
+// block-capable route set, and the applicability test pins webfetch's.
 describe("ported policy corpus (KTD3)", () => {
-  test("the three shipped policies are registered", () => {
-    // #given the deployed registry
-    // #when its policy names are read
-    const names = core.CORE_REGISTRY.policies.map((policy: any) => policy.name).sort();
-
-    // #then the three tool-call policies in scope are all present
-    expect(names).toEqual(SHIPPED_POLICIES);
-  });
-
   for (const fixture of corpus.POLICY_FIXTURES) {
     test(fixture.name, () => {
       // #given a fixture translated from the pre-existing corpus
@@ -689,19 +777,38 @@ describe("escape hatches (KTD3)", () => {
 });
 
 describe("fff-grep-guard fail-open (R4)", () => {
-  test("a non-string query allows rather than throwing", () => {
+  test("a non-string query reaches the policy as empty text and allows", () => {
     // #given a wire event whose query field is not a string
     const malformed = { tool_name: "mcp__fff__grep", tool_input: { query: 42 } };
 
     // #when it is dispatched
-    const decision = core.dispatch("claude", malformed, { registry: core.CORE_REGISTRY, env: {} });
+    const trace = core.dispatchTraced("claude", malformed, {
+      registry: core.CORE_REGISTRY,
+      env: {},
+    });
 
-    // #then the call proceeds
-    expect(decision.verdict).toBe("allow");
+    // #then the normalizer coerced the number to "" rather than declining the
+    // event, the guard still ran on it, and the call proceeds
+    expect(trace.invoked).toEqual(["fff-grep-guard"]);
+    expect(trace.decision).toEqual({ verdict: "allow" });
   });
 });
 
 describe("webfetch-markdown-hint applicability (KTD8)", () => {
+  test("the hint is the only shipped policy that neither blocks nor declares a canary", () => {
+    // #given the shipped registry
+    // #when the policies no other test can see are listed: not block-capable
+    // (the R9 and canary tests skip them) and without a canary (runCanaries
+    // yields no route for them)
+    const unobserved = core.CORE_REGISTRY.policies
+      .filter((policy: any) => !core.isBlockCapable(policy) && policy.canary === undefined)
+      .map((policy: any) => policy.name);
+
+    // #then a context-only policy added to policies/index.ts has to be named
+    // here, because nothing else in this suite would notice it shipping
+    expect(unobserved).toEqual(["webfetch-markdown-hint"]);
+  });
+
   test("the context-only policy is derived Claude-only", () => {
     // #given the shipped registry
     // #when applicability is derived for the hint policy
@@ -731,17 +838,17 @@ describe("webfetch-markdown-hint applicability (KTD8)", () => {
     expect(calls).toBe(0);
   });
 
+  // The verdict of every hint fixture is asserted exactly by the corpus loop
+  // above; what remains here is the declaration that keeps the policy off the
+  // block path — and out of the selfcheck canary set — in the first place.
   test("the hint policy is not block-capable, so it can never deny", () => {
-    // #given every corpus fixture for the hint policy
-    const fixtures = corpus.policyFixtures("webfetch-markdown-hint");
-    expect(fixtures.length).toBeGreaterThan(1);
+    // #given the shipped hint policy
+    const policy = policyByName("webfetch-markdown-hint");
 
-    // #when each is dispatched
-    // #then no route ever produces a deny
-    for (const fixture of fixtures) {
-      for (const decision of dispatchFixture(fixture)) expect(decision.verdict).not.toBe("block");
-    }
-    expect(core.isBlockCapable(policyByName("webfetch-markdown-hint"))).toBe(false);
+    // #when its outcomes are read
+    // #then block is not among them
+    expect(policy.outcomes).toEqual(["context"]);
+    expect(core.isBlockCapable(policy)).toBe(false);
   });
 });
 

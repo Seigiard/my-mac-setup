@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -68,6 +68,29 @@ afterEach(() => {
   for (const path of temporaryPaths.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
+/**
+ * Plants a package whose module scope writes `marker` the moment it is
+ * imported. A loader that ignored its gate, attempted the import and swallowed
+ * the failure in its catch returns the same empty value as a loader that never
+ * imported at all; the marker is the only thing that tells the two apart.
+ */
+async function plantImportMarker(home: string, packageName: string, entry: string): Promise<string> {
+  const packageDir = join(packageRoot(home), "@dataforxyz", packageName);
+  const target = join(packageDir, entry);
+  const marker = join(home, "imported");
+  mkdirSync(join(target, ".."), { recursive: true });
+  await Bun.write(
+    target,
+    [
+      'import { writeFileSync } from "node:fs";',
+      `writeFileSync(${JSON.stringify(marker)}, "imported");`,
+      "export default (pi) => { if (pi) pi.transport = 'native'; return {}; };",
+      "",
+    ].join("\n"),
+  );
+  return marker;
+}
+
 describe("Agent Intercom package pins", () => {
   test("the lock resolves every git dependency over portable HTTPS URLs", () => {
     const lock = JSON.parse(readFileSync(PACKAGE_LOCK, "utf8"));
@@ -89,10 +112,14 @@ describe("Agent Intercom package pins", () => {
     const packages = Object.entries(lock.packages) as Array<
       [string, { resolved?: string; integrity?: string }]
     >;
-    const missing = packages
-      .filter(([, entry]) => entry.resolved?.startsWith("https://registry.npmjs.org/"))
-      .filter(([, entry]) => !entry.integrity)
-      .map(([path]) => path);
+    const fromRegistry = packages.filter(([, entry]) =>
+      entry.resolved?.startsWith("https://registry.npmjs.org/"),
+    );
+
+    // A lock with no registry artifacts at all would satisfy the empty-list
+    // assertion below without ever checking an integrity hash.
+    expect(fromRegistry.length).toBeGreaterThan(0);
+    const missing = fromRegistry.filter(([, entry]) => !entry.integrity).map(([path]) => path);
     expect(missing).toEqual([]);
   });
 });
@@ -122,13 +149,21 @@ describe("OpenCode Agent Intercom loader", () => {
 
   test("is a no-op outside Herdr without importing the package", async () => {
     const home = temporaryDir("agent-intercom-opencode-missing-");
+    const marker = await plantImportMarker(home, "agent-intercom-opencode", "dist/plugin.mjs");
+
     const module = await loadFromHome(OPENCODE_LOADER, home, false);
+
+    expect(existsSync(marker)).toBe(false);
     expect(await module.AgentIntercomPlugin({})).toEqual({});
   });
 
   test("is a no-op inside Herdr without a launcher name", async () => {
     const home = temporaryDir("agent-intercom-opencode-unmarked-herdr-");
+    const marker = await plantImportMarker(home, "agent-intercom-opencode", "dist/plugin.mjs");
+
     const module = await loadFromHome(OPENCODE_LOADER, home, true);
+
+    expect(existsSync(marker)).toBe(false);
     expect(await module.AgentIntercomPlugin({})).toEqual({});
   });
 
@@ -176,17 +211,25 @@ describe("Pi Agent Intercom loader", () => {
 
   test("is a no-op outside Herdr without importing the package", async () => {
     const home = temporaryDir("agent-intercom-pi-missing-");
+    const marker = await plantImportMarker(home, "agent-intercom-pi", "index.ts");
+
     const module = await loadFromHome(PI_LOADER, home, false);
     const pi: Record<string, unknown> = {};
     module.default(pi);
+
+    expect(existsSync(marker)).toBe(false);
     expect(pi).toEqual({});
   });
 
   test("is a no-op inside Herdr without a one-shot launcher marker", async () => {
     const home = temporaryDir("agent-intercom-pi-unmarked-herdr-");
+    const marker = await plantImportMarker(home, "agent-intercom-pi", "index.ts");
+
     const module = await loadFromHome(PI_LOADER, home, true);
     const pi: Record<string, unknown> = {};
     module.default(pi);
+
+    expect(existsSync(marker)).toBe(false);
     expect(pi).toEqual({});
   });
 
