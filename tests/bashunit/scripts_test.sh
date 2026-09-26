@@ -437,12 +437,14 @@ function test_scripts_1348_agent_intercom_enrolls_a_pane_that_refuses_a_declared
   note="$home/.local/state/agent-intercom/reconcile/w1_p2"
   marker="$home/.local/state/agent-intercom/claims/w1_p2"
 
-  # #given a pane Herdr will not let this source declare: it keeps a claude
-  # agent-session identity from an earlier session in the same pane, so
-  # `pane report-agent` reports success and creates nothing, and the rename that
-  # needs the record answers `agent_not_found`. Every string here was measured
-  # against herdr v0.9.1 -- the rename error arrives on stderr with exit 1 --
-  # rather than taken from the launcher.
+  # #given a pane Herdr will not let this source declare: it carries a claude
+  # agent-session identity from an earlier session in the same pane. `agent get`
+  # has no record to report, while `pane get` still carries that identity -- the
+  # only place it stays readable. Every shape here was measured against herdr
+  # v0.9.1 rather than taken from the launcher: the `agent get` error arrives on
+  # stderr with exit 1, and `pane get` answers with the identity's source and
+  # value. The rename arm refuses, so a launcher that declares anyway is caught
+  # by the call counts below instead of passing on a silent no-op.
   cat > "$stub/herdr" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$CLAIM_LOG"
@@ -450,6 +452,11 @@ case "$1 $2" in
   'agent get')
     printf '{"error":{"code":"agent_not_found","message":"agent target %s not found"},"id":"cli:agent:get"}\n' "$3" >&2
     exit 1
+    ;;
+  'pane get')
+    printf '{"id":"cli:pane:get","result":{"pane":{"agent_session":{"agent":"claude","kind":"id","source":"herdr:claude","value":"%s"},"pane_id":"%s"},"type":"pane_info"}}\n' \
+      "${PANE_SESSION:-3f21c0de-earlier-session}" "$3"
+    exit 0
     ;;
   'pane report-agent'|'pane release-agent') exit 0 ;;
   'agent rename')
@@ -475,11 +482,12 @@ SH
   assert_success
   assert_output --partial '<--name><ochre-okapi><--claude><'
 
-  # #then it spends one candidate rather than burning the pool on a refusal
-  # no further name can survive
-  assert_equal "$(grep -c 'agent rename' "$log")" 1
-  assert_equal "$(grep -c 'pane report-agent' "$log")" 1
-  assert_file_contains "$log" 'pane release-agent w1:p2 --source herdr-agent-intercom --agent claude'
+  # #then the pane's own record decides the route, so nothing is declared and no
+  # candidate is spent on a refusal no name could have survived
+  assert_file_contains "$log" 'pane get w1:p2'
+  assert_equal "$(grep -c 'agent rename' "$log")" 0
+  assert_equal "$(grep -c 'pane report-agent' "$log")" 0
+  assert_equal "$(grep -c 'pane release-agent' "$log")" 0
 
   # #then it holds no claim and leaves the rename for the first prompt
   assert_file_not_exists "$marker"
@@ -498,6 +506,43 @@ SH
   assert_output --partial 'claude name=<> args= active=<1>'
   assert_file_not_exists "$note"
   ln -sf "$stub/cci" "$home/.local/share/agent-intercom/node_modules/.bin/cci"
+
+  # #given the same launcher on a pane that has never hosted a client: `pane get`
+  # answers with no agent-session identity. This is the control for the read
+  # above -- without it the assertions there pass on a launcher that declares
+  # nothing anywhere.
+  cat > "$stub/herdr" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$CLAIM_LOG"
+case "$1 $2" in
+  'agent get')
+    printf '{"error":{"code":"agent_not_found","message":"agent target %s not found"},"id":"cli:agent:get"}\n' "$3" >&2
+    exit 1
+    ;;
+  'pane get')
+    printf '{"id":"cli:pane:get","result":{"pane":{"pane_id":"%s","revision":0},"type":"pane_info"}}\n' "$3"
+    exit 0
+    ;;
+  'pane report-agent'|'pane release-agent'|'agent rename') exit 0 ;;
+esac
+exit 2
+SH
+  chmod +x "$stub/herdr"
+
+  # #when Claude starts by hand in that pane
+  : > "$log"; rm -f "$note" "$marker"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
+    HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" claude
+
+  # #then it declares the record and holds the claim, the path #325 introduced
+  assert_success
+  assert_output --partial '<--name><ochre-okapi><--claude><'
+  assert_equal "$(grep -c 'pane report-agent' "$log")" 1
+  assert_equal "$(grep -c 'agent rename' "$log")" 1
+  assert_file_exists "$marker"
+  assert_file_not_exists "$note"
+  rm -f "$marker"
 
   # #given the record Herdr's own detection created, under its own alias
   cat > "$stub/herdr" <<'SH'

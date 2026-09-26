@@ -239,13 +239,24 @@ already exists is never renamed; it belongs to whoever created it.
 
 Declaring works once per pane, and the fallback below is why a relaunch still
 enrolls. A pane that has hosted a Claude session keeps the `claude`
-agent-session identity that client's `SessionStart` hook reported, and Herdr
-exposes no way to clear, replace, or age it out: from then on the pane ignores
+agent-session identity that client's `SessionStart` hook reported. That identity
+is write-once per pane: nothing clears it, a later identity from the same source
+does not replace it, and `pane release-agent` does not touch it — it only
+withdraws the lifecycle record its own source owns. From then on the pane ignores
 `pane report-agent` for that agent kind and reports success while creating
-nothing, so the rename has no record to act on. The launcher tells that refusal
-apart from a taken name — only `agent_name_taken` is worth another candidate —
-and keeps the alias it allocated, enrolling under a name Herdr does not yet
-know. It records the pending rename, and the first-prompt hook renames the
+nothing, so the rename has no record to act on. Clearing the identity when a
+session ends would be the fix that keeps one path for every launch, and it is not
+available: the operation does not exist, and the one that sounds like it leaves
+the identity in place.
+
+The launcher therefore reads which case it is in before it spends anything.
+`herdr agent get` has no record to report on such a pane, but `herdr pane get`
+still carries the identity — the only place it stays readable — so one read
+separates a pane that has hosted a client from one that never has. On a pane that
+carries an identity the launcher declares nothing, keeps the alias it allocated,
+and enrolls under a name Herdr does not yet know. A rejection's wording decides
+nothing on this route; it remains a backstop for a refusal this launcher does not
+model, where keeping the name is right for the same reason. It records the pending rename, and the first-prompt hook renames the
 record Herdr's own detection created. This gives up the property the paragraph
 above relies on: for that one case the collision boundary moves after the
 client starts, and the Herdr alias and the Intercom name differ until the first

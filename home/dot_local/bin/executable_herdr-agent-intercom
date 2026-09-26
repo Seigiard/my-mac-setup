@@ -191,38 +191,54 @@ if [[ -z "$intercom_name" && "$agent" == claude && -n "${HERDR_PANE_ID:-}" ]] &&
     unreconciled_name=""
     reserved=()
     attempt=1
-    while [[ "$attempt" -le 3 ]]; do
-      candidate="$(herdr-peer-alias "$claim_seed" "${reserved[@]+"${reserved[@]}"}" 2>/dev/null)" || candidate=""
-      # herdr-peer-alias degrades to an `unnamed-*` placeholder when the
-      # allocator is silent. That name is outside the pool on purpose, so
-      # claiming it would only produce a record the pool check rejects.
-      [[ -n "$candidate" && "$candidate" != unnamed-* ]] || break
-      herdr pane report-agent "$HERDR_PANE_ID" --source herdr-agent-intercom \
-        --agent "$agent" --state unknown --seq "$(date +%s%N)" >/dev/null 2>&1 || break
-      claim_held=1
-      if rename_result="$(herdr agent rename "$HERDR_PANE_ID" "$candidate" 2>&1)"; then
-        intercom_name="$candidate"
-        claimed=1
-        break
-      fi
-      # Releasing a claim on a pane with no running client destroys the record,
-      # which is exactly the state to return to before trying the next name.
-      release_unfinished_claim
-      # Only a taken name is worth another candidate. Any other rejection means
-      # the declaration itself never landed: a pane that has already hosted a
-      # Claude session keeps an agent-session identity Herdr offers no way to
-      # clear, replace, or age out, and from then on it ignores
-      # `pane report-agent` for that agent kind -- silently, reporting success.
-      # The record the rename needs therefore cannot appear, and every further
-      # candidate fails the same way, so keep this one and have the client's
-      # first prompt rename the record Herdr's own detection will create.
-      if [[ "$rename_result" != *agent_name_taken* ]]; then
+
+    # A pane keeps the agent-session identity of the first client that ever ran
+    # in it, and `pane get` still reports it long after that client is gone --
+    # the only place it stays visible, because `agent get` has no record left to
+    # carry it. Measured on herdr 0.9.1: that field is write-once per pane.
+    # Nothing clears it, a fresh identity from the same source does not replace
+    # it, and while it is set the pane ignores every `pane report-agent` for
+    # that agent kind while still reporting success. So this one read decides
+    # the route before a single pool name is spent, and the pane's own record is
+    # the evidence rather than the wording of a rejection.
+    pane_probe="$(herdr pane get "$HERDR_PANE_ID" 2>/dev/null)" || pane_probe=""
+    if [[ "$pane_probe" == *'"agent_session"'* ]]; then
+      candidate="$(herdr-peer-alias "$claim_seed" 2>/dev/null)" || candidate=""
+      if [[ -n "$candidate" && "$candidate" != unnamed-* ]]; then
         unreconciled_name="$candidate"
-        break
       fi
-      reserved+=("$candidate")
-      attempt=$((attempt + 1))
-    done
+    else
+      while [[ "$attempt" -le 3 ]]; do
+        candidate="$(herdr-peer-alias "$claim_seed" "${reserved[@]+"${reserved[@]}"}" 2>/dev/null)" || candidate=""
+        # herdr-peer-alias degrades to an `unnamed-*` placeholder when the
+        # allocator is silent. That name is outside the pool on purpose, so
+        # claiming it would only produce a record the pool check rejects.
+        [[ -n "$candidate" && "$candidate" != unnamed-* ]] || break
+        herdr pane report-agent "$HERDR_PANE_ID" --source herdr-agent-intercom \
+          --agent "$agent" --state unknown --seq "$(date +%s%N)" >/dev/null 2>&1 || break
+        claim_held=1
+        if rename_result="$(herdr agent rename "$HERDR_PANE_ID" "$candidate" 2>&1)"; then
+          intercom_name="$candidate"
+          claimed=1
+          break
+        fi
+        # Releasing a claim on a pane with no running client destroys the record,
+        # which is exactly the state to return to before trying the next name.
+        release_unfinished_claim
+        # Only a taken name is worth another candidate. The refusal that means
+        # the declaration never landed is decided before this loop, so any other
+        # rejection here is a condition this launcher does not model. Keep the
+        # name and let the first prompt reconcile it: that path is correct for
+        # an unmodelled refusal for the same reason it is correct for a used
+        # pane, and it costs no further candidates either way.
+        if [[ "$rename_result" != *agent_name_taken* ]]; then
+          unreconciled_name="$candidate"
+          break
+        fi
+        reserved+=("$candidate")
+        attempt=$((attempt + 1))
+      done
+    fi
 
     if [[ "$claimed" == 1 ]]; then
       # The marker is what lets the release find a claim whose launcher is gone
