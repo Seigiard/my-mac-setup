@@ -510,7 +510,7 @@ SH
 
   # #then it enrolls under the allocated name instead of warning
   assert_success
-  assert_output --partial '<--name><ochre-okapi><--claude><'
+  assert_output "cci name=<> args= active=<1> pi_load=<><--tui><--transport><mcp><--name><ochre-okapi><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
 
   # #then the pane's own record decides the route, so nothing is declared and no
   # candidate is spent on a refusal no name could have survived
@@ -535,7 +535,11 @@ SH
 
   # #then Claude still enrolls without declaring anything
   assert_success
-  assert_output --partial '<--name><ochre-okapi><--claude><'
+  assert_output "cci name=<> args= active=<1> pi_load=<><--tui><--transport><mcp><--name><ochre-okapi><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
+  # The pane read is the gate for the two zeroes below: the allocated name comes
+  # from `herdr-peer-alias`, so the output alone would look the same if `herdr`
+  # were never reached and nothing could have been declared anyway.
+  assert_file_contains "$log" 'pane get w1:p2'
   assert_equal "$(grep -c 'pane report-agent' "$log")" 0
   assert_equal "$(grep -c 'agent rename' "$log")" 0
   assert_file_not_exists "$marker"
@@ -551,7 +555,7 @@ SH
   # #then it drops the pending rename, so no first prompt publishes an alias
   # this session cannot answer to
   assert_success
-  assert_output --partial 'claude name=<> args= active=<1>'
+  assert_output 'claude name=<> args= active=<1> pi_load=<>'
   assert_file_not_exists "$note"
   ln -sf "$stub/cci" "$home/.local/share/agent-intercom/node_modules/.bin/cci"
 
@@ -585,7 +589,7 @@ SH
 
   # #then it declares the record and holds the claim, the path #325 introduced
   assert_success
-  assert_output --partial '<--name><ochre-okapi><--claude><'
+  assert_output "cci name=<> args= active=<1> pi_load=<><--tui><--transport><mcp><--name><ochre-okapi><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
   assert_equal "$(grep -c 'pane report-agent' "$log")" 1
   assert_equal "$(grep -c 'agent rename' "$log")" 1
   assert_file_exists "$marker"
@@ -637,8 +641,11 @@ SH
   # #when the release command runs
   run env HERDR_PANE_ID=w1:p2 HERDR_AGENT_INTERCOM_NAME=ochre-okapi NO_RECORD=1 \
     CLAIM_LOG="$log" HOME="$home" PATH="$stub:$PATH" bash "$release"
-  # #then it keeps the note so a later prompt can finish the rename
+  # #then it keeps the note so a later prompt can finish the rename. The record
+  # lookup is the gate: without it a release that exited before reaching Herdr
+  # at all would leave the same zero renames and the same note.
   assert_success
+  assert_file_contains "$log" 'agent get w1:p2'
   assert_equal "$(grep -c 'agent rename' "$log")" 0
   assert_file_exists "$note"
 
@@ -649,7 +656,7 @@ SH
     RENAME_TAKEN=ochre-okapi CLAIM_LOG="$log" HOME="$home" PATH="$stub:$PATH" bash "$release"
   # #then it says the two names stay apart and stops retrying a lost race
   assert_success
-  assert_output --partial 'ochre-okapi is taken, so this session answers to it in Intercom while Herdr shows plum-dingo'
+  assert_output 'herdr-agent-intercom: ochre-okapi is taken, so this session answers to it in Intercom while Herdr shows plum-dingo'
   assert_file_not_exists "$note"
 
   # #given a note left by a session other than this one
@@ -657,9 +664,11 @@ SH
   # #when a session enrolled under a different name runs the release command
   run env HERDR_PANE_ID=w1:p2 HERDR_AGENT_INTERCOM_NAME=azure-otter \
     CLAIM_LOG="$log" HOME="$home" PATH="$stub:$PATH" bash "$release"
-  # #then it renames nothing: the note belongs to whoever enrolled under it
+  # #then it renames nothing: the note belongs to whoever enrolled under it. The
+  # name mismatch is settled before any Herdr call, so the whole log stays empty
+  # -- a stronger statement than one pattern's absence.
   assert_success
-  assert_equal "$(grep -c 'agent rename' "$log")" 0
+  assert_equal "$(wc -c < "$log" | tr -d ' ')" 0
   assert_file_exists "$note"
 }
 
