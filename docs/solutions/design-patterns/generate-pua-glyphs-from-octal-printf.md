@@ -2,18 +2,15 @@
 title: Generate PUA glyphs from octal printf — never paste them
 date: 2026-08-21
 category: design-patterns
-module: herdr
+module: shell-portability
 problem_type: design_pattern
 component: tooling
 severity: medium
 related_components:
   - development_workflow
 applies_when:
-  - "Embedding Nerd Font or other private-use-area (PUA) glyphs in a shell script or managed dotfile"
-  - "Writing a script that must run under macOS system bash 3.2"
-  - "A file containing icon glyphs will pass through editors, coding agents, or diff/review tooling"
-  - "Choosing between pasting a literal Unicode character and generating it at runtime with printf"
-  - "Label or status-line width math must count codepoints for multi-byte icons"
+  - "Adding or changing PUA glyph generation in a repository-owned shell script that must run under macOS bash 3.2"
+  - "Reviewing the encoding of a PUA glyph in repository-owned shell source"
 symptoms:
   - 'An icon renders as tofu or a replacement character after an unrelated edit to the file'
   - '`printf` with a \uXXXX escape under bash 3.2 prints the literal text instead of the glyph'
@@ -36,21 +33,30 @@ tags:
 Nerd Font icons (codicons, material icons) live in Unicode's Private Use Area — e.g. `nf-cod-git_branch` is U+EC6F. Any shell script that renders a font-dependent TUI (herdr labels, tmux status lines, shell prompts, sketchybar configs) needs to emit those codepoints. Two constraints collide:
 
 1. **Raw PUA glyphs in source are fragile.** Without the patched font, editors, terminals, diff views, and agents render them as tofu or replacement characters — and text-normalizing tooling can silently corrupt them. The corruption is invisible in review because the before and after look identically broken.
-2. **macOS ships bash 3.2** (the GPLv2 freeze), and herdr scripts and hooks run under it. bash 3.2's `printf` understands `\NNN` octal byte escapes but NOT `\uXXXX` unicode escapes (those arrived in bash 4.2).
+2. **macOS ships bash 3.2** (the GPLv2 freeze). A script that uses that interpreter cannot rely on `printf` supporting `\uXXXX` Unicode escapes; it does support `\NNN` octal byte escapes.
 
-The failure was hit live during the icon-set selection for the herdr label system (session history, 2026-08-20): the first glyph-candidate card written into a herdr pane lost most of its pasted icon characters on file write — the pane showed lines with no glyphs at all — and worked only after the file was regenerated programmatically from codepoints. That incident is the direct precedent for the shipped rule.
+The failure was hit live during icon selection for the Herdr label system on 2026-08-20: a glyph-candidate card lost most of its pasted icons on file write. It worked after regeneration from codepoints. That incident is the precedent for this encoding rule.
+
+## Ownership
+
+The pane-label engine and its glyph tests belong to
+[`Seigiard/herdr-pane-labels`](https://github.com/Seigiard/herdr-pane-labels), following
+the extraction in [#298](https://github.com/Seigiard/my-mac-setup/pull/298).
+This repository installs that package; it does not own its icon table or test harness.
+Changes to the package's glyphs belong upstream.
+
+This document keeps the general generation rule for new repository-owned shell code.
+Installing or updating the external package alone does not trigger it or justify a local
+test of the upstream source encoding.
 
 ## Guidance
 
 Never paste a PUA glyph literally into a script. Generate it at runtime from its UTF-8 encoding spelled byte-by-byte in octal, one variable per icon, each with the glyph name and codepoint in a trailing comment so a human can map byte sequence → glyph without rendering it.
 
-Shipped pattern in `home/dot_local/bin/executable_herdr-pane-labels:33-49` (the ASCII status icons at `:43-48` are elided here):
+Example using Codicon codepoints, not a pointer to a local engine:
 
 ```bash
-# Codicon glyphs of the $git_ref grammar, generated from bash 3.2-safe octal
-# UTF-8 sequences (printf understands \NNN octal but not \uXXXX). Raw PUA
-# glyphs are easily lost when the file passes through editors or agents, so
-# none may appear verbatim in this script.
+# Bash 3.2-safe UTF-8 bytes. Keep source ASCII; name each glyph for review.
 ICON_BRANCH="$(printf '\356\261\257')"   # nf-cod-git_branch U+EC6F
 ICON_WORKTREE="$(printf '\356\261\276')" # nf-cod-worktree U+EC7E
 ICON_COMMIT="$(printf '\356\253\274')"   # nf-cod-git_commit U+EAFC
@@ -58,21 +64,21 @@ ICON_FOLDER="$(printf '\356\252\203')"   # nf-cod-folder U+EA83
 ICON_STALE="$(printf '\356\252\202')"    # nf-cod-history U+EA82
 ```
 
-The formatter `git_ref_for()` (same script, line 816) consumes these variables in its branch/worktree/commit/folder/stale arms; nothing downstream ever touches a raw glyph.
+Formatters consume the variables rather than repeating the byte sequences.
 
 **Single-source the table for generation — not for the test that protects it.** The rule above covers anything that *produces* a glyph: never retype the octal sequence, always read it from this one table. A *test asserting the glyph is correct* is a different consumer with the opposite requirement — if it derives its expected value from the same table, a drifted glyph can never fail it, because the assertion then compares the engine against itself.
 
-**The harness holds the oracle side independently.** `tests/helpers/herdr_pane_labels.bash:10-42` pins each octal sequence as its own literal and says so in the comment: "Do NOT derive these from executable_herdr-pane-labels." An earlier harness did derive them — a `sed` extraction named `hpl_icon()` that read the engine's `ICON_` table out and re-expanded it — which made every `HPL_ICON_*` assertion compare the engine against itself, so a changed codepoint moved both sides at once and the suite stayed green. PR #140 removed that extraction with the finding that "temporarily changing `ICON_BRANCH` in the engine now fails 19 previously-passing assertions"; the `herdr-task-sync` → `herdr-pane-labels` rename carried it back in seven hours later. Commit `5d7c8fc` (PR #179) removed it for good.
+**Historical test lesson.** Before extraction, the local harness read expected glyphs
+from the engine's own table. A wrong codepoint changed both sides and stayed green.
+[PR #140](https://github.com/Seigiard/my-mac-setup/pull/140) replaced that extraction;
+changing the engine's branch icon then failed 19 assertions. A later rename restored
+the mistake, and [PR #179](https://github.com/Seigiard/my-mac-setup/pull/179)
+removed it again. The harness and its mutation check later moved out with the engine.
 
-**What keeps it removed.** `tests/bashunit/scripts_test.sh:6827-6849` (test 1208) is the mutation oracle: it copies the source tree, rewrites `ICON_BRANCH` to a glyph the grammar never uses (U+2714), loads the harness against the mutated tree, and asserts `HPL_ICON_BRANCH` did not follow. A derived constant tracks the mutation and fails; a pinned one does not. Rewriting the whole assignment keeps the test independent of whichever codepoint `ICON_BRANCH` holds today.
-
-**The second, narrower pin is gone.** Until #349, `tests/bashunit/smoke_test.sh` test 1059 asserted the
-five octal sequences appeared in the deployed engine as literals and that the raw lead byte appeared
-nowhere in it. The engine moved to `Seigiard/herdr-pane-labels` in #298, so its source encoding is
-upstream-owned and has no local oracle; the pin was retired with its contract named
-(`source-greps-need-a-second-side.md`). The harness pointers above (`tests/helpers/herdr_pane_labels.bash`,
-`scripts_test.sh` test 1208) describe the pre-#298 layout and no longer resolve either; what this
-repository still owns is the deployment half, covered by smoke tests 1060 and 1061.
+The remaining local source-encoding pin was retired in
+[PR #349](https://github.com/Seigiard/my-mac-setup/pull/349). Do not recreate that pin
+here: use the test-oracle gate for repository-owned behavior, and test upstream glyph
+semantics in the upstream package.
 
 To derive the octal bytes for a new icon:
 
@@ -91,26 +97,23 @@ Verify the round trip: `printf '\356\261\257' | xxd` → `ee b1 af`, the UTF-8 e
 
 ## When to Apply
 
-- Any script emitting Nerd Font / PUA glyphs that must run under macOS system bash 3.2 (or `sh`): herdr hooks, tmux and sketchybar configs, prompt scripts.
+- Repository-owned shell code emitting Nerd Font / PUA glyphs under macOS system bash 3.2.
 - More generally: whenever a source file must carry bytes that editors cannot display faithfully, spell the bytes — don't paste them.
 - This is the unicode-specific instance of the standing environment rule that macOS system bash is 3.2 (no `declare -A`, and no `\uXXXX` printf escapes).
-- Not needed where bash ≥ 4.2 is guaranteed (`\uXXXX` works) or the file format is binary-safe by design.
-- Width-math sibling gotcha, handled directly below the icon table in the same script: `wc -m` and `cut -c` must run under a UTF-8 locale, or each 3-byte codicon counts as three columns and truncation can cut a label mid-codepoint (`executable_herdr-pane-labels:50-64`).
+- If the target interpreter or template format supports Unicode escapes, those are another way to keep source ASCII. Do not impose shell byte-escape syntax on another file format.
+- Character-based width and truncation need a UTF-8 locale. Byte length, codepoint count, and terminal display width are different measures; an icon's UTF-8 byte count is not its column width.
 
 ## Examples
 
-- `home/dot_local/bin/executable_herdr-pane-labels:33-49` (icon table), `:816` (`git_ref_for()` consumer), `:50-64` (locale pin for width math).
-- `tests/helpers/herdr_pane_labels.bash:10-42` (`HPL_ICON_*` pinned as independent literals, with the generator/oracle discriminator in its own comment) and `tests/bashunit/scripts_test.sh:6827-6849` (test 1208, the mutation oracle that keeps the pin honest); icon-asserting tests in `tests/bashunit/scripts_test.sh` include "herdr-pane-labels location and formatter add only approved static icon glyphs and no forbidden ownership state", which strips the five codicons and asserts only plain ASCII remains.
+- Current pane-label implementation and glyph tests: [`Seigiard/herdr-pane-labels`](https://github.com/Seigiard/herdr-pane-labels).
 - Decision origin: `docs/plans/2026-08-20-001-feat-herdr-label-system-plan.md`, "Icon set — DECIDED" — records the codicon choice per slot, the octal sequences, the material-icons fallback family, and the "PUA glyph loss" risk entry.
-- Commits: `f7fd73c` (branch-first tab labels), `7c868d6` (unified `$git_ref` token), `9d1895f` (PR #24 close-out). All reachable from main.
-  (They predate the graft point of a shallow clone, so `git merge-base` cannot see them in one;
-  they are on `main` upstream.)
 
 ## Related
 
 - `2026-08-20-007` — the hand-duplicated icon table defect and its single-source resolution.
 - `docs/plans/2026-08-20-001-feat-herdr-label-system-plan.md` — origin plan of the label system.
 - `CONCEPTS.md` Theming section — the sibling terminal-rendering convention (palette-only, no baked hex); complementary, does not cover glyph encoding.
+- `semantic-regression-tests-over-source-shape.md` — the test-oracle gate for locally owned behavior.
 - `2026-09-02-005` — the discriminator between single-sourcing for generation and pinning literals
   for a test whose job is to catch a change to the glyph itself; resolved in `5d7c8fc` (PR #179).
 - Closed issues above are bare IDs, for archaeology in git history: `2026-08-20-007`, `2026-09-02-005`.
