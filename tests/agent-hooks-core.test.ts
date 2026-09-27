@@ -795,13 +795,12 @@ describe("fff-grep-guard fail-open (R4)", () => {
 });
 
 describe("webfetch-markdown-hint applicability (KTD8)", () => {
-  test("the hint is the only shipped policy that neither blocks nor declares a canary", () => {
+  test("the hint is the only shipped policy that is not block-capable", () => {
     // #given the shipped registry
-    // #when the policies no other test can see are listed: not block-capable
-    // (the R9 and canary tests skip them) and without a canary (runCanaries
-    // yields no route for them)
+    // #when all policies outside the block-capable checks are listed,
+    // including context-only policies that declare a canary
     const unobserved = core.CORE_REGISTRY.policies
-      .filter((policy: any) => !core.isBlockCapable(policy) && policy.canary === undefined)
+      .filter((policy: any) => !core.isBlockCapable(policy))
       .map((policy: any) => policy.name);
 
     // #then a context-only policy added to policies/index.ts has to be named
