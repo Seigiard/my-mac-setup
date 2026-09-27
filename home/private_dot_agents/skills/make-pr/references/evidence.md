@@ -1,10 +1,10 @@
 # Capturing evidence
 
-Read from make-pr step 3. The outcome is a set of captioned frames, each with a URL or a listed local path, feeding the Visuals line and the explanation page.
+Read from make-pr step 3. The outcome is a set of captioned frames, each with a URL or a listed local path, feeding the Visuals line.
 
 ## Decide the surface
 
-The diff has a visible surface when it touches routes, components, stories, styles, or CLI output. Everything else is behavioural: the proof is the test output or log of the change running, captured as text. Text stays text: the closing lines of the run go into the body's Before and After lines and into the explanation page as a code block, never rendered into an image.
+The diff has a visible surface when it touches routes, components, stories, styles, or CLI output. Everything else is behavioural: the proof is the test output or log of the change running, captured as text. Text stays text: the closing lines of the run go into the body's Before and After lines, never rendered into an image.
 
 ## Capture a visible surface
 

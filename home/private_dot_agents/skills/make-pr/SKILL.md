@@ -5,13 +5,13 @@ description: Ship the current branch as a pull request, from evidence and body t
 
 # Make PR
 
-Commit, capture evidence, describe, publish, explain, check. The body follows `references/pr-body-template.md`; the rule it must satisfy is `~/.claude/rules/pull-requests.md`.
+Commit, capture evidence, describe, publish, check. The body follows `references/pr-body-template.md`; the rule it must satisfy is `~/.claude/rules/pull-requests.md`.
 
 ## Modes
 
 | Invocation | Steps |
 |---|---|
-| none | Full flow, steps 1 to 9. |
+| none | Full flow, steps 1 to 8. |
 | `describe [PR number or URL]` | Steps 1, 4, 5, then the `gh pr edit` line of step 6 and the PR URL. The PR is the given one, else the open PR of the current branch; with neither, stop and say so. |
 | `--no-evidence` | Step 3 skipped; the Visuals line says why. |
 
@@ -72,14 +72,14 @@ gh issue comment "$N" --body-file "$summary_file"
 
 The comment begins with the block from step 4, followed by one line: `Delivered in <PR URL>.` Without a GitHub issue reference, say so in the report and move on.
 
-### 8. Explain the diff
-
-Run the `explain-diff-html` skill in a subagent with the PR number and `--evidence /tmp/<slug>/evidence` when step 3 captured frames. It opens the page in the browser and returns its final `Explanation:` line; carry that path into the report.
-
-### 9. One babysit checkpoint
+### 8. One babysit checkpoint
 
 Invoke the `ce-babysit-pr` skill with `<PR number> checkpoint`. It runs one tick over CI, reviews, and conflicts and prints how to resume; switching to watch mode is the user's call.
 
 ## Report
 
-Six lines, in this order: PR URL, evidence (frame count and where they are hosted, or why none), issue comment URL or "no related issue", explanation path, babysit verdict, what the user should do next.
+Finish in the language used in the chat, in this order:
+
+1. **PR status:** PR URL, evidence (frame count and where they are hosted, or why none), issue comment URL or "no related issue", babysit verdict, and what the user should do next. In `describe` mode, report the updated PR and omit checks and actions that mode did not run.
+2. **For the manager:** reuse the stakeholder block written into the PR in step 4. Translate it into the chat language when needed, preserving its meaning and claims.
+3. **Optional explanation:** when the PR is large or complex, offer to create an `explain-diff-html` page and briefly name what would benefit from a visual walkthrough (for example, changes across several subsystems, a migration, or a non-obvious control flow). Run that skill only if the user accepts the offer. Omit the offer for a small, straightforward PR.
