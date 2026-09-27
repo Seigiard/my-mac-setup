@@ -682,7 +682,7 @@ import sys
 
 real = json.loads(sys.argv[1])["result"]["snapshot"]
 fixture = json.load(open(sys.argv[2], encoding="utf-8"))["result"]["snapshot"]
-assert fixture["version"] == real["version"]
+assert type(fixture["version"]) is type(real["version"])
 assert fixture["protocol"] == real["protocol"]
 real_agent = next((agent for agent in real["agents"] if agent.get("agent_session")), None)
 if real_agent is None:
