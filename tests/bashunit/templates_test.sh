@@ -543,11 +543,14 @@ function test_templates_009_zshenv_mise_cache_does_not_freeze_the_generating() {
 if [ "\$1" = "activate" ]; then
   printf "export PATH='%s'\n" "\$PATH"
   printf 'export PATH="%s/toolbin:\$PATH"\n' "$work"
+  printf 'export CACHE_MARKER=new\n'
 fi
 MISE
   chmod +x "$work/bin/mise"
 
-  render_template "$SOURCE_ROOT/dot_zshenv.tmpl" > "$work/zshenv.rendered"
+  run render_template "$SOURCE_ROOT/dot_zshenv.tmpl"
+  assert_success
+  printf '%s\n' "$output" > "$work/zshenv.rendered"
 
   # The shim is a function, not a PATH entry, because the rendered zshenv
   # prepends the homebrew dirs before the mise block: on a host with a real
@@ -561,10 +564,16 @@ mise() { "$work/bin/mise" "\$@" }
 export HOME="$work/home"
 export PATH="$work/marker:/usr/bin:/bin"
 source "$work/zshenv.rendered"
+print -r -- "marker=\${CACHE_MARKER-unset}"
 GEN
-  run zsh -f "$work/gen.zsh"
+  run zsh -df "$work/gen.zsh"
   assert_success
+  assert_output 'marker=new'
   assert_file_exists "$work/home/.cache/zsh/mise-activate.zsh"
+
+  printf 'export PATH="%s/toolbin:$PATH"\nexport CACHE_MARKER=new\n' "$work" > "$work/expected"
+  run cmp "$work/expected" "$work/home/.cache/zsh/mise-activate.zsh"
+  assert_success
 
   # The generating shell's PATH (with the marker) must not be in the cache;
   # the runtime PATH-mutation line must survive the strip.
@@ -582,10 +591,81 @@ export PATH="/usr/bin:/bin"
 source "$work/zshenv.rendered"
 print -r -- "\$PATH"
 PROBE
-  run zsh -f "$work/probe.zsh"
+  run zsh -df "$work/probe.zsh"
   assert_success
   refute_output --partial "$work/marker"
   assert_output --partial "$work/toolbin"
+}
+
+mise_cache_failure_probe() {
+  local mode="$1" work="$BATS_TEST_TMPDIR/mise-failure"
+  local cache="$work/home/.cache/zsh/mise-activate.zsh"
+  command_exists zsh || skip "zsh not installed"
+  mkdir -p "$work/bin" "${cache%/*}"
+  printf 'export CACHE_MARKER=old\n' > "$work/expected"
+  cp "$work/expected" "$cache"
+  touch -t 200001010000 "$cache"
+  cat > "$work/bin/mise" <<'MISE'
+#!/bin/sh
+printf "export PATH='/frozen-snapshot'\n"
+printf '#%02000d\nexport CACHE_MARKER=new\n' 0
+if [ "$MISE_FAILURE_MODE" = producer ]; then exit 7; fi
+MISE
+  chmod +x "$work/bin/mise"
+  run render_template "$SOURCE_ROOT/dot_zshenv.tmpl"
+  assert_success
+  printf '%s\n' "$output" > "$work/zshenv.rendered"
+
+  cat > "$work/probe.zsh" <<'PROBE'
+work=$1
+export MISE_FAILURE_MODE=$2
+real_sed=$3
+export HOME="$work/home"
+export PATH=/usr/bin:/bin
+unset CACHE_MARKER
+# Functions avoid Homebrew shadowing the fixture. The file named `mise` in
+# this directory also makes the template's command-v mtime check regenerate.
+cd "$work/bin" || exit 1
+mise() { "$work/bin/mise" "$@" }
+sed() {
+  if [[ $MISE_FAILURE_MODE == filter ]]; then
+    /bin/cat >/dev/null
+    print -r -- '# partial filter output'
+    return 7
+  fi
+  "$real_sed" "$@"
+}
+if [[ $MISE_FAILURE_MODE == write ]]; then
+  ulimit -c 0 || exit 1
+  ulimit -f 1 || exit 1
+fi
+source "$work/zshenv.rendered"
+print -r -- "marker=${CACHE_MARKER-unset}"
+temporary=("$HOME/.cache/zsh/mise-activate.zsh."*(N))
+print -r -- "temporary=${#temporary}"
+bytes=$(wc -c < "$HOME/.cache/zsh/mise-activate.zsh")
+print -r -- "bytes=$((bytes))"
+PROBE
+  run zsh -df "$work/probe.zsh" "$work" "$mode" "$(command -v sed)"
+  assert_success
+  assert_output $'marker=old\ntemporary=0\nbytes=24'
+  run cmp "$work/expected" "$cache"
+  assert_success
+}
+
+function test_templates_0092_zshenv_mise_cache_preserves_producer_failure() {
+  _bats_test_init 92 'zshenv mise cache preserves and sources old bytes after producer failure'
+  mise_cache_failure_probe producer
+}
+
+function test_templates_0093_zshenv_mise_cache_preserves_filter_failure() {
+  _bats_test_init 93 'zshenv mise cache preserves and sources old bytes after filter failure'
+  mise_cache_failure_probe filter
+}
+
+function test_templates_0094_zshenv_mise_cache_preserves_real_write_failure() {
+  _bats_test_init 94 'zshenv mise cache preserves and sources old bytes after real sed write failure'
+  mise_cache_failure_probe write
 }
 
 function test_templates_0091_zshenv_full_fixture_exports_all_canaries_without_op() {
