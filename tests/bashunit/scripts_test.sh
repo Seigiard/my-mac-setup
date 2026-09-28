@@ -929,6 +929,7 @@ child_stub_reap() {
   local stub="$1" pid_file pid
   [[ -d "$stub" ]] || return 0
   : > "$stub/release-watcher" 2>/dev/null || true
+  : > "$stub/release-agent-get" 2>/dev/null || true
   for pid_file in "$stub"/*.pid; do
     [[ -s "$pid_file" ]] || continue
     pid="$(cat "$pid_file" 2>/dev/null || true)"
@@ -4602,6 +4603,18 @@ case "${1:-} ${2:-}" in
     count="$(read_value get-count 0)"
     count=$((count + 1))
     printf '%s\n' "$count" > "$CHILD_STUB/get-count"
+    # Let a case prepare its transition before the first watcher snapshot.
+    # The launch baseline is read once, before this barrier can hold a poll.
+    if [ "$count" -gt 1 ] && [ -f "$CHILD_STUB/hold-agent-get" ]; then
+      : > "$CHILD_STUB/held-agent-get.ready"
+      attempt=0
+      while [ ! -f "$CHILD_STUB/release-agent-get" ]; do
+        [ -d "$CHILD_STUB" ] || exit 1
+        attempt=$((attempt + 1))
+        [ "$attempt" -lt 12000 ] || exit 1
+        sleep 0.01
+      done
+    fi
     if [ "$count" -gt 1 ] && [ -f "$CHILD_STUB/child-gone" ]; then
       printf '{"error":{"code":"agent_not_found"}}\n' >&2
       exit 1
@@ -5789,15 +5802,29 @@ function test_scripts_034_herdr_child_detached_watcher_ignores_stale_settl() {
 
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
+  local generation watcher_pid attempt=0
+  generation="$(jq -er '.supervision.generation' <<<"$output")"
+  watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
   child_wait_for_get_count 3
-  run grep 'event=' "$CHILD_STUB/calls.log"
-  assert_failure
+  # A slow driver may allow a valid timeout before it advances the child.
+  # Only a settlement here would wrongly accept the stale sequence.
+  run grep 'event=settled-' "$CHILD_STUB/calls.log"
+  assert_failure 1
 
   printf 'done 11\n' > "$CHILD_STUB/child-state"
   child_wait_for_log 'event=settled-11'
-  run grep -c 'event=settled-11' "$CHILD_STUB/calls.log"
+  while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 500 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  [ "$attempt" -lt 500 ] || fail 'watcher never exited after fresh settlement'
+  # Count every settlement after the watcher exits, including a late stale one.
+  run grep -c 'event=settled-' "$CHILD_STUB/calls.log"
   assert_success
   assert_output 1
+  run grep -o '\[child-supervision v1 [^]]*event=settled-[^]]*\]' "$CHILD_STUB/successful-prompts.log"
+  assert_success
+  assert_output "[child-supervision v1 generation=$generation event=settled-11 outcome=done reason=none agent=$(child_started_name) pane=wT:p9]"
   assert_file_contains "$CHILD_STUB/calls.log" 'not\ a\ task-success\ verdict'
   run grep -Eiq 'task_succeeded=true|task completed successfully' "$CHILD_STUB/calls.log"
   assert_failure
@@ -5828,10 +5855,14 @@ function test_scripts_035_herdr_child_detached_timeout_wakes_once_and_late() {
 function test_scripts_036_herdr_child_detached_delivery_follows_parent_ter() {
   _bats_test_init 36 'herdr-child detached delivery follows parent terminal identity to a moved pane'
   child_lifecycle_stub_herdr
+  # Do not mistake a valid pre-move timeout for delivery to the wrong pane.
+  : > "$CHILD_STUB/hold-agent-get"
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
+  child_wait_for_file "$CHILD_STUB/held-agent-get.ready"
   printf 'wT:p7\n' > "$CHILD_STUB/parent-pane"
   printf 'idle 11\n' > "$CHILD_STUB/child-state"
+  : > "$CHILD_STUB/release-agent-get"
   child_wait_for_log 'agent prompt wT:p7.*event=settled-11'
   run grep -q 'agent prompt wT:p0.*event=' "$CHILD_STUB/calls.log"
   assert_failure
@@ -5840,10 +5871,14 @@ function test_scripts_036_herdr_child_detached_delivery_follows_parent_ter() {
 function test_scripts_0361_herdr_child_detached_delivery_fails_closed_on_s() {
   _bats_test_init 0361 'herdr-child detached delivery fails closed on parent session replacement'
   child_lifecycle_stub_herdr
+  # A timeout before replacement would be valid; test only the replaced pair.
+  : > "$CHILD_STUB/hold-agent-get"
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
+  child_wait_for_file "$CHILD_STUB/held-agent-get.ready"
   printf 'replaced-session\n' > "$CHILD_STUB/parent-session"
   printf 'idle 11\n' > "$CHILD_STUB/child-state"
+  : > "$CHILD_STUB/release-agent-get"
   child_wait_for_log 'parent-session-mismatch'
   run grep -q 'event=' "$CHILD_STUB/calls.log"
   assert_failure
@@ -6121,9 +6156,14 @@ function test_scripts_043_herdr_child_sliced_wait_publishes_one_typed_non() {
 function test_scripts_044_herdr_child_detached_watcher_rejects_malformed_s() {
   _bats_test_init 44 'herdr-child detached watcher rejects malformed state and child identity replacement'
   child_lifecycle_stub_herdr
+  # Arm against a valid baseline, then make the first poll see the bad state.
+  # This keeps valid pre-transition timeouts out of the no-delivery assertion.
+  : > "$CHILD_STUB/hold-agent-get"
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
+  child_wait_for_file "$CHILD_STUB/held-agent-get.ready"
   : > "$CHILD_STUB/malformed-state"
+  : > "$CHILD_STUB/release-agent-get"
   child_wait_for_log 'malformed-state'
   run grep -q 'event=' "$CHILD_STUB/calls.log"
   assert_failure
@@ -6131,13 +6171,16 @@ function test_scripts_044_herdr_child_detached_watcher_rejects_malformed_s() {
   teardown
   setup
   child_lifecycle_stub_herdr
+  : > "$CHILD_STUB/hold-agent-get"
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
   local watcher_pid run_dir attempt=0
+  child_wait_for_file "$CHILD_STUB/held-agent-get.ready"
   run_dir="$CHILD_STUB/state/runs/$(cat "$CHILD_STUB/generation")"
   watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
   printf 'replacement-session\n' > "$CHILD_STUB/child-session"
   printf 'idle 11\n' > "$CHILD_STUB/child-state"
+  : > "$CHILD_STUB/release-agent-get"
   while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 500 ]; do
     attempt=$((attempt + 1))
     sleep 0.01
@@ -6426,9 +6469,13 @@ function test_scripts_050_herdr_child_callback_delivery_exhaustion_keeps_d() {
 function test_scripts_051_herdr_child_detached_callbacks_fail_closed_when() {
   _bats_test_init 51 'herdr-child detached callbacks fail closed when supervision metadata is unreadable'
   child_lifecycle_stub_herdr
+  # Exclude valid watcher prompts sent before metadata becomes unreadable.
+  : > "$CHILD_STUB/hold-agent-get"
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
+  child_wait_for_file "$CHILD_STUB/held-agent-get.ready"
   rm -f "$CHILD_STUB/generation"
+  : > "$CHILD_STUB/release-agent-get"
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_LAUNCH=1 \
     HERDR_CHILD_PARENT_PANE=wT:p0 HERDR_CHILD_PARENT_TERMINAL=term-parent \
