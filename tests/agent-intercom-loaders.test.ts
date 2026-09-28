@@ -243,7 +243,7 @@ describe("Pi Agent Intercom loader", () => {
     expect(pi).toEqual({});
   });
 
-  test("is a no-op when the native extension fails during initialization", async () => {
+  test("propagates native initialization failures so Pi can reject the partial extension", async () => {
     const home = temporaryDir("agent-intercom-pi-broken-");
     const packageDir = join(packageRoot(home), "@dataforxyz", "agent-intercom-pi");
     mkdirSync(packageDir, { recursive: true });
@@ -255,7 +255,7 @@ describe("Pi Agent Intercom loader", () => {
     const module = await loadFromHome(PI_LOADER, home, true, {
       HERDR_AGENT_INTERCOM_PI_LOAD: String(process.pid),
     });
-    expect(module.default({})).toBeUndefined();
+    expect(() => module.default({})).toThrow("initialization failed");
   });
 
   test("stays active when Pi reloads extensions in the same process", async () => {

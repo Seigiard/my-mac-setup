@@ -24,9 +24,6 @@ if (shouldLoad) {
 }
 
 export default function agentIntercom(pi: any) {
-  try {
-    return intercomExtension?.(pi)
-  } catch {
-    return undefined
-  }
+  // Let Pi reject a partial extension if native initialization fails.
+  return intercomExtension?.(pi)
 }
