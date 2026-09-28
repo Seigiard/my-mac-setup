@@ -4,5 +4,5 @@
 # The `lean` profile in prompts/profiles/ runs five agents; the shipped cap of 4 would queue one.
 max-parallel = 5
 
-# The default roster: comprehensive plus a codex agent carrying simplify and test-worth.
+# The default roster: comprehensive plus a codex agent carrying simplify, efficiency and test-worth.
 profile = lean

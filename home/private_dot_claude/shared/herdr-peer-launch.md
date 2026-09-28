@@ -1,6 +1,6 @@
 # External leg pair interface
 
-An External leg pair is one Claude review and one OpenCode review of the same input. `se-external-leg-pair` owns their shared executable lifecycle for `se-code-review` and `se-simplify`. Calling skills own scope, complete peer prompts, report-schema validation, synthesis, and apply policy.
+An External leg pair is one Claude review and one OpenCode review of the same input. `se-external-leg-pair` owns their shared executable lifecycle. Callers own scope, complete peer prompts, report-schema validation, synthesis, and apply policy.
 
 ## Invocation
 
@@ -33,7 +33,7 @@ Mapping `external-leg-models/2026-09-12` was verified against Claude Code 2.1.23
 | `high` | `opus` | `openai/gpt-5.6-sol` |
 | `xhigh` | `fable` | `openai/gpt-6-astra` |
 
-Both clients support `low`, `medium`, `high`, `xhigh`, and `max` effort for these models. The three current callers declare `medium/high`, preserving their previous Sonnet/high and Terra behavior.
+Both clients support `low`, `medium`, `high`, `xhigh`, and `max` effort for these models.
 
 Both leg tabs start with `SE_EXTERNAL_LEG=1`, which the agent, its tool processes, and its subagents inherit. The command refuses with status `2` when that variable is already set to any non-empty value, and `herdr-child start` refuses the same way, so no leg can open a nested pair or child. A skill that finds itself inside a leg does its work in that session instead.
 

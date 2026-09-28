@@ -362,6 +362,14 @@ PY
       fail "could not restore repository-owned skill after exclusion: $skill; recovery copy: $snapshot_root/$skill"
       return 1
     fi
+    if [ -e "$snapshot_root/.claude-skills/$skill" ] || [ -L "$snapshot_root/.claude-skills/$skill" ]; then
+      mkdir -p "$HOME/.claude/skills" || return 1
+      rm -rf "$HOME/.claude/skills/$skill" || return 1
+      cp -pR "$snapshot_root/.claude-skills/$skill" "$HOME/.claude/skills/$skill" || {
+        fail "could not restore Claude skill adapter after exclusion: $skill"
+        return 1
+      }
+    fi
     [ ! -e "$LOCK_PATH" ] || remove_lock_claim "$skill" || {
       fail "could not remove conflicting lock claim after exclusion: $skill; recovery copy: $snapshot_root"
       return 1
@@ -453,8 +461,13 @@ repository_owns() {
 
 snapshot_repository_trees() {
   local name
+  mkdir -p "$1/.claude-skills" || return 1
   for name in "${REPOSITORY_OWNED_NAMES[@]:-}"; do
     [ ! -d "$CANONICAL_ROOT/$name" ] || cp -pR "$CANONICAL_ROOT/$name" "$1/$name" || return 1
+    [ ! -e "$1/.claude-skills/$name" ] && [ ! -L "$1/.claude-skills/$name" ] || continue
+    if [ -e "$HOME/.claude/skills/$name" ] || [ -L "$HOME/.claude/skills/$name" ]; then
+      cp -pR "$HOME/.claude/skills/$name" "$1/.claude-skills/$name" || return 1
+    fi
   done
 }
 
