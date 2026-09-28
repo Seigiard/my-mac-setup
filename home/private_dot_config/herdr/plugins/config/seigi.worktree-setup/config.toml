@@ -6,6 +6,7 @@ fresh-base = true
 copy = [
   "CLAUDE.local.md",
   "AGENTS.local.md",
+  ".revmux/profile.md",
   ".env",
   "console/.env",
   "engine/api/.env",
