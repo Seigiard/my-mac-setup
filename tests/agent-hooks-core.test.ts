@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -593,7 +593,7 @@ describe("selfcheck loaded-identity markers (KTD5)", () => {
 
     // #then the old marker proves no live OpenCode session
     expect(statusOf(report, "opencode")).toEqual({
-      client: "opencode", status: "unknown", live: [], stale: [],
+      client: "opencode", status: "unknown", live: [], stale: [], uncertain: [],
     });
   });
 
@@ -772,6 +772,24 @@ describe("selfcheck loaded-identity markers (KTD5)", () => {
     }))).toEqual([{ client: "opencode", pid: 4243, hash: DEPLOYED, processStartedAt: "start-4243" }]);
   });
 
+  test.skipIf(process.getuid?.() === 0)("a non-root session can record identity in a writable but unlistable directory", () => {
+    // #given a directory where file creation is allowed but listing is denied
+    const stateDir = temporaryDir("agent-hooks-state-");
+    chmodSync(stateDir, 0o300);
+    try {
+      expect(() => readdirSync(stateDir)).toThrow("EACCES");
+
+      // #when startup cannot list old markers for cleanup
+      selfcheck.writeMarker("opencode", { stateDir, hash: DEPLOYED });
+    } finally {
+      chmodSync(stateDir, 0o700);
+    }
+
+    // #then the new marker was still recorded
+    expect(selfcheck.readMarkers(stateDir).map((marker: any) => [marker.client, marker.pid, marker.hash]))
+      .toEqual([["opencode", process.pid, DEPLOYED]]);
+  });
+
   test("no live marker reports unknown, never current", () => {
     // #given a state dir with no markers
     const stateDir = temporaryDir("agent-hooks-state-");
@@ -848,6 +866,63 @@ describe("selfcheck loaded-identity markers (KTD5)", () => {
 });
 
 describe("selfcheck report", () => {
+  for (const [name, processStartedAt, getProcessStart] of [
+    ["legacy", undefined, () => "current-start"],
+    ["null start", null, () => "current-start"],
+    ["empty start", "", () => "current-start"],
+    ["malformed start", 42, () => "current-start"],
+    ["unreadable start", "recorded-start", () => null],
+  ] as const) {
+    test(`the report exposes ${name} evidence without treating it as a confirmed session`, () => {
+      // #given a live PID whose old-core marker cannot be verified
+      const stateDir = temporaryDir("agent-hooks-state-");
+      writeFileSync(join(stateDir, "opencode-4242.json"), JSON.stringify({
+        client: "opencode", pid: 4242, hash: "old-core", processStartedAt,
+      }));
+
+      // #when JSON and human-readable reports are built
+      const report = selfcheck.selfcheck(registryWith([]), {
+        stateDir, deployedHash: "new-core", clients: ["opencode"],
+        isAlive: () => true, getProcessStart,
+      });
+      const identity = JSON.parse(JSON.stringify(report)).identity.clients[0];
+
+      // #then unverified evidence is visible, but neither live nor stale is claimed
+      expect({
+        status: identity.status, live: identity.live, stale: identity.stale,
+        uncertain: identity.uncertain?.map((marker: any) => [marker.pid, marker.hash]),
+      }).toEqual({ status: "unknown", live: [], stale: [], uncertain: [[4242, "old-core"]] });
+      expect(selfcheck.formatReport(report).split("\n").slice(3)).toEqual([
+        "policies: 0", "canaries: none registered", "loaded identity:",
+        "  opencode: unknown — unverified sessions: pid 4242 (old-core)", "result: ok",
+      ]);
+    });
+  }
+
+  test("the report shows confirmed stale and unverified evidence together", () => {
+    // #given a verified stale session and an unverified legacy record
+    const stateDir = temporaryDir("agent-hooks-state-");
+    writeFileSync(join(stateDir, "opencode-4242.json"), JSON.stringify({
+      client: "opencode", pid: 4242, hash: "legacy-core",
+    }));
+    writeFileSync(join(stateDir, "opencode-4243.json"), JSON.stringify({
+      client: "opencode", pid: 4243, hash: "confirmed-old-core", processStartedAt: "known-start",
+    }));
+
+    // #when both kinds of evidence are rendered
+    const report = selfcheck.selfcheck(registryWith([]), {
+      stateDir, deployedHash: "new-core", clients: ["opencode"],
+      isAlive: () => true, getProcessStart: () => "known-start",
+    });
+
+    // #then neither evidence class hides the other or changes the confirmed stale status
+    expect(selfcheck.formatReport(report).split("\n").slice(3)).toEqual([
+      "policies: 0", "canaries: none registered", "loaded identity:",
+      "  opencode: stale — stale sessions: pid 4243 (confirmed-old-core) — unverified sessions: pid 4242 (legacy-core)",
+      "result: ok",
+    ]);
+  });
+
   test("the JSON entry point exposes the registry the union test consumes", () => {
     // #given the shipped registry
     const snapshot = core.registrySnapshot(core.CORE_REGISTRY);

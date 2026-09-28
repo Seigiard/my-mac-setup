@@ -107,7 +107,13 @@ export function writeMarker(
   const path = markerPath(stateDir, marker.client, marker.pid, marker.processStartedAt ?? null);
   mkdirSync(stateDir, { recursive: true });
   const isAlive = options.isAlive ?? processIsAlive;
-  for (const name of readdirSync(stateDir)) {
+  let entries: string[] = [];
+  try {
+    entries = readdirSync(stateDir);
+  } catch {
+    // Listing is optional for cleanup; write permission can still be available.
+  }
+  for (const name of entries) {
     if (!name.startsWith(`${client}-`)) continue;
     const match = /^([1-9]\d*)(?:-[a-f0-9]{64})?\.json$/.exec(name.slice(client.length + 1));
     if (!match) continue;
@@ -163,6 +169,7 @@ export type ClientIdentity = {
   status: IdentityStatus;
   live: Marker[];
   stale: Marker[];
+  uncertain: Marker[];
 };
 
 export type IdentityOptions = ProcessProbe & {
@@ -194,15 +201,15 @@ export function inspectIdentity(options: IdentityOptions = {}): {
     deployedHash,
     clients: clients.map((client) => {
       if (markerless.includes(client)) {
-        return { client, status: "per-call" as IdentityStatus, live: [], stale: [] };
+        return { client, status: "per-call" as IdentityStatus, live: [], stale: [], uncertain: [] };
       }
       const candidates = markers.filter(({ marker }) => marker.client === client);
       const live = candidates.filter(({ matches }) => matches === true).map(({ marker }) => marker);
       const stale = live.filter((marker) => marker.hash !== deployedHash);
-      const uncertain = candidates.some(({ matches }) => matches === null);
+      const uncertain = candidates.filter(({ matches }) => matches === null).map(({ marker }) => marker);
       const status: IdentityStatus =
-        stale.length > 0 ? "stale" : live.length === 0 || uncertain ? "unknown" : "current";
-      return { client, status, live, stale };
+        stale.length > 0 ? "stale" : live.length === 0 || uncertain.length > 0 ? "unknown" : "current";
+      return { client, status, live, stale, uncertain };
     }),
   };
 }
@@ -289,8 +296,10 @@ export function formatReport(report: SelfcheckReport): string {
   lines.push("loaded identity:");
   for (const client of report.identity.clients) {
     const sessions = client.stale.map((marker) => `pid ${marker.pid} (${marker.hash})`).join(", ");
+    const unverified = client.uncertain.map((marker) => `pid ${marker.pid} (${marker.hash})`).join(", ");
     lines.push(
-      `  ${client.client}: ${client.status}${sessions ? ` — stale sessions: ${sessions}` : ""}`,
+      `  ${client.client}: ${client.status}${sessions ? ` — stale sessions: ${sessions}` : ""}` +
+      (unverified ? ` — unverified sessions: ${unverified}` : ""),
     );
   }
   lines.push(report.ok ? "result: ok" : "result: FAILED");
