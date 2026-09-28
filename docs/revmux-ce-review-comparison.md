@@ -9,20 +9,18 @@ records the baseline before those edits; deployment remains a separate step.
 ## Implementation
 
 - `simplify` now requires behavior equivalence and a concrete complexity benefit.
-- `architecture` checks external and persisted consumers before removing compatibility.
-- `efficiency` is a new lens on the existing lean agent. The profile still runs five
-  agents, now carrying eleven code-review lenses between them.
-- `adversarial` explicitly checks verification fidelity.
-- `bugs` explicitly traces sentinel meanings and setup/cleanup exit paths.
+- `architecture-extended` checks external and persisted consumers before removing compatibility.
+- `efficiency` is a new lens on the existing lean agent.
+- `adversarial-extended` checks verification fidelity.
+- `bugs-extended` traces sentinel meanings and setup/cleanup exit paths.
 
-The managed files live in `home/private_dot_config/revmux/`. `architecture`, `bugs`,
-and `adversarial` are full overrides of the built-in lens text, with the additions
-above. They replace those lenses in every profile that names them. Revisit these
-overrides when upgrading revmux; upstream lens edits do not merge into local copies.
+The managed files live in `home/private_dot_config/revmux/`. The `lean` and `final`
+profiles pair each built-in lens with its applicable `*-extended` supplement. Built-in
+lens bodies come from revmux; the supplements contain only the additional checks.
 
 The managed `lean` and `final` profiles require supplied, current check results before
-treating verification as successful. The local `final` override keeps the built-in
-roster and severity bar; it replaces the unsupported claim that all checks already passed.
+treating verification as successful. `final` has a short local policy for confirming
+fixes with two reviewers and reporting critical and major defects.
 
 ## Comparison baseline
 
@@ -49,7 +47,7 @@ skill owns the requested apply-and-repeat policy.
 “Covered” means the rubric already asks the question. “Partial” means a broad lens
 can catch the defect but does not explicitly direct that line of investigation.
 
-| CE rubric | Current revmux owner | Assessment |
+| CE rubric | Baseline revmux owner | Assessment |
 |---|---|---|
 | correctness | `bugs`, `impl` | Covered broadly; sentinel meanings and provisioning fidelity are more explicit in CE. |
 | project-standards | `architecture`, `comments` | Covered: cite the applicable rule and its violation. CE adds path-specific standards discovery. |
@@ -75,7 +73,7 @@ can catch the defect but does not explicitly direct that line of investigation.
 
 ### 1. Put behavior equivalence before line savings
 
-**Owners:** `simplify`; the compatibility bullet in `architecture`.
+**Owners:** `simplify` and `architecture-extended`.
 
 CE requires preserving outputs, errors, side effects, and ordering. It also requires
 evidence before replacing serializers, coercions, or platform-managed behavior.
@@ -119,7 +117,7 @@ The benefit is distinct from the existing goal of reducing implementation comple
 
 ### 3. Make verification fidelity an explicit adversarial check
 
-**Owner:** `adversarial`, conditional on changed CI, build, deploy, or test infrastructure.
+**Owner:** `adversarial-extended`, conditional on changed CI, build, deploy, or test infrastructure.
 
 The current lens contrasts tests with promises. CE goes further: construct a case
 where the stand-in check passes while the real operation fails.
@@ -137,7 +135,7 @@ deduplicates overlapping findings when both lenses are present.
 
 ### 4. Add two precise checks to bugs
 
-**Owner:** `bugs`, conditional on the changed surface.
+**Owner:** `bugs-extended`, conditional on the changed surface.
 
 - When a sentinel gains a new meaning, trace consumers through rendering, metrics,
   and actions. Returning `[]` for both “empty” and “failed” can be wrong without a crash.

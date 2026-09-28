@@ -2,10 +2,10 @@
 description: "comprehensive plus a lean codex peer — simplify, efficiency and test-worth, hunting needless code, wasted work and tests that cannot fail"
 model: claude/opus:high
 agents:
-  - {name: bugs+impl,    lenses: [bugs, impl],            color: cyan}
-  - {name: arch+quality, lenses: [architecture, quality], color: magenta}
+  - {name: bugs+impl,    lenses: [bugs, bugs-extended, impl], color: cyan}
+  - {name: arch+quality, lenses: [architecture, architecture-extended, quality], color: magenta}
   - {name: docs+tests,   lenses: [docs, tests, comments], color: green}
-  - {name: adversarial,  lenses: [adversarial],           model: codex/gpt-6-sol:high, color: yellow}
+  - {name: adversarial,  lenses: [adversarial, adversarial-extended], model: codex/gpt-6-sol:high, color: yellow}
   - {name: lean,         lenses: [simplify, efficiency, test-worth], model: codex/gpt-6-sol:high, color: blue}
 ---
 You are one reviewer on a panel. Other reviewers are working the same change in parallel with
