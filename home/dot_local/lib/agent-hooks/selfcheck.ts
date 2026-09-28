@@ -6,8 +6,9 @@
 // written by the in-process adapters at import time; without marker evidence a
 // resident client is reported unknown, never current.
 
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,26 +45,94 @@ export function coreHash(dir: string = CORE_DIR): string {
   return hash.digest("hex").slice(0, 16);
 }
 
-export type Marker = { client: string; pid: number; hash: string; loadedAt: string };
+export type Marker = {
+  client: string;
+  pid: number;
+  hash: string;
+  loadedAt: string;
+  processStartedAt?: string | null;
+};
 
-export function markerPath(stateDir: string, client: string, pid: number): string {
-  return join(stateDir, `${client}-${pid}.json`);
+type ProcessProbe = {
+  isAlive?: (pid: number) => boolean;
+  getProcessStart?: (pid: number) => string | null;
+};
+
+/** ps exposes OS start time on macOS and Linux, at one-second resolution. */
+export function processStartTime(pid: number): string | null {
+  if (!Number.isSafeInteger(pid) || pid <= 0 || pid > 2147483647) return null;
+  try {
+    return execFileSync("ps", ["-p", String(pid), "-o", "lstart="], {
+      encoding: "utf8",
+      env: { ...process.env, LC_ALL: "C", TZ: "UTC" },
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 1000,
+    }).trim() || null;
+  } catch {
+    // A missing process, unavailable ps, or failed probe is not identity evidence.
+    return null;
+  }
 }
 
-/** Called by each in-process adapter once the core import succeeds (KTD5). */
+function matchesProcessStart(marker: Marker, getStart: (pid: number) => string | null): boolean | null {
+  if (typeof marker.processStartedAt !== "string" || marker.processStartedAt.length === 0) return null;
+  const current = getStart(marker.pid);
+  return current ? current === marker.processStartedAt : null;
+}
+
+export function markerPath(stateDir: string, client: string, pid: number, startedAt: string | null): string {
+  // Start-specific names keep cleanup of an old record away from its replacement.
+  // An unverifiable start gets its own filename rather than sharing a null identity.
+  const generation = createHash("sha256").update(startedAt ?? randomUUID()).digest("hex");
+  return join(stateDir, `${client}-${pid}-${generation}.json`);
+}
+
+/** Called by each in-process adapter once the core import succeeds (KTD5).
+ * Collect dead or replaced same-client markers so identity inspection stays read-only.
+ */
 export function writeMarker(
   client: string,
-  options: { stateDir?: string; pid?: number; hash?: string } = {},
+  options: { stateDir?: string; pid?: number; hash?: string } & ProcessProbe = {},
 ): Marker {
   const stateDir = options.stateDir ?? DEFAULT_STATE_DIR;
+  const getStart = options.getProcessStart ?? processStartTime;
+  const pid = options.pid ?? process.pid;
   const marker: Marker = {
     client,
-    pid: options.pid ?? process.pid,
+    pid,
     hash: options.hash ?? coreHash(),
     loadedAt: new Date().toISOString(),
+    processStartedAt: getStart(pid),
   };
+  const path = markerPath(stateDir, marker.client, marker.pid, marker.processStartedAt ?? null);
   mkdirSync(stateDir, { recursive: true });
-  writeFileSync(markerPath(stateDir, marker.client, marker.pid), `${JSON.stringify(marker)}\n`);
+  const isAlive = options.isAlive ?? processIsAlive;
+  let entries: string[] = [];
+  try {
+    entries = readdirSync(stateDir);
+  } catch {
+    // Listing is optional for cleanup; write permission can still be available.
+  }
+  for (const name of entries) {
+    if (!name.startsWith(`${client}-`)) continue;
+    const match = /^([1-9]\d*)(?:-[a-f0-9]{64})?\.json$/.exec(name.slice(client.length + 1));
+    if (!match) continue;
+    const pid = Number(match[1]);
+    if (!Number.isSafeInteger(pid) || join(stateDir, name) === path) continue;
+    try {
+      // This process supersedes its own legacy or unverifiable records.
+      if (pid !== marker.pid && isAlive(pid)) {
+        const previous = JSON.parse(readFileSync(join(stateDir, name), "utf8"));
+        if (previous?.client !== client || previous?.pid !== pid ||
+            matchesProcessStart(previous, getStart) !== false) continue;
+      }
+      unlinkSync(join(stateDir, name));
+    } catch {
+      // Cleanup is best-effort: another startup may have removed the file,
+      // or an old marker may be unwritable. Neither should block this session.
+    }
+  }
+  writeFileSync(path, `${JSON.stringify(marker)}\n`);
   return marker;
 }
 
@@ -85,6 +154,7 @@ export function readMarkers(stateDir: string): Marker[] {
 }
 
 export function processIsAlive(pid: number): boolean {
+  if (!Number.isSafeInteger(pid) || pid <= 0 || pid > 2147483647) return false;
   try {
     process.kill(pid, 0);
     return true;
@@ -99,20 +169,19 @@ export type ClientIdentity = {
   status: IdentityStatus;
   live: Marker[];
   stale: Marker[];
+  uncertain: Marker[];
 };
 
-export type IdentityOptions = {
+export type IdentityOptions = ProcessProbe & {
   stateDir?: string;
   deployedHash?: string;
   clients?: string[];
   markerlessClients?: string[];
-  isAlive?: (pid: number) => boolean;
 };
 
 /**
- * A marker from a dead process is not evidence of anything and is dropped. A
- * resident client with no live marker is unknown, not current: multiple herdr
- * panes are the normal case, so silence never means agreement.
+ * Dead or replaced processes are not evidence. Unverifiable live markers keep
+ * a client unknown unless a confirmed stale session already proves core skew.
  */
 export function inspectIdentity(options: IdentityOptions = {}): {
   deployedHash: string;
@@ -121,21 +190,26 @@ export function inspectIdentity(options: IdentityOptions = {}): {
   const stateDir = options.stateDir ?? DEFAULT_STATE_DIR;
   const deployedHash = options.deployedHash ?? coreHash();
   const isAlive = options.isAlive ?? processIsAlive;
+  const getStart = options.getProcessStart ?? processStartTime;
   const markerless = options.markerlessClients ?? MARKERLESS_CLIENTS;
   const clients = options.clients ?? CORE_REGISTRY.profiles.map((profile) => profile.client);
-  const markers = readMarkers(stateDir).filter((marker) => isAlive(marker.pid));
+  const markers = readMarkers(stateDir)
+    .filter((marker) => isAlive(marker.pid))
+    .map((marker) => ({ marker, matches: matchesProcessStart(marker, getStart) }));
 
   return {
     deployedHash,
     clients: clients.map((client) => {
       if (markerless.includes(client)) {
-        return { client, status: "per-call" as IdentityStatus, live: [], stale: [] };
+        return { client, status: "per-call" as IdentityStatus, live: [], stale: [], uncertain: [] };
       }
-      const live = markers.filter((marker) => marker.client === client);
+      const candidates = markers.filter(({ marker }) => marker.client === client);
+      const live = candidates.filter(({ matches }) => matches === true).map(({ marker }) => marker);
       const stale = live.filter((marker) => marker.hash !== deployedHash);
+      const uncertain = candidates.filter(({ matches }) => matches === null).map(({ marker }) => marker);
       const status: IdentityStatus =
-        live.length === 0 ? "unknown" : stale.length > 0 ? "stale" : "current";
-      return { client, status, live, stale };
+        stale.length > 0 ? "stale" : live.length === 0 || uncertain.length > 0 ? "unknown" : "current";
+      return { client, status, live, stale, uncertain };
     }),
   };
 }
@@ -222,8 +296,10 @@ export function formatReport(report: SelfcheckReport): string {
   lines.push("loaded identity:");
   for (const client of report.identity.clients) {
     const sessions = client.stale.map((marker) => `pid ${marker.pid} (${marker.hash})`).join(", ");
+    const unverified = client.uncertain.map((marker) => `pid ${marker.pid} (${marker.hash})`).join(", ");
     lines.push(
-      `  ${client.client}: ${client.status}${sessions ? ` — stale sessions: ${sessions}` : ""}`,
+      `  ${client.client}: ${client.status}${sessions ? ` — stale sessions: ${sessions}` : ""}` +
+      (unverified ? ` — unverified sessions: ${unverified}` : ""),
     );
   }
   lines.push(report.ok ? "result: ok" : "result: FAILED");
