@@ -174,6 +174,9 @@ const FFF_BARE_QUERY = "KnowledgeContextField console";
 export const WEBFETCH_HINT_TEXT =
   "Reminder: /markdown-new returns cleaner markdown for this URL, needs no API key, and handles JS-heavy pages that WebFetch renders as an empty shell. Keep WebFetch only if the skill already failed on this page or the content is plain HTML.";
 
+export const AGENT_DOC_HINT_TEXT =
+  "Reminder: this file is a document an agent reads, so the `writing-for-agents` skill governs its prose. Read the skill before writing or rewriting prose here. Skip it for an edit that touches no prose: a rename, a path fix, a frontmatter field.";
+
 export const POLICY_FIXTURES: PolicyFixture[] = [
   // zsh_reserved_name_guard_test.sh 001
   {
@@ -363,6 +366,97 @@ ${ZSH_FIX_SENTENCE}`,
     name: "webfetch/absent url fails open",
     policy: "webfetch-markdown-hint",
     tool: "web-fetch",
+    payload: {},
+    verdict: "allow",
+  },
+  // agent-doc-writing-hint. The four path classes the hint claims, each with a
+  // near neighbour that must stay silent, so a matcher widened by accident is
+  // caught by the control rather than by the positive case alone.
+  {
+    name: "agent-doc/a global instruction file gets the hint",
+    policy: "agent-doc-writing-hint",
+    tool: "edit",
+    payload: { filePath: "/Users/dev/.claude/CLAUDE.md", content: "## Language" },
+    verdict: "context",
+    text: AGENT_DOC_HINT_TEXT,
+  },
+  {
+    name: "agent-doc/a repository AGENTS.md gets the hint",
+    policy: "agent-doc-writing-hint",
+    tool: "write",
+    payload: { filePath: "/repo/AGENTS.md", content: "# repo" },
+    verdict: "context",
+    text: AGENT_DOC_HINT_TEXT,
+  },
+  {
+    name: "agent-doc/a skill entry point gets the hint",
+    policy: "agent-doc-writing-hint",
+    tool: "write",
+    payload: { filePath: "/Users/dev/.agents/skills/revmux/SKILL.md", content: "---" },
+    verdict: "context",
+    text: AGENT_DOC_HINT_TEXT,
+  },
+  {
+    // The chezmoi symlink spelling this repository uses for a shared skill.
+    name: "agent-doc/a symlinked skill template gets the hint",
+    policy: "agent-doc-writing-hint",
+    tool: "write",
+    payload: { filePath: "/repo/home/private_dot_claude/skills/code-review/symlink_SKILL.md.tmpl", content: "x" },
+    verdict: "context",
+    text: AGENT_DOC_HINT_TEXT,
+  },
+  {
+    // Edited in the chezmoi source tree, where the live path does not exist yet.
+    name: "agent-doc/a rules file in the chezmoi source gets the hint",
+    policy: "agent-doc-writing-hint",
+    tool: "edit",
+    payload: { filePath: "/repo/home/private_dot_claude/rules/testing.md", content: "## Tests" },
+    verdict: "context",
+    text: AGENT_DOC_HINT_TEXT,
+  },
+  {
+    name: "agent-doc/an opencode command gets the hint",
+    policy: "agent-doc-writing-hint",
+    tool: "edit",
+    payload: { filePath: "/Users/dev/.config/opencode/commands/open-questions.md", content: "x" },
+    verdict: "context",
+    text: AGENT_DOC_HINT_TEXT,
+  },
+  {
+    name: "agent-doc/an explicit-only canonical body gets the hint",
+    policy: "agent-doc-writing-hint",
+    tool: "write",
+    payload: { filePath: "/repo/home/.chezmoitemplates/explicit-only-open-questions-body.md", content: "x" },
+    verdict: "context",
+    text: AGENT_DOC_HINT_TEXT,
+  },
+  {
+    // The control that keeps the agent trees from claiming everything under
+    // them: same directory as a hinted file, but not prose.
+    name: "agent-doc/settings json inside an agent tree stays silent",
+    policy: "agent-doc-writing-hint",
+    tool: "edit",
+    payload: { filePath: "/Users/dev/.claude/settings.json", content: "{}" },
+    verdict: "allow",
+  },
+  {
+    name: "agent-doc/repository prose outside the agent trees stays silent",
+    policy: "agent-doc-writing-hint",
+    tool: "edit",
+    payload: { filePath: "/repo/docs/decisions/0004-agent-hooks.md", content: "# ADR" },
+    verdict: "allow",
+  },
+  {
+    name: "agent-doc/ordinary source stays silent",
+    policy: "agent-doc-writing-hint",
+    tool: "edit",
+    payload: { filePath: "/repo/src/index.ts", content: "export const x = 1;" },
+    verdict: "allow",
+  },
+  {
+    name: "agent-doc/absent path fails open",
+    policy: "agent-doc-writing-hint",
+    tool: "write",
     payload: {},
     verdict: "allow",
   },
