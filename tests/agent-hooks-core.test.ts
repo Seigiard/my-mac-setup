@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -563,20 +563,214 @@ describe("selfcheck loaded-identity markers (KTD5)", () => {
   const DEPLOYED = "deployedhash000";
   const OLD = "oldhash111";
   const alive = (pids: number[]) => (pid: number) => pids.includes(pid);
+  const start = (pid: number) => `start-${pid}`;
 
-  function inspect(stateDir: string, isAlive: (pid: number) => boolean) {
+  function inspect(stateDir: string, isAlive: (pid: number) => boolean, getProcessStart = start) {
     return selfcheck.inspectIdentity({
       stateDir,
       deployedHash: DEPLOYED,
       clients: ["claude", "opencode", "pi"],
       markerlessClients: ["claude"],
       isAlive,
+      getProcessStart,
     });
   }
 
   function statusOf(report: any, client: string) {
     return report.clients.find((entry: any) => entry.client === client);
   }
+
+  test("a reused live PID cannot lend its identity to an old marker", () => {
+    // #given a marker naming a different start of a PID that is alive now
+    const stateDir = temporaryDir("agent-hooks-state-");
+    const marker = selfcheck.writeMarker("opencode", { stateDir, hash: DEPLOYED });
+    writeFileSync(join(stateDir, readdirSync(stateDir)[0]), JSON.stringify({
+      ...marker, processStartedAt: "Mon Jan  1 00:00:00 2001",
+    }));
+
+    // #when the actual OS process identity is inspected
+    const report = selfcheck.inspectIdentity({ stateDir, deployedHash: DEPLOYED });
+
+    // #then the old marker proves no live OpenCode session
+    expect(statusOf(report, "opencode")).toEqual({
+      client: "opencode", status: "unknown", live: [], stale: [],
+    });
+  });
+
+  test("startup collects a marker whose PID now belongs to a different process", () => {
+    // #given an old marker under a live parent's PID
+    const stateDir = temporaryDir("agent-hooks-state-");
+    writeFileSync(join(stateDir, `opencode-${process.ppid}.json`), JSON.stringify({
+      client: "opencode", pid: process.ppid, hash: OLD,
+      processStartedAt: "Mon Jan  1 00:00:00 2001",
+    }));
+
+    // #when a new session starts
+    selfcheck.writeMarker("opencode", { stateDir, hash: DEPLOYED });
+
+    // #then only the new session's marker remains
+    expect(selfcheck.readMarkers(stateDir).map((marker: any) => marker.pid)).toEqual([process.pid]);
+  });
+
+  test("cleanup cannot delete a replacement session published during the start-time probe", () => {
+    // #given an old marker and a replacement that publishes at the cleanup boundary
+    const stateDir = temporaryDir("agent-hooks-state-");
+    writeFileSync(join(stateDir, "opencode-4242.json"), JSON.stringify({
+      client: "opencode", pid: 4242, hash: OLD, processStartedAt: "old-start",
+    }));
+    const getProcessStart = (pid: number) => {
+      if (pid === 4242) {
+        selfcheck.writeMarker("opencode", {
+          stateDir, pid, hash: OLD, isAlive: () => true, getProcessStart: () => "new-start",
+        });
+        return "new-start";
+      }
+      return "writer-start";
+    };
+
+    // #when another startup collects the old record after the replacement publishes
+    selfcheck.writeMarker("opencode", {
+      stateDir, pid: 4243, hash: DEPLOYED, isAlive: () => true, getProcessStart,
+    });
+
+    // #then both active sessions keep their identity evidence
+    expect(selfcheck.readMarkers(stateDir).map((marker: any) => marker.pid).sort()).toEqual([4242, 4243]);
+  });
+
+  test("restarting replaces the process's own legacy marker with verified evidence", () => {
+    // #given an unverifiable record under this process's PID
+    const stateDir = temporaryDir("agent-hooks-state-");
+    writeFileSync(join(stateDir, `opencode-${process.pid}.json`), JSON.stringify({
+      client: "opencode", pid: process.pid, hash: OLD,
+    }));
+
+    // #when the process publishes its verified identity again
+    selfcheck.writeMarker("opencode", { stateDir, hash: DEPLOYED });
+    const report = selfcheck.inspectIdentity({ stateDir, deployedHash: DEPLOYED });
+
+    // #then the legacy record no longer masks the current session
+    expect(statusOf(report, "opencode").status).toBe("current");
+    expect(selfcheck.readMarkers(stateDir).map((marker: any) => marker.pid)).toEqual([process.pid]);
+  });
+
+  for (const unavailable of ["legacy", "unreadable"] as const) {
+    test(`${unavailable} start identity is unknown and is not grounds for deletion`, () => {
+      // #given a live marker without verifiable start evidence
+      const stateDir = temporaryDir("agent-hooks-state-");
+      const marker = selfcheck.writeMarker("opencode", { stateDir, hash: DEPLOYED });
+      if (unavailable === "legacy") delete marker.processStartedAt;
+      writeFileSync(join(stateDir, readdirSync(stateDir)[0]), JSON.stringify(marker));
+      const options = unavailable === "unreadable" ? { getProcessStart: () => null } : {};
+
+      // #when another session starts and the report is read
+      selfcheck.writeMarker("opencode", { stateDir, pid: process.ppid, hash: DEPLOYED, ...options });
+      const report = selfcheck.inspectIdentity({ stateDir, deployedHash: DEPLOYED, ...options });
+
+      // #then missing evidence is neither current nor a deletion authorization
+      expect(statusOf(report, "opencode").status).toBe("unknown");
+      expect(selfcheck.readMarkers(stateDir).map((marker: any) => marker.pid).sort()).toEqual([
+        process.pid, process.ppid,
+      ].sort());
+    });
+  }
+
+  test("a real process with a matching start time keeps its stale loaded-core identity", () => {
+    // #given a real live session running the old core
+    const stateDir = temporaryDir("agent-hooks-state-");
+    selfcheck.writeMarker("opencode", { stateDir, hash: OLD });
+
+    // #when the OS confirms the marker's process identity
+    const report = selfcheck.inspectIdentity({ stateDir, deployedHash: DEPLOYED });
+
+    // #then it remains stale rather than unknown
+    expect(statusOf(report, "opencode").stale.map((marker: any) => marker.pid)).toEqual([process.pid]);
+    expect(statusOf(report, "opencode").status).toBe("stale");
+  });
+
+  test("an unavailable ps leaves identity unknown without failing selfcheck", () => {
+    // #given a valid marker that the OS can normally confirm
+    const stateDir = temporaryDir("agent-hooks-state-");
+    selfcheck.writeMarker("opencode", { stateDir, hash: OLD });
+
+    // #when a diagnostic process cannot execute ps
+    const result = Bun.spawnSync([process.execPath, "-e", `
+      const { inspectIdentity } = await import(${JSON.stringify(join(CORE_DIR, "selfcheck.ts"))});
+      const report = inspectIdentity({stateDir: ${JSON.stringify(stateDir)}, deployedHash: ${JSON.stringify(DEPLOYED)}});
+      console.log(report.clients.find(entry => entry.client === "opencode").status);
+    `], { env: { ...process.env, PATH: temporaryDir("agent-hooks-no-ps-") } });
+
+    // #then the probe fails closed for identity without breaking diagnostics
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.toString().trim()).toBe("unknown");
+  });
+
+  test("a confirmed stale session remains stale beside an unverifiable session", () => {
+    // #given one confirmed stale session and one legacy marker
+    const stateDir = temporaryDir("agent-hooks-state-");
+    selfcheck.writeMarker("opencode", { stateDir, hash: OLD });
+    writeFileSync(join(stateDir, `opencode-${process.ppid}.json`), JSON.stringify({
+      client: "opencode", pid: process.ppid, hash: DEPLOYED,
+    }));
+
+    // #when both live processes are inspected
+    const report = selfcheck.inspectIdentity({ stateDir, deployedHash: DEPLOYED });
+
+    // #then the unknown session does not hide confirmed core skew
+    expect(statusOf(report, "opencode").status).toBe("stale");
+    expect(statusOf(report, "opencode").live.map((marker: any) => marker.pid)).toEqual([process.pid]);
+  });
+
+  test("starting a session removes dead same-client markers but preserves live and foreign files", async () => {
+    // #given a real exited process, a live stale session, and unrelated files
+    const stateDir = temporaryDir("agent-hooks-state-");
+    const child = Bun.spawn([process.execPath, "-e", `
+      const { writeMarker } = await import(${JSON.stringify(join(CORE_DIR, "selfcheck.ts"))});
+      writeMarker("opencode", {stateDir: ${JSON.stringify(stateDir)}, hash: ${JSON.stringify(OLD)}});
+    `], { stdout: "ignore", stderr: "inherit" });
+    expect(await child.exited).toBe(0);
+    expect(selfcheck.processIsAlive(child.pid)).toBe(false);
+    expect(selfcheck.processStartTime(child.pid)).toBe(null);
+    const deadName = `opencode-${child.pid}.json`;
+    const liveName = `opencode-${process.ppid}.json`;
+    const foreignName = `pi-${child.pid}.json`;
+    for (const [name, client, pid] of [
+      [deadName, "opencode", child.pid],
+      [liveName, "opencode", process.ppid],
+      [foreignName, "pi", child.pid],
+    ] as const) {
+      writeFileSync(join(stateDir, name), JSON.stringify({
+        client, pid, hash: OLD, processStartedAt: selfcheck.processStartTime(pid),
+      }));
+    }
+    writeFileSync(join(stateDir, "opencode-not-a-pid.json"), "foreign data");
+
+    // #when a new session writes its marker
+    selfcheck.writeMarker("opencode", { stateDir, hash: DEPLOYED });
+
+    // #then only the dead same-client marker is collected; the live old core stays stale
+    expect(selfcheck.readMarkers(stateDir).map((entry: any) => [entry.client, entry.pid]).sort()).toEqual([
+      ["opencode", process.pid], ["opencode", process.ppid], ["pi", child.pid],
+    ].sort());
+    expect(readFileSync(join(stateDir, "opencode-not-a-pid.json"), "utf8")).toBe("foreign data");
+    expect(statusOf(inspect(stateDir, selfcheck.processIsAlive, selfcheck.processStartTime), "opencode").stale
+      .map((marker: any) => marker.pid)).toEqual([process.ppid]);
+  });
+
+  test("failed marker cleanup does not prevent a new session from recording its identity", () => {
+    // #given an entry that cannot be unlinked as a file
+    const stateDir = temporaryDir("agent-hooks-state-");
+    mkdirSync(join(stateDir, "opencode-4242.json"));
+
+    // #when cleanup fails during startup
+    selfcheck.writeMarker("opencode", {
+      stateDir, pid: 4243, hash: DEPLOYED, isAlive: alive([]), getProcessStart: start,
+    });
+
+    // #then the new session still has a readable identity marker
+    expect(selfcheck.readMarkers(stateDir).map(({ client, pid, hash, processStartedAt }: any) => ({
+      client, pid, hash, processStartedAt,
+    }))).toEqual([{ client: "opencode", pid: 4243, hash: DEPLOYED, processStartedAt: "start-4243" }]);
+  });
 
   test("no live marker reports unknown, never current", () => {
     // #given a state dir with no markers
@@ -599,9 +793,11 @@ describe("selfcheck loaded-identity markers (KTD5)", () => {
   test("a live marker older than the deployed core names the stale session", () => {
     // #given one stale and one current live session
     const stateDir = temporaryDir("agent-hooks-state-");
-    selfcheck.writeMarker("opencode", { stateDir, pid: 4242, hash: OLD });
-    selfcheck.writeMarker("opencode", { stateDir, pid: 4243, hash: DEPLOYED });
-    selfcheck.writeMarker("pi", { stateDir, pid: 4244, hash: DEPLOYED });
+    selfcheck.writeMarker("opencode", { stateDir, pid: 4242, hash: OLD, getProcessStart: start });
+    selfcheck.writeMarker("opencode", {
+      stateDir, pid: 4243, hash: DEPLOYED, isAlive: alive([4242]), getProcessStart: start,
+    });
+    selfcheck.writeMarker("pi", { stateDir, pid: 4244, hash: DEPLOYED, getProcessStart: start });
 
     // #when identity is inspected with both processes alive
     const report = inspect(stateDir, alive([4242, 4243, 4244]));
@@ -623,6 +819,7 @@ describe("selfcheck loaded-identity markers (KTD5)", () => {
     // #then the marker is ignored and the client falls back to unknown
     expect(statusOf(report, "opencode").status).toBe("unknown");
     expect(statusOf(report, "opencode").live).toEqual([]);
+    expect(selfcheck.readMarkers(stateDir).map((marker: any) => marker.pid)).toEqual([4242]);
   });
 
   test("the per-call client is never given a loaded identity", () => {
