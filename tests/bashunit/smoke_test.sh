@@ -713,6 +713,57 @@ function test_smoke_1074_managed_zsh_resolves_herdr_through_the_provenance_wrapp
   assert_success
 }
 
+# A pane restored from session.json has its agent's resume command injected
+# about half a second after its shell is spawned, so that shell never reaches
+# an interactive prompt. zsh-defer runs its queue when the shell goes idle, so
+# a report deferred that way stayed queued for the pane's whole life and the
+# sidebar row kept herdr's native marks instead of this machine's glyphs
+# (observed 2026-09-28 on three restored panes). `zsh -fc` puts the deployed
+# .zshrc in exactly that state -- no prompt, immediate exit -- and it sources
+# the real deployed zsh-defer on the way, so a return to deferral leaves the
+# stub's log absent rather than merely late.
+#
+# The state names are herdr's own vocabulary and belong in the assertion; the
+# glyphs behind them are presentation this machine may retune, so matching
+# them here would turn a taste change red. The machine token is asserted as
+# present rather than by value for the same reason, and because its value is
+# bound per machine role.
+function test_smoke_1077_the_pane_glyph_report_does_not_wait_for_an_idle_shell() {
+  _bats_test_init 1077 'the pane glyph report reaches herdr from a shell that never goes idle'
+  local work="$BATS_TEST_TMPDIR/pane-glyph-report"
+  mkdir -p "$work"
+
+  # HERDR_BIN_PATH is the block's own injection point, so the report travels
+  # its real path and only the binary at the end of it is replaced.
+  cat > "$work/herdr" <<'STUB'
+#!/bin/sh
+printf '%s\n' "$*" > "$HERDR_REPORT_LOG"
+STUB
+  chmod +x "$work/herdr"
+
+  run env HERDR_PANE_ID=w0:p0 HERDR_BIN_PATH="$work/herdr" \
+    HERDR_REPORT_LOG="$work/report.log" zsh -fc 'source "$HOME/.zshrc"'
+  assert_success
+
+  # The report is disowned so it can outlive the shell that started it, which
+  # leaves its completion unordered against that shell's exit. Poll for the
+  # log the stub writes rather than assume either order; a report that never
+  # happens exhausts the bound and fails on the assertions below.
+  local waited=0
+  while [[ ! -s "$work/report.log" && $waited -lt 100 ]]; do
+    sleep 0.05
+    waited=$((waited + 1))
+  done
+
+  assert_file_contains "$work/report.log" 'pane report-metadata w0:p0 '
+  assert_file_contains "$work/report.log" '--source mms\.machine'
+  assert_file_contains "$work/report.log" '--token machine='
+  local state
+  for state in blocked done working idle unknown; do
+    assert_file_contains "$work/report.log" "--state-label $state="
+  done
+}
+
 function test_smoke_1052_herdr_child_and_consult_contracts_use_allocator_owned_p() {
   _bats_test_init 1052 'the deployed reap contract and herdr-child agree on pair addressing'
   # The reap/verify/reply flow itself is owned by scripts_test.sh, which runs

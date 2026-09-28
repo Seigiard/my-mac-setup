@@ -143,10 +143,16 @@ export PATH="$HOME/.bun/bin:$PATH"
 # briefcase for the work laptop, house for the personal one, rack for the home
 # server. The same call reports a glyph per agent state, which `state_text`
 # renders: herdr's own state glyphs are fixed to two presets and `state_icon`
-# takes no rules, so a set of our own has to arrive as state labels. Deferred
-# past the first prompt — these are presentation only and have no business
-# delaying a prompt. Panes whose shell has not reported yet keep herdr's
-# native marks.
+# takes no rules, so a set of our own has to arrive as state labels.
+# The report runs in the background rather than through zsh-defer. zsh-defer
+# waits for the shell to go idle at a prompt, and a pane restored from
+# session.json never reaches one: herdr spawns the shell and injects the
+# agent's resume command about half a second later, so the deferred job stays
+# queued until the agent exits — the pane keeps herdr's native marks for its
+# whole life. Backgrounding keeps the call (~30ms) off the prompt's path
+# without making it wait for an idle shell that may never come. A pane on a
+# machine without this dotfiles checkout still reports nothing and falls back
+# to herdr's native marks, which is the intended fallback.
 {{- $machineGlyph := dict "mbp2026" "\U000F00D6" "mbp2021" "\U000F02DC" "server" "\U000F048B" }}
 {{- $stateGlyph := dict "blocked" "\U000F0026" "done" "\U000F05E0" "working" "\U000F0AA1" "idle" "\U000F0766" "unknown" "\U000F01D8" }}
 
@@ -163,11 +169,7 @@ if [[ -n "$HERDR_PANE_ID" ]]; then
       --state-label 'idle={{ index $stateGlyph "idle" }}' \
       --state-label 'unknown={{ index $stateGlyph "unknown" }}' > /dev/null 2>&1
   }
-  if (( $+functions[zsh-defer] )); then
-    zsh-defer _herdr_report_machine
-  else
-    _herdr_report_machine
-  fi
+  _herdr_report_machine &!
 fi
 
 # -------------------------------------------
