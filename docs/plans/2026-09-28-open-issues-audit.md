@@ -8,7 +8,7 @@ For each group, read every issue and comment, check current source and relevant 
 
 - [x] U1 · Agent permissions and isolation: #215, #232, #278; resolve the revmux/nono research and separate scope.
 - [x] U2 · Review workflows: #243, #249, #284, #353.
-- [ ] U3 · Herdr and client integrations: #230, #239, #242, #250, #257.
+- [x] U3 · Herdr and client integrations: #230, #239, #242, #250, #257.
 - [ ] U4 · Agent Intercom: #253, #294, #296, #297, #312, #313, #315, #316.
 - [ ] U5 · Environment maintenance and hooks: #247, #255, #262, #275, #347, #365.
 - [ ] U6 · Verify coverage and cross-links, review the completed audit, and resolve clear findings.
@@ -33,3 +33,10 @@ U1–U5: every listed issue has a source-grounded verdict; required GitHub edits
 - [#249](https://github.com/Seigiard/my-mac-setup/issues/249) and [#353](https://github.com/Seigiard/my-mac-setup/issues/353): updated the source baseline for extended lenses and `efficiency`. Clarified nine versus ten experiment agents, concurrency policy, and missing-report attribution. Measurement work remains open.
 - [#284](https://github.com/Seigiard/my-mac-setup/issues/284): retained and clarified ownership. The pair executable still treats failed tab closure as fatal before report publication, despite removal of its old named review consumers.
 - Evidence: PR #366 / `13f06f5`, `home/private_dot_config/revmux/prompts/profiles/lean.md`, and `executable_se-external-leg-pair:158–179,519–522`. GitHub state, labels, bodies and comments were reread. No runtime reproduction was attempted.
+
+### U3
+
+- [#239](https://github.com/Seigiard/my-mac-setup/issues/239): updated and moved to `needs-info`. The old cwd record reader and the extracted sidebar location consumer differ. Define the producer/consumer contract before implementation.
+- [#242](https://github.com/Seigiard/my-mac-setup/issues/242): updated notification policy, historical SDK evidence and short headless-session lifetime requirements.
+- [#230](https://github.com/Seigiard/my-mac-setup/issues/230), [#250](https://github.com/Seigiard/my-mac-setup/issues/250), [#257](https://github.com/Seigiard/my-mac-setup/issues/257): retained existing scope; comments record remaining pilot/deployment evidence.
+- Evidence: OpenCode adapter, Pi updater, Herdr installer/configuration, ADR-0020 and Pane Labels pin `aba61eb788c5fe0630dc570d96fd14683e2f63c7`. All five issue comments and both body changes were reread; no client/UI/remote deployment probe was run.
