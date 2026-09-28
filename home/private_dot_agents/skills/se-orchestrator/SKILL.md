@@ -5,7 +5,8 @@ description: Execute a plan through its checklist — take the first unchecked i
 
 # Execute a plan through its checklist
 
-The plan file is the state. The first unchecked box is where you continue. Nothing else is stored.
+The checklist file holds the state: progress and one fixed review base. The first unchecked box
+is where you continue.
 
 Four rules carry the whole workflow:
 
@@ -18,7 +19,7 @@ Rule 2 is why there is no journal: a commit that exists proves its box is checke
 
 ## Step 1 — Put a checklist in place
 
-Read the plan. When it already carries a checklist, adopt it unchanged.
+Read the plan. When it already carries a checklist, preserve its items and done conditions.
 
 Otherwise derive one and show it to the user before the first code edit. This is the only gate in the run; everything after it runs to the end or to a blocker.
 
@@ -28,14 +29,24 @@ Otherwise derive one and show it to the user before the first code edit. This is
 
 The checklist lives inside the plan when the plan is writable, otherwise in `TODO.md` beside it. Exactly one file holds it.
 
+Before the first implementation edit, record `Review base: <full commit SHA>` beside the
+checklist. For a fresh plan, use the current `HEAD`. If implementation commits already exist,
+recover the commit before the first one from the plan and git history; ask when that boundary
+is unclear. Reuse the recorded SHA on every resume. Verify that it resolves and is an ancestor
+of `HEAD`; if history was rewritten, re-establish the original boundary rather than resetting
+it to the current `HEAD`. Include the base record in the first item commit.
+
 ```
 ## Progress
+
+Review base: <full commit SHA before the first implementation change>
 
 - [x] U1 · state library
 - [ ] U2 · engine skeleton
 ```
 
-**Done when:** every item has a stated done condition and the user has accepted the list.
+**Done when:** every item has a stated done condition, the user has accepted the list, and the
+checklist file records a valid review base covering all implementation work.
 
 ## Step 2 — Work the first unchecked item
 
@@ -86,11 +97,9 @@ A blocked item stays unchecked and gains one line under it:
 
 ## Step 4 — Finish
 
-1. Run `se-code-review` once over the completed work.
-2. Apply findings that are clear improvements and reversible edits. Leave contradictions between reviewers, taste calls, and design decisions to the user.
-3. A finding asking for a new test passes the oracle gate first: name the consumer, the observable failure, and an oracle independent of the reviewed diff. When the line will not complete, keep the finding advisory and say why.
-4. Re-run the verification and commit the fixes.
-5. Report what landed, what stayed blocked, and what the review left open.
+1. Run `code-review base:<recorded SHA> plan:<plan path>` and let its review-fix loop finish. The base is the one in the checklist file; the plan is goal context, not a file filter. Review the full cumulative diff from that base, including any in-scope uncommitted work. That skill owns finding selection, the test-oracle gate, verification, and confirming rounds.
+2. Commit its verified fixes under this workflow's commit authorization. An incomplete or blocked review remains incomplete or blocked.
+3. Report what landed, what stayed blocked, and what the review left open.
 
 Push and PR are a separate explicit request routed through `make-pr`.
 

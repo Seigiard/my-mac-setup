@@ -18,6 +18,16 @@ receives symlink adapters under `~/.claude/skills`; OpenCode and Pi discover
 `open-questions` is explicit-only: Claude and Pi receive a manual skill
 adapter, while OpenCode receives a command adapter only.
 
+`code-review` is the default code-review skill for all three clients. This
+repository-owned workflow runs revmux, fixes supported
+critical and major findings plus unambiguous minors, and repeats after any fixes.
+The upstream `mattpocock/skills` skill with the same name is excluded from wildcard
+installation.
+
+After fixes, `code-review` selects `final` for contained changes and the starting
+profile for new review surface. It announces the choice without asking again and
+preserves an explicit user-selected profile. A final pass does not claim minor coverage.
+
 `handoff` is absent and is not managed. `linear-cli`, not `linear`, is the
 selected upstream skill name.
 

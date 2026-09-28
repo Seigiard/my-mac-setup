@@ -6,6 +6,16 @@ Talk to me in Russian by default. This covers only what is addressed to me: repl
 
 That English is plain English: short sentences, common words, one idea per sentence. Technical terms, identifiers and numbers stay exact.
 
+<important if="you are reviewing code or running a pre-PR review">
+
+Use `code-review` by default; it runs the revmux review-fix loop. When the user or calling workflow supplies a review rubric or names another skill, follow that choice directly.
+
+Route upstream `ce-code-review` and `ce-simplify-code` handoffs through `code-review`, once for a combined simplify/review step. Preserve the caller's scope and use `mode:agent` for a report-only request.
+
+For follow-up revmux rounds, use the **Follow-up profile selection** policy in `code-review` without a separate approval question. It preserves an explicit user profile choice.
+
+</important>
+
 <important if="you are about to start, background, or wait on a long-running process — build, test run, dev server, migration, background agent, remote job">
 
 Read `~/.claude/shared/long-running-work.md` before launching. It carries the supervision contract: completion and progress signals, launch-path verification, observation cadence and the mechanism behind it, stall diagnosis, chosen vs imposed deadlines, ownership of the wait, and escalation when the state cannot be determined.

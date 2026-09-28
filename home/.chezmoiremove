@@ -27,3 +27,11 @@
 .agents/skills/se-plan
 .claude/skills/se-doc-review
 .claude/skills/se-plan
+
+# se-code-review is now code-review. Retire both old discovery paths.
+.agents/skills/se-code-review
+.claude/skills/se-code-review
+
+# Simplification now runs through revmux lenses in code-review.
+.agents/skills/se-simplify
+.claude/skills/se-simplify
