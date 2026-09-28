@@ -10353,6 +10353,7 @@ PY
   remove)
     [ ! -e "$TMPDIR/fail-remove" ] || exit 9
     rm -rf "$HOME/.agents/skills/local-skill"
+    rm -rf "$HOME/.claude/skills/local-skill"
     python3 - "$XDG_STATE_HOME/skills/.skill-lock.json" <<'PY'
 import json, sys
 path = sys.argv[1]
@@ -10375,6 +10376,8 @@ SH
   printf '%s\n' local-skill > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
   printf '%s\n' '{"version":3,"skills":{}}' > "$lock"
   printf '%s\n' original > "$canonical/local-skill/SKILL.md"
+  mkdir -p "$BATS_TEST_TMPDIR/home/.claude/skills/local-skill"
+  ln -s "$canonical/local-skill/SKILL.md" "$BATS_TEST_TMPDIR/home/.claude/skills/local-skill/SKILL.md"
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
@@ -10404,6 +10407,10 @@ import json, sys
 assert "local-skill" not in json.load(open(sys.argv[1]))["skills"]
 PY
   assert_success
+
+  run cat "$BATS_TEST_TMPDIR/home/.claude/skills/local-skill/SKILL.md"
+  assert_success
+  assert_output original
 
   : > "$BATS_TEST_TMPDIR/tmp/fail-remove"
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
