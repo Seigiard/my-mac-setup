@@ -354,19 +354,20 @@ PY
     valid_skill "$skill" || { fail "invalid skill name in global lock: $skill"; return 2; }
   done
   run_remove "${excluded[@]}" || remove_status=$?
+  EXCLUSION_RECOVERY_REQUIRED=1
   for skill in "${excluded[@]}"; do
     [ -n "$snapshot_root" ] && [ -d "$snapshot_root/$skill" ] || continue
     if ! rm -rf "${CANONICAL_ROOT:?}/$skill" ||
       ! cp -pR "$snapshot_root/$skill" "$CANONICAL_ROOT/$skill"; then
-      EXCLUSION_RECOVERY_REQUIRED=1
       fail "could not restore repository-owned skill after exclusion: $skill; recovery copy: $snapshot_root/$skill"
       return 1
     fi
     [ ! -e "$LOCK_PATH" ] || remove_lock_claim "$skill" || {
-      fail "could not remove conflicting lock claim after exclusion: $skill"
+      fail "could not remove conflicting lock claim after exclusion: $skill; recovery copy: $snapshot_root"
       return 1
     }
   done
+  EXCLUSION_RECOVERY_REQUIRED=0
   [ "$remove_status" -eq 0 ] || return "$remove_status"
   printf 'Excluded skills from %s: %s\n' "$source" "${excluded[*]}"
 }
@@ -539,12 +540,17 @@ sync() {
     repository_owns "$name" || continue
     collision=1
     if [ -d "$workdir/repository-owned/$name" ]; then
-      mv "$CANONICAL_ROOT/$name" "$workdir/upstream-$name" 2>/dev/null || true
-      mv "$workdir/repository-owned/$name" "$CANONICAL_ROOT/$name"
+      if ! {
+        if [ -e "$CANONICAL_ROOT/$name" ] || [ -L "$CANONICAL_ROOT/$name" ]; then
+          mv "$CANONICAL_ROOT/$name" "$workdir/upstream-$name"
+        fi
+      } || ! mv "$workdir/repository-owned/$name" "$CANONICAL_ROOT/$name"; then
+        fail "could not restore repository-owned skill after collision: $name; recovery copy: $workdir/repository-owned"
+        return 1
+      fi
     fi
     remove_lock_claim "$name" || {
-      rm -rf "$workdir"
-      fail "could not remove conflicting lock claim: $name"
+      fail "could not remove conflicting lock claim: $name; recovery copy: $workdir/repository-owned"
       return 1
     }
     fail "canonical skill collides with repository-owned skill: $name"

@@ -9695,7 +9695,7 @@ case "$3" in
       printf '%s\n' draft > "$HOME/.agents/skills/draft/SKILL.md"
     fi
     python3 - "$XDG_STATE_HOME/skills/.skill-lock.json" "$source" <<'PY'
-import json, sys
+import json, os, sys
 path, source = sys.argv[1:]
 with open(path, encoding="utf-8") as stream:
     data = json.load(stream)
@@ -9707,6 +9707,8 @@ else:
         "draft": {"source": source, "skillPath": "skills/in-progress/draft/SKILL.md"},
     }
 data["skills"].update(fixtures)
+if os.path.exists(os.environ['TMPDIR'] + '/two-owned'):
+    data['skills']['second'] = {'source': source, 'skillPath': 'skills/in-progress/second/SKILL.md'}
 with open(path, "w", encoding="utf-8") as stream:
     json.dump(data, stream)
 PY
@@ -9717,6 +9719,8 @@ PY
     for skill in "$@"; do
       case "$skill" in --global|--yes) continue ;; esac
       rm -rf "$HOME/.agents/skills/$skill"
+      # Fault injection: leave stale claims for the wrapper's real lock writer.
+      [ ! -e "$TMPDIR/two-owned" ] || continue
       python3 - "$XDG_STATE_HOME/skills/.skill-lock.json" "$skill" <<'PY'
 import json, sys
 path, skill = sys.argv[1:]
@@ -9728,6 +9732,7 @@ with open(path, "w", encoding="utf-8") as stream:
 PY
     done
     [ ! -e "$TMPDIR/deny-restore" ] || chmod 500 "$HOME/.agents/skills"
+    [ ! -e "$TMPDIR/deny-lock" ] || chmod 500 "$XDG_STATE_HOME/skills"
     ;;
 esac
 SH
@@ -9793,6 +9798,56 @@ import pathlib, sys
 diagnostic = sys.argv[1]
 location = diagnostic.split('recovery copy: ', 1)[1].splitlines()[0]
 assert (pathlib.Path(location) / 'SKILL.md').read_bytes() == b'REPOSITORY ORIGINAL\n\x00unrecorded bytes\n'
+PY
+  assert_success
+
+  # #given: two owned trees and stale upstream claims after removal.
+  rm -rf "$BATS_TEST_TMPDIR/tmp"/skills-*
+  mkdir -p "$canonical/draft" "$canonical/second"
+  printf 'REPOSITORY ORIGINAL\n\000unrecorded bytes\n' > "$canonical/draft/SKILL.md"
+  printf 'SECOND ORIGINAL\n\000different bytes\n' > "$canonical/second/SKILL.md"
+  printf '%s\n' draft second > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
+  : > "$BATS_TEST_TMPDIR/tmp/two-owned"
+
+  # #when: writable control restores both trees and removes both stale claims.
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$BATS_TEST_TMPDIR/manifest" bash "$SKILLS_WRAPPER" "${args[@]}"
+  assert_success
+  run python3 - "$canonical" "$lock" "$BATS_TEST_TMPDIR/tmp" <<'PY'
+import json, pathlib, sys
+canonical, lock, temporary = map(pathlib.Path, sys.argv[1:])
+assert (canonical / 'draft/SKILL.md').read_bytes() == b'REPOSITORY ORIGINAL\n\x00unrecorded bytes\n'
+assert (canonical / 'second/SKILL.md').read_bytes() == b'SECOND ORIGINAL\n\x00different bytes\n'
+assert set(json.loads(lock.read_text())['skills']) == {'stable'}
+assert not list(temporary.glob('skills-*'))
+PY
+  assert_success
+
+  # #when: real lock-directory permissions reject the first claim rewrite.
+  : > "$BATS_TEST_TMPDIR/tmp/deny-lock"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$BATS_TEST_TMPDIR/manifest" bash "$SKILLS_WRAPPER" "${args[@]}"
+  chmod 700 "$(dirname "$lock")"
+  rm -f "$BATS_TEST_TMPDIR/tmp/deny-lock"
+  assert_failure 1
+  diagnostic="$output"
+  assert_output --partial 'Permission denied'
+  assert_output --partial 'could not remove conflicting lock claim after exclusion: draft'
+  # #then: the unfinished second restore still has its only original in recovery.
+  run python3 - "$canonical" "$lock" "$BATS_TEST_TMPDIR/tmp" "$diagnostic" <<'PY'
+import json, pathlib, sys
+canonical, lock, temporary = map(pathlib.Path, sys.argv[1:4])
+assert (canonical / 'draft/SKILL.md').read_bytes() == b'REPOSITORY ORIGINAL\n\x00unrecorded bytes\n'
+assert not (canonical / 'second').exists()
+assert set(json.loads(lock.read_text())['skills']) == {'stable', 'draft', 'second'}
+copies = list(temporary.glob('skills-*/repository-owned'))
+assert len(copies) == 1, 'lock-claim failure deleted the recovery root with the unrestored second skill'
+assert (copies[0] / 'draft/SKILL.md').read_bytes() == b'REPOSITORY ORIGINAL\n\x00unrecorded bytes\n'
+assert (copies[0] / 'second/SKILL.md').read_bytes() == b'SECOND ORIGINAL\n\x00different bytes\n'
+location = sys.argv[4].split('recovery copy: ', 1)[1].splitlines()[0]
+assert pathlib.Path(location) == copies[0], repr(sys.argv[4])
 PY
   assert_success
 }
@@ -10271,8 +10326,11 @@ function test_scripts_277_skills_sync_restores_repository_owned_wildcard_collisi
 case "$3" in
   add)
     printf '%s\n' upstream > "$HOME/.agents/skills/local-skill/SKILL.md"
+    if [ -e "$TMPDIR/two-collisions" ]; then
+      printf '%s\n' upstream-second > "$HOME/.agents/skills/second/SKILL.md"
+    fi
     python3 - "$XDG_STATE_HOME/skills/.skill-lock.json" <<'PY'
-import json, sys
+import json, os, sys
 path = sys.argv[1]
 with open(path, encoding="utf-8") as stream:
     data = json.load(stream)
@@ -10280,9 +10338,17 @@ data["skills"]["local-skill"] = {
     "source": "example/upstream-skills",
     "skillPath": "skills/in-progress/local-skill/SKILL.md",
 }
+if os.path.exists(os.environ['TMPDIR'] + '/two-collisions'):
+    data['skills']['second'] = {
+        'source': 'example/upstream-skills',
+        'skillPath': 'skills/in-progress/second/SKILL.md',
+    }
 with open(path, "w", encoding="utf-8") as stream:
     json.dump(data, stream)
 PY
+    [ ! -e "$TMPDIR/deny-lock" ] || chmod 500 "$XDG_STATE_HOME/skills"
+    [ ! -e "$TMPDIR/deny-restore" ] || chmod 500 "$HOME/.agents/skills"
+    [ ! -e "$TMPDIR/deny-snapshot" ] || chmod 500 "$TMPDIR"/skills-sync.*/repository-owned
     ;;
   remove)
     [ ! -e "$TMPDIR/fail-remove" ] || exit 9
@@ -10352,6 +10418,64 @@ import json, sys
 assert "local-skill" not in json.load(open(sys.argv[1]))["skills"]
 PY
   assert_success
+  skills_collision_recovery_cases "$stub" "$canonical" "$lock" "$manifest"
+}
+
+skills_collision_recovery_cases() {
+  local stub="$1" canonical="$2" lock="$3" manifest="$4" mode diagnostic snapshot
+  [ "$(id -u)" != 0 ] || skip 'collision recovery permission failure requires a non-root user'
+  # #given: two originals overwritten by the upstream wildcard installation.
+  printf '%s\n' local-skill second > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
+  printf '%s\n' 'example/upstream-skills *' > "$manifest"
+  : > "$BATS_TEST_TMPDIR/tmp/two-collisions"
+  for mode in writable deny-snapshot deny-restore deny-lock; do
+    mkdir -p "$canonical/local-skill" "$canonical/second"
+    printf 'REPOSITORY ORIGINAL\n\000unrecorded bytes\n' > "$canonical/local-skill/SKILL.md"
+    printf 'SECOND ORIGINAL\n\000different bytes\n' > "$canonical/second/SKILL.md"
+    printf '%s\n' '{"version":3,"skills":{}}' > "$lock"
+    : > "$BATS_TEST_TMPDIR/tmp/$mode"
+    # #when: only directory permissions differ from the writable control.
+    run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+      XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+      SKILLS_MANIFEST="$manifest" bash "$SKILLS_WRAPPER" sync
+    chmod 700 "$canonical" "$(dirname "$lock")"
+    for snapshot in "$BATS_TEST_TMPDIR/tmp"/skills-sync.*/repository-owned; do
+      [ ! -d "$snapshot" ] || chmod 700 "$snapshot"
+    done
+    rm -f "$BATS_TEST_TMPDIR/tmp/$mode"
+    assert_failure 1
+    diagnostic="$output"
+    # #then: even a rejected collision must not lose either user's original.
+    run python3 - "$canonical" "$lock" "$BATS_TEST_TMPDIR/tmp" "$mode" "$diagnostic" <<'PY'
+import json, pathlib, sys
+canonical, lock, temporary = map(pathlib.Path, sys.argv[1:4])
+mode, diagnostic = sys.argv[4:]
+originals = {
+    'local-skill': b'REPOSITORY ORIGINAL\n\x00unrecorded bytes\n',
+    'second': b'SECOND ORIGINAL\n\x00different bytes\n',
+}
+snapshots = list(temporary.glob('skills-sync.*/repository-owned'))
+for name, original in originals.items():
+    candidates = [canonical / name / 'SKILL.md'] + [root / name / 'SKILL.md' for root in snapshots]
+    assert any(path.is_file() and path.read_bytes() == original for path in candidates), f'{mode}: original bytes lost for {name}'
+if mode == 'writable':
+    assert json.loads(lock.read_text())['skills'] == {}
+    assert not list(temporary.glob('skills-sync.*'))
+    assert diagnostic.splitlines() == [
+        'Installing skills from example/upstream-skills: *',
+        'skills: canonical skill collides with repository-owned skill: local-skill',
+        'skills: canonical skill collides with repository-owned skill: second',
+    ]
+else:
+    assert 'Permission denied' in diagnostic, diagnostic
+    assert len(snapshots) == 1
+    location = diagnostic.split('recovery copy: ', 1)[1].splitlines()[0]
+    assert pathlib.Path(location) == snapshots[0], diagnostic
+    assert set(json.loads(lock.read_text())['skills']) == {'local-skill', 'second'}
+PY
+    assert_success
+    rm -rf "$BATS_TEST_TMPDIR/tmp"/skills-sync.*
+  done
 }
 
 function test_scripts_278_skills_sync_blocks_unsafe_canonical_trees() {
@@ -11705,6 +11829,7 @@ pins_fixture() {
   # Own the inventory and drift states: shipped pin maintenance must not move
   # positional answers onto a different offer. Keep a second archive as a
   # declined neighbor so accepting the wrong target still changes the verdict.
+  # The unrelated file release is not an offer; its URL and checksum must survive.
   cat >"$PINS_EXTERNAL" <<'EXTERNALS'
 [".oh-my-zsh"]
     type = "archive"
@@ -11738,6 +11863,10 @@ pins_fixture() {
     executable = true
     url = "https://github.com/dmtrKovalenko/fff/releases/download/v1.0.0/fff-mcp-{{ $fffMcpTarget }}"
     checksum.sha256 = "{{ $fffMcpSha256 }}"
+[".local/bin/unrelated-release"]
+    type = "file"
+    url = "https://github.com/example/unrelated/releases/download/v7.2.0/tool.zip"
+    checksum.sha256 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 EXTERNALS
   cat >"$PINS_MISE" <<'MISE'
 [tools]
@@ -11863,7 +11992,7 @@ pins_expected_fff_bump() {
     /\$fffMcpSha256 = "/ {
       sub(/\$fffMcpSha256 = "[0-9a-f]+"/, "$fffMcpSha256 = \"" sum[target] "\"")
     }
-    # Change the fff-mcp release URL only; preserve both archive neighbors.
+    # Preserve the unrelated release URL and literal checksum, and both archives.
     /releases\/download\// && /fff-mcp-/ {
       sub(/\/releases\/download\/[^\/"]+\//, "/releases/download/v99.0.0/")
     }
