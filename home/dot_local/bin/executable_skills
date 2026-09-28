@@ -19,6 +19,7 @@ SKILLS_HEARTBEAT="${SKILLS_HEARTBEAT:-30}"
 # stays the deadline and is measured against elapsed wall time.
 SKILLS_POLL_INTERVAL="${SKILLS_POLL_INTERVAL:-0.2}"
 NPX_PID=''
+EXCLUSION_RECOVERY_REQUIRED=0
 
 usage() {
   printf '%s\n' 'Usage: skills [--verbose] {add SOURCE [SKILL...]|remove SOURCE SKILL...|update [SKILL...]|sync}' >&2
@@ -319,6 +320,7 @@ manifest_source_uses_wildcard() {
 exclude_source_skills() {
   local source="$1" snapshot_root="$2" matches skill remove_status=0
   shift 2
+  EXCLUSION_RECOVERY_REQUIRED=0
   [ "$#" -gt 0 ] || return 0
   matches="$(python3 - "$LOCK_PATH" "$source" "$@" <<'PY'
 import fnmatch
@@ -354,11 +356,12 @@ PY
   run_remove "${excluded[@]}" || remove_status=$?
   for skill in "${excluded[@]}"; do
     [ -n "$snapshot_root" ] && [ -d "$snapshot_root/$skill" ] || continue
-    rm -rf "${CANONICAL_ROOT:?}/$skill" || return 1
-    cp -pR "$snapshot_root/$skill" "$CANONICAL_ROOT/$skill" || {
-      fail "could not restore repository-owned skill after exclusion: $skill"
+    if ! rm -rf "${CANONICAL_ROOT:?}/$skill" ||
+      ! cp -pR "$snapshot_root/$skill" "$CANONICAL_ROOT/$skill"; then
+      EXCLUSION_RECOVERY_REQUIRED=1
+      fail "could not restore repository-owned skill after exclusion: $skill; recovery copy: $snapshot_root/$skill"
       return 1
-    }
+    fi
     [ ! -e "$LOCK_PATH" ] || remove_lock_claim "$skill" || {
       fail "could not remove conflicting lock claim after exclusion: $skill"
       return 1
@@ -526,7 +529,9 @@ sync() {
     run_add "$source" "$@" || { status=$?; rm -rf "$workdir"; return "$status"; }
     if [ -n "${exclusions[*]:-}" ]; then
       exclude_source_skills "$source" "$workdir/repository-owned" "${exclusions[@]}" || {
-        status=$?; rm -rf "$workdir"; return "$status"
+        status=$?
+        [ "$EXCLUSION_RECOVERY_REQUIRED" -eq 1 ] || rm -rf "$workdir"
+        return "$status"
       }
     fi
   done
@@ -611,7 +616,7 @@ add() {
   if [ -n "${exclusions[*]:-}" ]; then
     exclude_source_skills "$source" "$exclusion_workdir/repository-owned" "${exclusions[@]}" || {
       status=$?
-      rm -rf "$exclusion_workdir"
+      [ "$EXCLUSION_RECOVERY_REQUIRED" -eq 1 ] || rm -rf "$exclusion_workdir"
       return "$status"
     }
     rm -rf "$exclusion_workdir"

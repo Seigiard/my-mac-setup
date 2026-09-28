@@ -9680,11 +9680,74 @@ with open(path, "w", encoding="utf-8") as stream:
     json.dump(data, stream)
 PY
     done
+    [ ! -e "$TMPDIR/deny-restore" ] || chmod 500 "$HOME/.agents/skills"
     ;;
 esac
 SH
   chmod +x "$stub/npx"
   printf '%s' "$stub"
+}
+
+skills_exclusion_recovery_case() {
+  local command="$1" stub="$2" canonical="$BATS_TEST_TMPDIR/home/.agents/skills"
+  local lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json" diagnostic
+  local args=(sync)
+  [ "$command" != add ] || args=(add owner/repo '*' '!*/in-progress/*')
+  [ "$(id -u)" != 0 ] || skip 'restoration permission failure requires a non-root user'
+
+  # #given: repository-owned bytes differ from the upstream installation.
+  rm -f "$BATS_TEST_TMPDIR/tmp/fail-remove"
+  mkdir -p "$canonical/draft"
+  printf '%s\n' draft > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
+  printf '%s\n' 'owner/repo * !*/in-progress/*' > "$BATS_TEST_TMPDIR/manifest"
+  printf 'REPOSITORY ORIGINAL\n\000unrecorded bytes\n' > "$canonical/draft/SKILL.md"
+
+  # #when: the writable control must restore the original and clean its snapshot.
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$BATS_TEST_TMPDIR/manifest" bash "$SKILLS_WRAPPER" "${args[@]}"
+  assert_success
+  # #then
+  run python3 - "$canonical" "$lock" "$BATS_TEST_TMPDIR/tmp" <<'PY'
+import json, pathlib, sys
+canonical, lock, temporary = map(pathlib.Path, sys.argv[1:])
+assert (canonical / 'draft/SKILL.md').read_bytes() == b'REPOSITORY ORIGINAL\n\x00unrecorded bytes\n'
+assert 'draft' not in json.loads(lock.read_text())['skills']
+assert not list(temporary.glob('skills-sync.*'))
+assert not list(temporary.glob('skills-add.*'))
+PY
+  assert_success
+
+  # #given: external removal revokes write permission before the real restore.
+  : > "$BATS_TEST_TMPDIR/tmp/deny-restore"
+  # #when
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$BATS_TEST_TMPDIR/manifest" bash "$SKILLS_WRAPPER" "${args[@]}"
+  # Restore fixture permissions before any assertion can abort cleanup.
+  chmod 700 "$canonical"
+  rm -f "$BATS_TEST_TMPDIR/tmp/deny-restore"
+  assert_failure 1
+  diagnostic="$output"
+  # #then: the reported copy must still contain the original bytes.
+  assert_output --partial 'Permission denied'
+  assert_output --partial 'could not restore repository-owned skill after exclusion: draft'
+  run python3 - "$BATS_TEST_TMPDIR/tmp" <<'PY'
+import pathlib, sys
+copies = list(pathlib.Path(sys.argv[1]).glob('skills-*/repository-owned/draft/SKILL.md'))
+assert len(copies) == 1, 'original recovery snapshot was deleted'
+assert copies[0].read_bytes() == b'REPOSITORY ORIGINAL\n\x00unrecorded bytes\n'
+PY
+  assert_success
+  output="$diagnostic"
+  assert_output --partial 'recovery copy: '
+  run python3 - "$diagnostic" <<'PY'
+import pathlib, sys
+diagnostic = sys.argv[1]
+location = diagnostic.split('recovery copy: ', 1)[1].splitlines()[0]
+assert (pathlib.Path(location) / 'SKILL.md').read_bytes() == b'REPOSITORY ORIGINAL\n\x00unrecorded bytes\n'
+PY
+  assert_success
 }
 
 function test_scripts_272_skills_add_is_global_isolated_and_preserves_cwd() {
@@ -10359,6 +10422,7 @@ PY
   assert_success
   assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<add><example/upstream-skills><--skill><\*><--global>'
   assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<remove><--global><draft><--yes>$'
+  skills_exclusion_recovery_case sync "$stub"
 }
 
 function test_scripts_3071_skills_add_persists_and_applies_wildcard_path_exclusions() {
@@ -10409,6 +10473,7 @@ import json, sys
 assert "draft" not in json.load(open(sys.argv[1]))["skills"]
 PY
   assert_success
+  skills_exclusion_recovery_case add "$stub"
 }
 
 function test_scripts_3072_skills_remove_points_wildcard_sources_to_exclusion_syntax() {
