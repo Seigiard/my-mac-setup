@@ -378,7 +378,8 @@ function test_smoke_018_opencode_reads_the_shared_writing_style_file_via() {
 function test_smoke_019_clients_resolve_model_invocable_skills_from_agents() {
   _bats_test_init 19 'clients resolve model-invocable skills from canonical .agents trees'
   local source_skills="$SOURCE_ROOT/private_dot_agents/skills"
-  local skill_dir skill sub sub_name probe
+  local skill_dir skill resources resource relative directory filename
+  local resource_count=0
   [[ -d "$source_skills" ]] || skip "repository checkout is not mounted"
 
   for skill_dir in "$source_skills"/*; do
@@ -387,19 +388,29 @@ function test_smoke_019_clients_resolve_model_invocable_skills_from_agents() {
     assert_success
     assert_output "$HOME/.agents/skills/$skill/SKILL.md"
     assert_file_exists "$HOME/.agents/skills/$skill/SKILL.md"
+    assert_file_exists "$HOME/.claude/skills/$skill/SKILL.md"
 
     # A skill names its own reference and script files relative to the base
     # directory the client reports, which for Claude is ~/.claude/skills/<skill>.
     # Deploying SKILL.md alone leaves every such path dangling there, so an agent
     # that follows the skill's own instructions reads nothing.
-    for sub in "$HOME/.agents/skills/$skill"/*/; do
-      [ -d "$sub" ] || continue
-      sub_name="$(basename "$sub")"
-      probe="$(find "$sub" -maxdepth 1 -type f | head -n 1)"
-      [ -n "$probe" ] || continue
-      assert_file_exists "$HOME/.claude/skills/$skill/$sub_name/$(basename "$probe")"
-    done
+    # Source owns membership; missing deployed directories must not erase checks.
+    run find "$skill_dir" -type f ! -path "$skill_dir/SKILL.md"
+    assert_success
+    resources="$output"
+    while IFS= read -r resource; do
+      [ -n "$resource" ] || continue
+      relative="${resource#"$skill_dir/"}"
+      directory="$(dirname "$relative")"
+      filename="$(basename "$relative")"
+      # Supporting scripts use chezmoi's executable_ source prefix.
+      relative="$directory/${filename#executable_}"
+      assert_file_exists "$HOME/.agents/skills/$skill/$relative"
+      assert_file_exists "$HOME/.claude/skills/$skill/$relative"
+      resource_count=$((resource_count + 1))
+    done <<< "$resources"
   done
+  assert test "$resource_count" -gt 0
 }
 
 function test_smoke_020_explicit_only_workflow_keeps_manual_invocation_b() {
