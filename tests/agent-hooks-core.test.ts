@@ -1066,8 +1066,10 @@ describe("fff-grep-guard fail-open (R4)", () => {
   });
 });
 
-describe("webfetch-markdown-hint applicability (KTD8)", () => {
-  test("the hint is the only shipped policy that is not block-capable", () => {
+const CONTEXT_ONLY_POLICIES = ["webfetch-markdown-hint", "agent-doc-writing-hint"];
+
+describe("context-only policy applicability (KTD8)", () => {
+  test("the hints are the only shipped policies that are not block-capable", () => {
     // #given the shipped registry
     // #when all policies outside the block-capable checks are listed,
     // including context-only policies that declare a canary
@@ -1077,16 +1079,18 @@ describe("webfetch-markdown-hint applicability (KTD8)", () => {
 
     // #then a context-only policy added to policies/index.ts has to be named
     // here, because nothing else in this suite would notice it shipping
-    expect(unobserved).toEqual(["webfetch-markdown-hint"]);
+    expect(unobserved).toEqual(CONTEXT_ONLY_POLICIES);
   });
 
-  test("the context-only policy is derived Claude-only", () => {
+  test("every context-only policy is derived Claude-only", () => {
     // #given the shipped registry
-    // #when applicability is derived for the hint policy
-    const clients = core.applicableClients(core.CORE_REGISTRY, policyByName("webfetch-markdown-hint"));
+    // #when applicability is derived for each context-only policy
+    const derived = CONTEXT_ONLY_POLICIES.map((name) =>
+      core.applicableClients(core.CORE_REGISTRY, policyByName(name)),
+    );
 
-    // #then only the profile that can express additionalContext carries it
-    expect(clients).toEqual(["claude"]);
+    // #then only the profile that can express additionalContext carries them
+    expect(derived).toEqual(CONTEXT_ONLY_POLICIES.map(() => ["claude"]));
   });
 
   test("a profile that has the tool but not the outcome never runs it", () => {
@@ -1112,14 +1116,16 @@ describe("webfetch-markdown-hint applicability (KTD8)", () => {
   // The verdict of every hint fixture is asserted exactly by the corpus loop
   // above; what remains here is the declaration that keeps the policy off the
   // block path — and out of the selfcheck canary set — in the first place.
-  test("the hint policy is not block-capable, so it can never deny", () => {
-    // #given the shipped hint policy
-    const policy = policyByName("webfetch-markdown-hint");
+  test("a hint policy is not block-capable, so it can never deny", () => {
+    for (const name of CONTEXT_ONLY_POLICIES) {
+      // #given a shipped hint policy
+      const policy = policyByName(name);
 
-    // #when its outcomes are read
-    // #then block is not among them
-    expect(policy.outcomes).toEqual(["context"]);
-    expect(core.isBlockCapable(policy)).toBe(false);
+      // #when its outcomes are read
+      // #then block is not among them
+      expect(`${name}: ${policy.outcomes.join(",")}`).toBe(`${name}: context`);
+      expect(core.isBlockCapable(policy)).toBe(false);
+    }
   });
 });
 

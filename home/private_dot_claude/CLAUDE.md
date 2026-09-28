@@ -34,6 +34,12 @@ Read `~/.claude/shared/agent-intercom-contract.md`. It carries the tool set and 
 
 </important>
 
+<important if="you are writing or rewriting the prose in a skill, an AGENTS.md or CLAUDE.md, a client command, an output style, or another document an agent reads — including its chezmoi source in `my-mac-setup`, where the live path does not exist yet">
+
+Read the `writing-for-agents` skill first.
+
+</important>
+
 ## Executor MCP
 
 Executor is the `executor` MCP server; use its `execute` tool when a task needs an API integration exposed through its sandboxed TypeScript `tools` object. In Claude Code its tools are named `mcp__executor__*`; other clients may use a different prefix.
