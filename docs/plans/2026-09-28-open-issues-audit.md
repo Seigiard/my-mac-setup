@@ -11,8 +11,7 @@ For each group, read every issue and comment, check current source and relevant 
 - [x] U3 · Herdr and client integrations: #230, #239, #242, #250, #257.
 - [x] U4 · Agent Intercom: #253, #294, #296, #297, #312, #313, #315, #316.
 - [x] U5 · Environment maintenance and hooks: #247, #255, #262, #275, #347, #365.
-- [ ] U6 · Verify coverage and cross-links, review the completed audit, and resolve clear findings.
-      blocked 2026-09-28: se-code-review preflight refused the existing .codegraph symlink outside the scan root; no peer was launched. Resume after an operator decision on the scan boundary or review method.
+- [x] U6 · Verify coverage and cross-links, review the completed audit, and resolve clear findings.
 
 ## Done conditions
 
@@ -62,10 +61,13 @@ U1–U5: every listed issue has a source-grounded verdict; required GitHub edits
 - [#365](https://github.com/Seigiard/my-mac-setup/issues/365): corrected the poll writer/current location and the termination oracle's normal-timeout ambiguity. Retained the historical failure and regression requirement.
 - Evidence: current source, `c5116f2`/`ccf4231`, upstream tap issue #2, OpenCode event source at `3c893f0a166cfc433819b4eff65d2e6c7696a1c9`, and SQLite documentation linked in #255. All mutations/comments were reread. No DB, deployment or test workload was run; this audit adds zero tests because it changes no runtime behavior.
 
-### U6 — blocked after final tracker verification
+### U6 — verification and review
 
 - Requeried every page of open issues. The final set is the original 26 minus #243 plus #368: still 26 open issues.
 - Verified an audit comment on every original issue, one category/state label per issue, `not_planned` for #243, and reciprocal #278/#368 scope links. Totals: 19 original bodies updated, six scopes retained with comments, one closed, one new issue.
 - The requested `se-code-review` was invoked once through `se-external-leg-pair` with medium complexity/high effort. Its mandatory initial scan refused before peer creation: `.codegraph` resolves outside the checkout to `/Users/seigiard/.omo/codegraph/projects/my-mac-setup-a6748612ff186e82`. Observed terminal marker: `AUDIT_PAIR_EXIT=2`. No peer report or resolved selection was published; no waiver was used.
 - The owned supervisor pane was closed after observing completion. Private review prompts and launcher files were removed. Existing `.codegraph` was preserved.
-- Verification is tracker rereads, source evidence and `git diff --check`. No runtime/deployment behavior changed, so a build, Docker apply or permanent test would not prove the audit's claims. The missing cross-model review is a blocker, not a passing review verdict.
+- The maintainer then selected revmux instead. Round `docs-open-issues-audit/01-initial` completed in 15m9s with exit 1 (findings), five of five sources and no degradation. The resolved `lean` roster included extended lenses and `efficiency`. `docs+tests` and `lean` raised nothing; their recorded activity shows successful inspection rather than unavailable tools.
+- Revmux retained two refined minor documentation findings. #353 incorrectly derived retention from final surviving findings; its method now reads all three stage snapshots, distinguishes merges/removals/reclassification, and requires independent accuracy adjudication. #243 now has a current-state supersession header; its historical incident, closure reason and labels remain intact. Both bodies and follow-up comments were reread through GitHub.
+- The audit decisions remain: 19 open-issue bodies updated, six scopes retained, #243 closed, and #368 created. Review also updated the closed #243 body. No review findings remain unresolved. The round archive is `.revmux/tasks/docs-open-issues-audit/01-initial/`; it preserves the pre-fix input and report.
+- Verification is tracker rereads, source/archive evidence and `git diff --check`. No runtime/deployment behavior changed, so a build, Docker apply or permanent test would not prove these prose corrections. Corrections were checked directly; no second model round was run. The owned revmux pane was closed after its terminal exit marker was observed.
