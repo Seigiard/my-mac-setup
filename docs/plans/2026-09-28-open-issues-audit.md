@@ -9,7 +9,7 @@ For each group, read every issue and comment, check current source and relevant 
 - [x] U1 · Agent permissions and isolation: #215, #232, #278; resolve the revmux/nono research and separate scope.
 - [x] U2 · Review workflows: #243, #249, #284, #353.
 - [x] U3 · Herdr and client integrations: #230, #239, #242, #250, #257.
-- [ ] U4 · Agent Intercom: #253, #294, #296, #297, #312, #313, #315, #316.
+- [x] U4 · Agent Intercom: #253, #294, #296, #297, #312, #313, #315, #316.
 - [ ] U5 · Environment maintenance and hooks: #247, #255, #262, #275, #347, #365.
 - [ ] U6 · Verify coverage and cross-links, review the completed audit, and resolve clear findings.
 
@@ -40,3 +40,13 @@ U1–U5: every listed issue has a source-grounded verdict; required GitHub edits
 - [#242](https://github.com/Seigiard/my-mac-setup/issues/242): updated notification policy, historical SDK evidence and short headless-session lifetime requirements.
 - [#230](https://github.com/Seigiard/my-mac-setup/issues/230), [#250](https://github.com/Seigiard/my-mac-setup/issues/250), [#257](https://github.com/Seigiard/my-mac-setup/issues/257): retained existing scope; comments record remaining pilot/deployment evidence.
 - Evidence: OpenCode adapter, Pi updater, Herdr installer/configuration, ADR-0020 and Pane Labels pin `aba61eb788c5fe0630dc570d96fd14683e2f63c7`. All five issue comments and both body changes were reread; no client/UI/remote deployment probe was run.
+
+### U4
+
+- [#253](https://github.com/Seigiard/my-mac-setup/issues/253): moved closed #314 to delivered work with the startup-fix evidence limit; updated the deduplication follow-up.
+- [#294](https://github.com/Seigiard/my-mac-setup/issues/294): replaced redundant blanket-wrapper implementation with per-adapter assessment; moved to `ready-for-human`. Pinned OpenCode/Pi already have bounded, session-scoped deduplication.
+- [#312](https://github.com/Seigiard/my-mac-setup/issues/312): limited restart claims to measured clients; Pi behavior remains a separate probe.
+- [#315](https://github.com/Seigiard/my-mac-setup/issues/315): corrected the inert-team assumption and recorded outstanding documentation corrections and the landed Pi loader fix. No live probe requirement was removed.
+- [#316](https://github.com/Seigiard/my-mac-setup/issues/316): updated the launch matrix for Claude enrollment/relaunch and intentional or incomplete-runtime bypasses.
+- [#296](https://github.com/Seigiard/my-mac-setup/issues/296), [#297](https://github.com/Seigiard/my-mac-setup/issues/297), [#313](https://github.com/Seigiard/my-mac-setup/issues/313): retained unresolved deployment decisions with source-grounded comments.
+- Evidence: current launcher and runtime pins, ADR-0018, versioned adapter sources linked in the issues. All eight comments and five body changes were reread. No new lifecycle or placement observation was claimed; ADR/managed-contract corrections are explicitly assigned to #312/#315, not applied in this tracker audit.
