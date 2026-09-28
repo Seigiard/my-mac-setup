@@ -10,7 +10,7 @@ For each group, read every issue and comment, check current source and relevant 
 - [x] U2 · Review workflows: #243, #249, #284, #353.
 - [x] U3 · Herdr and client integrations: #230, #239, #242, #250, #257.
 - [x] U4 · Agent Intercom: #253, #294, #296, #297, #312, #313, #315, #316.
-- [ ] U5 · Environment maintenance and hooks: #247, #255, #262, #275, #347, #365.
+- [x] U5 · Environment maintenance and hooks: #247, #255, #262, #275, #347, #365.
 - [ ] U6 · Verify coverage and cross-links, review the completed audit, and resolve clear findings.
 
 ## Done conditions
@@ -50,3 +50,13 @@ U1–U5: every listed issue has a source-grounded verdict; required GitHub edits
 - [#316](https://github.com/Seigiard/my-mac-setup/issues/316): updated the launch matrix for Claude enrollment/relaunch and intentional or incomplete-runtime bypasses.
 - [#296](https://github.com/Seigiard/my-mac-setup/issues/296), [#297](https://github.com/Seigiard/my-mac-setup/issues/297), [#313](https://github.com/Seigiard/my-mac-setup/issues/313): retained unresolved deployment decisions with source-grounded comments.
 - Evidence: current launcher and runtime pins, ADR-0018, versioned adapter sources linked in the issues. All eight comments and five body changes were reread. No new lifecycle or placement observation was claimed; ADR/managed-contract corrections are explicitly assigned to #312/#315, not applied in this tracker audit.
+
+### U5
+
+- [#247](https://github.com/Seigiard/my-mac-setup/issues/247): removed the retired Stop hook from the inventory and corrected the assumed cleanup mechanism.
+- [#255](https://github.com/Seigiard/my-mac-setup/issues/255): marked historical event-deletion SQL as unapproved for automation pending the installed-version replay/sync contract. Corrected VACUUM space and WAL-consistent backup requirements.
+- [#262](https://github.com/Seigiard/my-mac-setup/issues/262): limited the upstream blocker to trusted-tap validation/readall; direct installation is reported unaffected. Moved to `needs-info` and added existing-machine cleanup requirements.
+- [#275](https://github.com/Seigiard/my-mac-setup/issues/275): retitled around the supported upgrade boundary. Script removal is delivered; the original transition evidence and documentation work remain.
+- [#347](https://github.com/Seigiard/my-mac-setup/issues/347): added stale deployed corpus-file handling while preserving the deployed-core test contract.
+- [#365](https://github.com/Seigiard/my-mac-setup/issues/365): corrected the poll writer/current location and the termination oracle's normal-timeout ambiguity. Retained the historical failure and regression requirement.
+- Evidence: current source, `c5116f2`/`ccf4231`, upstream tap issue #2, OpenCode event source at `3c893f0a166cfc433819b4eff65d2e6c7696a1c9`, and SQLite documentation linked in #255. All mutations/comments were reread. No DB, deployment or test workload was run; this audit adds zero tests because it changes no runtime behavior.
