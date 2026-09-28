@@ -57,7 +57,8 @@ if has mise; then
     # output would survive.
     _mise_cache_tmp="$(mktemp "$_mise_cache.XXXXXX")"
     mise activate zsh 2>/dev/null | sed '1{/^export PATH=/d;}' > "$_mise_cache_tmp"
-    if [[ $pipestatus[1] -eq 0 ]]; then
+    # Both generation and filtering (including the output write) must succeed.
+    if [[ $pipestatus[1] -eq 0 && $pipestatus[2] -eq 0 ]]; then
       mv -f "$_mise_cache_tmp" "$_mise_cache"
     else
       rm -f "$_mise_cache_tmp"

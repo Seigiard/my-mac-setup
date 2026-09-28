@@ -929,6 +929,7 @@ child_stub_reap() {
   local stub="$1" pid_file pid
   [[ -d "$stub" ]] || return 0
   : > "$stub/release-watcher" 2>/dev/null || true
+  : > "$stub/release-agent-get" 2>/dev/null || true
   for pid_file in "$stub"/*.pid; do
     [[ -s "$pid_file" ]] || continue
     pid="$(cat "$pid_file" 2>/dev/null || true)"
@@ -4602,6 +4603,18 @@ case "${1:-} ${2:-}" in
     count="$(read_value get-count 0)"
     count=$((count + 1))
     printf '%s\n' "$count" > "$CHILD_STUB/get-count"
+    # Let a case prepare its transition before the first watcher snapshot.
+    # The launch baseline is read once, before this barrier can hold a poll.
+    if [ "$count" -gt 1 ] && [ -f "$CHILD_STUB/hold-agent-get" ]; then
+      : > "$CHILD_STUB/held-agent-get.ready"
+      attempt=0
+      while [ ! -f "$CHILD_STUB/release-agent-get" ]; do
+        [ -d "$CHILD_STUB" ] || exit 1
+        attempt=$((attempt + 1))
+        [ "$attempt" -lt 12000 ] || exit 1
+        sleep 0.01
+      done
+    fi
     if [ "$count" -gt 1 ] && [ -f "$CHILD_STUB/child-gone" ]; then
       printf '{"error":{"code":"agent_not_found"}}\n' >&2
       exit 1
@@ -5789,15 +5802,29 @@ function test_scripts_034_herdr_child_detached_watcher_ignores_stale_settl() {
 
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
+  local generation watcher_pid attempt=0
+  generation="$(jq -er '.supervision.generation' <<<"$output")"
+  watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
   child_wait_for_get_count 3
-  run grep 'event=' "$CHILD_STUB/calls.log"
-  assert_failure
+  # A slow driver may allow a valid timeout before it advances the child.
+  # Only a settlement here would wrongly accept the stale sequence.
+  run grep 'event=settled-' "$CHILD_STUB/calls.log"
+  assert_failure 1
 
   printf 'done 11\n' > "$CHILD_STUB/child-state"
   child_wait_for_log 'event=settled-11'
-  run grep -c 'event=settled-11' "$CHILD_STUB/calls.log"
+  while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 500 ]; do
+    attempt=$((attempt + 1))
+    sleep 0.01
+  done
+  [ "$attempt" -lt 500 ] || fail 'watcher never exited after fresh settlement'
+  # Count every settlement after the watcher exits, including a late stale one.
+  run grep -c 'event=settled-' "$CHILD_STUB/calls.log"
   assert_success
   assert_output 1
+  run grep -o '\[child-supervision v1 [^]]*event=settled-[^]]*\]' "$CHILD_STUB/successful-prompts.log"
+  assert_success
+  assert_output "[child-supervision v1 generation=$generation event=settled-11 outcome=done reason=none agent=$(child_started_name) pane=wT:p9]"
   assert_file_contains "$CHILD_STUB/calls.log" 'not\ a\ task-success\ verdict'
   run grep -Eiq 'task_succeeded=true|task completed successfully' "$CHILD_STUB/calls.log"
   assert_failure
@@ -5828,10 +5855,14 @@ function test_scripts_035_herdr_child_detached_timeout_wakes_once_and_late() {
 function test_scripts_036_herdr_child_detached_delivery_follows_parent_ter() {
   _bats_test_init 36 'herdr-child detached delivery follows parent terminal identity to a moved pane'
   child_lifecycle_stub_herdr
+  # Do not mistake a valid pre-move timeout for delivery to the wrong pane.
+  : > "$CHILD_STUB/hold-agent-get"
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
+  child_wait_for_file "$CHILD_STUB/held-agent-get.ready"
   printf 'wT:p7\n' > "$CHILD_STUB/parent-pane"
   printf 'idle 11\n' > "$CHILD_STUB/child-state"
+  : > "$CHILD_STUB/release-agent-get"
   child_wait_for_log 'agent prompt wT:p7.*event=settled-11'
   run grep -q 'agent prompt wT:p0.*event=' "$CHILD_STUB/calls.log"
   assert_failure
@@ -5840,10 +5871,14 @@ function test_scripts_036_herdr_child_detached_delivery_follows_parent_ter() {
 function test_scripts_0361_herdr_child_detached_delivery_fails_closed_on_s() {
   _bats_test_init 0361 'herdr-child detached delivery fails closed on parent session replacement'
   child_lifecycle_stub_herdr
+  # A timeout before replacement would be valid; test only the replaced pair.
+  : > "$CHILD_STUB/hold-agent-get"
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
+  child_wait_for_file "$CHILD_STUB/held-agent-get.ready"
   printf 'replaced-session\n' > "$CHILD_STUB/parent-session"
   printf 'idle 11\n' > "$CHILD_STUB/child-state"
+  : > "$CHILD_STUB/release-agent-get"
   child_wait_for_log 'parent-session-mismatch'
   run grep -q 'event=' "$CHILD_STUB/calls.log"
   assert_failure
@@ -6121,9 +6156,14 @@ function test_scripts_043_herdr_child_sliced_wait_publishes_one_typed_non() {
 function test_scripts_044_herdr_child_detached_watcher_rejects_malformed_s() {
   _bats_test_init 44 'herdr-child detached watcher rejects malformed state and child identity replacement'
   child_lifecycle_stub_herdr
+  # Arm against a valid baseline, then make the first poll see the bad state.
+  # This keeps valid pre-transition timeouts out of the no-delivery assertion.
+  : > "$CHILD_STUB/hold-agent-get"
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
+  child_wait_for_file "$CHILD_STUB/held-agent-get.ready"
   : > "$CHILD_STUB/malformed-state"
+  : > "$CHILD_STUB/release-agent-get"
   child_wait_for_log 'malformed-state'
   run grep -q 'event=' "$CHILD_STUB/calls.log"
   assert_failure
@@ -6131,13 +6171,16 @@ function test_scripts_044_herdr_child_detached_watcher_rejects_malformed_s() {
   teardown
   setup
   child_lifecycle_stub_herdr
+  : > "$CHILD_STUB/hold-agent-get"
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
   local watcher_pid run_dir attempt=0
+  child_wait_for_file "$CHILD_STUB/held-agent-get.ready"
   run_dir="$CHILD_STUB/state/runs/$(cat "$CHILD_STUB/generation")"
   watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
   printf 'replacement-session\n' > "$CHILD_STUB/child-session"
   printf 'idle 11\n' > "$CHILD_STUB/child-state"
+  : > "$CHILD_STUB/release-agent-get"
   while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 500 ]; do
     attempt=$((attempt + 1))
     sleep 0.01
@@ -6426,9 +6469,13 @@ function test_scripts_050_herdr_child_callback_delivery_exhaustion_keeps_d() {
 function test_scripts_051_herdr_child_detached_callbacks_fail_closed_when() {
   _bats_test_init 51 'herdr-child detached callbacks fail closed when supervision metadata is unreadable'
   child_lifecycle_stub_herdr
+  # Exclude valid watcher prompts sent before metadata becomes unreadable.
+  : > "$CHILD_STUB/hold-agent-get"
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
+  child_wait_for_file "$CHILD_STUB/held-agent-get.ready"
   rm -f "$CHILD_STUB/generation"
+  : > "$CHILD_STUB/release-agent-get"
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_LAUNCH=1 \
     HERDR_CHILD_PARENT_PANE=wT:p0 HERDR_CHILD_PARENT_TERMINAL=term-parent \
@@ -9648,7 +9695,7 @@ case "$3" in
       printf '%s\n' draft > "$HOME/.agents/skills/draft/SKILL.md"
     fi
     python3 - "$XDG_STATE_HOME/skills/.skill-lock.json" "$source" <<'PY'
-import json, sys
+import json, os, sys
 path, source = sys.argv[1:]
 with open(path, encoding="utf-8") as stream:
     data = json.load(stream)
@@ -9660,6 +9707,8 @@ else:
         "draft": {"source": source, "skillPath": "skills/in-progress/draft/SKILL.md"},
     }
 data["skills"].update(fixtures)
+if os.path.exists(os.environ['TMPDIR'] + '/two-owned'):
+    data['skills']['second'] = {'source': source, 'skillPath': 'skills/in-progress/second/SKILL.md'}
 with open(path, "w", encoding="utf-8") as stream:
     json.dump(data, stream)
 PY
@@ -9670,6 +9719,8 @@ PY
     for skill in "$@"; do
       case "$skill" in --global|--yes) continue ;; esac
       rm -rf "$HOME/.agents/skills/$skill"
+      # Fault injection: leave stale claims for the wrapper's real lock writer.
+      [ ! -e "$TMPDIR/two-owned" ] || continue
       python3 - "$XDG_STATE_HOME/skills/.skill-lock.json" "$skill" <<'PY'
 import json, sys
 path, skill = sys.argv[1:]
@@ -9680,11 +9731,125 @@ with open(path, "w", encoding="utf-8") as stream:
     json.dump(data, stream)
 PY
     done
+    [ ! -e "$TMPDIR/deny-restore" ] || chmod 500 "$HOME/.agents/skills"
+    [ ! -e "$TMPDIR/deny-lock" ] || chmod 500 "$XDG_STATE_HOME/skills"
     ;;
 esac
 SH
   chmod +x "$stub/npx"
   printf '%s' "$stub"
+}
+
+skills_exclusion_recovery_case() {
+  local command="$1" stub="$2" canonical="$BATS_TEST_TMPDIR/home/.agents/skills"
+  local lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json" diagnostic
+  local args=(sync)
+  [ "$command" != add ] || args=(add owner/repo '*' '!*/in-progress/*')
+  [ "$(id -u)" != 0 ] || skip 'restoration permission failure requires a non-root user'
+
+  # #given: repository-owned bytes differ from the upstream installation.
+  rm -f "$BATS_TEST_TMPDIR/tmp/fail-remove"
+  mkdir -p "$canonical/draft"
+  printf '%s\n' draft > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
+  printf '%s\n' 'owner/repo * !*/in-progress/*' > "$BATS_TEST_TMPDIR/manifest"
+  printf 'REPOSITORY ORIGINAL\n\000unrecorded bytes\n' > "$canonical/draft/SKILL.md"
+
+  # #when: the writable control must restore the original and clean its snapshot.
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$BATS_TEST_TMPDIR/manifest" bash "$SKILLS_WRAPPER" "${args[@]}"
+  assert_success
+  # #then
+  run python3 - "$canonical" "$lock" "$BATS_TEST_TMPDIR/tmp" <<'PY'
+import json, pathlib, sys
+canonical, lock, temporary = map(pathlib.Path, sys.argv[1:])
+assert (canonical / 'draft/SKILL.md').read_bytes() == b'REPOSITORY ORIGINAL\n\x00unrecorded bytes\n'
+assert 'draft' not in json.loads(lock.read_text())['skills']
+assert not list(temporary.glob('skills-sync.*'))
+assert not list(temporary.glob('skills-add.*'))
+PY
+  assert_success
+
+  # #given: external removal revokes write permission before the real restore.
+  : > "$BATS_TEST_TMPDIR/tmp/deny-restore"
+  # #when
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$BATS_TEST_TMPDIR/manifest" bash "$SKILLS_WRAPPER" "${args[@]}"
+  # Restore fixture permissions before any assertion can abort cleanup.
+  chmod 700 "$canonical"
+  rm -f "$BATS_TEST_TMPDIR/tmp/deny-restore"
+  assert_failure 1
+  diagnostic="$output"
+  # #then: the reported copy must still contain the original bytes.
+  assert_output --partial 'Permission denied'
+  assert_output --partial 'could not restore repository-owned skill after exclusion: draft'
+  run python3 - "$BATS_TEST_TMPDIR/tmp" <<'PY'
+import pathlib, sys
+copies = list(pathlib.Path(sys.argv[1]).glob('skills-*/repository-owned/draft/SKILL.md'))
+assert len(copies) == 1, 'original recovery snapshot was deleted'
+assert copies[0].read_bytes() == b'REPOSITORY ORIGINAL\n\x00unrecorded bytes\n'
+PY
+  assert_success
+  output="$diagnostic"
+  assert_output --partial 'recovery copy: '
+  run python3 - "$diagnostic" <<'PY'
+import pathlib, sys
+diagnostic = sys.argv[1]
+location = diagnostic.split('recovery copy: ', 1)[1].splitlines()[0]
+assert (pathlib.Path(location) / 'SKILL.md').read_bytes() == b'REPOSITORY ORIGINAL\n\x00unrecorded bytes\n'
+PY
+  assert_success
+
+  # #given: two owned trees and stale upstream claims after removal.
+  rm -rf "$BATS_TEST_TMPDIR/tmp"/skills-*
+  mkdir -p "$canonical/draft" "$canonical/second"
+  printf 'REPOSITORY ORIGINAL\n\000unrecorded bytes\n' > "$canonical/draft/SKILL.md"
+  printf 'SECOND ORIGINAL\n\000different bytes\n' > "$canonical/second/SKILL.md"
+  printf '%s\n' draft second > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
+  : > "$BATS_TEST_TMPDIR/tmp/two-owned"
+
+  # #when: writable control restores both trees and removes both stale claims.
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$BATS_TEST_TMPDIR/manifest" bash "$SKILLS_WRAPPER" "${args[@]}"
+  assert_success
+  run python3 - "$canonical" "$lock" "$BATS_TEST_TMPDIR/tmp" <<'PY'
+import json, pathlib, sys
+canonical, lock, temporary = map(pathlib.Path, sys.argv[1:])
+assert (canonical / 'draft/SKILL.md').read_bytes() == b'REPOSITORY ORIGINAL\n\x00unrecorded bytes\n'
+assert (canonical / 'second/SKILL.md').read_bytes() == b'SECOND ORIGINAL\n\x00different bytes\n'
+assert set(json.loads(lock.read_text())['skills']) == {'stable'}
+assert not list(temporary.glob('skills-*'))
+PY
+  assert_success
+
+  # #when: real lock-directory permissions reject the first claim rewrite.
+  : > "$BATS_TEST_TMPDIR/tmp/deny-lock"
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$BATS_TEST_TMPDIR/manifest" bash "$SKILLS_WRAPPER" "${args[@]}"
+  chmod 700 "$(dirname "$lock")"
+  rm -f "$BATS_TEST_TMPDIR/tmp/deny-lock"
+  assert_failure 1
+  diagnostic="$output"
+  assert_output --partial 'Permission denied'
+  assert_output --partial 'could not remove conflicting lock claim after exclusion: draft'
+  # #then: the unfinished second restore still has its only original in recovery.
+  run python3 - "$canonical" "$lock" "$BATS_TEST_TMPDIR/tmp" "$diagnostic" <<'PY'
+import json, pathlib, sys
+canonical, lock, temporary = map(pathlib.Path, sys.argv[1:4])
+assert (canonical / 'draft/SKILL.md').read_bytes() == b'REPOSITORY ORIGINAL\n\x00unrecorded bytes\n'
+assert not (canonical / 'second').exists()
+assert set(json.loads(lock.read_text())['skills']) == {'stable', 'draft', 'second'}
+copies = list(temporary.glob('skills-*/repository-owned'))
+assert len(copies) == 1, 'lock-claim failure deleted the recovery root with the unrestored second skill'
+assert (copies[0] / 'draft/SKILL.md').read_bytes() == b'REPOSITORY ORIGINAL\n\x00unrecorded bytes\n'
+assert (copies[0] / 'second/SKILL.md').read_bytes() == b'SECOND ORIGINAL\n\x00different bytes\n'
+location = sys.argv[4].split('recovery copy: ', 1)[1].splitlines()[0]
+assert pathlib.Path(location) == copies[0], repr(sys.argv[4])
+PY
+  assert_success
 }
 
 function test_scripts_272_skills_add_is_global_isolated_and_preserves_cwd() {
@@ -10161,8 +10326,11 @@ function test_scripts_277_skills_sync_restores_repository_owned_wildcard_collisi
 case "$3" in
   add)
     printf '%s\n' upstream > "$HOME/.agents/skills/local-skill/SKILL.md"
+    if [ -e "$TMPDIR/two-collisions" ]; then
+      printf '%s\n' upstream-second > "$HOME/.agents/skills/second/SKILL.md"
+    fi
     python3 - "$XDG_STATE_HOME/skills/.skill-lock.json" <<'PY'
-import json, sys
+import json, os, sys
 path = sys.argv[1]
 with open(path, encoding="utf-8") as stream:
     data = json.load(stream)
@@ -10170,9 +10338,17 @@ data["skills"]["local-skill"] = {
     "source": "example/upstream-skills",
     "skillPath": "skills/in-progress/local-skill/SKILL.md",
 }
+if os.path.exists(os.environ['TMPDIR'] + '/two-collisions'):
+    data['skills']['second'] = {
+        'source': 'example/upstream-skills',
+        'skillPath': 'skills/in-progress/second/SKILL.md',
+    }
 with open(path, "w", encoding="utf-8") as stream:
     json.dump(data, stream)
 PY
+    [ ! -e "$TMPDIR/deny-lock" ] || chmod 500 "$XDG_STATE_HOME/skills"
+    [ ! -e "$TMPDIR/deny-restore" ] || chmod 500 "$HOME/.agents/skills"
+    [ ! -e "$TMPDIR/deny-snapshot" ] || chmod 500 "$TMPDIR"/skills-sync.*/repository-owned
     ;;
   remove)
     [ ! -e "$TMPDIR/fail-remove" ] || exit 9
@@ -10242,6 +10418,64 @@ import json, sys
 assert "local-skill" not in json.load(open(sys.argv[1]))["skills"]
 PY
   assert_success
+  skills_collision_recovery_cases "$stub" "$canonical" "$lock" "$manifest"
+}
+
+skills_collision_recovery_cases() {
+  local stub="$1" canonical="$2" lock="$3" manifest="$4" mode diagnostic snapshot
+  [ "$(id -u)" != 0 ] || skip 'collision recovery permission failure requires a non-root user'
+  # #given: two originals overwritten by the upstream wildcard installation.
+  printf '%s\n' local-skill second > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
+  printf '%s\n' 'example/upstream-skills *' > "$manifest"
+  : > "$BATS_TEST_TMPDIR/tmp/two-collisions"
+  for mode in writable deny-snapshot deny-restore deny-lock; do
+    mkdir -p "$canonical/local-skill" "$canonical/second"
+    printf 'REPOSITORY ORIGINAL\n\000unrecorded bytes\n' > "$canonical/local-skill/SKILL.md"
+    printf 'SECOND ORIGINAL\n\000different bytes\n' > "$canonical/second/SKILL.md"
+    printf '%s\n' '{"version":3,"skills":{}}' > "$lock"
+    : > "$BATS_TEST_TMPDIR/tmp/$mode"
+    # #when: only directory permissions differ from the writable control.
+    run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+      XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+      SKILLS_MANIFEST="$manifest" bash "$SKILLS_WRAPPER" sync
+    chmod 700 "$canonical" "$(dirname "$lock")"
+    for snapshot in "$BATS_TEST_TMPDIR/tmp"/skills-sync.*/repository-owned; do
+      [ ! -d "$snapshot" ] || chmod 700 "$snapshot"
+    done
+    rm -f "$BATS_TEST_TMPDIR/tmp/$mode"
+    assert_failure 1
+    diagnostic="$output"
+    # #then: even a rejected collision must not lose either user's original.
+    run python3 - "$canonical" "$lock" "$BATS_TEST_TMPDIR/tmp" "$mode" "$diagnostic" <<'PY'
+import json, pathlib, sys
+canonical, lock, temporary = map(pathlib.Path, sys.argv[1:4])
+mode, diagnostic = sys.argv[4:]
+originals = {
+    'local-skill': b'REPOSITORY ORIGINAL\n\x00unrecorded bytes\n',
+    'second': b'SECOND ORIGINAL\n\x00different bytes\n',
+}
+snapshots = list(temporary.glob('skills-sync.*/repository-owned'))
+for name, original in originals.items():
+    candidates = [canonical / name / 'SKILL.md'] + [root / name / 'SKILL.md' for root in snapshots]
+    assert any(path.is_file() and path.read_bytes() == original for path in candidates), f'{mode}: original bytes lost for {name}'
+if mode == 'writable':
+    assert json.loads(lock.read_text())['skills'] == {}
+    assert not list(temporary.glob('skills-sync.*'))
+    assert diagnostic.splitlines() == [
+        'Installing skills from example/upstream-skills: *',
+        'skills: canonical skill collides with repository-owned skill: local-skill',
+        'skills: canonical skill collides with repository-owned skill: second',
+    ]
+else:
+    assert 'Permission denied' in diagnostic, diagnostic
+    assert len(snapshots) == 1
+    location = diagnostic.split('recovery copy: ', 1)[1].splitlines()[0]
+    assert pathlib.Path(location) == snapshots[0], diagnostic
+    assert set(json.loads(lock.read_text())['skills']) == {'local-skill', 'second'}
+PY
+    assert_success
+    rm -rf "$BATS_TEST_TMPDIR/tmp"/skills-sync.*
+  done
 }
 
 function test_scripts_278_skills_sync_blocks_unsafe_canonical_trees() {
@@ -10359,6 +10593,7 @@ PY
   assert_success
   assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<add><example/upstream-skills><--skill><\*><--global>'
   assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<remove><--global><draft><--yes>$'
+  skills_exclusion_recovery_case sync "$stub"
 }
 
 function test_scripts_3071_skills_add_persists_and_applies_wildcard_path_exclusions() {
@@ -10409,6 +10644,7 @@ import json, sys
 assert "draft" not in json.load(open(sys.argv[1]))["skills"]
 PY
   assert_success
+  skills_exclusion_recovery_case add "$stub"
 }
 
 function test_scripts_3072_skills_remove_points_wildcard_sources_to_exclusion_syntax() {
@@ -11573,7 +11809,7 @@ function test_scripts_2840_handoff_pre_compact_never_resurrects_an_older_goal() 
 # failure: a declined bump mutates a pin anyway, an accepted bump writes
 # something other than the value upstream returned, or a fff-mcp bump lands a
 # partial checksum set that breaks `chezmoi apply` on the platforms it did not
-# refresh. Oracle: the bytes of a fixture copy of those two real files before
+# refresh. Oracle: the bytes of two test-owned representative files before
 # and after a run, against the values a stubbed fetcher returned. GitHub's own
 # semantics belong to GitHub and are not asserted here — every upstream answer
 # and every `mise outdated` report comes from a stub, so the suite never
@@ -11588,17 +11824,65 @@ pins_fixture() {
   PINS_BASELINE="$BATS_TEST_TMPDIR/pins-baseline"
   mkdir -p "$PINS_ROOT/private_dot_config/mise" "$PINS_STUBS" "$PINS_BASELINE"
 
-  # The fixture is a copy of the repository's own pinned files, so the parsing
-  # under test faces the shapes it will actually meet.
-  cp "$SOURCE_ROOT/.chezmoiexternal.toml" "$PINS_ROOT/.chezmoiexternal.toml"
-  cp "$SOURCE_ROOT/private_dot_config/mise/config.toml" \
-    "$PINS_ROOT/private_dot_config/mise/config.toml"
   PINS_EXTERNAL="$PINS_ROOT/.chezmoiexternal.toml"
   PINS_MISE="$PINS_ROOT/private_dot_config/mise/config.toml"
+  # Own the inventory and drift states: shipped pin maintenance must not move
+  # positional answers onto a different offer. Keep a second archive as a
+  # declined neighbor so accepting the wrong target still changes the verdict.
+  # The unrelated file release is not an offer; its URL and checksum must survive.
+  cat >"$PINS_EXTERNAL" <<'EXTERNALS'
+[".oh-my-zsh"]
+    type = "archive"
+    url = "https://github.com/ohmyzsh/ohmyzsh/archive/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.tar.gz"
+    stripComponents = 1
+[".oh-my-zsh/custom/plugins/example"]
+    type = "archive"
+    url = "https://github.com/example/plugin/archive/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.tar.gz"
+    stripComponents = 1
+{{ $fffMcpTarget := "" }}
+{{ $fffMcpSha256 := "" }}
+{{ if eq .chezmoi.os "darwin" }}
+{{ if eq .chezmoi.arch "arm64" }}
+{{ $fffMcpTarget = "aarch64-apple-darwin" }}
+{{ $fffMcpSha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }}
+{{ else }}
+{{ $fffMcpTarget = "x86_64-apple-darwin" }}
+{{ $fffMcpSha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }}
+{{ end }}
+{{ else }}
+{{ if eq .chezmoi.arch "arm64" }}
+{{ $fffMcpTarget = "aarch64-unknown-linux-musl" }}
+{{ $fffMcpSha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" }}
+{{ else }}
+{{ $fffMcpTarget = "x86_64-unknown-linux-musl" }}
+{{ $fffMcpSha256 = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" }}
+{{ end }}
+{{ end }}
+[".local/bin/fff-mcp"]
+    type = "file"
+    executable = true
+    url = "https://github.com/dmtrKovalenko/fff/releases/download/v1.0.0/fff-mcp-{{ $fffMcpTarget }}"
+    checksum.sha256 = "{{ $fffMcpSha256 }}"
+[".local/bin/unrelated-release"]
+    type = "file"
+    url = "https://github.com/example/unrelated/releases/download/v7.2.0/tool.zip"
+    checksum.sha256 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+EXTERNALS
+  cat >"$PINS_MISE" <<'MISE'
+[tools]
+node = "lts"
+python = "3.12.0"
+[settings]
+experimental = true
+MISE
 
   PINS_STUB_HEAD_SHA="0123456789abcdef0123456789abcdef01234567"
   PINS_STUB_TAG="v99.0.0"
   PINS_STUB_CHECKSUM_FAILS_FOR=""
+  PINS_OHMYZSH_SHA="$PINS_STUB_HEAD_SHA"
+  if [ "${1:-drifted}" = current ]; then
+    PINS_OHMYZSH_SHA="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  fi
 
   PINS_FETCHER="$PINS_STUBS/upstream-stub"
   cat >"$PINS_FETCHER" <<'STUB'
@@ -11608,7 +11892,12 @@ pins_fixture() {
 # unknown asset exits non-zero, so a renamed target surfaces instead of
 # silently borrowing another platform's checksum.
 case "$1" in
-  head-sha) printf '%s\tHEAD\n' "$STUB_HEAD_SHA" ;;
+  head-sha)
+    case "$2" in
+      ohmyzsh/ohmyzsh) printf '%s\tHEAD\n' "$STUB_OHMYZSH_SHA" ;;
+      example/plugin) printf '%s\tHEAD\n' "$STUB_HEAD_SHA" ;;
+      *) exit 2 ;;
+    esac ;;
   latest-tag) printf '%s\n' "$STUB_TAG" ;;
   checksum)
     # checksum REPO TAG ASSET
@@ -11656,6 +11945,7 @@ run_pins() {
     "UPDATE_PINS_FETCHER=$fetcher" \
     "STUB_MISE_JSON=$PINS_MISE_JSON" \
     "STUB_HEAD_SHA=$PINS_STUB_HEAD_SHA" \
+    "STUB_OHMYZSH_SHA=$PINS_OHMYZSH_SHA" \
     "STUB_TAG=$PINS_STUB_TAG" \
     "STUB_CHECKSUM_FAILS_FOR=$PINS_STUB_CHECKSUM_FAILS_FOR" \
     bash -c 'printf "%s" "$2" | bash "$1"' bash "$UPDATE_PINS" "$answers"
@@ -11683,7 +11973,7 @@ pins_baseline_value() {
 # from the file's own text without sharing any parsing with the script.
 pins_expected_fff_bump() {
   local out="$BATS_TEST_TMPDIR/expected-externals"
-  awk -v tag="$PINS_STUB_TAG" '
+  awk '
     BEGIN {
       sum["aarch64-apple-darwin"]       = "1111111111111111111111111111111111111111111111111111111111111111"
       sum["x86_64-apple-darwin"]        = "2222222222222222222222222222222222222222222222222222222222222222"
@@ -11702,10 +11992,9 @@ pins_expected_fff_bump() {
     /\$fffMcpSha256 = "/ {
       sub(/\$fffMcpSha256 = "[0-9a-f]+"/, "$fffMcpSha256 = \"" sum[target] "\"")
     }
-    # The fff-mcp release URL, and only it: other pins in this file carry
-    # release downloads of their own that this bump must leave alone.
+    # Preserve the unrelated release URL and literal checksum, and both archives.
     /releases\/download\// && /fff-mcp-/ {
-      sub(/\/releases\/download\/[^\/"]+\//, "/releases/download/" tag "/")
+      sub(/\/releases\/download\/[^\/"]+\//, "/releases/download/v99.0.0/")
     }
     { print }
   ' "$PINS_BASELINE/externals" >"$out" || return 1
@@ -11716,11 +12005,12 @@ function test_scripts_1451_update_pins_declining_every_bump_leaves_the_pinned_fi
   _bats_test_init 1451 'update-pins declining every bump leaves the pinned files byte-identical'
   # #given a source tree whose every pin has drifted upstream
   pins_fixture
+  printf '%s\n' \
+    '{"python": {"requested": "3.12.0", "bump": "3.13.2", "latest": "3.13.2"}}' \
+    >"$PINS_MISE_JSON"
 
   # #when every offer is declined
   run_pins 'n
-n
-n
 n
 n
 n
@@ -11738,6 +12028,7 @@ n
   assert_output --partial \
     "ohmyzsh/ohmyzsh: ${pinned:0:12} -> ${PINS_STUB_HEAD_SHA:0:12}"
   assert_output --partial 'kept'
+  assert_output --partial 'mise python: 3.12.0 -> 3.13.2'
   assert_pins_files_unchanged
 }
 
@@ -11747,14 +12038,11 @@ function test_scripts_1452_update_pins_writes_exactly_the_fetched_sha_for_the_ac
   pins_fixture
   local old_sha expected="$BATS_TEST_TMPDIR/expected-externals"
   old_sha="$(pins_baseline_value 's|.*ohmyzsh/ohmyzsh/archive/\([0-9a-f]\{40\}\)\.tar\.gz.*|\1|p')"
-  sed "s|/archive/$old_sha\.tar\.gz|/archive/$PINS_STUB_HEAD_SHA.tar.gz|" \
+  sed "s|/archive/$old_sha\.tar\.gz|/archive/0123456789abcdef0123456789abcdef01234567.tar.gz|" \
     "$PINS_BASELINE/externals" >"$expected"
 
   # #when only the first offer is accepted
   run_pins 'y
-n
-n
-n
 n
 n
 '
@@ -11767,17 +12055,14 @@ n
 
 function test_scripts_1453_update_pins_bumps_fff_mcp_to_the_fetched_tag_and_all_four_checksums() {
   _bats_test_init 1453 'update-pins bumps fff-mcp to the fetched tag and all four checksums'
-  # #given the drifted source tree and the four per-platform sums the stub serves
-  pins_fixture
+  # #given ohmyzsh is already current, another archive has drifted, and the
+  # fetcher serves four distinct platform sums for the drifted fff release
+  pins_fixture current
   local expected
   expected="$(pins_expected_fff_bump)"
 
   # #when every archive offer is declined and only the fff-mcp offer accepted
   run_pins 'n
-n
-n
-n
-n
 y
 '
 
@@ -11795,9 +12080,6 @@ function test_scripts_1454_update_pins_abandons_a_fff_mcp_bump_when_one_checksum
 
   # #when the fff-mcp bump is accepted
   run_pins 'n
-n
-n
-n
 n
 y
 '
@@ -11839,13 +12121,16 @@ function test_scripts_1456_update_pins_rewrites_only_the_accepted_mise_tool_vers
   cp "$PINS_MISE" "$PINS_BASELINE/mise"
   assert_file_contains "$PINS_MISE" '^node = "24"$'
   local expected="$BATS_TEST_TMPDIR/expected-mise"
-  sed 's|^node = "24"$|node = "26.8.1"|' "$PINS_BASELINE/mise" >"$expected"
+  cat >"$expected" <<'MISE'
+[tools]
+node = "26.8.1"
+python = "3.12.0"
+[settings]
+experimental = true
+MISE
 
   # #when every externals offer is declined and the mise offer accepted
   run_pins 'n
-n
-n
-n
 n
 n
 y
@@ -11873,14 +12158,11 @@ function test_scripts_1457_update_pins_follows_the_chezmoiroot_indirection_into_
   local expected="$BATS_TEST_TMPDIR/expected-nested-externals" old_sha
   old_sha="$(pins_baseline_value \
     's|.*ohmyzsh/ohmyzsh/archive/\([0-9a-f]\{40\}\)\.tar\.gz.*|\1|p')"
-  sed "s|/archive/$old_sha\.tar\.gz|/archive/$PINS_STUB_HEAD_SHA.tar.gz|" \
+  sed "s|/archive/$old_sha\.tar\.gz|/archive/0123456789abcdef0123456789abcdef01234567.tar.gz|" \
     "$PINS_BASELINE/externals" >"$expected"
 
   # #when the first offer is accepted
   run_pins 'y
-n
-n
-n
 n
 n
 '
@@ -11902,9 +12184,6 @@ function test_scripts_1458_update_pins_reports_a_failed_mise_lookup_as_unknown()
 
   # #when every externals offer is declined
   run_pins 'n
-n
-n
-n
 n
 n
 '
@@ -11942,9 +12221,6 @@ function test_scripts_1459_update_pins_commits_and_pushes_the_accepted_bump() {
   run_pins 'y
 n
 n
-n
-n
-n
 '
 
   # #then the source is clean again and origin carries the fetched sha
@@ -11969,9 +12245,6 @@ function test_scripts_1460_update_pins_creates_no_commit_when_every_bump_is_decl
   run_pins 'n
 n
 n
-n
-n
-n
 '
 
   # #then nothing was committed and origin never moved
@@ -11992,9 +12265,6 @@ function test_scripts_1461_update_pins_publishes_only_the_files_it_rewrote() {
 
   # #when the first offer is accepted
   run_pins 'y
-n
-n
-n
 n
 n
 '
