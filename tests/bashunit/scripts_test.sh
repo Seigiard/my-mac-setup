@@ -2529,8 +2529,8 @@ render_install_packages() {
     < "$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_1-install-packages.sh.tmpl"
 }
 
-function test_scripts_003_ci_minimal_linux_render_skips_homebrew_but_keeps() {
-  _bats_test_init 3 'CI-minimal Linux render skips Homebrew but keeps the remaining setup'
+function test_scripts_003_ci_minimal_linux_render_skips_homebrew() {
+  _bats_test_init 3 'CI-minimal Linux render skips Homebrew installation'
   skip_if_no_chezmoi
   local cfg="$BATS_TEST_TMPDIR/minimal-linux.yaml"
   MMS_CI_MINIMAL=1 write_test_config "$cfg"
@@ -2538,18 +2538,9 @@ function test_scripts_003_ci_minimal_linux_render_skips_homebrew_but_keeps() {
 
   run render_install_packages "$cfg"
   assert_success
-  # Progress banners ("Installing Oh My Zsh...") are prose nothing consumes: a
-  # reworded echo reddens the test while the install still runs, and deleting
-  # the install while keeping the echo stays green. The upstream installer URL
-  # below is a third-party constant this repo does not define, so it moves
-  # only when the install itself moves.
+  # Test 004 is the full-Linux control: these commands must render there.
   refute_output --partial 'Homebrew/install/HEAD/install.sh'
   refute_output --partial 'brew bundle --file='
-  # Oh My Zsh and fff-mcp are pinned chezmoi externals now
-  # (.chezmoiexternal.toml), not installed by this script; the retained
-  # cleanup block is the positive control proving the plugin-cleanup section
-  # of the script still renders.
-  assert_output --partial 'rm -rf "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting"'
 }
 
 function test_scripts_004_full_linux_render_keeps_homebrew_package_install() {
@@ -2603,57 +2594,8 @@ function test_scripts_008_darwin_scripts_excluded_from_managed_list_on_lin() {
   refute_output --partial "run_once_after_macos-tunes"
 }
 
-function test_scripts_0081_retired_se_cleanup_migration_preserves_an_independent_skill() {
-  _bats_test_init 81 'retired se-cleanup migration preserves an independently owned skill'
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_once_after_remove-retired-se-cleanup.sh"
-  local agents="$BATS_TEST_TMPDIR/home/.agents/skills/se-cleanup"
-  local claude="$BATS_TEST_TMPDIR/home/.claude/skills/se-cleanup"
-  local orphan_home="$BATS_TEST_TMPDIR/orphan-home"
-  mkdir -p "$agents" "$claude"
-  printf '%s\n' 'independently managed skill' > "$agents/SKILL.md"
-  printf '%s\n' 'user-owned content' > "$agents/notes.md"
-  ln -s "$agents/SKILL.md" "$claude/SKILL.md"
-
-  run env HOME="$BATS_TEST_TMPDIR/home" sh "$script"
-  assert_success
-  assert_file_contains "$agents/SKILL.md" '^independently managed skill$'
-  assert_file_exists "$agents/notes.md"
-  assert_dir_exists "$agents"
-  assert_file_exists "$claude/SKILL.md"
-
-  mkdir -p "$orphan_home/.claude/skills/se-cleanup"
-  ln -s ../../../.agents/skills/se-cleanup/SKILL.md \
-    "$orphan_home/.claude/skills/se-cleanup/SKILL.md"
-  run env HOME="$orphan_home" sh "$script"
-  assert_success
-  assert_dir_not_exists "$orphan_home/.claude/skills/se-cleanup"
-}
-
-function test_scripts_0084_retired_worktrunk_migration_removes_only_managed_files() {
-  _bats_test_init 84 'retired Worktrunk migration removes only formerly managed files'
-  local script="$SOURCE_ROOT/.chezmoiscripts/run_once_after_remove-retired-worktrunk.sh"
-  local home="$BATS_TEST_TMPDIR/worktrunk-home"
-  mkdir -p \
-    "$home/.config/worktrunk" \
-    "$home/.config/herdr/plugins/config/worktrunk" \
-    "$home/.config/herdr/plugins/command-palette"
-  printf '%s\n' old > "$home/.config/worktrunk/config.toml"
-  printf '%s\n' old > "$home/.config/herdr/plugins/config/worktrunk/config.toml"
-  printf '%s\n' old > "$home/.config/herdr/plugins/command-palette/new_worktree.py"
-  printf '%s\n' old > "$home/.config/herdr/plugins/command-palette/open_new_worktree.py"
-  printf '%s\n' keep > "$home/.config/worktrunk/user-note"
-
-  run env HOME="$home" sh "$script"
-  assert_success
-  assert_file_not_exists "$home/.config/worktrunk/config.toml"
-  assert_file_not_exists "$home/.config/herdr/plugins/config/worktrunk/config.toml"
-  assert_file_not_exists "$home/.config/herdr/plugins/command-palette/new_worktree.py"
-  assert_file_not_exists "$home/.config/herdr/plugins/command-palette/open_new_worktree.py"
-  assert_file_exists "$home/.config/worktrunk/user-note"
-}
-
-function test_scripts_0851_obsolete_plugin_removal_accepts_formatted_plugin_json() {
-  _bats_test_init 851 'obsolete plugin removal accepts formatted plugin JSON'
+function test_scripts_0851_github_plugin_install_accepts_formatted_plugin_json() {
+  _bats_test_init 851 'GitHub plugin installation accepts formatted plugin JSON'
   local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
   local script="$BATS_TEST_TMPDIR/install-herdr-github-plugins.sh"
   local fake_bin="$BATS_TEST_TMPDIR/bin"
@@ -2676,8 +2618,6 @@ if [ "$*" = "plugin list --json" ]; then
 {
   "result": {
     "plugins": [
-      { "plugin_id": "artisann.zed-herdr" },
-      { "plugin_id": "worktrunk" },
       { "plugin_id": "herdr-wakeup", "source": { "kind": "github" } },
       { "plugin_id": "seigi.command-palette", "source": { "kind": "local" } }
     ]
@@ -2693,10 +2633,6 @@ SH
 
   run env HOME="$home" HERDR_CALLS="$calls" \
     HERDR_SOCKET_PATH=/tmp/mms-herdr-wakeup-test.sock PATH="$fake_bin:$PATH" bash "$script"
-  assert_success
-  run grep -Fx "plugin uninstall artisann.zed-herdr" "$calls"
-  assert_success
-  run grep -Fx "plugin uninstall worktrunk" "$calls"
   assert_success
   run grep -Fx "plugin uninstall seigi.command-palette" "$calls"
   assert_failure
@@ -2736,7 +2672,7 @@ SH
 }
 
 function test_scripts_08511_github_command_palette_is_not_uninstalled_during_update() {
-  _bats_test_init 8511 'GitHub command palette is updated in place, not treated as the local cutover'
+  _bats_test_init 8511 'GitHub plugins are updated in place on Linux'
   local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
   local script="$BATS_TEST_TMPDIR/install-herdr-github-plugins-linux.sh"
   local fake_bin="$BATS_TEST_TMPDIR/bin-github-palette"
@@ -2793,9 +2729,6 @@ SH
   cat > "$fake_bin/herdr" <<'SH'
 #!/bin/sh
 printf '%s\n' "$*" >> "$HERDR_CALLS"
-if [ "$1" = plugin ] && [ "$2" = link ]; then
-  : > "$HOME/local-plugin-restored"
-fi
 case "$*" in
   "plugin list --json")
     printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","enabled":true,"source":{"kind":"github"}},{"plugin_id":"seigi.pane-labels","enabled":true,"source":{"kind":"github"}},{"plugin_id":"seigi.worktree-setup","enabled":true,"source":{"kind":"github"}}]}}'
@@ -2851,214 +2784,6 @@ SH
   assert_output --partial 'Warning: failed to configure Herdr plugin'
 }
 
-worktree_migration_prepare() {
-  local work="$1"
-  local source="$work/source" home="$work/home" fake_bin="$work/bin"
-  mkdir -p "$source/.chezmoiscripts" "$source/.chezmoitemplates" \
-    "$home/.config/herdr/plugins/worktree-setup" "$fake_bin"
-  cp "$SOURCE_ROOT/.chezmoiscripts/run_once_after_4-migrate-herdr-worktree-setup.sh.tmpl" \
-    "$source/.chezmoiscripts/"
-  cp "$SOURCE_ROOT/.chezmoitemplates/herdr-plugin-link-guard.sh" "$source/.chezmoitemplates/"
-  printf 'legacy plugin\n' > "$home/.config/herdr/plugins/worktree-setup/setup.ts"
-  write_test_config "$work/chezmoi.yaml"
-
-  cat > "$fake_bin/herdr" <<'SH'
-#!/bin/sh
-printf '%s\n' "$*" >> "$HERDR_CALLS"
-case "$*" in
-  --version)
-    exit 0
-    ;;
-  "plugin list --json")
-    if [ "${HERDR_FAIL_STEP:-}" = malformed ]; then
-      printf '%s\n' '{"result":{"plugins":[null]}}'
-    elif [ "${HERDR_FAIL_STEP:-}" = refresh ] && [ "$(grep -Fc "plugin list --json" "$HERDR_CALLS")" -gt 1 ]; then
-      exit 1
-    else
-      printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.worktree-setup","source":{"kind":"local"}}]}}'
-    fi
-    ;;
-  "plugin install Seigiard/herdr-worktree-setup --ref "*" -y")
-    [ "${HERDR_FAIL_STEP:-}" != install ]
-    ;;
-  "plugin uninstall seigi.worktree-setup")
-    [ "${HERDR_FAIL_STEP:-}" != uninstall ]
-    ;;
-  "plugin enable seigi.worktree-setup")
-    [ "${HERDR_FAIL_STEP:-}" != enable ]
-    ;;
-  "plugin link "*)
-    [ "${HERDR_FAIL_STEP:-}" != link ]
-    ;;
-  *)
-    exit 0
-    ;;
-esac
-SH
-  cat > "$fake_bin/getent" <<'SH'
-#!/bin/sh
-[ "${1:-}" = passwd ] || exit 1
-printf 'test:x:1000:1000:Test User:%s:/bin/bash\n' "$HOME"
-SH
-  cat > "$fake_bin/dscl" <<'SH'
-#!/bin/sh
-printf 'NFSHomeDirectory: %s\n' "$HOME"
-SH
-  chmod +x "$fake_bin/herdr" "$fake_bin/getent" "$fake_bin/dscl"
-}
-
-worktree_migration_apply() {
-  local work="$1" fail_step="${2:-}"
-  HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" \
-    PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
-    HERDR_FAIL_STEP="$fail_step" chezmoi_full_fixture apply \
-    --source "$work/source" --destination "$work/home" --config "$work/chezmoi.yaml"
-}
-
-worktree_migration_apply_custom_xdg() {
-  local work="$1"
-  HOME="$work/home" XDG_CONFIG_HOME="$work/home/custom-config" \
-    PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
-    HERDR_FAIL_STEP="" chezmoi_full_fixture apply \
-    --source "$work/source" --destination "$work/home" --config "$work/chezmoi.yaml"
-}
-
-worktree_migration_live_apply() {
-  local work="$1" fail_step="${2:-}"
-  chezmoi_full_fixture execute-template -S "$work/source" \
-    --file "$work/source/.chezmoiscripts/run_once_after_4-migrate-herdr-worktree-setup.sh.tmpl" \
-    > "$work/migration.sh"
-  env -u MMS_DISPOSABLE_HOME -u HERDR_SOCKET_PATH \
-    HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" \
-    PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
-    HERDR_FAIL_STEP="$fail_step" bash "$work/migration.sh"
-}
-
-function test_scripts_0853_worktree_setup_migration_retries_after_install_failure() {
-  _bats_test_init 853 'worktree setup migration retains local files and retries after install failure'
-  command_exists chezmoi || skip "chezmoi not available"
-  local work="$BATS_TEST_TMPDIR/worktree-migration"
-  worktree_migration_prepare "$work"
-
-  run worktree_migration_apply "$work" install
-  assert_failure
-  local migration_output="$output"
-  assert_dir_exists "$work/home/.config/herdr/plugins/worktree-setup"
-  run grep -Fx "plugin link $work/home/.config/herdr/plugins/worktree-setup --enabled" "$work/herdr.calls"
-  assert_failure
-  [[ "$migration_output" == *'MMS_DISPOSABLE_HOME=1'* ]] || fail 'rollback did not honor the disposable-home guard'
-
-  run worktree_migration_apply "$work"
-  assert_success
-  assert_dir_not_exists "$work/home/.config/herdr/plugins/worktree-setup"
-  run grep -Ec "plugin install Seigiard/herdr-worktree-setup --ref [0-9a-f]{40} -y" "$work/herdr.calls"
-  assert_success
-  assert_output "2"
-}
-
-function test_scripts_08531_worktree_setup_migration_retries_after_enable_failure() {
-  _bats_test_init 8531 'worktree setup migration restores local files and retries after enable failure'
-  command_exists chezmoi || skip "chezmoi not available"
-  local work="$BATS_TEST_TMPDIR/worktree-enable-migration"
-  worktree_migration_prepare "$work"
-
-  run worktree_migration_apply "$work" enable
-  assert_failure
-  local migration_output="$output"
-  assert_dir_exists "$work/home/.config/herdr/plugins/worktree-setup"
-  run grep -Fx "plugin uninstall seigi.worktree-setup" "$work/herdr.calls"
-  assert_success
-  run grep -Fx "plugin link $work/home/.config/herdr/plugins/worktree-setup --enabled" "$work/herdr.calls"
-  assert_failure
-  [[ "$migration_output" == *'MMS_DISPOSABLE_HOME=1'* ]] || fail 'rollback did not honor the disposable-home guard'
-
-  run worktree_migration_apply "$work"
-  assert_success
-  assert_dir_not_exists "$work/home/.config/herdr/plugins/worktree-setup"
-  run grep -Fc "plugin enable seigi.worktree-setup" "$work/herdr.calls"
-  assert_success
-  assert_output "2"
-}
-
-function test_scripts_08532_worktree_setup_migration_replaces_a_stale_local_registration() {
-  _bats_test_init 8532 'worktree setup migration replaces a stale local registration without legacy files'
-  command_exists chezmoi || skip "chezmoi not available"
-  local work="$BATS_TEST_TMPDIR/worktree-stale-migration"
-  worktree_migration_prepare "$work"
-  rm -rf "$work/home/.config/herdr/plugins/worktree-setup"
-
-  run worktree_migration_apply "$work"
-  assert_success
-  run grep -Fx "plugin uninstall seigi.worktree-setup" "$work/herdr.calls"
-  assert_success
-  run grep -Ex "plugin install Seigiard/herdr-worktree-setup --ref [0-9a-f]{40} -y" "$work/herdr.calls"
-  assert_success
-}
-
-function test_scripts_08536_worktree_setup_migration_rolls_back_after_registry_refresh_failure() {
-  _bats_test_init 8536 'worktree setup migration removes the new registration after registry refresh failure'
-  command_exists chezmoi || skip "chezmoi not available"
-  local work="$BATS_TEST_TMPDIR/worktree-refresh-failure"
-  worktree_migration_prepare "$work"
-
-  run worktree_migration_apply "$work" refresh
-  assert_failure
-  assert_dir_exists "$work/home/.config/herdr/plugins/worktree-setup"
-  run grep -Fc "plugin uninstall seigi.worktree-setup" "$work/herdr.calls"
-  assert_success
-  assert_output "2"
-}
-
-function test_scripts_08537_worktree_setup_migration_rejects_malformed_plugin_registry_data() {
-  _bats_test_init 8537 'worktree setup migration rejects malformed plugin registry data'
-  command_exists chezmoi || skip "chezmoi not available"
-  local work="$BATS_TEST_TMPDIR/worktree-malformed-registry"
-  worktree_migration_prepare "$work"
-
-  run worktree_migration_apply "$work" malformed
-  assert_failure
-  assert_dir_exists "$work/home/.config/herdr/plugins/worktree-setup"
-  run grep -F "plugin install Seigiard/herdr-worktree-setup" "$work/herdr.calls"
-  assert_failure
-}
-
-function test_scripts_08533_worktree_setup_migration_restores_a_local_plugin_from_a_live_home() {
-  _bats_test_init 8533 'worktree setup migration restores a local plugin when a live-home install fails'
-  command_exists chezmoi || skip "chezmoi not available"
-  local work="$BATS_TEST_TMPDIR/worktree-live-rollback"
-  worktree_migration_prepare "$work"
-
-  run worktree_migration_live_apply "$work" install
-  assert_failure
-  assert_dir_exists "$work/home/.config/herdr/plugins/worktree-setup"
-  run grep -Fx "plugin link $work/home/.config/herdr/plugins/worktree-setup --enabled" "$work/herdr.calls"
-  assert_success
-}
-
-function test_scripts_08534_worktree_setup_migration_preserves_unmanaged_legacy_files() {
-  _bats_test_init 8534 'worktree setup migration preserves unmanaged files in the legacy directory'
-  command_exists chezmoi || skip "chezmoi not available"
-  local work="$BATS_TEST_TMPDIR/worktree-unmanaged-legacy"
-  worktree_migration_prepare "$work"
-  printf 'keep me\n' > "$work/home/.config/herdr/plugins/worktree-setup/notes.txt"
-
-  run worktree_migration_apply "$work"
-  assert_success
-  assert_file_exists "$work/home/.config/herdr/plugins/worktree-setup/notes.txt"
-  assert_file_not_exists "$work/home/.config/herdr/plugins/worktree-setup/setup.ts"
-}
-
-function test_scripts_08535_worktree_setup_migration_finds_the_managed_path_with_custom_xdg() {
-  _bats_test_init 8535 'worktree setup migration finds the managed path when XDG_CONFIG_HOME is customized'
-  command_exists chezmoi || skip "chezmoi not available"
-  local work="$BATS_TEST_TMPDIR/worktree-custom-xdg"
-  worktree_migration_prepare "$work"
-
-  run worktree_migration_apply_custom_xdg "$work"
-  assert_success
-  assert_dir_not_exists "$work/home/.config/herdr/plugins/worktree-setup"
-}
-
 function test_scripts_08512_existing_herdr_wakeup_is_restored_when_managed_policy_linking_fails() {
   _bats_test_init 8512 'existing Herdr Wakeup is restored when managed policy linking fails'
   local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
@@ -3094,8 +2819,8 @@ SH
   assert_success
 }
 
-function test_scripts_0852_obsolete_plugin_removal_reports_malformed_entries() {
-  _bats_test_init 852 'obsolete plugin removal reports malformed plugin entries'
+function test_scripts_0852_github_plugin_install_reports_malformed_entries() {
+  _bats_test_init 852 'GitHub plugin installation reports malformed plugin entries'
   local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
   local script="$BATS_TEST_TMPDIR/install-herdr-github-plugins-malformed.sh"
   local fake_bin="$BATS_TEST_TMPDIR/bin-malformed"
@@ -3109,7 +2834,7 @@ SH
   cat > "$fake_bin/herdr" <<'SH'
 #!/bin/sh
 if [ "$*" = "plugin list --json" ]; then
-  printf '{"result":{"plugins":[null,{"plugin_id":"worktrunk"}]}}\n'
+  printf '{"result":{"plugins":[null,{"plugin_id":"herdr-wakeup"}]}}\n'
 fi
 exit 0
 SH
@@ -3117,112 +2842,22 @@ SH
 
   run env HOME="$BATS_TEST_TMPDIR/malformed-plugin-home" PATH="$fake_bin:$PATH" bash "$script"
   assert_success
-  assert_output --partial "failed to inspect obsolete plugin artisann.zed-herdr"
+  assert_output --partial "inspect before update: herdr plugin list --json"
 }
 
-palette_migration_prepare() {
-  local work="$1"
-  local source="$work/source" home="$work/home" fake_bin="$work/bin"
-  mkdir -p \
-    "$source/.chezmoiscripts" \
-    "$home/.config/herdr/plugins/command-palette" \
-    "$home/.config/herdr/command-palette" \
-    "$fake_bin"
-  cp "$SOURCE_ROOT/.chezmoiscripts/run_once_after_6-migrate-herdr-command-palette.sh.tmpl" \
-    "$source/.chezmoiscripts/"
-  printf 'legacy plugin\n' > "$home/.config/herdr/plugins/command-palette/palette.py"
-  printf 'user catalog\n' > "$home/.config/herdr/command-palette/commands.toml"
-  write_test_config "$work/chezmoi.yaml"
-
-  cat > "$fake_bin/herdr" <<'SH'
-#!/bin/sh
-printf '%s\n' "$*" >> "$HERDR_CALLS"
-case "$*" in
-  "plugin list --json")
-    printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","source":{"kind":"local"}}]}}'
-    ;;
-  "plugin install Seigiard/herdr-command-palette --ref "*" -y")
-    [ "${HERDR_FAIL_STEP:-}" != install ]
-    ;;
-  "plugin enable seigi.command-palette")
-    [ "${HERDR_FAIL_STEP:-}" != enable ]
-    ;;
-  *)
-    exit 0
-    ;;
-esac
-SH
-  chmod +x "$fake_bin/herdr"
-}
-
-palette_migration_apply() {
-  local work="$1" fail_step="${2:-}"
-  HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" \
-    PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
-    HERDR_FAIL_STEP="$fail_step" chezmoi_full_fixture apply \
-    --source "$work/source" --destination "$work/home" --config "$work/chezmoi.yaml"
-}
-
-function test_scripts_08521_command_palette_migration_retries_after_install_failure() {
-  _bats_test_init 8521 'command palette migration restores local registration and retries after install failure'
-  command_exists chezmoi || skip "chezmoi not available"
-  local work="$BATS_TEST_TMPDIR/palette-install-failure"
-  palette_migration_prepare "$work"
-
-  run palette_migration_apply "$work" install
-  assert_failure
-  assert_dir_exists "$work/home/.config/herdr/plugins/command-palette"
-  assert_file_exists "$work/home/.config/herdr/command-palette/commands.toml"
-  run grep -Fx "plugin link $work/home/.config/herdr/plugins/command-palette --enabled" "$work/herdr.calls"
-  assert_success
-
-  run palette_migration_apply "$work"
-  assert_success
-  assert_dir_not_exists "$work/home/.config/herdr/plugins/command-palette"
-  assert_file_exists "$work/home/.config/herdr/command-palette/commands.toml"
-  run grep -Ec "plugin install Seigiard/herdr-command-palette --ref [0-9a-f]{40} -y" "$work/herdr.calls"
-  assert_success
-  assert_output "2"
-}
-
-function test_scripts_08522_command_palette_migration_retries_after_enable_failure() {
-  _bats_test_init 8522 'command palette migration restores local registration and retries after enable failure'
-  command_exists chezmoi || skip "chezmoi not available"
-  local work="$BATS_TEST_TMPDIR/palette-enable-failure"
-  palette_migration_prepare "$work"
-
-  run palette_migration_apply "$work" enable
-  assert_failure
-  assert_dir_exists "$work/home/.config/herdr/plugins/command-palette"
-  assert_file_exists "$work/home/.config/herdr/command-palette/commands.toml"
-  run grep -Fx "plugin link $work/home/.config/herdr/plugins/command-palette --enabled" "$work/herdr.calls"
-  assert_success
-
-  run palette_migration_apply "$work"
-  assert_success
-  assert_dir_not_exists "$work/home/.config/herdr/plugins/command-palette"
-  assert_file_exists "$work/home/.config/herdr/command-palette/commands.toml"
-  run grep -Fc "plugin enable seigi.command-palette" "$work/herdr.calls"
-  assert_success
-  assert_output "2"
-}
-
-# The field contract every herdr plugin-list fake in this file reproduces, and
-# the only part of the payload the migrations read: `plugin_is_local` and
-# `plugin_is_enabled` in home/.chezmoiscripts/run_once_after_*-migrate-herdr-*
-# and run_onchange_after_7-install-herdr-github-plugins take
-# result.plugins[].plugin_id, .enabled and .source.kind and nothing else. The
+# The GitHub-plugin installer reads result.plugins[].plugin_id and .enabled.
+# Its registry fakes are calibrated against the real binary here. The
 # expected side is the installed binary's own payload; the depth stops here on
 # purpose, because anything deeper restates a shape herdr owns and would go red
 # on its next release for no local reason
 # (docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md).
 assert_herdr_plugin_field_contract() {
-  local payload="$1" plugin_id="$2" expected_kind="$3"
-  run python3 - "$payload" "$plugin_id" "$expected_kind" <<'PY'
+  local payload="$1" plugin_id="$2"
+  run python3 - "$payload" "$plugin_id" <<'PY'
 import json
 import sys
 
-payload, wanted, expected_kind = sys.argv[1:]
+payload, wanted = sys.argv[1:]
 plugins = json.loads(open(payload, encoding="utf-8").read())["result"]["plugins"]
 matches = [plugin for plugin in plugins if plugin.get("plugin_id") == wanted]
 assert len(matches) == 1, matches
@@ -3230,16 +2865,15 @@ plugin = matches[0]
 print(json.dumps({
     "plugin_id": type(plugin["plugin_id"]).__name__,
     "enabled": type(plugin["enabled"]).__name__,
-    "source.kind": plugin["source"]["kind"],
 }, sort_keys=True))
 PY
   assert_success
   assert_output \
-    "{\"enabled\": \"bool\", \"plugin_id\": \"str\", \"source.kind\": \"$expected_kind\"}"
+    '{"enabled": "bool", "plugin_id": "str"}'
 }
 
 function test_scripts_08523_plugin_list_fake_fields_match_real_herdr() {
-  _bats_test_init 8523 'plugin-list fake local-source fields match the installed Herdr contract'
+  _bats_test_init 8523 'plugin-list fake fields match the installed Herdr contract'
   # The PATH wrapper alone is not an oracle: on a CI runner it is deployed with
   # no real herdr behind it and answers 127.
   command_exists herdr && herdr --version >/dev/null 2>&1 \
@@ -3247,12 +2881,8 @@ function test_scripts_08523_plugin_list_fake_fields_match_real_herdr() {
   local work="$BATS_TEST_TMPDIR/plugin-contract-local"
   mkdir -p "$work/home/.config" "$work/plug"
 
-  # The local-source observation is constructed rather than borrowed from the
-  # host registry: the real binary registers a throwaway plugin in a config home
-  # of this test's own and reports back what it recorded. No environment has to
-  # happen to hold a local registration -- which is what used to fold this whole
-  # calibration into a single skip, leaving the `local` half of every fake below
-  # (lines with "kind":"local") adjudicated by nothing.
+  # Register a throwaway plugin in an isolated config home so this check does
+  # not depend on which plugins the host happens to have installed.
   cat > "$work/plug/herdr-plugin.toml" <<'TOML'
 id = "mms.plugin-contract-probe"
 name = "Plugin Contract Probe"
@@ -3272,7 +2902,7 @@ TOML
     herdr plugin list --json
   assert_success
   printf '%s\n' "$output" > "$work/real.json"
-  assert_herdr_plugin_field_contract "$work/real.json" mms.plugin-contract-probe local
+  assert_herdr_plugin_field_contract "$work/real.json" mms.plugin-contract-probe
 
   # The offline `plugin enable` error payload the fakes at tests 08513 and 08514
   # reproduce, read from the real binary against a socket no server answers.
@@ -3283,54 +2913,6 @@ TOML
   run python3 -c 'import json,sys; print(json.loads(sys.argv[1])["error"]["code"])' "$output"
   assert_success
   assert_output 'server_not_running'
-}
-
-function test_scripts_08530_plugin_list_fake_github_source_matches_real_herdr() {
-  _bats_test_init 8530 'plugin-list fake github-source fields match the installed Herdr contract'
-  # The PATH wrapper alone is not an oracle: on a CI runner it is deployed with
-  # no real herdr behind it and answers 127.
-  command_exists herdr && herdr --version >/dev/null 2>&1 \
-    || skip "no working herdr executable is installed behind the PATH wrapper"
-  # A github-source registration cannot be constructed offline -- `plugin
-  # install` resolves a ref over the network -- so this half reads the host
-  # registry and carries its own visible skip. It is a separate test from 08523
-  # on purpose: folded into one, this precondition skipped the local half too and
-  # the run reported one "skipped" where one side had in fact been verified.
-  local work="$BATS_TEST_TMPDIR/plugin-contract-github" probe
-  mkdir -p "$work"
-  run env -i HOME="$HOME" PATH="$PATH" \
-    HERDR_SOCKET_PATH="/tmp/mms-herdr-plugin-contract-$$.sock" herdr plugin list --json
-  assert_success
-  printf '%s\n' "$output" > "$work/real.json"
-  run python3 - "$work/real.json" <<'PY'
-import json
-import sys
-
-plugins = json.loads(open(sys.argv[1], encoding="utf-8").read())["result"]["plugins"]
-github = [p for p in plugins if (p.get("source") or {}).get("kind") == "github"]
-print(github[0]["plugin_id"] if github else "")
-PY
-  assert_success
-  probe="$output"
-  [[ -n "$probe" ]] \
-    || skip "the host herdr registry holds no github-source plugin to read the contract from"
-  assert_herdr_plugin_field_contract "$work/real.json" "$probe" github
-
-  # Every source kind the fakes below produce is one of two. A third kind
-  # appearing upstream is what would make the local/github branch in
-  # `plugin_is_local` stop partitioning the registry.
-  run python3 - "$work/real.json" <<'PY'
-import json
-import sys
-
-plugins = json.loads(open(sys.argv[1], encoding="utf-8").read())["result"]["plugins"]
-print(" ".join(sorted({p["source"]["kind"] for p in plugins})))
-PY
-  assert_success
-  case "$output" in
-    github|local|'github local') : ;;
-    *) fail "real herdr reports a source kind the migrations do not partition: $output" ;;
-  esac
 }
 
 function test_scripts_08524_worktree_setup_is_installed_enabled_and_pinned() {
@@ -3366,258 +2948,6 @@ assert source["owner"] == "Seigiard" and source["repo"] == "herdr-worktree-setup
 assert source["resolved_commit"] == "70048c616979719aa592df36f37ec076227b2ac8", source
 PY
   assert_success
-}
-
-caffeinate_migration_prepare() {
-  local work="$1" legacy_root="${2:-present}"
-  local source="$work/source" home="$work/home" fake_bin="$work/bin"
-  mkdir -p \
-    "$source/.chezmoiscripts/darwin" \
-    "$source/.chezmoitemplates" \
-    "$source/private_dot_config/herdr/plugins/config/herdr-wakeup" \
-    "$home/.config/herdr/plugins/config/herdr-wakeup" \
-    "$fake_bin"
-  if [[ "$legacy_root" == present ]]; then
-    mkdir -p "$home/.config/herdr/plugins/herdr-caffeinate"
-    printf '%s\n' 'id = "keepawake.caffeinate"' \
-      > "$home/.config/herdr/plugins/herdr-caffeinate/herdr-plugin.toml"
-    cat > "$home/.config/herdr/plugins/herdr-caffeinate/reconcile.sh" <<'SH'
-#!/bin/sh
-: > "$HOME/legacy-reconciled"
-SH
-    chmod +x "$home/.config/herdr/plugins/herdr-caffeinate/reconcile.sh"
-  fi
-  cp "$SOURCE_ROOT/.chezmoiscripts/darwin/run_once_after_6-migrate-herdr-caffeinate.sh.tmpl" \
-    "$source/.chezmoiscripts/darwin/"
-  cp "$SOURCE_ROOT/.chezmoitemplates/herdr-wakeup-package.sh" \
-    "$source/.chezmoitemplates/"
-  printf '%s\n' '{"stop_grace_seconds":1200}' \
-    > "$source/private_dot_config/herdr/plugins/config/herdr-wakeup/config.json"
-  write_test_config "$work/chezmoi.yaml"
-
-  cat > "$fake_bin/herdr" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >> "$HERDR_CALLS"
-# Every precondition below encodes one step of the cut-over order. Name the step
-# in the order log so a wrong order reads as prose in the failed apply's output
-# instead of as an opaque exit code the reader has to decode from this stub.
-out_of_order() {
-  printf 'herdr stub: out of order: %s\n' "$1" >> "$HERDR_CALLS.order"
-  exit 1
-}
-case "$*" in
-  "plugin list --json")
-    printf '%s\n' '{"result":{"plugins":[{"plugin_id":"keepawake.caffeinate","source":{"kind":"local"}}]}}'
-    ;;
-  "plugin install usrivastava92/herdr-wakeup/plugin --ref "*" -y")
-    [ "$HERDR_FAIL_STEP" != install ] || exit 1
-    : > "$HOME/replacement-installed"
-    ;;
-  "plugin config-dir herdr-wakeup")
-    printf '%s\n' "$HOME/.config/herdr/plugins/config/herdr-wakeup"
-    ;;
-  "plugin enable herdr-wakeup")
-    [ "$HERDR_FAIL_STEP" != enable ] || exit 1
-    [ -f "$HOME/replacement-installed" ] || out_of_order "enable herdr-wakeup before installing it"
-    [ -L "$HOME/.config/herdr/plugins/config/herdr-wakeup/sessions/f60c672338465554/config.json" ] || \
-      out_of_order "enable herdr-wakeup before linking its managed session policy"
-    : > "$HOME/replacement-enabled"
-    ;;
-  "plugin action invoke stop --plugin keepawake.caffeinate")
-    [ -d "$HOME/.config/herdr/plugins/herdr-caffeinate" ] || exit 1
-    [ -f "$HOME/replacement-enabled" ] || out_of_order "stop the local owner before enabling herdr-wakeup"
-    : > "$HOME/legacy-stopped"
-    ;;
-  "plugin action invoke status --plugin keepawake.caffeinate")
-    [ -f "$HOME/legacy-reconciled" ] || out_of_order "query the local owner before reconciling it"
-    ;;
-  "plugin disable keepawake.caffeinate")
-    [ ! -d "$HOME/.config/herdr/plugins/herdr-caffeinate" ] || \
-      [ -f "$HOME/legacy-stopped" ] || out_of_order "disable the local owner before stopping it"
-    : > "$HOME/legacy-disabled"
-    ;;
-  "server reload-config")
-    [ -f "$HOME/legacy-disabled" ] || out_of_order "reload before disabling the local owner"
-    if [ "$HERDR_FAIL_STEP" = reload ] && [ ! -f "$HOME/activation-reload-failed" ]; then
-      : > "$HOME/activation-reload-failed"
-      exit 1
-    fi
-    : > "$HOME/server-reloaded"
-    ;;
-  "plugin action invoke start --plugin herdr-wakeup")
-    [ -f "$HOME/server-reloaded" ] || out_of_order "start herdr-wakeup before reloading"
-    : > "$HOME/replacement-started"
-    ;;
-  "plugin uninstall keepawake.caffeinate")
-    [ -f "$HOME/replacement-started" ] || out_of_order "uninstall the local owner before herdr-wakeup runs"
-    ;;
-  *)
-    exit 0
-    ;;
-esac
-SH
-  chmod +x "$fake_bin/herdr"
-  : > "$work/herdr.calls"
-  rm -f "$work/herdr.calls.order"
-}
-
-caffeinate_migration_run() {
-  local work="$1" fail_step="${2:-}" run_status=0
-  HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" \
-    PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
-    HERDR_FAIL_STEP="$fail_step" HERDR_SOCKET_PATH=/tmp/mms-herdr-wakeup-test.sock \
-    chezmoi_full_fixture apply --source "$work/source" --destination "$work/home" \
-      --config "$work/chezmoi.yaml" || run_status=$?
-  # Diagnostics, not an expectation: carry the stub's named ordering violations
-  # into this command's output so a failed apply names the step that moved.
-  [ ! -s "$work/herdr.calls.order" ] || cat "$work/herdr.calls.order" >&2
-  return "$run_status"
-}
-
-# The cut-over order is the migration's contract. The stub enforces it through
-# preconditions that surface as opaque exit codes 3-10 inside a failed apply, so
-# the sequence is asserted by name here instead. The pinned ref is normalized
-# out: which commit is installed is not part of the ordering contract.
-caffeinate_cutover_calls() {
-  local observed
-  observed="$(grep -Ex \
-    -e 'plugin install usrivastava92/herdr-wakeup/plugin --ref [0-9a-f]{40} -y' \
-    -e 'plugin enable herdr-wakeup' \
-    -e 'plugin action invoke stop --plugin keepawake.caffeinate' \
-    -e 'plugin disable keepawake.caffeinate' \
-    -e 'server reload-config' \
-    -e 'plugin action invoke start --plugin herdr-wakeup' \
-    -e 'plugin uninstall keepawake.caffeinate' \
-    "$1")" || return 1
-  printf '%s\n' "$observed" | sed -E 's/--ref [0-9a-f]{40} /--ref <pinned> /'
-}
-
-function test_scripts_08524_caffeinate_migration_cuts_over_only_after_the_replacement_is_ready() {
-  _bats_test_init 8524 'caffeinate migration configures the replacement before stopping the local plugin'
-  local work="$BATS_TEST_TMPDIR/caffeinate-migration"
-  local wakeup_config="$work/home/.config/herdr/plugins/config/herdr-wakeup"
-  caffeinate_migration_prepare "$work"
-
-  run caffeinate_migration_run "$work"
-  assert_success
-  assert_dir_not_exists "$work/home/.config/herdr/plugins/herdr-caffeinate"
-  run readlink "$wakeup_config/sessions/f60c672338465554/config.json"
-  assert_success
-  assert_output "$wakeup_config/config.json"
-  run caffeinate_cutover_calls "$work/herdr.calls"
-  assert_success
-  assert_output "plugin install usrivastava92/herdr-wakeup/plugin --ref <pinned> -y
-plugin enable herdr-wakeup
-plugin action invoke stop --plugin keepawake.caffeinate
-plugin disable keepawake.caffeinate
-server reload-config
-plugin action invoke start --plugin herdr-wakeup
-plugin uninstall keepawake.caffeinate"
-}
-
-function test_scripts_08525_caffeinate_migration_keeps_the_local_owner_when_installation_fails() {
-  _bats_test_init 8525 'caffeinate migration keeps the local wake-lock owner when replacement installation fails'
-  local work="$BATS_TEST_TMPDIR/caffeinate-migration-install-failure"
-  caffeinate_migration_prepare "$work"
-
-  run caffeinate_migration_run "$work" install
-  assert_failure
-  assert_output --partial "Herdr Wakeup installation failed"
-  assert_dir_exists "$work/home/.config/herdr/plugins/herdr-caffeinate"
-  run grep -Fx "plugin action invoke stop --plugin keepawake.caffeinate" "$work/herdr.calls"
-  assert_failure
-  run grep -Fx "plugin uninstall keepawake.caffeinate" "$work/herdr.calls"
-  assert_failure
-
-  run caffeinate_migration_run "$work"
-  assert_success
-  assert_dir_not_exists "$work/home/.config/herdr/plugins/herdr-caffeinate"
-  run grep -Ec "plugin install usrivastava92/herdr-wakeup/plugin --ref [0-9a-f]{40} -y" "$work/herdr.calls"
-  assert_success
-  assert_output "2"
-}
-
-function test_scripts_08526_caffeinate_migration_removes_a_stale_local_registration_without_legacy_files() {
-  _bats_test_init 8526 'caffeinate migration removes the stale local registration after replacement startup'
-  local work="$BATS_TEST_TMPDIR/caffeinate-migration-stale-registration"
-  caffeinate_migration_prepare "$work" absent
-
-  run caffeinate_migration_run "$work"
-  assert_success
-  run grep -Fx "plugin uninstall keepawake.caffeinate" "$work/herdr.calls"
-  assert_success
-  run grep -Fx "plugin action invoke start --plugin herdr-wakeup" "$work/herdr.calls"
-  assert_success
-}
-
-function test_scripts_08527_caffeinate_migration_restores_the_local_owner_when_reload_fails() {
-  _bats_test_init 8527 'caffeinate migration restores the local owner when replacement activation fails'
-  local work="$BATS_TEST_TMPDIR/caffeinate-migration-reload-failure"
-  caffeinate_migration_prepare "$work"
-
-  run caffeinate_migration_run "$work" reload
-  assert_failure
-  assert_output --partial "restored and reconciled the local owner"
-  assert_dir_exists "$work/home/.config/herdr/plugins/herdr-caffeinate"
-  assert_file_exists "$work/home/legacy-reconciled"
-  run grep -Fx "plugin enable keepawake.caffeinate" "$work/herdr.calls"
-  assert_success
-  run grep -Fx "plugin action invoke status --plugin keepawake.caffeinate" "$work/herdr.calls"
-  assert_success
-  run grep -Fx "plugin uninstall herdr-wakeup" "$work/herdr.calls"
-  assert_success
-  run grep -Fx "plugin uninstall keepawake.caffeinate" "$work/herdr.calls"
-  assert_failure
-}
-
-# A wrapper that is present but cannot run. It still records its argv, so a test
-# can tell which probe the migration made before deciding to skip or refuse.
-caffeinate_break_herdr_wrapper() {
-  cat > "$1/bin/herdr" <<'SH'
-#!/bin/sh
-printf '%s\n' "$*" >> "$HERDR_CALLS"
-exit 127
-SH
-  chmod +x "$1/bin/herdr"
-}
-
-function test_scripts_08528_caffeinate_migration_skips_a_broken_wrapper_without_legacy_files() {
-  _bats_test_init 8528 'caffeinate migration skips a broken wrapper without legacy files'
-  # #given a broken herdr wrapper and no legacy Caffeinate files
-  local work="$BATS_TEST_TMPDIR/caffeinate-migration-wrapper-only"
-  caffeinate_migration_prepare "$work" absent
-  caffeinate_break_herdr_wrapper "$work"
-
-  # #when
-  run caffeinate_migration_run "$work"
-
-  # #then the migration probed the wrapper and stopped there. Status alone cannot
-  # tell a deliberate skip from a migration that stopped probing herdr at all,
-  # so the recorded argv must be exactly the one probe and nothing else.
-  assert_success
-  run cat "$work/herdr.calls"
-  assert_success
-  assert_output "--version"
-}
-
-function test_scripts_08529_caffeinate_migration_refuses_a_broken_wrapper_while_legacy_files_remain() {
-  _bats_test_init 8529 'caffeinate migration refuses a broken wrapper while legacy files remain'
-  # #given a broken herdr wrapper and the legacy Caffeinate plugin still on disk
-  local work="$BATS_TEST_TMPDIR/caffeinate-migration-wrapper-with-legacy"
-  caffeinate_migration_prepare "$work" present
-  caffeinate_break_herdr_wrapper "$work"
-
-  # #when
-  run caffeinate_migration_run "$work"
-
-  # #then it refuses and keeps the local owner: the discriminating control for
-  # 08528, which must not be able to pass by doing nothing at all.
-  assert_failure 1
-  assert_output --partial "Caffeinate migration needs herdr; retry after herdr is installed"
-  assert_dir_exists "$work/home/.config/herdr/plugins/herdr-caffeinate"
-  run cat "$work/herdr.calls"
-  assert_success
-  assert_output "--version"
 }
 
 # ask-in-herdr skill script
@@ -8433,271 +7763,6 @@ EOF
   assert_success
   assert_output ""
 }
-
-# Pane Labels package migration
-# ===========================================
-
-pane_labels_migration_prepare() {
-  local work="$1"
-  local home="$work/home" bin="$work/bin"
-  mkdir -p "$home/.local/bin" "$home/.local/lib" \
-    "$home/.config/herdr/plugins/herdr-pane-labels" "$bin"
-  printf 'legacy-engine\n' > "$home/.local/bin/herdr-pane-labels"
-  printf 'legacy-aliases\n' > "$home/.local/lib/herdr-aliases.sh"
-  printf 'legacy-process\n' > "$home/.local/lib/herdr-process.sh"
-  printf 'legacy-child\n' > "$home/.local/bin/herdr-child"
-  chmod +x "$home/.local/bin/herdr-pane-labels" "$home/.local/bin/herdr-child"
-  printf 'legacy-plugin\n' > "$home/.config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml"
-  # The real machine has the local plugin registered, which is what makes
-  # local_plugin_registered 1 and puts the uninstall on the cutover path.
-  : > "$work/registry-local"
-
-  cat > "$bin/herdr" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >> "$HERDR_CALLS"
-# Socket-scoped calls carry their target in the environment, not in the
-# argument list, so the plain call log cannot show that the per-socket loops
-# ran at all.
-[ -n "${HERDR_SOCKET_PATH:-}" ] && printf '%s %s\n' "$HERDR_SOCKET_PATH" "$*" >> "$HERDR_CALLS.sockets"
-case "$*" in
-  'session list --json') printf '%s\n' "$STUB_SESSIONS" ;;
-  'plugin list --json')
-    if [ -f "$HERDR_REGISTRY/registry-github" ]; then
-      printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.pane-labels","source":{"kind":"github","repo":"herdr-pane-labels"},"enabled":true}]}}'
-    elif [ -f "$HERDR_REGISTRY/registry-local" ]; then
-      printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.pane-labels","source":{"kind":"local"},"enabled":true}]}}'
-    else
-      printf '%s\n' '{"result":{"plugins":[]}}'
-    fi
-    ;;
-  'plugin disable seigi.pane-labels')
-    # Herdr refuses to disable an id it does not know, and an aborted attempt
-    # leaves exactly that state.
-    if [ ! -f "$HERDR_REGISTRY/registry-local" ] && [ ! -f "$HERDR_REGISTRY/registry-github" ]; then
-      printf 'plugin_not_found\n' >&2
-      exit 1
-    fi
-    ;;
-  'plugin uninstall seigi.pane-labels')
-    rm -f "$HERDR_REGISTRY/registry-local" "$HERDR_REGISTRY/registry-github"
-    ;;
-  'plugin install Seigiard/herdr-pane-labels --ref aba61eb788c5fe0630dc570d96fd14683e2f63c7 -y')
-    # A real install can prompt. Record whatever it could read, so a caller that
-    # leaves stdin open is visible instead of merely lucky.
-    IFS= read -r -t 1 stdin_line < /dev/stdin 2>/dev/null || stdin_line=''
-    printf '%s' "$stdin_line" > "$HERDR_INSTALL_STDIN"
-    [ "${HERDR_FAIL_STEP:-}" = install ] && exit 1
-    cat > "$HOME/.local/bin/herdr-pane-labels" <<'ENGINE'
-#!/bin/sh
-# The reconciliation loop drives the engine, not herdr, so its calls land in a
-# log of their own.
-printf '%s %s\n' "${HERDR_SOCKET_PATH:-none}" "$*" >> "$HERDR_ENGINE_CALLS"
-case "${1:-}" in --sweep|--ensure-sweep-daemon) exit 0 ;; esac
-ENGINE
-    chmod +x "$HOME/.local/bin/herdr-pane-labels"
-    printf 'package-aliases\n' > "$HOME/.local/lib/herdr-aliases.sh"
-    printf 'package-process\n' > "$HOME/.local/lib/herdr-process.sh"
-    printf '0.2.3\n' > "$HOME/.local/lib/herdr-pane-labels.version"
-    : > "$HERDR_REGISTRY/registry-github"
-    ;;
-  'plugin enable seigi.pane-labels'|'server reload-config')
-    if [ "${HERDR_FAIL_STEP:-}" = enable ] && [ "$*" = 'plugin enable seigi.pane-labels' ]; then
-      exit 1
-    fi
-    :
-    ;;
-esac
-SH
-  chmod +x "$bin/herdr"
-}
-
-pane_labels_migration_apply() {
-  local work="$1" fail_step="${2:-}" sessions="${3:-}"
-  [ -n "$sessions" ] || sessions='{"result":{"sessions":[]}}'
-  HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" PATH="$work/bin:$PATH" HERDR_CALLS="$work/herdr.calls" \
-    HERDR_ENGINE_CALLS="$work/engine.calls" HERDR_INSTALL_STDIN="$work/install.stdin" \
-    HERDR_REGISTRY="$work" \
-    HERDR_FAIL_STEP="$fail_step" STUB_SESSIONS="$sessions" bash \
-    "$SOURCE_ROOT/.chezmoiscripts/run_once_after_6-migrate-herdr-pane-labels.sh.tmpl"
-}
-
-function test_scripts_1337_pane_labels_migration_activates_and_removes_the_legacy() {
-  _bats_test_init 1337 'pane labels migration activates the package before removing the legacy layout'
-  local work="$BATS_TEST_TMPDIR/pane-labels-migration"
-  pane_labels_migration_prepare "$work"
-
-  run pane_labels_migration_apply "$work"
-  assert_success
-  assert_dir_not_exists "$work/home/.config/herdr/plugins/herdr-pane-labels"
-  # The package engine and its two libs are written by the stub's own install
-  # branch, so re-reading them proves only that install ran -- which the install
-  # argv below proves directly. The migration never touches those paths.
-  assert_file_contains "$work/home/.local/bin/herdr-child" '^legacy-child$'
-  assert_file_contains "$work/herdr.calls" '^plugin install Seigiard/herdr-pane-labels --ref aba61eb788c5fe0630dc570d96fd14683e2f63c7 -y$'
-  assert_file_exists "$work/home/.local/lib/herdr-pane-labels.version"
-}
-
-# A failed cutover does not restore the old writer -- that implementation is
-# gone from source and a restored copy would be an orphan. What it must leave
-# is a machine that can still launch panes and a next apply that actually
-# retries instead of reading the half-finished install as a finished cutover.
-function test_scripts_1338_pane_labels_migration_aborts_a_partial_install_cl() {
-  _bats_test_init 1338 'pane labels migration aborts a partial package install cleanly'
-  local work="$BATS_TEST_TMPDIR/pane-labels-migration-failure"
-  pane_labels_migration_prepare "$work"
-
-  run pane_labels_migration_apply "$work" install
-  assert_failure
-  # The freeze stub is the one edit that would otherwise brick pane launches.
-  assert_file_contains "$work/home/.local/bin/herdr-child" '^legacy-child$'
-  # Nothing may claim a finished cutover on the next run.
-  run grep -Fx "plugin uninstall seigi.pane-labels" "$work/herdr.calls"
-  assert_success
-  # And nothing re-registers a local plugin the source no longer carries.
-  run grep -F 'plugin link ' "$work/herdr.calls"
-  assert_failure
-}
-
-# Failing at enable means the install already succeeded and wrote the boundary
-# marker. Leaving that marker behind is what would make package_already_installed
-# report a finished cutover and skip the retry for good.
-function test_scripts_1342_pane_labels_migration_clears_the_boundary_marker_() {
-  _bats_test_init 1342 'pane labels migration clears the boundary marker when it aborts after install'
-  local work="$BATS_TEST_TMPDIR/pane-labels-migration-enable-failure"
-  pane_labels_migration_prepare "$work"
-
-  run pane_labels_migration_apply "$work" enable
-  assert_failure
-  # The control the sibling test cannot give: install ran, so the marker existed.
-  run grep -Fx 'plugin install Seigiard/herdr-pane-labels --ref aba61eb788c5fe0630dc570d96fd14683e2f63c7 -y' "$work/herdr.calls"
-  assert_success
-  assert_file_not_exists "$work/home/.local/lib/herdr-pane-labels.version"
-  run grep -Fx "plugin uninstall seigi.pane-labels" "$work/herdr.calls"
-  assert_success
-  assert_file_contains "$work/home/.local/bin/herdr-child" '^legacy-child$'
-}
-
-# running_sockets gates every destructive step on knowing which sessions are
-# live. A payload it cannot parse must stop the cutover, not read as "no
-# sessions" and let the migration proceed past the point of no return.
-function test_scripts_1339_pane_labels_migration_stops_on_an_unparseable_ses() {
-  _bats_test_init 1339 'pane labels migration stops on an unparseable session list'
-  local work="$BATS_TEST_TMPDIR/pane-labels-migration-malformed"
-  pane_labels_migration_prepare "$work"
-
-  run pane_labels_migration_apply "$work" '' '{"unexpected":true}'
-  assert_failure
-  assert_output --partial 'could not inspect running Herdr sessions'
-  assert_dir_exists "$work/home/.config/herdr/plugins/herdr-pane-labels"
-  assert_file_contains "$work/home/.local/bin/herdr-pane-labels" '^legacy-engine$'
-  run grep -F 'plugin install' "$work/herdr.calls"
-  assert_failure
-}
-
-# An empty socket_path is discarded by every consumer loop, so accepting it
-# would silently reduce a live session to no session at all.
-function test_scripts_1340_pane_labels_migration_stops_on_a_running_session_() {
-  _bats_test_init 1340 'pane labels migration stops on a running session without a socket path'
-  local work="$BATS_TEST_TMPDIR/pane-labels-migration-no-socket"
-  pane_labels_migration_prepare "$work"
-
-  run pane_labels_migration_apply "$work" '' '{"result":{"sessions":[{"running":true,"socket_path":""}]}}'
-  assert_failure
-  assert_output --partial 'could not inspect running Herdr sessions'
-  assert_dir_exists "$work/home/.config/herdr/plugins/herdr-pane-labels"
-  run grep -F 'plugin install' "$work/herdr.calls"
-  assert_failure
-}
-
-# With every session list empty, the socket-driven half of the cutover never
-# executes and could be deleted outright without a test noticing.
-function test_scripts_1341_pane_labels_migration_drives_each_running_session() {
-  _bats_test_init 1341 'pane labels migration drives each running session socket'
-  local work="$BATS_TEST_TMPDIR/pane-labels-migration-sessions"
-  local socket="$BATS_TEST_TMPDIR/session-a.sock"
-  pane_labels_migration_prepare "$work"
-
-  local second="$BATS_TEST_TMPDIR/session-b.sock"
-  run pane_labels_migration_apply "$work" '' \
-    "{\"result\":{\"sessions\":[{\"running\":true,\"socket_path\":\"$socket\"},{\"running\":true,\"socket_path\":\"$second\"},{\"running\":false,\"socket_path\":\"$BATS_TEST_TMPDIR/stopped.sock\"}]}}"
-  assert_success
-  local sock
-  for sock in "$socket" "$second"; do
-    run grep -Fx "$sock plugin disable seigi.pane-labels" "$work/herdr.calls.sockets"
-    assert_success
-    run grep -Fx "$sock plugin enable seigi.pane-labels" "$work/herdr.calls.sockets"
-    assert_success
-    run grep -Fx "$sock server reload-config" "$work/herdr.calls.sockets"
-    assert_success
-    run grep -Fx "$sock --sweep" "$work/engine.calls"
-    assert_success
-    run grep -Fx "$sock --ensure-sweep-daemon" "$work/engine.calls"
-    assert_success
-  done
-  run grep -F "$BATS_TEST_TMPDIR/stopped.sock" "$work/herdr.calls.sockets"
-  assert_failure
-  run grep -F "$BATS_TEST_TMPDIR/stopped.sock" "$work/engine.calls"
-  assert_failure
-}
-
-
-# A running flag that is not a boolean is a schema the script cannot read. The
-# same filter already carries a // fallback because the shape moved once, and
-# guessing "stopped" would skip a live session the cutover has to reconcile.
-function test_scripts_1343_pane_labels_migration_stops_on_a_non_boolean_runn() {
-  _bats_test_init 1343 'pane labels migration stops on a non-boolean running flag'
-  local work="$BATS_TEST_TMPDIR/pane-labels-migration-running-shape"
-  pane_labels_migration_prepare "$work"
-
-  run pane_labels_migration_apply "$work" '' \
-    '{"result":{"sessions":[{"running":"true","socket_path":"/tmp/shape.sock"}]}}'
-  assert_failure
-  assert_output --partial 'could not inspect running Herdr sessions'
-  run grep -F 'plugin install' "$work/herdr.calls"
-  assert_failure
-}
-
-# Two sibling installers close stdin and say why: an unseen upstream prompt must
-# fail rather than hang chezmoi apply, and here it would hang with herdr-child
-# already replaced by the freeze stub.
-function test_scripts_1344_pane_labels_migration_closes_stdin_for_the_packag() {
-  _bats_test_init 1344 'pane labels migration closes stdin for the package install'
-  local work="$BATS_TEST_TMPDIR/pane-labels-migration-stdin"
-  pane_labels_migration_prepare "$work"
-
-  run pane_labels_migration_apply "$work" <<'STDIN'
-SHOULD-NOT-REACH-THE-INSTALLER
-STDIN
-  assert_success
-  assert_file_exists "$work/install.stdin"
-  run grep -F 'SHOULD-NOT-REACH-THE-INSTALLER' "$work/install.stdin"
-  assert_failure
-}
-
-
-# The abort path drops the local registration and nothing puts it back, so the
-# next run meets an id Herdr does not know. Treating that as a quiesce failure
-# made the cutover unrepeatable: every later apply died at the gate while the
-# labels it had already killed stayed dead.
-function test_scripts_1345_pane_labels_migration_retries_after_an_abort() {
-  _bats_test_init 1345 'pane labels migration retries after an abort'
-  local work="$BATS_TEST_TMPDIR/pane-labels-migration-retry"
-  local sessions='{"result":{"sessions":[{"running":true,"socket_path":"/tmp/retry.sock"}]}}'
-  pane_labels_migration_prepare "$work"
-
-  run pane_labels_migration_apply "$work" install "$sessions"
-  assert_failure
-  # The abort names the command that brings labels back before the next apply.
-  assert_output --partial 'herdr plugin link '
-  # The registration is gone, which is the state the retry has to tolerate.
-  assert_file_not_exists "$work/registry-local"
-
-  run pane_labels_migration_apply "$work" '' "$sessions"
-  assert_success
-  assert_file_exists "$work/registry-github"
-  assert_dir_not_exists "$work/home/.config/herdr/plugins/herdr-pane-labels"
-}
-
 
 # Claude settings modifier
 # ===========================================

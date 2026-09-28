@@ -116,11 +116,7 @@ everywhere" to "runs wherever herdr is installed".
 A precondition placed after assertions throws their result away: bashunit and
 bats both report the test as `skipped` whatever ran before the `skip`. When a
 calibration has two halves with different preconditions, split it into two tests,
-so the half that can be verified is reported as verified:
-
-- 08523 owns the `local` half, constructed, and skips only where herdr is absent.
-- 08530 owns the `github` half, which cannot be constructed offline — `plugin
-  install` resolves a ref over the network — and carries its own named skip.
+so the half that can be verified is reported as verified.
 
 The pass count is not the point; the point is that the run says which half was
 adjudicated. Ordering assertions before an unavoidable trailing skip is a partial
@@ -221,17 +217,6 @@ it stood, a stub herdr that answered `api snapshot` with
 After narrowing the guard to `server_not_running` and `124`, the same injection
 produces a failure, while pointing `HERDR_SOCKET_PATH` at a socket no server
 answers still skips with the named reason.
-
-**The constructed oracle.** `scripts_test.sh` test 08523 reported
-`↷ Skipped ... real registry does not currently expose both local and github
-source kinds: github` on a host with herdr 0.9.1 installed and running. Linking a
-throwaway plugin in an isolated config home turned it into 7 passing assertions
-on the same host. Reversing the expected kind makes it red:
-
-```
-expected : {"enabled": "bool", "plugin_id": "str", "source.kind": "github"}
-actual   : {"enabled": "bool", "plugin_id": "str", "source.kind": "local"}
-```
 
 **The oracle that looked at the wrong thing.** Test 27209 now reads the real
 `account/rateLimits/read` reply and compares it to the reply

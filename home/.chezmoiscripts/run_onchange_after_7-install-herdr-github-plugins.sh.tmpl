@@ -2,8 +2,6 @@
 # chezmoi:template:left-delimiter="# {{" right-delimiter="}}"
 # Install and enable Herdr plugins that remain managed by their GitHub sources.
 # Herdr records the source repository so herdr-auto-update can update these plugins later.
-# Runs last of the herdr scripts so its single `herdr server reload-config` also picks up the
-# locally linked plugins that scripts 4 through 6 install.
 #
 # Hash triggers:
 # # {{ include "private_dot_config/herdr/plugins/config/herdr-auto-update/config.toml" | sha256sum }}
@@ -31,7 +29,7 @@ restore_herdr_wakeup() {
 }
 
 plugin_matches() {
-  local expected_id="$1" expected_kind="${2:-}"
+  local expected_id="$1"
   printf '%s\n' "$plugin_json" | python3 -c '
 import json, sys
 try:
@@ -41,13 +39,12 @@ try:
         raise TypeError
     found = any(
         plugin.get("plugin_id") == sys.argv[1]
-        and (not sys.argv[2] or plugin.get("source", {}).get("kind") == sys.argv[2])
         for plugin in plugins
     )
 except (AttributeError, json.JSONDecodeError, TypeError):
     raise SystemExit(2)
 raise SystemExit(0 if found else 1)
-' "$expected_id" "$expected_kind" 2>/dev/null
+' "$expected_id" 2>/dev/null
 }
 
 plugin_is_enabled() {
@@ -84,23 +81,8 @@ enable_plugin() {
   return 1
 }
 
-# Remove plugins whose behavior moved elsewhere or whose local ID was superseded.
 plugin_json=""
-if plugin_json="$(herdr plugin list --json </dev/null 2>/dev/null)"; then
-  for obsolete_plugin in artisann.zed-herdr worktrunk seigi.focus-notify; do
-    plugin_matches "$obsolete_plugin"
-    plugin_state=$?
-    if [[ $plugin_state -eq 0 ]]; then
-      if herdr plugin uninstall "$obsolete_plugin" </dev/null >/dev/null 2>&1; then
-        echo "Removed obsolete Herdr plugin $obsolete_plugin"
-      else
-        failed+=("$obsolete_plugin (uninstall: herdr plugin uninstall $obsolete_plugin)")
-      fi
-    elif [[ $plugin_state -ne 1 ]]; then
-      failed+=("failed to inspect obsolete plugin $obsolete_plugin (herdr plugin list --json)")
-    fi
-  done
-else
+if ! plugin_json="$(herdr plugin list --json </dev/null 2>/dev/null)"; then
   failed+=("failed to list Herdr plugins (herdr plugin list --json)")
 fi
 

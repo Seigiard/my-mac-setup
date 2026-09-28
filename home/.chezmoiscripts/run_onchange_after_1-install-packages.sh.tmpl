@@ -48,18 +48,6 @@ HOMEBREW_BUNDLE_NO_UPGRADE=1 brew bundle --file="$BREWFILES_DIR/Brewfile.macos"
 echo "=== Package installation complete! ==="
 # # {{ end }}
 
-# Oh My Zsh and its plugins are pinned chezmoi externals (.chezmoiexternal.toml).
-ZSH_CUSTOM="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}"
-# Remove deprecated zsh-syntax-highlighting (replaced by fast-syntax-highlighting)
-if [[ -d "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting" ]]; then
-    rm -rf "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting"
-fi
-# Remove the old vendor-installer clone metadata; the pinned archive external
-# owns the ~/.oh-my-zsh tree now and this .git would be inert but stale.
-if [[ -d "$HOME/.oh-my-zsh/.git" ]]; then
-    rm -rf "$HOME/.oh-my-zsh/.git"
-fi
-
 # # {{ if eq .chezmoi.os "darwin" }}
 # Install Yazi plugins (macOS)
 if command -v ya &> /dev/null; then

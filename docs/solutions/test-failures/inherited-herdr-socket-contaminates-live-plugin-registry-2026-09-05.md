@@ -55,23 +55,14 @@ Start the real CLI check with a clean environment and verify the persistent side
 
 ```bash
 run env -i HOME="$home" PATH="$PATH" \
-  herdr plugin link "$PALETTE_DIR" --enabled
+  herdr plugin link "$plugin_dir" --enabled
 assert_success
-local link_json="$output"
 
 local registry="$home/.config/herdr/plugins.json"
 assert_file_exists "$registry"
 ```
 
-The test parses `plugins.json` and requires `seigi.command-palette` to point at `$PALETTE_DIR`. It saves the first `run` output because the repository test DSL overwrites `$output` on every subsequent `run`. The test is `test_palette_063_herdr_loads_the_command_palette_manifest_and_actions` in `tests/bashunit/palette_test.sh`.
-
-Repair an already contaminated live registry by replacing the same plugin ID with the stable managed path:
-
-```bash
-herdr plugin link ~/.config/herdr/plugins/command-palette --enabled
-```
-
-Relinking validates the new manifest before replacing the existing registration. An unlink-first window is unnecessary.
+Parse the disposable registry and assert that the fixture's plugin ID points at `$plugin_dir`. File existence alone does not prove the command reached the right registry. Save any command output needed later before another `run` overwrites `$output`.
 
 ## Why This Works
 
@@ -82,10 +73,8 @@ The regression assertion observes the filesystem boundary rather than trusting s
 ## Prevention
 
 - Treat endpoint and config-root variables as part of test isolation. Changing `HOME` alone is insufficient when a CLI accepts explicit environment overrides.
-- For a real Herdr CLI test that needs no ambient state, use `env -i` and restore only required inputs such as `HOME` and `PATH`. Where the tool needs a live-looking endpoint rather than none, pin the override at a disposable one instead: `tests/helpers/herdr_pane_labels.bash` exports `HERDR_SOCKET_PATH` at a fake socket under its own work directory. Note the limit of both shapes — they bound only what crosses *into* the child, and say nothing about an oversized string the callee synthesizes from its own argv after exec.
-- The same discipline belongs in deployment code that must not touch a caller's session. `home/.chezmoitemplates/herdr-pane-labels-cutover-lib.sh` clears the variable with `env -u HERDR_SOCKET_PATH` before its rollback relink.
+- For a real Herdr CLI test that needs no ambient state, use `env -i` and restore only required inputs such as `HOME` and `PATH`. Where the tool needs an explicit endpoint, set `HERDR_SOCKET_PATH` to a disposable socket. Note the limit of both shapes — they bound only what crosses *into* the child, and say nothing about an oversized string the callee synthesizes from its own argv after exec.
 - Assert the mutation in the disposable registry so a command routed to the wrong server cannot produce a false green.
-- The same class reappeared through `chezmoi apply` itself: an apply under a throwaway `$HOME` ran the former `run_onchange_after_5-link-herdr-caffeinate.sh.tmpl`, which registered that temp path in the live registry and left `keepawake.caffeinate` reporting `manifest unavailable` after the directory was collected. `home/.chezmoitemplates/herdr-plugin-link-guard.sh` now answers the question `$HOME` cannot answer about itself — it reads the login home from the account database and skips the link from any other home, fail-closed when the database cannot be read. Caffeinate has since moved to a GitHub-installed package, so only the remaining local link scripts need the guard; `tests/bashunit/scripts_test.sh` tests 853 and 854 pair the refusal with a control that reaches the link.
 
 ## Related Issues
 
