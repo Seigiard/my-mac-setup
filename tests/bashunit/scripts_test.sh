@@ -11638,7 +11638,7 @@ function test_scripts_2840_handoff_pre_compact_never_resurrects_an_older_goal() 
 # failure: a declined bump mutates a pin anyway, an accepted bump writes
 # something other than the value upstream returned, or a fff-mcp bump lands a
 # partial checksum set that breaks `chezmoi apply` on the platforms it did not
-# refresh. Oracle: the bytes of a fixture copy of those two real files before
+# refresh. Oracle: the bytes of two test-owned representative files before
 # and after a run, against the values a stubbed fetcher returned. GitHub's own
 # semantics belong to GitHub and are not asserted here — every upstream answer
 # and every `mise outdated` report comes from a stub, so the suite never
@@ -11653,17 +11653,60 @@ pins_fixture() {
   PINS_BASELINE="$BATS_TEST_TMPDIR/pins-baseline"
   mkdir -p "$PINS_ROOT/private_dot_config/mise" "$PINS_STUBS" "$PINS_BASELINE"
 
-  # The fixture is a copy of the repository's own pinned files, so the parsing
-  # under test faces the shapes it will actually meet.
-  cp "$SOURCE_ROOT/.chezmoiexternal.toml" "$PINS_ROOT/.chezmoiexternal.toml"
-  cp "$SOURCE_ROOT/private_dot_config/mise/config.toml" \
-    "$PINS_ROOT/private_dot_config/mise/config.toml"
   PINS_EXTERNAL="$PINS_ROOT/.chezmoiexternal.toml"
   PINS_MISE="$PINS_ROOT/private_dot_config/mise/config.toml"
+  # Own the inventory and drift states: shipped pin maintenance must not move
+  # positional answers onto a different offer. Keep a second archive as a
+  # declined neighbor so accepting the wrong target still changes the verdict.
+  cat >"$PINS_EXTERNAL" <<'EXTERNALS'
+[".oh-my-zsh"]
+    type = "archive"
+    url = "https://github.com/ohmyzsh/ohmyzsh/archive/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.tar.gz"
+    stripComponents = 1
+[".oh-my-zsh/custom/plugins/example"]
+    type = "archive"
+    url = "https://github.com/example/plugin/archive/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.tar.gz"
+    stripComponents = 1
+{{ $fffMcpTarget := "" }}
+{{ $fffMcpSha256 := "" }}
+{{ if eq .chezmoi.os "darwin" }}
+{{ if eq .chezmoi.arch "arm64" }}
+{{ $fffMcpTarget = "aarch64-apple-darwin" }}
+{{ $fffMcpSha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }}
+{{ else }}
+{{ $fffMcpTarget = "x86_64-apple-darwin" }}
+{{ $fffMcpSha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }}
+{{ end }}
+{{ else }}
+{{ if eq .chezmoi.arch "arm64" }}
+{{ $fffMcpTarget = "aarch64-unknown-linux-musl" }}
+{{ $fffMcpSha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" }}
+{{ else }}
+{{ $fffMcpTarget = "x86_64-unknown-linux-musl" }}
+{{ $fffMcpSha256 = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" }}
+{{ end }}
+{{ end }}
+[".local/bin/fff-mcp"]
+    type = "file"
+    executable = true
+    url = "https://github.com/dmtrKovalenko/fff/releases/download/v1.0.0/fff-mcp-{{ $fffMcpTarget }}"
+    checksum.sha256 = "{{ $fffMcpSha256 }}"
+EXTERNALS
+  cat >"$PINS_MISE" <<'MISE'
+[tools]
+node = "lts"
+python = "3.12.0"
+[settings]
+experimental = true
+MISE
 
   PINS_STUB_HEAD_SHA="0123456789abcdef0123456789abcdef01234567"
   PINS_STUB_TAG="v99.0.0"
   PINS_STUB_CHECKSUM_FAILS_FOR=""
+  PINS_OHMYZSH_SHA="$PINS_STUB_HEAD_SHA"
+  if [ "${1:-drifted}" = current ]; then
+    PINS_OHMYZSH_SHA="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  fi
 
   PINS_FETCHER="$PINS_STUBS/upstream-stub"
   cat >"$PINS_FETCHER" <<'STUB'
@@ -11673,7 +11716,12 @@ pins_fixture() {
 # unknown asset exits non-zero, so a renamed target surfaces instead of
 # silently borrowing another platform's checksum.
 case "$1" in
-  head-sha) printf '%s\tHEAD\n' "$STUB_HEAD_SHA" ;;
+  head-sha)
+    case "$2" in
+      ohmyzsh/ohmyzsh) printf '%s\tHEAD\n' "$STUB_OHMYZSH_SHA" ;;
+      example/plugin) printf '%s\tHEAD\n' "$STUB_HEAD_SHA" ;;
+      *) exit 2 ;;
+    esac ;;
   latest-tag) printf '%s\n' "$STUB_TAG" ;;
   checksum)
     # checksum REPO TAG ASSET
@@ -11721,6 +11769,7 @@ run_pins() {
     "UPDATE_PINS_FETCHER=$fetcher" \
     "STUB_MISE_JSON=$PINS_MISE_JSON" \
     "STUB_HEAD_SHA=$PINS_STUB_HEAD_SHA" \
+    "STUB_OHMYZSH_SHA=$PINS_OHMYZSH_SHA" \
     "STUB_TAG=$PINS_STUB_TAG" \
     "STUB_CHECKSUM_FAILS_FOR=$PINS_STUB_CHECKSUM_FAILS_FOR" \
     bash -c 'printf "%s" "$2" | bash "$1"' bash "$UPDATE_PINS" "$answers"
@@ -11748,7 +11797,7 @@ pins_baseline_value() {
 # from the file's own text without sharing any parsing with the script.
 pins_expected_fff_bump() {
   local out="$BATS_TEST_TMPDIR/expected-externals"
-  awk -v tag="$PINS_STUB_TAG" '
+  awk '
     BEGIN {
       sum["aarch64-apple-darwin"]       = "1111111111111111111111111111111111111111111111111111111111111111"
       sum["x86_64-apple-darwin"]        = "2222222222222222222222222222222222222222222222222222222222222222"
@@ -11767,10 +11816,9 @@ pins_expected_fff_bump() {
     /\$fffMcpSha256 = "/ {
       sub(/\$fffMcpSha256 = "[0-9a-f]+"/, "$fffMcpSha256 = \"" sum[target] "\"")
     }
-    # The fff-mcp release URL, and only it: other pins in this file carry
-    # release downloads of their own that this bump must leave alone.
+    # Change the fff-mcp release URL only; preserve both archive neighbors.
     /releases\/download\// && /fff-mcp-/ {
-      sub(/\/releases\/download\/[^\/"]+\//, "/releases/download/" tag "/")
+      sub(/\/releases\/download\/[^\/"]+\//, "/releases/download/v99.0.0/")
     }
     { print }
   ' "$PINS_BASELINE/externals" >"$out" || return 1
@@ -11781,11 +11829,12 @@ function test_scripts_1451_update_pins_declining_every_bump_leaves_the_pinned_fi
   _bats_test_init 1451 'update-pins declining every bump leaves the pinned files byte-identical'
   # #given a source tree whose every pin has drifted upstream
   pins_fixture
+  printf '%s\n' \
+    '{"python": {"requested": "3.12.0", "bump": "3.13.2", "latest": "3.13.2"}}' \
+    >"$PINS_MISE_JSON"
 
   # #when every offer is declined
   run_pins 'n
-n
-n
 n
 n
 n
@@ -11803,6 +11852,7 @@ n
   assert_output --partial \
     "ohmyzsh/ohmyzsh: ${pinned:0:12} -> ${PINS_STUB_HEAD_SHA:0:12}"
   assert_output --partial 'kept'
+  assert_output --partial 'mise python: 3.12.0 -> 3.13.2'
   assert_pins_files_unchanged
 }
 
@@ -11812,14 +11862,11 @@ function test_scripts_1452_update_pins_writes_exactly_the_fetched_sha_for_the_ac
   pins_fixture
   local old_sha expected="$BATS_TEST_TMPDIR/expected-externals"
   old_sha="$(pins_baseline_value 's|.*ohmyzsh/ohmyzsh/archive/\([0-9a-f]\{40\}\)\.tar\.gz.*|\1|p')"
-  sed "s|/archive/$old_sha\.tar\.gz|/archive/$PINS_STUB_HEAD_SHA.tar.gz|" \
+  sed "s|/archive/$old_sha\.tar\.gz|/archive/0123456789abcdef0123456789abcdef01234567.tar.gz|" \
     "$PINS_BASELINE/externals" >"$expected"
 
   # #when only the first offer is accepted
   run_pins 'y
-n
-n
-n
 n
 n
 '
@@ -11832,17 +11879,14 @@ n
 
 function test_scripts_1453_update_pins_bumps_fff_mcp_to_the_fetched_tag_and_all_four_checksums() {
   _bats_test_init 1453 'update-pins bumps fff-mcp to the fetched tag and all four checksums'
-  # #given the drifted source tree and the four per-platform sums the stub serves
-  pins_fixture
+  # #given ohmyzsh is already current, another archive has drifted, and the
+  # fetcher serves four distinct platform sums for the drifted fff release
+  pins_fixture current
   local expected
   expected="$(pins_expected_fff_bump)"
 
   # #when every archive offer is declined and only the fff-mcp offer accepted
   run_pins 'n
-n
-n
-n
-n
 y
 '
 
@@ -11860,9 +11904,6 @@ function test_scripts_1454_update_pins_abandons_a_fff_mcp_bump_when_one_checksum
 
   # #when the fff-mcp bump is accepted
   run_pins 'n
-n
-n
-n
 n
 y
 '
@@ -11904,13 +11945,16 @@ function test_scripts_1456_update_pins_rewrites_only_the_accepted_mise_tool_vers
   cp "$PINS_MISE" "$PINS_BASELINE/mise"
   assert_file_contains "$PINS_MISE" '^node = "24"$'
   local expected="$BATS_TEST_TMPDIR/expected-mise"
-  sed 's|^node = "24"$|node = "26.8.1"|' "$PINS_BASELINE/mise" >"$expected"
+  cat >"$expected" <<'MISE'
+[tools]
+node = "26.8.1"
+python = "3.12.0"
+[settings]
+experimental = true
+MISE
 
   # #when every externals offer is declined and the mise offer accepted
   run_pins 'n
-n
-n
-n
 n
 n
 y
@@ -11938,14 +11982,11 @@ function test_scripts_1457_update_pins_follows_the_chezmoiroot_indirection_into_
   local expected="$BATS_TEST_TMPDIR/expected-nested-externals" old_sha
   old_sha="$(pins_baseline_value \
     's|.*ohmyzsh/ohmyzsh/archive/\([0-9a-f]\{40\}\)\.tar\.gz.*|\1|p')"
-  sed "s|/archive/$old_sha\.tar\.gz|/archive/$PINS_STUB_HEAD_SHA.tar.gz|" \
+  sed "s|/archive/$old_sha\.tar\.gz|/archive/0123456789abcdef0123456789abcdef01234567.tar.gz|" \
     "$PINS_BASELINE/externals" >"$expected"
 
   # #when the first offer is accepted
   run_pins 'y
-n
-n
-n
 n
 n
 '
@@ -11967,9 +12008,6 @@ function test_scripts_1458_update_pins_reports_a_failed_mise_lookup_as_unknown()
 
   # #when every externals offer is declined
   run_pins 'n
-n
-n
-n
 n
 n
 '
@@ -12007,9 +12045,6 @@ function test_scripts_1459_update_pins_commits_and_pushes_the_accepted_bump() {
   run_pins 'y
 n
 n
-n
-n
-n
 '
 
   # #then the source is clean again and origin carries the fetched sha
@@ -12034,9 +12069,6 @@ function test_scripts_1460_update_pins_creates_no_commit_when_every_bump_is_decl
   run_pins 'n
 n
 n
-n
-n
-n
 '
 
   # #then nothing was committed and origin never moved
@@ -12057,9 +12089,6 @@ function test_scripts_1461_update_pins_publishes_only_the_files_it_rewrote() {
 
   # #when the first offer is accepted
   run_pins 'y
-n
-n
-n
 n
 n
 '
