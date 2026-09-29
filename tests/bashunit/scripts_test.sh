@@ -404,11 +404,15 @@ claude name=<> args= active=<> pi_load=<>'
   # accepts its global options before the subcommand, so a check that reads only
   # the first argument passes the first case and claims on the next two.
   local argv
-  for argv in 'serve --port 4096' '--log-level DEBUG serve' '--print-logs stats' \
-    '--mdns-domain opencode.local serve' '--cors http://a serve' '--mdns serve' \
-    '--pure' '--pure=true' '--mode rpc' '--mode json' '--no-extensions'; do
-    local client=opencode
-    [[ "$argv" != --mode* && "$argv" != --no-extensions ]] || client=pi
+  local client
+  for argv in 'opencode serve --port 4096' 'opencode --log-level DEBUG serve' \
+    'opencode --print-logs stats' 'opencode --mdns-domain opencode.local serve' \
+    'opencode --cors http://a serve' 'opencode --mdns serve' \
+    'opencode --log-level DEBUG --version' 'opencode --pure' 'opencode --pure=true' \
+    'pi --mode rpc' 'pi --mode json' 'pi --no-extensions' \
+    'pi --provider google --version' 'pi --thinking high --help'; do
+    client="${argv%% *}"
+    argv="${argv#* }"
     : > "$log"; rm -f "$marker"
     # shellcheck disable=SC2086
     run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \

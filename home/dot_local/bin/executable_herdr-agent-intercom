@@ -146,6 +146,9 @@ case "$agent" in
         '--mode json'|'--mode rpc') exec "$agent_command" "$@" ;;
       esac
       case "$arg" in
+        -h|--help|-v|--version)
+          exec "$agent_command" "$@"
+          ;;
         -p|--print|--export|--export=*|--list-models|--list-models=*)
           exec "$agent_command" "$@"
           ;;
@@ -155,8 +158,11 @@ case "$agent" in
       esac
       pi_prev="$arg"
     done
+    # Pi reads a subcommand only in first position -- `pi --verbose list` sends
+    # `list` to the model as a message -- so unlike the flags above this needs
+    # no argv walk.
     case "${1:-}" in
-      auth|config|install|list|remove|uninstall|update|-h|--help|-v|--version)
+      auth|config|install|list|remove|uninstall|update)
         exec "$agent_command" "$@"
         ;;
     esac
