@@ -410,6 +410,8 @@ claude name=<> args= active=<> pi_load=<>'
     'opencode --cors http://a serve' 'opencode --mdns serve' \
     'opencode --log-level DEBUG --version' 'opencode --pure' 'opencode --pure=true' \
     'opencode help' 'opencode help run' \
+    'opencode --get-yargs-completions opencode' \
+    'opencode --get-yargs-completions opencode serve' \
     'pi --mode rpc' 'pi --mode json' 'pi --no-extensions' \
     'pi --provider google --version' 'pi --thinking high --help'; do
     client="${argv%% *}"
