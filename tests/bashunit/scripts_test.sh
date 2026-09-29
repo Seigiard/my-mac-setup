@@ -8235,17 +8235,24 @@ function test_scripts_261_herdr_child_watcher_at_arm_barrier_exits_when_la() {
 function test_scripts_262_herdr_child_armed_watcher_exits_when_run_state_i() {
   _bats_test_init 262 'herdr-child armed watcher exits when its supervision run state is torn down'
   child_lifecycle_stub_herdr
-  run child_lifecycle_start --supervision-timeout 5000
+  # Keep normal supervision expiry separate from the teardown hang guards.
+  run child_lifecycle_start --supervision-timeout 600000
   assert_success
   local watcher_pid
   watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
   kill -0 "$watcher_pid"
-  # Teardown-style destruction mid-poll: with the run dir gone every herdr
-  # error looks transient, so an unguarded watcher spins forever.
-  rm -rf "$CHILD_STUB/state"
-  local attempt=0
-  while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 500 ]; do
-    attempt=$((attempt + 1))
+  # State loss must stop supervision even while the watcher is polling.
+  # A poll can create pane-get.err during rm's traversal. Retry that race,
+  # but require the state to be gone before observing watcher termination.
+  local removal_deadline=$((SECONDS + 30))
+  until rm -rf "$CHILD_STUB/state"; do
+    [ "$SECONDS" -lt "$removal_deadline" ] || break
+    sleep 0.01
+  done
+  run test ! -e "$CHILD_STUB/state"
+  assert_success
+  local exit_deadline=$((SECONDS + 30))
+  while kill -0 "$watcher_pid" 2>/dev/null && [ "$SECONDS" -lt "$exit_deadline" ]; do
     sleep 0.01
   done
   run kill -0 "$watcher_pid"
