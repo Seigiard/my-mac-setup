@@ -7,6 +7,11 @@ supersedes: []
 
 # ADR-0018: Use a shared intercom for location-independent agent communication
 
+Accepted follow-up: [ADR-0021](0021-recover-intercom-launch-claims-without-a-successor.md)
+requires recovery of failed launch claims without a successor session. Its
+implementation is pending; the launch behavior described below remains the
+current baseline.
+
 ## Context
 
 The child-agent contract currently carries decisions through `herdr-child
