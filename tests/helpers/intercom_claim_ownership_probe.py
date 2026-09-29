@@ -12,6 +12,15 @@ import tempfile
 import threading
 import time
 
+from intercom_claim_recovery_prototype import (
+    LaunchdOwner,
+    acknowledge_acquisition,
+    atomic_write,
+    process_start_identity,
+    socket_identity,
+    write_intent,
+)
+
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 OPT_IN = "MMS_LIVE_HERDR_OWNERSHIP_PROBE"
@@ -27,14 +36,17 @@ class ProbeError(Exception):
 
 def native_executable(name):
     result = subprocess.run(
-        ["zsh", "-fc", f"whence -p {name}"], text=True, capture_output=True, check=False
+        ["zsh", "-fc", f"whence -pa {name}"], text=True, capture_output=True, check=False
     )
-    path = result.stdout.strip()
-    if result.returncode or not path or not os.path.isfile(path) or not os.access(path, os.X_OK):
-        raise ProbeError(f"cannot resolve native {name} executable")
-    if "herdr-agent-intercom" in os.path.basename(path):
-        raise ProbeError(f"resolved {name} executable is an Intercom wrapper: {path}")
-    return path
+    for path in result.stdout.splitlines():
+        if not os.path.isfile(path) or not os.access(path, os.X_OK):
+            continue
+        with open(path, "rb") as handle:
+            if handle.read(2) == b"#!":
+                continue
+        if "herdr-agent-intercom" not in os.path.basename(path):
+            return path
+    raise ProbeError(f"cannot resolve native {name} executable")
 
 
 def run(*args, expected=0, env=None, session=None):
@@ -222,60 +234,48 @@ def wait_for_native_session(owner, pane):
     raise ProbeError("native Claude did not report a Herdr Claude session within 15 seconds")
 
 
-def write_intent(owner, pane, terminal, sequence, operation="release"):
-    path = os.path.join(owner.root, "claim-intent.json")
+def start_client(seconds=30):
+    client = subprocess.Popen([sys.executable, "-c", f"import time; time.sleep({seconds})"])
+    start = process_start_identity(client.pid)
+    if not start:
+        raise ProbeError("could not capture client process-start identity")
+    return client, start
+
+
+def durable_intent(owner, launchd, pane, sequence, client, start_identity, barrier=None):
+    launch_id = f"launch-{client.pid}-{sequence}"
     intent = {
-        "config_root": owner.root,
-        "session": owner.session,
-        "pane": pane,
-        "terminal_id": terminal,
-        "source": OLD_SOURCE,
-        "agent": AGENT,
-        "release_seq": sequence,
-        "operation": operation,
+        "launch_id": launch_id,
+        "phase": "intent",
+        "connection": {
+            "config_root": owner.root,
+            "session": owner.session,
+            "socket_path": owner.socket_path,
+            "socket_identity": socket_identity(owner.socket_path),
+            "herdr_executable": native_executable("herdr"),
+        },
+        "terminal": {"pane_id": pane["pane_id"], "terminal_id": pane["terminal_id"]},
+        "agent_kind": AGENT,
+        "claimant_source": "prototype-launcher",
+        "claim": {"source": OLD_SOURCE, "claim_seq": sequence, "release_seq": sequence + 1},
+        "client": {"pid": client.pid, "start_identity": start_identity},
+        "created_at_ns": time.time_ns(),
     }
-    with open(path, "w", encoding="utf-8") as handle:
-        json.dump(intent, handle)
+    if barrier:
+        intent["barrier"] = barrier
+    path = write_intent(launchd.intent_dir, intent)
     return path
 
 
-def recover(intent_path):
-    with open(intent_path, encoding="utf-8") as handle:
-        intent = json.load(handle)
-    env = os.environ.copy()
-    for name in tuple(env):
-        if name == "HERDR_ENV" or name.startswith("HERDR_"):
-            env.pop(name)
-    env["XDG_CONFIG_HOME"] = intent["config_root"]
-    owner = OwnedHerdr.__new__(OwnedHerdr)
-    owner.root = intent["config_root"]
-    owner.session = intent["session"]
-    owner.client = None
-    owner.events = []
-    owner_env = owner.env
-    result = run("pane", "get", intent["pane"], env=owner_env, session=owner.session, expected=None)
-    if result.returncode:
-        if "pane_not_found" not in result.stderr:
-            raise ProbeError(f"recovery could not inspect pane: {result.stderr.strip()}")
-        print(json.dumps({"recovery": "settled-resource-gone", "pane": intent["pane"]}))
-        return 0
-    pane = json.loads(result.stdout)["result"]["pane"]
-    if pane.get("terminal_id") != intent["terminal_id"]:
-        raise ProbeError("recovery refused: terminal identity changed")
-    if intent["operation"] == "clear":
-        owner.clear_authority(intent["pane"], intent["source"], intent["release_seq"])
-    else:
-        owner.run("pane", "release-agent", intent["pane"], "--source", intent["source"],
-                  "--agent", intent["agent"], "--seq", str(intent["release_seq"]))
-    print(json.dumps({"recovery": f"{intent['operation']}-attempted", "pane": intent["pane"]}))
-    return 0
-
-
-def recovery_subprocess(intent_path):
-    result = subprocess.run([sys.executable, __file__, "--recover", intent_path], text=True, capture_output=True, timeout=20, check=False)
-    if result.returncode:
-        raise ProbeError(f"restart owner failed: {result.stdout}{result.stderr}")
-    print(result.stdout.strip())
+def wait_for(path, phase, timeout=10):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with open(path, encoding="utf-8") as handle:
+            intent = json.load(handle)
+        if intent.get("phase") == phase:
+            return intent
+        time.sleep(0.05)
+    raise ProbeError(f"intent did not reach {phase}: {path}; last={intent}")
 
 
 def case(owner, name, action, verdicts):
@@ -290,12 +290,6 @@ def case(owner, name, action, verdicts):
 
 
 def main():
-    if len(sys.argv) == 3 and sys.argv[1] == "--recover":
-        try:
-            return recover(sys.argv[2])
-        except (OSError, ProbeError, json.JSONDecodeError) as error:
-            print(f"RECOVERY FAILED: {error}", file=sys.stderr)
-            return 1
     if os.environ.get(OPT_IN) != "1":
         print(f"REFUSED: set {OPT_IN}=1 to create an isolated owned Herdr server.")
         return 2
@@ -303,24 +297,37 @@ def main():
         print("REFUSED: this probe must run from a Herdr-managed pane.")
         return 2
 
-    native_claude = native_executable("claude")
     owner = OwnedHerdr()
     verdicts = []
+    launchd = None
     try:
+        native_claude = native_executable("claude")
         root = owner.start()
+        launchd = LaunchdOwner(owner.root)
+        launchd.start()
 
-        def crash_and_owner_restart():
+        def observer_exit_restart_and_cleanup():
             pane = create_pane(owner, root)
             sequence = time.time_ns()
+            client, start_identity = start_client()
+            intent = durable_intent(owner, launchd, pane, sequence, client, start_identity)
             report(owner, pane["pane_id"], OLD_SOURCE, "unknown", sequence)
-            alias = f"mms377-crash-{os.getpid()}"
+            acknowledge_acquisition(intent)
+            alias = f"mms377-owner-{os.getpid()}"
             owner.run("agent", "rename", pane["pane_id"], alias)
-            claimed = owner.state(pane["pane_id"], "old-claim")
+            claimed = owner.state(pane["pane_id"], "durable-claim-before-client-exit")
             require_agent(claimed, status="unknown", terminal=pane["terminal_id"], alias=alias)
-            intent = write_intent(owner, pane["pane_id"], pane["terminal_id"], sequence + 1)
-            recovery_subprocess(intent)
-            settled = owner.state(pane["pane_id"], "owner-restarted-release")
+            old_observer = launchd.kill_observer()
+            require({"step": "observer-restarted"}, old_observer["pid"] != 0, "launchd did not restart observer")
+            began = time.monotonic()
+            client.terminate()
+            client.wait(timeout=5)
+            settled_intent = wait_for(intent, "settled")
+            elapsed = time.monotonic() - began
+            settled = owner.state(pane["pane_id"], "launchd-restarted-observer-release")
             require(settled, settled["agent"] is None, "old claim survived restarted owner cleanup")
+            require({"step": "recovery-latency"}, elapsed < 5, f"recovery took {elapsed:.3f}s")
+            owner.events.append({"recovery_latency_seconds": elapsed, "intent": settled_intent})
 
         def same_source_successor():
             pane = create_pane(owner, root)
@@ -337,31 +344,80 @@ def main():
             settled = owner.state(pane["pane_id"], "same-source-successor-own-clear")
             require(settled, settled["agent"] is None, "successor did not settle its own claim")
 
-        def native_takeover_and_handoff():
+        def fenced_newer_claim_survives_cleanup():
             pane = create_pane(owner, root)
             sequence = time.time_ns()
-            alias = f"mms377-native-{os.getpid()}"
+            client, start_identity = start_client()
+            barrier = os.path.join(owner.root, f"fence-{client.pid}")
+            intent = durable_intent(owner, launchd, pane, sequence, client, start_identity, barrier)
             report(owner, pane["pane_id"], OLD_SOURCE, "unknown", sequence)
-            claimed = owner.state(pane["pane_id"], "fresh-old-claim-before-native")
-            require_agent(claimed, status="unknown", terminal=pane["terminal_id"])
-            owner.run("agent", "rename", pane["pane_id"], alias)
-            report(owner, pane["pane_id"], "mms-377-successor", "working", sequence + 10)
-            takeover = owner.state(pane["pane_id"], "foreign-takeover-working")
-            require_agent(takeover, status="working", terminal=pane["terminal_id"], alias=alias)
-            owner.clear_authority(pane["pane_id"], OLD_SOURCE, sequence + 1)
-            foreign = owner.state(pane["pane_id"], "old-clear-during-foreign-takeover")
-            require_agent(foreign, status="working", terminal=pane["terminal_id"], alias=alias)
-            owner.run("pane", "run", pane["pane_id"], native_claude)
-            native = wait_for_native_session(owner, pane["pane_id"])
-            require_agent(native, status="working", source=CLAUDE_SOURCE, terminal=pane["terminal_id"], alias=alias)
-            release(owner, pane["pane_id"], "mms-377-successor", sequence + 11)
-            handoff = owner.state(pane["pane_id"], "native-handoff")
-            require_agent(handoff, terminal=pane["terminal_id"], alias=alias)
-            require_rule(handoff)
-            release(owner, pane["pane_id"], OLD_SOURCE, sequence + 1)
-            delayed = owner.state(pane["pane_id"], "old-release-after-native-handoff")
-            require_agent(delayed, terminal=pane["terminal_id"], alias=alias)
-            require_rule(delayed)
+            acknowledge_acquisition(intent)
+            client.terminate()
+            client.wait(timeout=5)
+            deadline = time.monotonic() + 5
+            while not os.path.exists(barrier + ".checked") and time.monotonic() < deadline:
+                time.sleep(0.05)
+            require({"step": "fence"}, os.path.exists(barrier + ".checked"), "observer did not establish pre-release barrier")
+            report(owner, pane["pane_id"], OLD_SOURCE, "working", sequence + 10)
+            open(barrier + ".continue", "w").close()
+            time.sleep(0.5)
+            survivor = owner.state(pane["pane_id"], "fenced-old-release-after-newer-same-source-claim")
+            require_agent(survivor, status="working", terminal=pane["terminal_id"])
+            release(owner, pane["pane_id"], OLD_SOURCE, sequence + 11)
+            settled = owner.state(pane["pane_id"], "newer-claim-own-release")
+            require(settled, settled["agent"] is None, "newer claim did not settle")
+
+        def unavailable_socket_then_recovery_and_stale_pid():
+            pane = create_pane(owner, root)
+            sequence = time.time_ns()
+            client, start_identity = start_client()
+            intent = durable_intent(owner, launchd, pane, sequence, client, start_identity)
+            report(owner, pane["pane_id"], OLD_SOURCE, "unknown", sequence)
+            acknowledge_acquisition(intent)
+            pending_payload = json.load(open(intent, encoding="utf-8"))
+            pending_payload["connection"]["retry_socket_path"] = owner.socket_path
+            pending_payload["connection"]["socket_path"] += ".unavailable"
+            atomic_write(intent, pending_payload)
+            client.terminate()
+            client.wait(timeout=5)
+            time.sleep(0.4)
+            pending = json.load(open(intent, encoding="utf-8"))
+            require({"step": "socket-unavailable"}, pending["phase"] == "acquired" and "socket unavailable" in pending.get("diagnostic", ""), "unavailable socket was treated as death")
+            open(intent + ".retry-socket", "w").close()
+            wait_for(intent, "settled")
+            settled = owner.state(pane["pane_id"], "socket-recovered-release")
+            require(settled, settled["agent"] is None, "claim survived socket recovery")
+            stale = start_identity + " stale"
+            require({"step": "stale-pid"}, process_start_identity(os.getpid()) != stale, "stale process identity unexpectedly matched")
+
+        def crash_windows_and_server_change():
+            pane = create_pane(owner, root)
+            sequence = time.time_ns()
+            client, start_identity = start_client()
+            before = durable_intent(owner, launchd, pane, sequence, client, start_identity)
+            client.terminate()
+            client.wait(timeout=5)
+            wait_for(before, "settled")
+            absent = owner.state(pane["pane_id"], "crash-before-claim")
+            require(absent, absent["agent"] is None, "intent before claim created a Herdr record")
+            client, start_identity = start_client()
+            after_claim = durable_intent(owner, launchd, pane, sequence + 20, client, start_identity)
+            report(owner, pane["pane_id"], OLD_SOURCE, "unknown", sequence + 20)
+            client.terminate()
+            client.wait(timeout=5)
+            wait_for(after_claim, "settled")
+            released = owner.state(pane["pane_id"], "crash-after-claim-before-acknowledgment")
+            require(released, released["agent"] is None, "unacknowledged acquired claim survived")
+            client, start_identity = start_client()
+            renamed = durable_intent(owner, launchd, pane, sequence + 40, client, start_identity)
+            report(owner, pane["pane_id"], OLD_SOURCE, "unknown", sequence + 40)
+            acknowledge_acquisition(renamed)
+            owner.run("agent", "rename", pane["pane_id"], f"mms377-win-{sequence % 1_000_000_000}")
+            client.terminate()
+            client.wait(timeout=5)
+            wait_for(renamed, "settled")
+            clean = owner.state(pane["pane_id"], "crash-after-rename")
+            require(clean, clean["agent"] is None, "renamed claim survived cleanup")
 
         def source_scoped_clear_limit():
             pane = create_pane(owner, root)
@@ -420,21 +476,60 @@ def main():
         def repeated_and_closed_resource():
             pane = create_pane(owner, root)
             sequence = time.time_ns()
+            client, start_identity = start_client()
+            intent = durable_intent(owner, launchd, pane, sequence, client, start_identity)
             report(owner, pane["pane_id"], OLD_SOURCE, "unknown", sequence)
-            intent = write_intent(owner, pane["pane_id"], pane["terminal_id"], sequence + 1)
-            recovery_subprocess(intent)
-            recovery_subprocess(intent)
+            acknowledge_acquisition(intent)
+            second_owner = LaunchdOwner(owner.root)
+            second_owner.pid_file = os.path.join(owner.root, "observer-second.pid.json")
+            second_owner.start()
+            client.terminate()
+            client.wait(timeout=5)
+            try:
+                wait_for(intent, "settled")
+            finally:
+                second_owner.close()
             settled = owner.state(pane["pane_id"], "repeated-clear")
             require(settled, settled["agent"] is None, "repeated clear recreated a claim")
+            # Simulate a crash after Herdr accepted the release and before local retirement.
+            post_release = json.load(open(intent, encoding="utf-8"))
+            post_release["phase"] = "acquired"
+            atomic_write(intent, post_release)
+            wait_for(intent, "settled")
             owner.run("pane", "close", pane["pane_id"])
-            recovery_subprocess(intent)
+            time.sleep(0.3)
 
-        case(owner, "crash after declaration and restartable owner", crash_and_owner_restart, verdicts)
+        def real_server_restart_settles_only_gone_terminal():
+            nonlocal root
+            pane = create_pane(owner, root)
+            sequence = time.time_ns()
+            client, start_identity = start_client()
+            barrier = os.path.join(owner.root, f"server-restart-{client.pid}")
+            intent = durable_intent(owner, launchd, pane, sequence, client, start_identity, barrier)
+            report(owner, pane["pane_id"], OLD_SOURCE, "unknown", sequence)
+            acknowledge_acquisition(intent)
+            client.terminate()
+            client.wait(timeout=5)
+            deadline = time.monotonic() + 5
+            while not os.path.exists(barrier + ".checked") and time.monotonic() < deadline:
+                time.sleep(0.05)
+            require({"step": "server-restart-barrier"}, os.path.exists(barrier + ".checked"), "observer did not read old terminal before restart")
+            owner.run("session", "stop", owner.session)
+            owner.client.wait(timeout=5)
+            root = owner.start()
+            open(barrier + ".continue", "w").close()
+            settled = wait_for(intent, "settled")
+            require({"step": "real-server-restart"}, settled.get("diagnostic") == "settled: exact owned release observed", f"server restart did not fence release: {settled}")
+
+        case(owner, "launchd restarts killed observer and it cleans actual client exit", observer_exit_restart_and_cleanup, verdicts)
         case(owner, "same-source successor and delayed old clear", same_source_successor, verdicts)
-        case(owner, "native Claude takeover handoff and delayed old clear", native_takeover_and_handoff, verdicts)
+        case(owner, "fenced newer same-source claim survives old cleanup", fenced_newer_claim_survives_cleanup, verdicts)
+        case(owner, "unavailable socket retries and stale PID identity is not live", unavailable_socket_then_recovery_and_stale_pid, verdicts)
+        case(owner, "crash windows and server instance change retain safe obligation", crash_windows_and_server_change, verdicts)
         case(owner, "source-scoped clear leaves a renamed stale claim", source_scoped_clear_limit, verdicts)
         case(owner, "delayed old release preserves pending managed native successor", pending_managed_native_successor, verdicts)
         case(owner, "repeated cleanup and closed resource", repeated_and_closed_resource, verdicts)
+        case(owner, "real server restart preserves a fenced exact release", real_server_restart_settles_only_gone_terminal, verdicts)
         artifact_root = os.environ.get(EVIDENCE_DIR, os.path.join(tempfile.gettempdir(), "mms377-proof"))
         os.makedirs(artifact_root, exist_ok=True)
         artifact = os.path.join(artifact_root, f"ownership-proof-{int(time.time())}.json")
@@ -444,11 +539,13 @@ def main():
         failures = [item for item in verdicts if item[1] != "PASS"]
         if failures:
             return 1
-        print("UNVERIFIED: full crash, server, OpenCode, Pi, and terminal-control gate groups remain.")
+        print("UNVERIFIED: native client controls, Claude/cci relation, OpenCode, Pi, and full gate remain.")
         return 1
     finally:
+        if launchd:
+            launchd.close()
         owner.close()
-        print(f"CLEANUP: stopped owned session {owner.session} and removed {owner.root}.")
+        print(f"CLEANUP: booted out launchd job and stopped owned session {owner.session}; removed {owner.root}.")
 
 
 if __name__ == "__main__":

@@ -11,30 +11,48 @@ status: in-progress
 
 ## Current evidence
 
-Installed Herdr v0.9.1 supports a candidate narrow recovery protocol. A durable
-intent records the isolated server config root, session, pane, stable terminal
-identity, source, agent, and reserved release sequence. An independently
-invoked recovery process verifies the terminal identity, then calls
-`pane release-agent` with that reserved sequence.
+Installed Herdr v0.9.1 supports a narrow recovery-owner prototype. Its real
+restart owner is an owned temporary macOS `launchd` job in the current user's
+`gui/<uid>` domain. The job has `KeepAlive = true` and runs only the recovery
+observer, not a client supervisor. Its plist, logs, PID record, and intents are
+under the proof's temporary scratch directory; `launchctl bootout` removes it.
 
-This is not a runtime rollout or a full gate pass. The candidate passed the
+Before any `report-agent` claim, an atomic fsync-and-rename intent records the
+server config root/session/socket identity, stable pane/terminal identity, agent
+kind, claimant source, monotonic claim and reserved release sequences, plus the
+child PID and `ps lstart` identity. `phase: intent` is distinct from
+`phase: acquired`, and only the latter has a successful claim acknowledgment.
+The observer polls process identity, never a TTL. On confirmed exit it verifies
+the socket and terminal, calls `release-agent` with exactly the reserved source
+and sequence, reads `agent get`, and retires the record only after
+`agent_not_found`. Unavailable sockets and changed identities retain an
+`acquired` obligation with a pending diagnostic.
+
+This is not a runtime rollout or a full gate pass. The prototype passed the
 following real-Herdr cases on 2026-09-29:
 
 | Case | Observed result |
 | --- | --- |
-| Crash after renamed old claim; independent recovery process | The durable owner released the claim and `agent get` became `agent_not_found`. |
+| Killed observer, then actual child exit | `launchd` restarted the observer after `SIGKILL`; the new PID consumed the same `acquired` intent without a test-triggered recover call. The exact claim disappeared from `agent get`. |
+| Crash windows | Intent before claim created no record; claim-before-acknowledgment and renamed claim both released after the child exited. A deliberately restored `acquired` record after release was retired safely. |
+| Two cleanup attempts | Two independent owned launchd observers read the same durable intent; repeated exact release left no record. |
+| Unavailable socket and stale PID/start identity | The observer retained `acquired` with `pending: socket unavailable`; an explicit retry marker restored its saved endpoint and cleanup completed. A changed start identity is not treated as a live PID. |
+| Fenced newer same-source claim | The observer read the old terminal then paused. A new same-source `N+10` claim arrived before old `N+1` release. Herdr preserved the newer published `working` record; only `N+11` removed it. |
+| Real server restart in the fence | The observer read first, the owned session was stopped and restarted, then it released with the original reserved sequence. Herdr retained its endpoint and terminal identity across this restart and the exact old claim alone was removed. v0.9.1 exposes no separate server-instance ID beyond that connection identity. |
 | Same-source successor at N+10; delayed old release at N+1 | The successor remained `working` with the same alias and terminal; its release at N+11 removed the record. |
 | Foreign successor before native launch | The successor became published `working`; a source-scoped old clear did not change it. |
-| Native Claude handoff | A resolved `/opt/homebrew/bin/claude` process, not a shell function, reported `agent_session.source = herdr:claude`; `agent explain --json` matched `live_prompt_box`. The foreign successor released and the same alias/terminal remained. A delayed old release also preserved them. |
-| Repeated recovery and closed pane | Two recovery processes left no claim; after pane close a restarted owner settled without retargeting. |
+| Native Claude handoff | **Not accepted in this proof.** The prior trace showed published `unknown` while `agent explain --json` matched `live_prompt_box`; a computed rule is not evidence that the held-authority window ended. |
+| Repeated cleanup and closed pane | Two observers left no claim; after pane close no cleanup retargeted another resource. |
 | Pending managed native successor | With an ephemeral shell `claude` barrier, real `herdr agent start` reserved the pending alias before native exec. After a foreign successor released, old A's delayed `release-agent` retained the exact pending alias, terminal, and `unknown` state. |
 
-Each transition is emitted as JSON to stdout and the complete agent/explain and
-socket-response trace is written to
-`/Users/seigiard/.claude/artifacts/377/proof/ownership-proof-<timestamp>.json`.
-The evidence directory is selected with `MMS_LIVE_HERDR_OWNERSHIP_EVIDENCE_DIR`
-and otherwise defaults to the OS temp root. The latest measured trace used an
-explicit local artifacts directory and was `ownership-proof-1790700469.json`.
+Each transition is emitted as JSON to stdout and the complete agent/explain
+trace, verdicts, and recovery latency is written to the
+directory selected by `MMS_LIVE_HERDR_OWNERSHIP_EVIDENCE_DIR` (or the OS temp
+directory). The successful run was
+`/Users/seigiard/.claude/artifacts/377/proof/ownership-proof-1790701489.json`.
+Its healthy recovery latency was below the prototype's five-second bounded
+wait; the raw artifact carries the measured value. This is a measurement, not a
+selected production latency budget.
 
 ## Rejected alternative
 
@@ -48,24 +66,24 @@ cleanup. The probe records that state explicitly.
 
 ```sh
 MMS_LIVE_HERDR_OWNERSHIP_PROBE=1 \
-MMS_LIVE_HERDR_OWNERSHIP_EVIDENCE_DIR="${TMPDIR:-/tmp}/mms377-proof" \
+MMS_LIVE_HERDR_OWNERSHIP_EVIDENCE_DIR="$HOME/.claude/artifacts/377/proof" \
 python3 tests/helpers/intercom_claim_ownership_probe.py
 ```
 
 The probe refuses without the opt-in and outside a Herdr-managed caller. It
-creates a server under `/tmp`, starts only owned panes, writes raw evidence under
-the approved artifacts root, and stops/deletes the session in `finally`.
+creates a server under `/tmp`, starts only owned panes and a uniquely labelled
+launchd job, writes raw evidence under the approved artifacts root, then boots
+out the job and stops/deletes the session in `finally`.
 
 ## Remaining gate
 
-The full implementation gate is still **UNVERIFIED**. The next probe rounds
-must cover crash before declaration and before receipt, post-release intent
-retirement, server restart, pane move, process-start/PID reuse, concurrent
-recovery ordering, real OpenCode early exit, Pi print and interactive
-enrollment, Claude/`cci` process relation, and native-versus-wrapped terminal,
-signal, job-control, and exit-status controls. No addendum was made to the
-implementation specification, no managed path changed, and task 377-2 remains
-unauthorized.
+The full implementation gate is still **UNVERIFIED**. This proof covers only
+the automatic recovery owner and its claim transitions. The parent should use
+the prototype's resolved native executable and child PID/start-identity pattern
+for subsequent real-client controls. It does not prove the Claude/`cci`
+relationship, OpenCode early exit, Pi print or interactive enrollment, or
+native-versus-wrapped terminal, signal, job-control, and exit-status behavior.
+No managed path changed.
 
 PR #378 was read only as an OpenCode/Pi reference. This evidence runs against
 the installed Herdr v0.9.1 and the current branch's existing launcher; it does
