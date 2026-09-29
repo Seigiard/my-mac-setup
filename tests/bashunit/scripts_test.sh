@@ -448,6 +448,18 @@ claude name=<> args= active=<> pi_load=<>'
   assert_output 'pi name=<> args= active=<1> pi_load=<self><--name><ochre-okapi><--mode><text>'
   assert_file_contains "$log" 'agent rename w1:p2 ochre-okapi'
 
+  # #when the flag that disables the plugins is spelled false. OpenCode parses
+  # it as a boolean, so the plugins load and the client enrolls normally.
+  : > "$log"; rm -f "$marker"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
+    HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" opencode --pure=false
+
+  # #then it enrolls rather than reading the flag as its own opposite
+  assert_success
+  assert_output 'opencode name=<ochre-okapi> args= active=<1> pi_load=<><--pure=false>'
+  assert_file_contains "$log" 'agent rename w1:p2 ochre-okapi'
+
   # #when the allocator command is absent entirely
   rm -f "$stub/herdr-peer-alias"
   : > "$log"

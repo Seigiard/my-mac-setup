@@ -100,7 +100,13 @@ case "$agent" in
     for arg in "$@"; do
       [[ "$arg" != "--" ]] || break
       case "$arg" in
-        -h|--help|-v|--version|--pure|--pure=*) exec "$agent_command" "$@" ;;
+        -h|--help|-v|--version|--pure) exec "$agent_command" "$@" ;;
+        # An explicit false leaves the plugins loaded, so that launch enrolls
+        # like any other. Every other spelling counts as pure, because guessing
+        # wrong that way only costs the launch its Intercom, while guessing it
+        # the other way claims a pane no plugin will ever report back.
+        --pure=false|--pure=0) ;;
+        --pure=*) exec "$agent_command" "$@" ;;
       esac
     done
     opencode_args=("$@")
