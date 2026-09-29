@@ -231,7 +231,7 @@ def request_handoff(path):
         if not intent["claim"]["claim_seq"] < sequence < intent["claim"]["release_seq"]:
             raise RecoveryError("handoff sequence was not reserved before acquisition")
         intent["terminal"]["pane_id"] = panes[0]["pane_id"]
-        intent["handoff_requested"] = True
+        intent["handoff_intended_at_ns"] = time.time_ns()
         atomic_write(path, intent)
         response = bound_request(intent, "pane.release_agent", {
             "pane_id": panes[0]["pane_id"], "source": intent["claim"]["source"],
@@ -390,7 +390,7 @@ def _observe_one_locked(path):
         state = acquisition["result"]["agent"].get("agent_status")
         # This launch declared only unknown. A newer same-source report or a
         # client report can publish a concrete state; neither belongs to us.
-        if state in {"working", "idle", "done", "blocked"}:
+        if acquisition["result"]["agent"].get("agent") and state in {"working", "idle", "done", "blocked"}:
             update_intent(path, intent, "retired", "retired: concrete successor state observed")
             return
     if client_alive:
@@ -444,15 +444,21 @@ def _observe_one_locked(path):
     update_intent(path, intent, "settled", "settled: exact owned release observed")
 
 
-def observer(intent_dir, pid_file):
+def observer(intent_dir, pid_file, probe_owner=None, job_label=None):
     if not os.path.isdir(intent_dir):
         return
     atomic_write(pid_file, {"pid": os.getpid(), "start_identity": process_start_identity(os.getpid()), "started_at_ns": time.time_ns()})
     while True:
+        if probe_owner:
+            try:
+                if process_start_identity(probe_owner["pid"]) != probe_owner["start_identity"]:
+                    break
+            except RecoveryError as error:
+                print(f"probe owner observation pending: {error}", file=sys.stderr, flush=True)
         try:
             entries = sorted(os.listdir(intent_dir))
         except FileNotFoundError:
-            return
+            break
         for entry in entries:
             if entry.endswith(".json"):
                 try:
@@ -460,12 +466,17 @@ def observer(intent_dir, pid_file):
                 except (OSError, ValueError, KeyError, RecoveryError) as error:
                     print(f"observer pending {entry}: {error}", file=sys.stderr, flush=True)
         time.sleep(POLL_SECONDS)
+    if job_label:
+        # This is a temporary proof job, not the eventual deployed service.
+        # Deregister it if the controlling proof process disappeared.
+        subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/{job_label}"],
+                       text=True, capture_output=True, check=False, timeout=10)
 
 
 class LaunchdOwner:
     """A temporary per-proof launchd job. launchd is the observer restart owner."""
 
-    def __init__(self, scratch):
+    def __init__(self, scratch, probe_owner=None):
         self.scratch = scratch
         self.intent_dir = os.path.join(scratch, "intents")
         self.label = f"dev.seigiard.mms377.recovery.{os.getpid()}.{uuid.uuid4().hex[:8]}"
@@ -474,13 +485,17 @@ class LaunchdOwner:
         self.stderr = os.path.join(scratch, f"{self.label}.stderr.log")
         self.pid_file = os.path.join(scratch, f"{self.label}.pid.json")
         self.domain = f"gui/{os.getuid()}"
+        self.probe_owner = probe_owner or {"pid": os.getpid(), "start_identity": process_start_identity(os.getpid())}
         os.makedirs(self.intent_dir, exist_ok=True)
 
     def start(self):
         payload = {
             "Label": self.label,
-            "ProgramArguments": [sys.executable, os.path.abspath(__file__), "--observe", self.intent_dir, "--pid-file", self.pid_file],
-            "KeepAlive": True,
+            "ProgramArguments": [sys.executable, os.path.abspath(__file__), "--observe", self.intent_dir, "--pid-file", self.pid_file,
+                                 "--probe-owner-pid", str(self.probe_owner["pid"]), "--probe-owner-start", self.probe_owner["start_identity"],
+                                 "--job-label", self.label],
+            "RunAtLoad": True,
+            "KeepAlive": {"SuccessfulExit": False},
             "ThrottleInterval": 1,
             "ProcessType": "Background",
             "StandardOutPath": self.stdout,
@@ -534,6 +549,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--observe")
     parser.add_argument("--pid-file")
+    parser.add_argument("--probe-owner-pid", type=int)
+    parser.add_argument("--probe-owner-start")
+    parser.add_argument("--job-label")
     parser.add_argument("--handoff", action="store_true")
     parser.add_argument("--bind-exec")
     parser.add_argument("bridge_args", nargs=argparse.REMAINDER)
@@ -553,16 +571,22 @@ def main():
             os.execv(arguments.bind_exec, [arguments.bind_exec, *args])
         try:
             bound = bind_native_client(os.environ["MMS377_INTENT"])
-        except (OSError, RecoveryError) as error:
+        except (OSError, ValueError, KeyError, RecoveryError) as error:
             print(f"claim binding unavailable: {error}", file=sys.stderr)
             bound = False
         if bound:
             os.execv(arguments.bind_exec, [arguments.bind_exec, *args])
         # A bridge arriving after cleanup cannot resurrect the old claim. The
         # original native argv still starts, without cci's generated enrollment.
-        command = os.environ["AGENT_INTERCOM_CLAUDE_COMMAND"]
-        native_args = [os.environ[f"AGENT_INTERCOM_CLAUDE_ARG_{index}"]
-                       for index in range(int(os.environ["AGENT_INTERCOM_CLAUDE_ARGC"]))]
+        command = os.environ.get("AGENT_INTERCOM_CLAUDE_COMMAND")
+        count = os.environ.get("AGENT_INTERCOM_CLAUDE_ARGC", "")
+        try:
+            if not command or not os.access(command, os.X_OK) or not count.isdecimal():
+                raise ValueError("invalid command or argument count")
+            native_args = [os.environ[f"AGENT_INTERCOM_CLAUDE_ARG_{index}"] for index in range(int(count))]
+        except (ValueError, KeyError):
+            print("herdr-agent-intercom: invalid Claude bridge environment", file=sys.stderr)
+            raise SystemExit(1)
         for key in tuple(os.environ):
             if key.startswith(("HERDR_AGENT_INTERCOM_", "AGENT_INTERCOM_", "CLAUDE_INTERCOM_")):
                 os.environ.pop(key)
@@ -571,7 +595,12 @@ def main():
         os.execv(command, [command, *native_args])
     if not arguments.observe or not arguments.pid_file:
         parser.error("--observe and --pid-file are required")
-    observer(arguments.observe, arguments.pid_file)
+    probe_owner = None
+    if arguments.probe_owner_pid is not None:
+        if not arguments.probe_owner_start:
+            parser.error("--probe-owner-start is required with --probe-owner-pid")
+        probe_owner = {"pid": arguments.probe_owner_pid, "start_identity": arguments.probe_owner_start}
+    observer(arguments.observe, arguments.pid_file, probe_owner, arguments.job_label)
 
 
 if __name__ == "__main__":
