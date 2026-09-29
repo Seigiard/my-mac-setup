@@ -72,14 +72,16 @@ gh issue comment "$N" --body-file "$summary_file"
 
 The comment begins with the block from step 4, followed by one line: `Delivered in <PR URL>.` Without a GitHub issue reference, say so in the report and move on.
 
-### 8. One babysit checkpoint
+### 8. Babysit the PR
 
-Invoke the `ce-babysit-pr` skill with `<PR number> checkpoint`. It runs one tick over CI, reviews, and conflicts and prints how to resume; switching to watch mode is the user's call.
+Write the report below first, so the user has the PR URL before anything long-running starts. Then invoke the `ce-babysit-pr` skill with the PR number and stay in its default watch mode until it reaches a stop condition; its own final report ends the run.
+
+Pass `checkpoint` only when the user asked for a single tick, or said this session must stay free.
 
 ## Report
 
 Finish in the language used in the chat, in this order:
 
-1. **PR status:** PR URL, evidence (frame count and where they are hosted, or why none), issue comment URL or "no related issue", babysit verdict, and what the user should do next. In `describe` mode, report the updated PR and omit checks and actions that mode did not run.
+1. **PR status:** PR URL, evidence (frame count and where they are hosted, or why none), issue comment URL or "no related issue", and what the user should do next. The babysit verdict is not part of this report; `ce-babysit-pr` reports it when the watch stops. In `describe` mode, report the updated PR and omit checks and actions that mode did not run.
 2. **For the manager:** reuse the stakeholder block written into the PR in step 4. Translate it into the chat language when needed, preserving its meaning and claims.
 3. **Optional explanation:** when the PR is large or complex, offer to create an `explain-diff-html` page and briefly name what would benefit from a visual walkthrough (for example, changes across several subsystems, a migration, or a non-obvious control flow). Run that skill only if the user accepts the offer. Omit the offer for a small, straightforward PR.
