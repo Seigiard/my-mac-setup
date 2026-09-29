@@ -36,7 +36,7 @@ Uncommitted changes go through the `ce-commit` skill. Done when `git status` is 
 
 ### 3. Capture evidence
 
-Read `references/evidence.md` and follow it. Done when every frame has a caption and either a URL or a listed local path, or the change has no visible surface and its behavioural proof is captured as text.
+Read `references/evidence.md` and follow it. Done when every frame has a caption, a URL or a listed local path, and a named hosting route for step 6 to act on, or the change has no visible surface and its behavioural proof is captured as text.
 
 ### 4. Write the stakeholder block
 
@@ -44,7 +44,7 @@ Invoke the `explain-for-manager` skill for the resolved range, take its block ve
 
 ### 5. Compose title and body
 
-Read `references/pr-body-template.md` and fill every slot. With a repository contract from step 1, keep its headings and place each slot under the section it belongs to; the stakeholder block still comes first. Where the contract states a rule explicitly, that rule beats the slot's own: a mandated format, a forbidden section, a different cap. The Shape section uses the `show-me` skill's view families. Done when the draft passes the rule in `~/.claude/rules/pull-requests.md`, every slot cap (the word cap counts the slots, not the sections a contract adds), and `git ls-files <path>` returns every path the body mentions.
+Read `references/pr-body-template.md` and fill every slot. With a repository contract from step 1, keep its headings and place each slot under the section it belongs to; the stakeholder block still comes first. Where the contract states a rule explicitly, that rule beats the slot's own: a mandated format, a forbidden section, a different cap. The Shape section uses the `show-me` skill's view families. Done when the draft passes the rule in `~/.claude/rules/pull-requests.md`, every slot cap (the word cap counts the slots, not the sections a contract adds), and `git ls-files <path>` returns every repository path the body links, with evidence references awaiting `--attach` exempt because `gh` rewrites those to uploaded URLs at publish.
 
 An existing body is rebuilt around three things kept: regions between paired HTML comment markers (`<!-- name --> … <!-- /name -->`, written by CI or a bot) verbatim; existing `Fixes`/`Related` references, folded into the single `Related:` line; and evidence frames or links that are still true.
 
@@ -61,6 +61,10 @@ gh pr edit "$number" --title "$title" --body-file "$body_file"   # existing PR, 
 ```
 
 Re-run the step 1 PR check right before `gh pr create`. Print the PR URL.
+
+On route 2 of `references/evidence.md`, add one `--attach <path>` per frame to the publishing command.
+
+A failed upload exits non-zero after the PR is already created or edited, so the exit status does not say whether the PR exists: read the URL `gh` prints and check the body before running anything again. Frames that did not upload fall back to route 3.
 
 ### 7. Post the summary to the related issue
 
