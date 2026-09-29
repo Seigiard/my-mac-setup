@@ -100,7 +100,7 @@ case "$agent" in
     for arg in "$@"; do
       [[ "$arg" != "--" ]] || break
       case "$arg" in
-        -h|--help|-v|--version|--pure) exec "$agent_command" "$@" ;;
+        -h|--help|-v|--version|--pure|--pure=*) exec "$agent_command" "$@" ;;
       esac
     done
     opencode_args=("$@")
@@ -109,7 +109,7 @@ case "$agent" in
       arg="${opencode_args[$arg_index]}"
       case "$arg" in
         --) break ;;
-        --agent|--cors|--hostname|--log-level|--model|-m|--port|--prompt|--replay-limit|--session|-s)
+        --agent|--cors|--hostname|--log-level|--mdns-domain|--model|-m|--port|--prompt|--replay-limit|--session|-s)
           arg_index=$((arg_index + 2))
           ;;
         --*=*) arg_index=$((arg_index + 1)) ;;

@@ -404,8 +404,9 @@ claude name=<> args= active=<> pi_load=<>'
   # accepts its global options before the subcommand, so a check that reads only
   # the first argument passes the first case and claims on the next two.
   local argv
-  for argv in 'serve --port 4096' '--log-level DEBUG serve' '--print-logs stats' '--pure' \
-    '--mode rpc' '--no-extensions'; do
+  for argv in 'serve --port 4096' '--log-level DEBUG serve' '--print-logs stats' \
+    '--mdns-domain opencode.local serve' '--cors http://a serve' '--mdns serve' \
+    '--pure' '--pure=true' '--mode rpc' '--no-extensions'; do
     local client=opencode
     [[ "$argv" != --mode* && "$argv" != --no-extensions ]] || client=pi
     : > "$log"; rm -f "$marker"

@@ -290,9 +290,14 @@ The take-back is what the client's own integration performs, so it happens only
 when that integration runs. A session closed before OpenCode's first prompt, and
 a launch whose plugins never load, leave the declared `unknown` in place with no
 marker behind it; the launcher passes the second case through rather than
-claiming for it, and the first leaves a stale window the next session in that
-pane closes. Pi's integration reports only for a TUI run, so its headless modes
-pass through on the same reasoning.
+claiming for it. The first leaves a stale window that only an OpenCode or Pi
+successor in that pane closes, by reporting under its own source. A Claude
+successor cannot: it publishes no state, and the marker its release looks for
+was suppressed for the client that took the claim, so the pane keeps reading
+`unknown`. Reachability is unaffected either way. Closing that window needs the
+marker and a release caller for both clients, which is deferred with them.
+Pi's integration reports only for a TUI run, so its headless modes pass through
+on the same reasoning.
 
 Claude publishes no state of its own, so its pane depends on screen detection
 and only a release gives detection back. `herdr-agent-intercom-release` performs
