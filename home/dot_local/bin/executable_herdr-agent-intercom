@@ -301,7 +301,12 @@ case "$agent" in
     bridge="$HOME/.local/bin/herdr-agent-intercom-claude"
     claude_server="$intercom_root/node_modules/@dataforxyz/agent-intercom-claude/dist/claude-server.mjs"
     inbox_monitor="$intercom_root/node_modules/@dataforxyz/agent-intercom-claude/dist/inbox-monitor.mjs"
-    if [[ ! -x "$cci" || ! -x "$bridge" || ! -f "$claude_server" || ! -f "$inbox_monitor" ]]; then
+    # The monitor binary is inert without the manifest that tells Claude to run
+    # it, so a tree holding one and not the other enrolls a session no inbound
+    # message can wake. The installer rejects that tree too, but only at apply
+    # time, and npm ci has already written it by then.
+    monitor_manifest="$intercom_root/node_modules/@dataforxyz/agent-intercom-claude/monitors/monitors.json"
+    if [[ ! -x "$cci" || ! -x "$bridge" || ! -f "$claude_server" || ! -f "$inbox_monitor" || ! -f "$monitor_manifest" ]]; then
       # Nothing will answer to the name here, so the pending rename must not
       # publish it: a sidebar alias no session serves sends every peer that
       # reads it nowhere, which is worse than this pane keeping Herdr's own.
