@@ -409,6 +409,7 @@ claude name=<> args= active=<> pi_load=<>'
     'opencode --print-logs stats' 'opencode --mdns-domain opencode.local serve' \
     'opencode --cors http://a serve' 'opencode --mdns serve' \
     'opencode --log-level DEBUG --version' 'opencode --pure' 'opencode --pure=true' \
+    'opencode help' 'opencode help run' \
     'pi --mode rpc' 'pi --mode json' 'pi --no-extensions' \
     'pi --provider google --version' 'pi --thinking high --help'; do
     client="${argv%% *}"
@@ -450,6 +451,19 @@ claude name=<> args= active=<> pi_load=<>'
   # #then it enrolls too, and the alias reaches Pi as its session name
   assert_success
   assert_output 'pi name=<> args= active=<1> pi_load=<self><--name><ochre-okapi><--mode><text>'
+  assert_file_contains "$log" 'agent rename w1:p2 ochre-okapi'
+
+  # #when the bare word is a project path rather than a subcommand. `version` is
+  # the readiest trap: it looks like a utility and OpenCode reads it as a
+  # directory to start the client in.
+  : > "$log"; rm -f "$marker"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
+    HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" opencode version
+
+  # #then it enrolls, so the list cannot grow into a catch-all
+  assert_success
+  assert_output 'opencode name=<ochre-okapi> args= active=<1> pi_load=<><version>'
   assert_file_contains "$log" 'agent rename w1:p2 ochre-okapi'
 
   # #when the flag that disables the plugins is spelled false. OpenCode parses

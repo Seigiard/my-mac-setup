@@ -94,9 +94,11 @@ case "$agent" in
     # The subcommand can sit behind any number of global options, because yargs
     # accepts them before it (`opencode --log-level DEBUG serve` runs `serve`),
     # so the argv walk below skips options and their values and classifies the
-    # first bare word. `pr` is absent from the list deliberately: it checks out
-    # a branch and then runs the full client, so it enrolls like any other
-    # interactive launch.
+    # first bare word. The list is the `Commands:` block of `opencode --help`
+    # plus `help`, which yargs registers without printing, and minus two:
+    # `pr` checks out a branch and then runs the full client, so it enrolls like
+    # any other interactive launch, and `version` is not a command at all --
+    # `opencode version` starts the client in a directory of that name.
     for arg in "$@"; do
       [[ "$arg" != "--" ]] || break
       case "$arg" in
@@ -120,7 +122,7 @@ case "$agent" in
           ;;
         --*=*) arg_index=$((arg_index + 1)) ;;
         -*) arg_index=$((arg_index + 1)) ;;
-        acp|agent|attach|completion|db|debug|export|github|import|mcp|models|plug|plugin|providers|auth|run|serve|session|stats|uninstall|upgrade|web)
+        acp|agent|attach|completion|db|debug|export|github|help|import|mcp|models|plug|plugin|providers|auth|run|serve|session|stats|uninstall|upgrade|web)
           exec "$agent_command" "$@"
           ;;
         *) break ;;
