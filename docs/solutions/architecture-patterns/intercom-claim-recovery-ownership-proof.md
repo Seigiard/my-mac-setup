@@ -9,110 +9,133 @@ status: in-progress
 
 # Intercom claim recovery ownership proof
 
-## Current evidence
+## Boundary
 
-Installed Herdr v0.9.1 supports a narrow recovery-owner prototype. Its real
-restart owner is an owned temporary macOS `launchd` job in the current user's
-`gui/<uid>` domain. The job has `KeepAlive = true` and runs only the recovery
-observer, not a client supervisor. Its plist, logs, PID record, and intents are
-under the proof's temporary scratch directory; `launchctl bootout` removes it.
+This is opt-in proof tooling, not a runtime rollout. The full implementation
+gate remains **UNVERIFIED** until all real-client terminal controls pass and
+the owner/protocol addendum is reviewed. No managed path has changed.
 
-Before any `report-agent` claim, an atomic fsync-and-rename intent records the
-server config root/session, connected server PID and process-start identity,
-stable pane/terminal identity, agent kind, claimant source, ordered claim and
-reserved release sequences, plus the child PID and `ps lstart` identity (read
-under a fixed locale and timezone). `phase: intent` is distinct from
-`phase: acquired`, and only the latter has a successful claim acknowledgment.
-The observer polls process identity, never a TTL. A failed process lookup is
-unknown unless the kernel confirms absence; it is not an exit. Before each RPC,
-the observer checks the peer PID and start identity on the connected descriptor
-used for that request. The mutation does not reconnect after that check. Herdr
-closes the connection after one response, so checking an inode and later opening
-an unfenced CLI connection would not provide this boundary.
+The owner probe runs installed Herdr 0.9.1 in an isolated named session. A
+temporary macOS `launchd` job in `gui/<uid>` restarts the observer with
+`KeepAlive = true`. Each job has its own plist, logs and PID receipt. Teardown
+boots it out and confirms process exit before deleting its files. Cleanup
+failures preserve the scratch tree for diagnosis.
 
-On confirmed exit the observer releases exactly the reserved source/sequence,
-then verifies the result. An unacknowledged acquisition stays pending while the
-pane has no claim: the request may still arrive. A later claim is recovered.
-An acknowledged claim can retire without mutation when a concrete published
-state witnesses lifecycle takeover. Moved panes follow their stable terminal
-identity. A confirmed ended server instance retires only its local obligation;
-the replacement server is not mutated. Unavailable observations remain pending.
+## Candidate protocol
 
-This is not a runtime rollout or a full gate pass. The prototype passed the
-following real-Herdr cases on 2026-09-29:
+Before acquisition, a durable fsync-and-rename intent identifies the connected
+server PID/start identity, stable terminal, launch generation, source, reserved
+sequences, and process PID/start identity. `intent` means acquisition is not
+acknowledged; `acquired` follows claim readback. An unacknowledged operation
+cannot retire merely because the pane has no record: the request can arrive
+after its process exits.
+
+An inode-stable sidecar lock serializes acknowledgement, native binding,
+handoff and observation for one intent. JSON rename alone is not that lock.
+Observer lock attempts are nonblocking, so a busy intent does not stop the
+observer from checking others. Test barriers have deadlines and failure-path
+release guards; they are not part of the proposed deployed protocol.
+
+Every RPC verifies the kernel peer PID/start identity on the descriptor used
+for that request. Herdr closes the connection after a response. A path or inode
+read followed by another connection would not provide this fence. Socket inode
+data in client evidence is diagnostic only.
+
+The observer follows process identity, not age. Failed process reads remain
+pending unless the kernel establishes absence. A concrete successor state
+retires an acknowledged launch without a release, whether the publisher is a
+newer same-source launch or a client integration. An unknown record does not
+expose its authority source or claim sequence through `agent.get`. An ignored
+release therefore remains pending; the prototype bounds these release retries
+to one per two seconds instead of inferring ownership from RPC success.
+
+Moved panes are resolved by stable terminal identity. A changed server is never
+mutated with the old intent. Before retirement, read-only requests fenced to the
+replacement server must establish that the old terminal or its agent record is
+absent. A retained record leaves an explicit pending diagnostic.
+
+### Claude's native process and first prompt
+
+`cci` probes its configured bridge with `--version` even in MCP mode. That
+short-lived process is not the interactive client. The proof bridge passes the
+utility through, then binds the real before-exec bridge PID while its recorded
+launcher is still its live parent. The bridge and native exec share a PID.
+Binding uses the same lock as cleanup. A bridge arriving after settlement
+starts the native argv without cci's generated enrollment rather than reviving
+the old claim.
+
+The real first-prompt hook checks native ancestry and stable terminal identity.
+It requests a source-scoped, reserved-sequence release. The client probe reserves
+`N` for acquisition, `N+1` for handoff and `N+2` for final cleanup. Only a later
+published concrete state retires the intent; a successful release response is
+not the handoff verdict. The probe also requires the same alias and a live native
+client. Input readiness is a positive `live_prompt_box` rule, separate from the
+published lifecycle state being tested.
+
+## Owner evidence
+
+The current registered owner cases are:
 
 | Case | Observed result |
 | --- | --- |
-| Killed observer, then actual child exit | `launchd` restarted the observer after `SIGKILL`; the new PID consumed the same `acquired` intent without a test-triggered recover call. The exact claim disappeared from `agent get`. |
-| Failed process lookup | A real live process retained its claim when the process reader failed. The same claim was released after confirmed process exit. |
-| Crash windows | An unresolved acquisition stayed pending without creating a record and recovered a request arriving after exit. Claim-before-acknowledgment and renamed claim both released. A restored post-release obligation retired safely. |
-| Two cleanup attempts | Two independent owned launchd observers read the same durable intent; repeated exact release left no record. |
-| Unavailable socket and stale PID/start identity | Hiding the real socket retained the obligation; restoring it resumed cleanup. A mismatched saved start identity released the old claim while leaving the replacement process alive. This models PID reuse; it does not claim the kernel recycled a PID in the probe. |
-| Fenced newer same-source claim | The observer read the old terminal then paused. A new same-source `N+10` claim arrived before old `N+1` release. Herdr preserved the newer published `working` record; only `N+11` removed it. |
-| Real server restart in the fence | The observer read first, then the owned server was stopped and restarted. Kernel peer identities proved the server process changed. The observer retired its original-server obligation without touching a new server's named `working` record. |
-| Lifecycle takeover | The observer retired bookkeeping while the original process remained alive, preserving the new owner's alias and published `working` state. |
-| Pane move | A move to a new workspace retained terminal identity. Cleanup recorded and used the new pane coordinate. Herdr also resolved the old coordinate to that moved pane; the probe reads the returned identity rather than assuming lookup failure. |
-| Same-source successor at N+10; delayed old release at N+1 | The successor remained `working` with the same alias and terminal; its release at N+11 removed the record. |
-| Foreign successor before native launch | The successor became published `working`; a source-scoped old clear did not change it. |
-| Native Claude handoff | **Not accepted in this proof.** The prior trace showed published `unknown` while `agent explain --json` matched `live_prompt_box`; a computed rule is not evidence that the held-authority window ended. |
-| Repeated cleanup and closed pane | Two observers left no claim; after pane close no cleanup retargeted another resource. |
-| Pending managed native successor | With an ephemeral shell `claude` barrier, real `herdr agent start` reserved the pending alias before native exec. After a foreign successor released, old A's delayed `release-agent` retained the exact pending alias, terminal, and `unknown` state. |
+| Native binding versus cleanup | A barrier pauses binding after its live-parent check. The launcher dies, an observer attempts cleanup, and the lock preserves the claim. The bound child then owns recovery until its own exit. |
+| Failed process lookup | Failure is limited to the selected client's reader. The live claim remains; actual exit releases it. Server-peer reads still work. |
+| Observer restart | `launchd` restarts a killed observer. Distinct old/new PID receipts are recorded, and the new process consumes the same intent. |
+| Same-source successor | Reserved old release preserves a newer same-source working record and alias. The successor's own release removes it. |
+| Concrete successor state | Bookkeeping retires while the original process is alive, without releasing or renaming the successor. |
+| Moved pane | Cleanup follows the same terminal under its current coordinate. |
+| Fenced old release | A post-response trace proves the delayed release ran before the successor-preservation assertion. |
+| Unknown successor | The newer unknown record survives. Unavailable ownership evidence remains pending rather than being invented from RPC success. |
+| Socket outage and PID incarnation | Restoring the socket resumes cleanup. A process-reader seam models a different start token for the same real PID; the replacement stays alive. This is not a claim of actual kernel PID recycling. |
+| Acquisition crash windows | Presence is confirmed before cleanup, including a delayed acquisition and a claim whose acknowledgement never happened. |
+| Source-scoped clear alternative | Clearing authority on a renamed claim leaves an alias-only unknown record; it cannot implement failed-launch cleanup. |
+| Pending managed successor | A real `herdr agent start` reaches its pre-exec barrier. Old release preserves the reserved alias and terminal. The pane is closed before the unused native launch begins. |
+| Concurrent and repeated cleanup | Both observers reach an entry barrier and attempt the same intent. The lock serializes them. Repeated release and closed-terminal replay also settle safely. |
+| Server restart | The old record is confirmed absent after restart, and a new server's unrelated named record remains unchanged. |
 
-Each transition is emitted as JSON to stdout and the complete agent/explain
-trace, verdicts, and recovery latency is written to the
-directory selected by `MMS_LIVE_HERDR_OWNERSHIP_EVIDENCE_DIR` (or the OS temp
-directory). The corrected owner run was `ownership-proof-1790705557.json`:
-twelve cases passed. Its measured recovery latency was 0.980 seconds. The probe's
-wait is a hang guard, not a production latency assertion. No production budget
-is selected until the remaining client controls pass.
+`ownership-proof-53781559115e4cc8b82ed647a38e6942.json` records fourteen passing
+owner cases and 0.947 seconds of observed recovery latency. It includes the
+explicit unacknowledged-claim window and the calibrated binding race.
+No production recovery budget is selected from an isolated latency sample.
 
-Regression sensitivity was observed. Before the process-observation correction,
-a failed reader deleted a real live process's claim. Disabling the uncertain
-acquisition guard discarded an unacknowledged request. Restoring the corrections
-made both cases pass. The move check also failed before canonical coordinates
-were saved from Herdr's returned pane identity.
+Calibration found and closed a false-green timing window in the new binding
+case. Its observer witness now requires an attempt that **started** after
+launcher exit. Removing the lock then deletes the live child's claim and makes
+the case fail; restoring it passes. A separate in-process mutation that treats
+any live PID as the same incarnation fails the same-PID/different-token case;
+PID plus start identity passes. The failed-client-reader regression was also
+observed red and green with server-peer lookup left functional.
 
-The process-reader control now fails only the selected client's `ps` lookup;
-server-peer identity reads remain available. A fresh calibration restored the
-bug by treating that lookup failure as death: the live agent record disappeared
-and the control failed. With the correct reader, the live claim remained and
-confirmed exit released it. All twelve owner cases passed in that run. This
-removes the earlier possibility that failed server-peer lookup, rather than
-client liveness handling, kept the control green. The owner-only command still
-returns 1 until the separate full client gate is complete.
+## Real-client evidence and remaining work
 
-## Rejected alternative
+`bound-claude-11c940c973734532a536c8e1cace2d14.json` records real native Claude
+survival across cci `SIGKILL`, retained-alias first-prompt handoff, and normal
+`/exit`. These controls use an isolated bridge and settings file. They do not
+claim that the deployed launcher already implements recovery.
 
-`pane.clear_agent_authority` is a real raw socket method in v0.9.1. It is
-source-scoped and therefore safely ignores a foreign active authority. It does
-not meet R1: on a renamed temporary claim it removes lifecycle authority but
-leaves an alias-only `unknown` record. It cannot replace `release-agent` for
-cleanup. The probe records that state explicitly.
+The client probe stages the launcher from merged PR #378 at
+`dc33b385891fdab07af303037cc1ad2e3e161471`, with only the candidate bridge entry
+changed. Real clients retain PTY streams through a status-recording driver.
+The pane shell survives client exit, so claim cleanup cannot pass merely because
+the terminal disappeared. Remaining native/wrapped print, signal and job-control
+controls must finish before the full gate can pass.
 
-## Rerun
+## Rerun and verdicts
 
 ```sh
 MMS_LIVE_HERDR_OWNERSHIP_PROBE=1 \
 MMS_LIVE_HERDR_OWNERSHIP_EVIDENCE_DIR="$HOME/.claude/artifacts/377/proof" \
 python3 tests/helpers/intercom_claim_ownership_probe.py
+
+MMS_LIVE_HERDR_OWNERSHIP_PROBE=1 \
+MMS_LIVE_HERDR_OWNERSHIP_EVIDENCE_DIR="$HOME/.claude/artifacts/377/proof" \
+python3 tests/helpers/intercom_claim_client_probe.py
 ```
 
-The probe refuses without the opt-in and outside a Herdr-managed caller. It
-creates a server under `/tmp`, starts only owned panes and a uniquely labelled
-launchd job, writes raw evidence under the approved artifacts root, then boots
-out the job and stops/deletes the session in `finally`.
-
-## Remaining gate
-
-The full implementation gate is still **UNVERIFIED**. This proof covers only
-the automatic recovery owner and its claim transitions. The parent should use
-the prototype's resolved native executable and child PID/start-identity pattern
-for subsequent real-client controls. It does not prove the Claude/`cci`
-relationship, OpenCode early exit, Pi print or interactive enrollment, or
-native-versus-wrapped terminal, signal, job-control, and exit-status behavior.
-No managed path changed.
-
-PR #378 was read only as an OpenCode/Pi reference. This evidence runs against
-the installed Herdr v0.9.1 and the current branch's existing launcher; it does
-not merge or modify #378, run `chezmoi apply`, print credentials, or touch a
-user pane/server.
+Both commands require a Herdr-managed caller and create only owned resources.
+The owner command returns `1` for failed cases or cleanup, `2` for refusal, and
+`3` when its cases pass but the separate full client gate remains unverified.
+Read the UUID-named JSON artifact for the exact executed case set. A focused
+calibration is not evidence that omitted cases ran. The client command returns
+`0` only when every registered client case passes; it does not replace owner
+evidence or the required reviewed addendum.
