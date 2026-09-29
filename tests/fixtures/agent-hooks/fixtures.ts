@@ -1,4 +1,4 @@
-// The single home for the shared event corpus: the core suite and the three
+// The single home for the shared event corpus: the core suite and both
 // adapter suites import these instead of keeping per-suite copies, so a dialect
 // drift shows up everywhere at once.
 //
@@ -6,7 +6,7 @@
 // generated from the normalizer, so it stays an independent statement of what a
 // client sends.
 
-import type { ClientId, EventPayload, ToolKind } from "./types.ts";
+import type { ClientId, EventPayload, ToolKind } from "../../../home/dot_local/lib/agent-hooks/types.ts";
 
 export type DialectFixture = {
   name: string;

@@ -39,6 +39,8 @@ function sourceFiles(dir: string): string[] {
 export function coreHash(dir: string = CORE_DIR): string {
   const hash = createHash("sha256");
   for (const path of sourceFiles(dir)) {
+    // Older deployments can retain the retired test corpus after source removal.
+    if (path === join(dir, "fixtures.ts")) continue;
     hash.update(path.slice(dir.length));
     hash.update(readFileSync(path));
   }
