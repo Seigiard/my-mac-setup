@@ -20,7 +20,7 @@
 
 - **Before:** {the failing test, output, or screenshot, named by suite or command}
 - **After:** {the passing run, named the same way}
-- **Visuals:** {`![caption](URL)` per frame from the evidence step, or the walkthrough link, or "no visible surface: see the run above"}
+- **Visuals:** {per frame from the evidence step, `![caption](URL)` or the `![caption](path)` that `--attach` rewrites; or the walkthrough link; or "no visible surface: see the run above"}
 
 {One line on what is CI-only or not run. Suites and outcomes, never a list of test names.}
 

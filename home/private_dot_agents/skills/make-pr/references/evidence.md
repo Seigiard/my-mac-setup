@@ -14,6 +14,8 @@ The diff has a visible surface when it touches routes, components, stories, styl
 
 ## Host the frames
 
-GitHub has no CLI upload for PR images, so a URL can only come from a publisher the repository documents (an image upload command, a demo-page command). Use it and keep the URLs beside the captions.
+Take the first route that applies.
 
-With no documented publisher, keep the local paths, list them in the report, and write each Visuals entry as `![caption](attach: <path>)` for the user to drag into the PR.
+1. **The publisher the repository documents.** When step 1 found an image-upload or demo-page command, that command wins. Use it and keep the URLs beside the captions.
+2. **`gh --attach`.** Write each frame into the body as a Markdown reference to the file's own path, `![caption](/tmp/<slug>/evidence/<nn>-<caption>.png)`, and pass that same path to `--attach` on the publishing command. `gh` rewrites the reference to the uploaded URL and keeps the caption written there as the alt text. Its constraints are the `gh` skill's; the one that redirects this step is `WRITE` on the repository the PR opens against, so a fork PR into an upstream the token cannot write lands on route 3. Uploading to a repository the token can write (`gh issue comment --attach` on the fork) turns that case back into route 1.
+3. **Local paths.** Keep the references, list the paths in the report, and say which route failed and why.
