@@ -108,7 +108,7 @@ case "$agent" in
         # arrives here. yargs answers it and exits without a client, and the
         # words it passes start with the command name rather than a subcommand,
         # so the walk below would read it as an interactive launch.
-        --get-yargs-completions) exec "$agent_command" "$@" ;;
+        --get-yargs-completions|--get-yargs-completions=*) exec "$agent_command" "$@" ;;
         # An explicit false leaves the plugins loaded, so that launch enrolls
         # like any other. Every other spelling counts as pure, because guessing
         # wrong that way only costs the launch its Intercom, while guessing it
