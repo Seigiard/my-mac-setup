@@ -16,6 +16,14 @@ setup() {
   unset HERDR_AGENT_INTERCOM_NAME
   unset HERDR_AGENT_INTERCOM_PANE
   unset HERDR_AGENT_INTERCOM_PI_LOAD
+  # The launcher exports these two when it claims a pane, so a suite started
+  # from an enrolled pane hands them to the very launcher and release command
+  # the cases below exercise. The release command reads the claim as its own
+  # and exits early on any other pane, which made tests 1346-1348 fail on the
+  # host and pass in Docker. Test 1349 pins the whole set against the next
+  # variable the launcher starts exporting.
+  unset HERDR_AGENT_INTERCOM_CLAIM
+  unset HERDR_AGENT_INTERCOM_CLAIM_AGENT
   unset HERDR_CHILD_NAME
   # herdr-child reads its mode, parent identity and tuning from the
   # environment, so any of these left in the runner's own environment decides
@@ -673,6 +681,94 @@ SH
   assert_success
   assert_equal "$(wc -c < "$log" | tr -d ' ')" 0
   assert_file_exists "$note"
+}
+
+function test_scripts_1349_the_suite_clears_every_session_variable_the_launcher_exports() {
+  _bats_test_init 1349 'the suite clears every session variable the launcher exports'
+  local launcher="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom"
+  local stub home dump client
+  stub="$(agent_intercom_stub_bin)"
+  home="$BATS_TEST_TMPDIR/agent-intercom-home"
+  dump="$BATS_TEST_TMPDIR/exported-session-names"
+  : > "$dump"
+
+  # #given a client that reports the Intercom session variables it was handed.
+  # The names are collected from real launches rather than read out of the
+  # launcher, so a variable the launcher starts exporting joins this set the
+  # day it appears, without anyone remembering to list it here.
+  for client in cci pi opencode; do
+    cat > "$stub/$client" <<'SH'
+#!/usr/bin/env bash
+env | grep -E '^(HERDR_AGENT_INTERCOM_[A-Z0-9_]*|INTERCOM_DIR|OPENCODE_INTERCOM_NAME)=' \
+  | cut -d= -f1 >> "$NAME_DUMP"
+SH
+    chmod +x "$stub/$client"
+  done
+
+  # #given the two enrolment routes, because each exports names the other does
+  # not: the client-specific ones here, and the claim pair below.
+  for client in opencode pi; do
+    run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 NAME_DUMP="$dump" \
+      HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+      HOME="$home" PATH="$stub:$PATH" bash "$launcher" "$client"
+    assert_success
+  done
+
+  # A pane Herdr has no record for is the route that claims, and claiming is
+  # what exports HERDR_AGENT_INTERCOM_CLAIM -- the variable that reached the
+  # release command under test in #373.
+  cat > "$stub/herdr" <<'SH'
+#!/usr/bin/env bash
+case "$1 $2" in
+  'agent get')
+    printf '{"error":{"code":"agent_not_found","message":"agent target %s not found"},"id":"cli:agent:get"}\n' "$3" >&2
+    exit 1
+    ;;
+  'agent explain')
+    printf 'agent: claude\nstate: working\nrule: osc_title_working (region=osc_title priority=1100)\n'
+    exit 0
+    ;;
+  'pane report-agent'|'pane release-agent'|'agent rename') exit 0 ;;
+esac
+exit 2
+SH
+  cat > "$stub/herdr-peer-alias" <<'SH'
+#!/usr/bin/env bash
+printf 'ochre-okapi\n'
+SH
+  chmod +x "$stub/herdr" "$stub/herdr-peer-alias"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 NAME_DUMP="$dump" \
+    HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" claude
+  assert_success
+
+  # #then the collected set is the real one. Without these the loop below can
+  # pass on an empty file, which is the one way it proves nothing.
+  assert_file_contains "$dump" '^HERDR_AGENT_INTERCOM_CLAIM$'
+  assert_file_contains "$dump" '^HERDR_AGENT_INTERCOM_CLAIM_AGENT$'
+  assert_file_contains "$dump" '^HERDR_AGENT_INTERCOM_ACTIVE$'
+  assert_file_contains "$dump" '^HERDR_AGENT_INTERCOM_PI_LOAD$'
+  assert_file_contains "$dump" '^OPENCODE_INTERCOM_NAME$'
+  assert_file_contains "$dump" '^INTERCOM_DIR$'
+
+  # #when a runner carries every one of them, as any shell inside an enrolled
+  # pane does, and the suite's own setup runs
+  local survivors
+  survivors="$(
+    while read -r name; do
+      [[ -n "$name" ]] || continue
+      export "$name=inherited-from-the-runner"
+    done < <(sort -u "$dump")
+    setup
+    while read -r name; do
+      [[ -n "$name" ]] || continue
+      [[ -z "${!name:-}" ]] || printf '%s\n' "$name"
+    done < <(sort -u "$dump")
+  )"
+
+  # #then none of them survives into a case, so the suite's verdict does not
+  # depend on whether the shell running it is enrolled
+  assert_equal "$survivors" ''
 }
 
 function test_scripts_1333_agent_intercom_launcher_passes_through_an_unidentified_herdr_session() {
