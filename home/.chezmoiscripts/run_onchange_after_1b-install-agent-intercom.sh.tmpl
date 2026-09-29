@@ -35,6 +35,10 @@ required=(
   "$root/node_modules/.bin/cci"
   "$root/node_modules/@dataforxyz/agent-intercom-claude/dist/claude-server.mjs"
   "$root/node_modules/@dataforxyz/agent-intercom-claude/dist/inbox-monitor.mjs"
+  # Claude starts the monitor above only because plugin.json points at this
+  # manifest. Shipping the binary without it is a silent install: the plugin
+  # loads, the tools work, and inbound messages never wake the session.
+  "$root/node_modules/@dataforxyz/agent-intercom-claude/monitors/monitors.json"
   "$root/node_modules/@dataforxyz/agent-intercom-opencode/dist/plugin.mjs"
   "$root/node_modules/@dataforxyz/agent-intercom-pi/index.ts"
 )

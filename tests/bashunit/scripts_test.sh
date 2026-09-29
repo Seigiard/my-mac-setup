@@ -109,10 +109,12 @@ SH
   chmod +x "$stub/herdr" "$stub/allocator"
   mkdir -p "$home/.local/share/agent-intercom/node_modules/.bin" \
     "$home/.local/share/agent-intercom/node_modules/@dataforxyz/agent-intercom-claude/dist" \
+    "$home/.local/share/agent-intercom/node_modules/@dataforxyz/agent-intercom-claude/monitors" \
     "$home/.local/bin"
   ln -sf "$stub/cci" "$home/.local/share/agent-intercom/node_modules/.bin/cci"
   : > "$home/.local/share/agent-intercom/node_modules/@dataforxyz/agent-intercom-claude/dist/claude-server.mjs"
   : > "$home/.local/share/agent-intercom/node_modules/@dataforxyz/agent-intercom-claude/dist/inbox-monitor.mjs"
+  : > "$home/.local/share/agent-intercom/node_modules/@dataforxyz/agent-intercom-claude/monitors/monitors.json"
   cp "$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom-claude" \
     "$home/.local/bin/herdr-agent-intercom-claude"
   chmod +x "$home/.local/bin/herdr-agent-intercom-claude"
@@ -791,6 +793,13 @@ function test_scripts_1337_agent_intercom_launcher_preserves_utility_and_nested_
     PATH="$stub:$PATH" bash "$launcher" claude
   assert_success
   assert_output 'claude name=<> args= active=<1> pi_load=<>'
+
+  rm -f "$BATS_TEST_TMPDIR/agent-intercom-home/.local/share/agent-intercom/node_modules/@dataforxyz/agent-intercom-claude/monitors/monitors.json"
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
+    PATH="$stub:$PATH" bash "$launcher" claude
+  assert_success
+  assert_output 'claude name=<> args= active=<1> pi_load=<>'
+  : > "$BATS_TEST_TMPDIR/agent-intercom-home/.local/share/agent-intercom/node_modules/@dataforxyz/agent-intercom-claude/monitors/monitors.json"
 
   rm -f "$BATS_TEST_TMPDIR/agent-intercom-home/.local/share/agent-intercom/node_modules/@dataforxyz/agent-intercom-claude/dist/inbox-monitor.mjs"
   run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
