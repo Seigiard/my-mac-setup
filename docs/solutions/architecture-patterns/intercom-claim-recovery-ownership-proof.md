@@ -27,11 +27,14 @@ following real-Herdr cases on 2026-09-29:
 | Foreign successor before native launch | The successor became published `working`; a source-scoped old clear did not change it. |
 | Native Claude handoff | A resolved `/opt/homebrew/bin/claude` process, not a shell function, reported `agent_session.source = herdr:claude`; `agent explain --json` matched `live_prompt_box`. The foreign successor released and the same alias/terminal remained. A delayed old release also preserved them. |
 | Repeated recovery and closed pane | Two recovery processes left no claim; after pane close a restarted owner settled without retargeting. |
+| Pending managed native successor | With an ephemeral shell `claude` barrier, real `herdr agent start` reserved the pending alias before native exec. After a foreign successor released, old A's delayed `release-agent` retained the exact pending alias, terminal, and `unknown` state. |
 
 Each transition is emitted as JSON to stdout and the complete agent/explain and
 socket-response trace is written to
 `/Users/seigiard/.claude/artifacts/377/proof/ownership-proof-<timestamp>.json`.
-The latest measured trace is `ownership-proof-1790700075.json`.
+The evidence directory is selected with `MMS_LIVE_HERDR_OWNERSHIP_EVIDENCE_DIR`
+and otherwise defaults to the OS temp root. The latest measured trace used an
+explicit local artifacts directory and was `ownership-proof-1790700469.json`.
 
 ## Rejected alternative
 
@@ -44,7 +47,9 @@ cleanup. The probe records that state explicitly.
 ## Rerun
 
 ```sh
-MMS_LIVE_HERDR_OWNERSHIP_PROBE=1 python3 tests/helpers/intercom_claim_ownership_probe.py
+MMS_LIVE_HERDR_OWNERSHIP_PROBE=1 \
+MMS_LIVE_HERDR_OWNERSHIP_EVIDENCE_DIR="${TMPDIR:-/tmp}/mms377-proof" \
+python3 tests/helpers/intercom_claim_ownership_probe.py
 ```
 
 The probe refuses without the opt-in and outside a Herdr-managed caller. It

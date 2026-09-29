@@ -9,11 +9,13 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 OPT_IN = "MMS_LIVE_HERDR_OWNERSHIP_PROBE"
+EVIDENCE_DIR = "MMS_LIVE_HERDR_OWNERSHIP_EVIDENCE_DIR"
 OLD_SOURCE = "mms-377-old-launch"
 CLAUDE_SOURCE = "herdr:claude"
 AGENT = "claude"
@@ -328,8 +330,8 @@ def main():
             report(owner, pane["pane_id"], OLD_SOURCE, "working", sequence + 10)
             successor = owner.state(pane["pane_id"], "same-source-successor")
             require_agent(successor, status="working", terminal=pane["terminal_id"], alias=f"mms377-same-{sequence}")
-            owner.clear_authority(pane["pane_id"], OLD_SOURCE, sequence + 1)
-            preserved = owner.state(pane["pane_id"], "old-clear-after-same-source-successor")
+            release(owner, pane["pane_id"], OLD_SOURCE, sequence + 1)
+            preserved = owner.state(pane["pane_id"], "old-release-after-same-source-successor")
             require_agent(preserved, status="working", terminal=pane["terminal_id"], alias=f"mms377-same-{sequence}")
             release(owner, pane["pane_id"], OLD_SOURCE, sequence + 11)
             settled = owner.state(pane["pane_id"], "same-source-successor-own-clear")
@@ -373,6 +375,48 @@ def main():
             require(stale, record.get("agent") is None, "clear retained lifecycle authority")
             require(stale, record.get("name") == alias, "clear unexpectedly removed stale alias")
 
+        def pending_managed_native_successor():
+            pane = create_pane(owner, root)
+            sequence = time.time_ns()
+            alias = f"mms377-pending-{os.getpid()}"
+            barrier = os.path.join(owner.root, "claude-barrier")
+            release_barrier = os.path.join(owner.root, "claude-release")
+            report(owner, pane["pane_id"], OLD_SOURCE, "unknown", sequence)
+            report(owner, pane["pane_id"], "mms-377-successor", "working", sequence + 10)
+            release(owner, pane["pane_id"], "mms-377-successor", sequence + 11)
+            before = owner.state(pane["pane_id"], "foreign-released-before-pending-launch")
+            require(before, before["agent"] is None, "foreign release did not settle old record")
+            function = (
+                f"function claude() {{ : > {barrier}; while [[ ! -f {release_barrier} ]]; do sleep 0.1; done; "
+                f"exec {native_claude} \"$@\"; }}"
+            )
+            owner.run("pane", "run", pane["pane_id"], function)
+            command = ["herdr", "--session", owner.session, "agent", "start", alias, "--kind", "claude",
+                       "--pane", pane["pane_id"], "--timeout", "5000"]
+            started = subprocess.Popen(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=owner.env)
+            deadline = time.monotonic() + 5
+            while not os.path.exists(barrier) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            if not os.path.exists(barrier):
+                started.terminate()
+                started.wait(timeout=5)
+                raise ProbeError("agent start did not invoke the owned Claude barrier")
+            pending = owner.state(pane["pane_id"], "managed-native-launch-pending")
+            record = pending["agent"] or {}
+            require(pending, record.get("terminal_id") == pane["terminal_id"], "pending launch changed terminal")
+            require(pending, record.get("name") == alias, "pending launch alias changed")
+            require(pending, record.get("agent") is None, "pending launch was already detectable")
+            require(pending, record.get("agent_status") == "unknown", "pending launch state is not unknown")
+            release(owner, pane["pane_id"], OLD_SOURCE, sequence + 1)
+            preserved = owner.state(pane["pane_id"], "old-release-during-managed-pending")
+            after = preserved["agent"] or {}
+            require(preserved, after.get("terminal_id") == pane["terminal_id"], "old release retargeted pending terminal")
+            require(preserved, after.get("name") == alias, "old release removed pending alias")
+            require(preserved, after.get("agent") is None and after.get("agent_status") == "unknown", "old release changed pending launch state")
+            open(release_barrier, "w").close()
+            started.terminate()
+            started.wait(timeout=10)
+
         def repeated_and_closed_resource():
             pane = create_pane(owner, root)
             sequence = time.time_ns()
@@ -389,8 +433,9 @@ def main():
         case(owner, "same-source successor and delayed old clear", same_source_successor, verdicts)
         case(owner, "native Claude takeover handoff and delayed old clear", native_takeover_and_handoff, verdicts)
         case(owner, "source-scoped clear leaves a renamed stale claim", source_scoped_clear_limit, verdicts)
+        case(owner, "delayed old release preserves pending managed native successor", pending_managed_native_successor, verdicts)
         case(owner, "repeated cleanup and closed resource", repeated_and_closed_resource, verdicts)
-        artifact_root = "/Users/seigiard/.claude/artifacts/377/proof"
+        artifact_root = os.environ.get(EVIDENCE_DIR, os.path.join(tempfile.gettempdir(), "mms377-proof"))
         os.makedirs(artifact_root, exist_ok=True)
         artifact = os.path.join(artifact_root, f"ownership-proof-{int(time.time())}.json")
         with open(artifact, "w", encoding="utf-8") as handle:
