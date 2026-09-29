@@ -44,12 +44,12 @@ created by the new protocol.
 | R9 | Nested launch or a child pane inherits launcher environment | It cannot adopt a different launch's cleanup authority. A child pane resolves its own identity. |
 | R10 | A claim or recovery intent cannot be established | Create no new unowned claim. Preserve native client startup, warn that automatic enrollment is unavailable, and reuse only an independently valid existing alias. |
 
-The healthy observer schedules a recovery check at least once every five seconds.
-After confirmed exit, release and verification must settle within two successful
-checks with Herdr reachable and ownership known. A failed observation does not
-count as successful. These are scheduling requirements, not a claim that an
-unreachable server can be repaired within a wall-clock deadline. Verify ordering
-with causal barriers; record actual recovery latency separately.
+Recovery runs automatically after confirmed exit, with Herdr reachable and
+ownership known. The ownership gate must record measured latency and choose a
+finite healthy-state recovery budget before runtime implementation is accepted.
+That budget must allow event-driven or periodic observation; a polling cadence
+is not selected here. Failed observations remain pending, not successful cleanup.
+Verify ordering with causal barriers and measure recovery latency separately.
 
 A long-lived process with no lifecycle reports is not known to be dead. Known
 headless modes bypass acquisition; an unrecognized live process may retain the
@@ -88,8 +88,9 @@ Use real Herdr and disposable, owned panes. The gate produces a checked-in
 evidence note and an implementation addendum to this specification. It must name
 the observation process, its restart owner, the process identity it follows,
 the server/terminal identity scheme, the claim/release ordering protocol, and
-how uncertainty is exposed. These are blocked design decisions, not discretion
-to fill in while shipping the launcher.
+how uncertainty is exposed. It must also set the measured recovery-latency budget
+and, if polling is selected, its cadence. These are blocked design decisions,
+not discretion to fill in while shipping the launcher.
 
 The following primitive probes passed on installed Herdr 0.9.1 on 2026-09-29:
 
@@ -120,6 +121,12 @@ isolation. The full gate must exercise:
 4. A real Claude launch and `cci` exit relationship; real OpenCode exit before
    its first report; real Pi print-mode exit. Verify alias preservation when a
    client takes over, not merely survival of an unnamed test record.
+5. Native and wrapped real-client controls for terminal input/output, interactive
+   job control, Ctrl-C, termination signals, and exact exit-status propagation.
+   Prove that an ordinary interactive Pi launch acquires its canonical alias,
+   loads the adapter under the actual Pi PID, takes over lifecycle reporting,
+   and remains reachable under that alias. Claim-isolation probes alone cannot
+   approve a changed process tree.
 
 Gate passes only with observed safe outcomes and a reviewed owner/protocol
 addendum. A skip or a fake server is not a pass. If isolation cannot be proved,
@@ -135,11 +142,14 @@ the repository-owned cleanup transitions, not encode another copy of client
 argument grammar. Extend the existing launcher/release cases in
 `tests/bashunit/scripts_test.sh`; keep live conformance skips visible.
 
-Acceptance includes invalid Pi input with a valid utility control, normal exit,
+Acceptance includes invalid Pi input with both a valid utility control and a
+valid claim-producing interactive Pi control, normal exit,
 termination before first report, non-TTY Pi, no-prompt live clients, real takeover,
-delayed old cleanup, lost observation and recovery-owner restart. Prove that
-cleanup runs when no second client is launched. A regression that deletes the
-newer record must turn the isolation check red.
+delayed old cleanup, lost observation and recovery-owner restart. It also includes
+the real-client terminal/signal/exit controls above. Prove that cleanup runs when
+no second client is launched. A regression that deletes the newer record must
+turn the isolation check red; a bypass that silently disables supported Pi
+enrollment must fail the interactive control.
 
 Apply `docs/agent-verification.md` to the final implementation. New managed paths
 or deployment-dependent lifecycle behavior require `make test-ubuntu`. Ubuntu
