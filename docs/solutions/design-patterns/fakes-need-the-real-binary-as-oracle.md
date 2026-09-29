@@ -81,6 +81,15 @@ upstream program owns — which is the failure mode the check exists to avoid, n
 finer grain. Record the chosen depth and its reason in the test, because the natural instinct of the
 next reader is to deepen it.
 
+Comparing the whole answer looks like the safe default and is not, because the answer can carry
+values the program itself does not own. Test 3074 compared the Skills CLI's lock entries whole,
+`skillPath` included — a path inside a stranger's repository. When that stranger moved the skill
+from one directory to another, the check went red on `main` and stayed red, with nothing about the
+CLI's contract or this repository's fake having changed. **An oracle that reaches a live third party
+is only as stable as that third party's layout.** Compare what the consumer reads — here, that the
+path carries enough directories for the wrapper's exclusion globs to match — and reduce the rest to
+its shape, so a value that was never contract cannot fail the check.
+
 ### 4. Record divergence below that depth as an issue, not as test content
 
 When the fake and the real thing disagree below the pinned level, the disagreement is a finding

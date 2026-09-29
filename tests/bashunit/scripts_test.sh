@@ -8844,12 +8844,51 @@ SH
   printf '%s' "$stub"
 }
 
+# The lock-file contract `executable_skills` actually reads: the schema version
+# it refuses to work without (`:39-56`), one entry per skill name, each entry's
+# `source`, and a `skillPath` its exclusion globs can match (`:330-341`). Where
+# upstream files a given skill is not part of it, so a path carrying at least
+# one directory above `<name>/SKILL.md` reduces to that shape. A path that could
+# not carry those globs -- flattened, renamed, no longer a path -- is printed
+# whole instead, so it fails against the other side rather than passing as one
+# more layout.
+skills_lock_contract() {
+  python3 - "$1" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as stream:
+    data = json.load(stream)
+
+
+def shape(name, path):
+    if not isinstance(path, str):
+        return path
+    segments = path.split("/")
+    if len(segments) >= 3 and segments[-2:] == [name, "SKILL.md"]:
+        return "*/%s/SKILL.md" % name
+    return path
+
+
+print(json.dumps({
+    "version": data.get("version"),
+    "skills": {
+        name: {"source": entry.get("source"), "skillPath": shape(name, entry.get("skillPath"))}
+        for name, entry in data["skills"].items()
+    },
+}, sort_keys=True))
+PY
+}
+
 # A fake of the Skills CLI, not of anything this repository owns: it reproduces
 # `skills add`'s lock-file writes and `skills remove`'s exit codes. What it
 # emulates, read from the real thing rather than assumed -- skills 1.7.0, as
 # `npx --yes skills@latest --version` reported on 2026-09-25. Test 3074 is the
 # oracle that keeps the record honest: it runs the same `add` against the real
-# CLI and compares the lock entries this stub writes to the ones the CLI writes.
+# CLI and compares what the wrapper reads from both locks. Deliberately not the
+# entries whole -- `skillPath` names a directory inside the source repository,
+# which upstream reorganises on its own schedule, and comparing it by value once
+# left this suite red on `main` over a skill someone else had moved.
 # Nothing asserted beside this stub can adjudicate it
 # (docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md).
 skills_exclusion_stub_npx() {
@@ -9911,10 +9950,10 @@ function test_scripts_3073_skills_add_rejects_named_or_unbound_exclusion_entries
   assert_file_not_exists "$BATS_TEST_TMPDIR/tmp/npx.log"
 }
 
-function test_scripts_3074_skills_exclusion_fake_matches_the_real_lock_path_contract() {
-  _bats_test_init 3074 'skills exclusion fake matches the real Skills CLI lock path contract'
+function test_scripts_3074_skills_exclusion_fake_matches_the_real_lock_contract() {
+  _bats_test_init 3074 'skills exclusion fake matches the real Skills CLI lock contract'
   command_exists npx || skip 'npx is required as the Skills CLI oracle'
-  local real_home real_state real_paths stub fake_home fake_state
+  local real_home real_state real_contract stub fake_home fake_state
   real_home="$BATS_TEST_TMPDIR/real-home"
   real_state="$BATS_TEST_TMPDIR/real-state"
   fake_home="$BATS_TEST_TMPDIR/fake-home"
@@ -9979,34 +10018,18 @@ PY
     skip "the real Skills CLI could not be reached as an oracle: $output"
   fi
   assert_success
-  run python3 - "$real_state/skills/.skill-lock.json" <<'PY'
-import json, sys
-with open(sys.argv[1], encoding="utf-8") as stream:
-    skills = json.load(stream)["skills"]
-print(json.dumps({
-    name: {"source": entry["source"], "skillPath": entry["skillPath"]}
-    for name, entry in skills.items()
-}, sort_keys=True))
-PY
+  run skills_lock_contract "$real_state/skills/.skill-lock.json"
   assert_success
-  real_paths="$output"
+  real_contract="$output"
 
   stub="$(skills_exclusion_stub_npx)"
   printf '%s\n' '{"version":3,"skills":{}}' > "$fake_state/skills/.skill-lock.json"
   run env HOME="$fake_home" TMPDIR="$BATS_TEST_TMPDIR/tmp" XDG_STATE_HOME="$fake_state" \
     "$stub/npx" --yes skills@latest add mattpocock/skills --skill pr --global --agent claude-code --yes
   assert_success
-  run python3 - "$fake_state/skills/.skill-lock.json" <<'PY'
-import json, sys
-with open(sys.argv[1], encoding="utf-8") as stream:
-    skills = json.load(stream)["skills"]
-print(json.dumps({
-    name: {"source": entry["source"], "skillPath": entry["skillPath"]}
-    for name, entry in skills.items()
-}, sort_keys=True))
-PY
+  run skills_lock_contract "$fake_state/skills/.skill-lock.json"
   assert_success
-  assert_output "$real_paths"
+  assert_output "$real_contract"
 }
 
 # ===========================================
