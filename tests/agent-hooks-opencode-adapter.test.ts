@@ -11,7 +11,7 @@ const CORE_DIR =
 
 const core: any = await import(join(CORE_DIR, "index.ts"));
 const normalize: any = await import(join(CORE_DIR, "normalize.ts"));
-const corpus: any = await import(join(CORE_DIR, "fixtures.ts"));
+import * as corpus from "./fixtures/agent-hooks/fixtures.ts";
 
 const REGISTRY = core.CORE_REGISTRY;
 const temporaryPaths: string[] = [];

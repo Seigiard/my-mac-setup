@@ -9,7 +9,7 @@ const CORE_DIR =
 const core: any = await import(join(CORE_DIR, "index.ts"));
 const normalize: any = await import(join(CORE_DIR, "normalize.ts"));
 const selfcheck: any = await import(join(CORE_DIR, "selfcheck.ts"));
-const corpus: any = await import(join(CORE_DIR, "fixtures.ts"));
+import * as corpus from "./fixtures/agent-hooks/fixtures.ts";
 
 const CLIENTS = ["claude", "opencode", "pi"] as const;
 const temporaryPaths: string[] = [];
@@ -849,6 +849,20 @@ describe("selfcheck loaded-identity markers (KTD5)", () => {
 
     // #then it reports per-call rather than borrowing another client's evidence
     expect(statusOf(report, "claude").status).toBe("per-call");
+  });
+
+  test("a leftover deployed test corpus does not change the core identity", () => {
+    // #given a deployed core without the retired corpus
+    const dir = temporaryDir("agent-hooks-hash-");
+    cpSync(CORE_DIR, dir, { recursive: true });
+    rmSync(join(dir, "fixtures.ts"), { force: true });
+    const before = selfcheck.coreHash(dir);
+
+    // #when an older installation leaves its test corpus behind
+    writeFileSync(join(dir, "fixtures.ts"), "export const fixtures = ['old corpus'];\n");
+
+    // #then runtime identity stays the same
+    expect(selfcheck.coreHash(dir)).toBe(before);
   });
 
   test("the deployed hash changes when the core changes", () => {
