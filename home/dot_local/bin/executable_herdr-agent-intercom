@@ -122,20 +122,32 @@ case "$agent" in
     done
     ;;
   pi)
-    # `--mode` and `--no-extensions` join the headless list now that Pi claims:
-    # the Herdr integration returns early unless the run is a TUI, and under
-    # `--no-extensions` it never loads, so neither reports the pane back and a
-    # claim taken for one of these would outlive the process.
+    # Two headless shapes join the list now that Pi claims, because the Herdr
+    # integration binds only on an interactive run and under `--no-extensions`
+    # never loads, so neither reports the pane back and a claim taken for one of
+    # them would outlive the process.
+    #
+    # `--mode` is decided by its value, not by the token: `resolveAppMode` in
+    # pi 0.87.1 treats `rpc` and `json` as headless and everything else --
+    # `text`, the documented default -- as interactive. Passing through on the
+    # bare flag would cost `pi --mode text` the Intercom it has today. Pi rejects
+    # the `--mode=value` spelling outright ("Unknown option: --mode"), so the
+    # space-separated form is the only one to match.
+    pi_prev=""
     for arg in "$@"; do
       [[ "$arg" != "--" ]] || break
+      case "$pi_prev $arg" in
+        '--mode json'|'--mode rpc') exec "$agent_command" "$@" ;;
+      esac
       case "$arg" in
         -p|--print|--export|--export=*|--list-models|--list-models=*)
           exec "$agent_command" "$@"
           ;;
-        --mode|--mode=*|--no-extensions|-ne)
+        --no-extensions|-ne)
           exec "$agent_command" "$@"
           ;;
       esac
+      pi_prev="$arg"
     done
     case "${1:-}" in
       auth|config|install|list|remove|uninstall|update|-h|--help|-v|--version)

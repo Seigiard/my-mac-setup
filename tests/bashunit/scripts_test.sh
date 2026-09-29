@@ -406,7 +406,7 @@ claude name=<> args= active=<> pi_load=<>'
   local argv
   for argv in 'serve --port 4096' '--log-level DEBUG serve' '--print-logs stats' \
     '--mdns-domain opencode.local serve' '--cors http://a serve' '--mdns serve' \
-    '--pure' '--pure=true' '--mode rpc' '--no-extensions'; do
+    '--pure' '--pure=true' '--mode rpc' '--mode json' '--no-extensions'; do
     local client=opencode
     [[ "$argv" != --mode* && "$argv" != --no-extensions ]] || client=pi
     : > "$log"; rm -f "$marker"
@@ -423,9 +423,11 @@ claude name=<> args= active=<> pi_load=<>'
     assert_file_not_exists "$marker"
   done
 
-  # #when the launch is `opencode pr`, which checks a branch out and then runs
-  # the full client. It is the control that tells a working guard from one that
-  # passes every argv through and enrolls nobody.
+  # #when the launch reaches a real client despite looking like the cases above.
+  # `opencode pr` checks a branch out and then runs the full client, and
+  # `pi --mode text` names the documented default output mode, which pi resolves
+  # to an interactive run. These are the controls that tell a working guard from
+  # one that passes on the token and enrolls nobody.
   : > "$log"; rm -f "$marker"
   run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
     HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
@@ -434,6 +436,16 @@ claude name=<> args= active=<> pi_load=<>'
   # #then it enrolls like any other interactive launch
   assert_success
   assert_output 'opencode name=<ochre-okapi> args= active=<1> pi_load=<><pr><123>'
+  assert_file_contains "$log" 'agent rename w1:p2 ochre-okapi'
+
+  : > "$log"; rm -f "$marker"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
+    HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" pi --mode text
+
+  # #then it enrolls too, and the alias reaches Pi as its session name
+  assert_success
+  assert_output 'pi name=<> args= active=<1> pi_load=<self><--name><ochre-okapi><--mode><text>'
   assert_file_contains "$log" 'agent rename w1:p2 ochre-okapi'
 
   # #when the allocator command is absent entirely

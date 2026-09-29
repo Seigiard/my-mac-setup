@@ -296,8 +296,10 @@ successor cannot: it publishes no state, and the marker its release looks for
 was suppressed for the client that took the claim, so the pane keeps reading
 `unknown`. Reachability is unaffected either way. Closing that window needs the
 marker and a release caller for both clients, which is deferred with them.
-Pi's integration reports only for a TUI run, so its headless modes pass through
-on the same reasoning.
+Pi's integration binds only on an interactive run, so its headless modes pass
+through on the same reasoning. Which those are is decided by `--mode`'s value
+rather than its presence: pi treats `rpc` and `json` as headless and everything
+else, `text` included, as interactive.
 
 Claude publishes no state of its own, so its pane depends on screen detection
 and only a release gives detection back. `herdr-agent-intercom-release` performs
