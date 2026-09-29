@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 import pathlib
+import shlex
 import shutil
 import signal
 import subprocess
@@ -99,7 +100,8 @@ def prelaunch(arguments):
         raise ProbeError(f"alias rejected: {response['error']}")
     acknowledge_acquisition(path)
     atomic_write(arguments.receipt, {"pid": pid, "start_identity": start, "intent": path,
-                                     "alias": arguments.alias, "agent": arguments.agent})
+                                     "alias": arguments.alias, "agent": arguments.agent,
+                                     "stdin_isatty": os.isatty(0), "stdout_isatty": os.isatty(1)})
     os.execv(arguments.launcher, [arguments.launcher, arguments.agent, *arguments.client_args])
 
 
@@ -138,7 +140,7 @@ class ClientProbe:
         # Explicit loaders leave the user's Pi and OpenCode configuration untouched.
         self.pi_loaders = [str(ROOT / "home/dot_pi/agent/extensions/agent-intercom.ts"),
                            str(pathlib.Path.home() / ".pi/agent/extensions/herdr-agent-state.ts")]
-        self.opencode_config = self.scratch / "xdg/config/opencode"
+        self.opencode_config = self.scratch / "xdg/config/opencode/plugins"
         self.opencode_config.mkdir(parents=True)
         shutil.copy(pathlib.Path.home() / ".config/opencode/plugins/herdr-agent-state.js",
                     self.opencode_config / "herdr-agent-state.js")
@@ -179,12 +181,13 @@ class ClientProbe:
     def client_pane(self):
         return create_pane(self.owner, self.root_pane)
 
-    def launch(self, agent, args, *, stdin="", alias_index=0):
+    def launch(self, agent, args, *, interactive=False, alias_index=0):
         pane = self.client_pane()
         alias = self.aliases[alias_index % len(self.aliases)]
         sequence = time.time_ns()
         receipt = self.scratch / f"{agent}-{sequence}.receipt.json"
         log = self.scratch / f"{agent}-{sequence}.log"
+        exit_file = self.scratch / f"{agent}-{sequence}.exit"
         command = [sys.executable, str(pathlib.Path(__file__).resolve()), "--prelaunch",
                    "--agent", agent, "--sequence", str(sequence), "--alias", alias,
                    "--intent-dir", self.launchd.intent_dir, "--receipt", str(receipt),
@@ -199,23 +202,36 @@ class ClientProbe:
             "PI_CODING_AGENT_SESSION_DIR": str(self.scratch / "pi/sessions"),
             "PI_OFFLINE": "1",
         }
-        env = self.owner.env | exports | {
-            "HERDR_ENV": "1", "HERDR_PANE_ID": pane["pane_id"],
-            "HERDR_SOCKET_PATH": self.owner.socket_path,
-        }
-        handle = open(log, "w", encoding="utf-8")
-        # This process has pipe stdin/stdout for the non-TTY case. Its inherited
-        # Herdr pane identity is nevertheless real and points at a live owned pane.
-        process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=handle, stderr=subprocess.STDOUT,
-                                   env=env, cwd=ROOT, text=True)
-        process.stdin.close()
-        self.processes[str(log)] = (process, handle)
+        if interactive:
+            # Pi validates provider readiness before opening its TUI. The native
+            # authentication remains available; only config/session writes are isolated.
+            exports.pop("PI_OFFLINE")
+            script = self.scratch / f"{agent}-{sequence}.run.sh"
+            lines = ["#!/bin/bash", "set -u"]
+            lines.extend(f"export {key}={shlex.quote(value)}" for key, value in exports.items())
+            lines.append(f"cd {shlex.quote(str(ROOT))}")
+            lines.append("exec " + " ".join(shlex.quote(value) for value in command))
+            script.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            script.chmod(0o700)
+            # Keep this typed command short: the client itself owns the pane PTY.
+            outer = f"bash {shlex.quote(str(script))}; rc=$?; printf '%s' \"$rc\" > {shlex.quote(str(exit_file))}"
+            self.owner.run("pane", "run", pane["pane_id"], outer)
+        else:
+            env = self.owner.env | exports | {
+                "HERDR_ENV": "1", "HERDR_PANE_ID": pane["pane_id"],
+                "HERDR_SOCKET_PATH": self.owner.socket_path,
+            }
+            handle = open(log, "w", encoding="utf-8")
+            process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=handle, stderr=subprocess.STDOUT,
+                                       env=env, cwd=ROOT, text=True)
+            process.stdin.close()
+            self.processes[str(log)] = (process, handle)
         try:
             wait_until(receipt.exists, 8, f"{agent} prelaunch receipt")
         except ProbeError as error:
             contents = log.read_text(encoding="utf-8") if log.exists() else "<no client log>"
             raise ProbeError(f"{error}; client-log={contents[-4000:]}") from error
-        return pane, receipt, log
+        return pane, receipt, log, exit_file
 
     def state(self, pane):
         result = self.owner.run("agent", "get", pane["pane_id"], expected=None)
@@ -225,7 +241,29 @@ class ClientProbe:
             return None
         raise ProbeError(f"agent get failed: {result.stderr.strip()}")
 
-    def wait_exit(self, log, timeout=20):
+    def pane_output(self, pane):
+        return self.owner.run("pane", "read", pane["pane_id"], "--source", "recent-unwrapped", "--lines", "120").stdout
+
+    def descendants(self, parent):
+        listing = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], text=True, capture_output=True, check=False)
+        rows = []
+        for line in listing.stdout.splitlines():
+            fields = line.strip().split(None, 2)
+            if len(fields) == 3 and fields[0].isdigit() and fields[1].isdigit():
+                rows.append((int(fields[0]), int(fields[1]), fields[2]))
+        wanted = {parent}
+        descendants = []
+        while True:
+            found = [row for row in rows if row[1] in wanted and row[0] not in wanted]
+            if not found:
+                return descendants
+            descendants.extend(found)
+            wanted.update(row[0] for row in found)
+
+    def wait_exit(self, log, exit_file, timeout=20):
+        if str(log) not in self.processes:
+            wait_until(exit_file.exists, timeout, "interactive client exit status")
+            return int(exit_file.read_text(encoding="utf-8"))
         process, handle = self.processes[str(log)]
         try:
             status = process.wait(timeout=timeout)
@@ -260,17 +298,31 @@ class ClientProbe:
         print(f"UNVERIFIED: {name}: {reason}")
 
     def opencode_early_exit(self):
-        pane, receipt, log = self.launch("opencode", ["--not-a-real-option"])
+        pane, receipt, log, exit_file = self.launch("opencode", ["--not-a-real-option"])
         claim = wait_until(lambda: self.state(pane), 8, "OpenCode unknown claim")
         require({"step": "opencode-claim"}, claim["agent_status"] == "unknown", "claim was replaced before client exit")
-        status = self.wait_exit(log)
+        status = self.wait_exit(log, exit_file)
         intent = self.wait_settled(receipt, pane)
         return {"status": status, "intent": intent, "log": log.read_text(encoding="utf-8")[-2000:]}
 
+    def opencode_no_prompt_quit(self):
+        pane, receipt, log, exit_file = self.launch("opencode", ["--mini"], interactive=True, alias_index=3)
+        expected = read_json(receipt)
+        require({"step": "opencode-pty"}, expected["stdin_isatty"] and expected["stdout_isatty"],
+                f"OpenCode prelaunch does not own a PTY: {expected}")
+        observed = wait_until(lambda: next((state for state in [self.state(pane)]
+                                            if state and (state.get("agent_session") or {}).get("source") == "herdr:opencode"
+                                            and state.get("agent_status") in {"idle", "working", "blocked"}), None), 20,
+                              "OpenCode TUI lifecycle readiness")
+        require({"step": "opencode-alias"}, observed.get("name") == expected["alias"], "OpenCode did not retain canonical alias")
+        self.owner.run("pane", "send-keys", pane["pane_id"], "ctrl+c")
+        status = self.wait_exit(log, exit_file, timeout=20)
+        return {"status": status, "receipt": expected, "state": observed, "pane": self.pane_output(pane)[-4000:]}
+
     def pi_non_tty(self):
         # A pipe gives Pi non-TTY stdio while the pane still supplies Herdr identity.
-        pane, receipt, log = self.launch("pi", ["--invalid-option"])
-        status = self.wait_exit(log)
+        pane, receipt, log, exit_file = self.launch("pi", ["--invalid-option"])
+        status = self.wait_exit(log, exit_file)
         intent = self.wait_settled(receipt, pane)
         control = subprocess.run([native_executable("pi"), "--version"], text=True, capture_output=True, check=False)
         require({"step": "pi-native-control"}, control.returncode == 0, "native Pi utility control failed")
@@ -278,34 +330,43 @@ class ClientProbe:
                 "stdout": control.stdout, "stderr": control.stderr}, "log": log.read_text(encoding="utf-8")[-2000:]}
 
     def pi_interactive(self):
-        pane, receipt, log = self.launch("pi", ["--no-builtin-tools", "--extension", self.pi_loaders[0],
-                                                  "--extension", self.pi_loaders[1]], alias_index=1)
+        pane, receipt, log, exit_file = self.launch("pi", ["--verbose", "--extension", self.pi_loaders[0],
+                                                  "--extension", self.pi_loaders[1]], interactive=True, alias_index=1)
         expected = read_json(receipt)
-        observed = wait_until(lambda: self.state(pane), 10, "Pi lifecycle takeover")
+        require({"step": "pi-pty"}, expected["stdin_isatty"] and expected["stdout_isatty"],
+                f"Pi prelaunch does not own a PTY: {expected}")
+        try:
+            observed = wait_until(lambda: next((state for state in [self.state(pane)]
+                                                if state and (state.get("agent_session") or {}).get("source") == "herdr:pi"
+                                                and state.get("agent_status") in {"idle", "working", "blocked"}), None), 15,
+                                  "Pi lifecycle takeover")
+        except ProbeError as error:
+            exit_status = exit_file.read_text(encoding="utf-8") if exit_file.exists() else "<still running>"
+            raise ProbeError(f"{error}; exit={exit_status}; receipt={expected}; state={self.state(pane)}; pane={self.pane_output(pane)[-4000:]}") from error
         require({"step": "pi-alias"}, observed.get("name") == expected["alias"], "Pi did not retain canonical alias")
         require({"step": "pi-takeover"}, (observed.get("agent_session") or {}).get("source") == "herdr:pi",
                 f"Pi integration did not take lifecycle authority: {observed}")
         os.kill(expected["pid"], signal.SIGTERM)
-        status = self.wait_exit(log)
+        status = self.wait_exit(log, exit_file)
         return {"status": status, "receipt": expected, "state": observed,
-                "log": log.read_text(encoding="utf-8")[-2000:]}
+                "pane": self.pane_output(pane)[-4000:]}
 
     def claude_relation_and_handoff(self):
-        pane, receipt, log = self.launch("claude", ["--no-chrome"], alias_index=2)
+        pane, receipt, log, exit_file = self.launch("claude", ["--no-chrome"], interactive=True, alias_index=2)
         expected = read_json(receipt)
-        # cci intentionally forks; record its actual descendants rather than call the
-        # wrapper PID sufficient proof. The prompt/hook cannot be faked here.
-        children = subprocess.run(["pgrep", "-P", str(expected["pid"])], text=True, capture_output=True, check=False)
-        child_pids = [int(value) for value in children.stdout.split() if value.isdigit()]
-        if not child_pids:
-            raise ProbeError("cci produced no observable native child PID")
+        require({"step": "claude-pty"}, expected["stdin_isatty"] and expected["stdout_isatty"],
+                f"Claude prelaunch does not own a PTY: {expected}")
+        descendants = wait_until(lambda: next((rows for rows in [self.descendants(expected["pid"])]
+                                                if any("claude" in command for _, _, command in rows)), None), 15,
+                                 "cci native Claude child readiness")
+        child_pids = [pid for pid, _, command in descendants if "claude" in command]
         os.kill(expected["pid"], signal.SIGTERM)
-        status = self.wait_exit(log, timeout=30)
+        status = self.wait_exit(log, exit_file, timeout=30)
         still_live = [pid for pid in child_pids if process_start_identity(pid)]
         require({"step": "cci-parent-child"}, not still_live, f"native Claude child survived parent termination: {still_live}")
         intent = self.wait_settled(receipt, pane)
         return {"status": status, "receipt": expected, "child_pids": child_pids, "intent": intent,
-                "log": log.read_text(encoding="utf-8")[-2000:]}
+                "pane": self.pane_output(pane)[-4000:]}
 
 
 def run_probe():
@@ -319,6 +380,7 @@ def run_probe():
     try:
         probe.start()
         probe.case("OpenCode early exit releases its unknown claim without successor", probe.opencode_early_exit)
+        probe.case("OpenCode TUI opens without prompt, publishes lifecycle, then quits", probe.opencode_no_prompt_quit)
         probe.case("Pi invalid noninteractive launch releases false-positive claim and native control works", probe.pi_non_tty)
         probe.case("interactive Pi retains canonical alias and real Herdr takeover", probe.pi_interactive)
         probe.case("cci observes native child lifetime and cleanup", probe.claude_relation_and_handoff)
