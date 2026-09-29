@@ -299,7 +299,12 @@ marker and a release caller for both clients, which is deferred with them.
 Pi's integration binds only on an interactive run, so its headless modes pass
 through on the same reasoning. Which those are is decided by `--mode`'s value
 rather than its presence: pi treats `rpc` and `json` as headless and everything
-else, `text` included, as interactive.
+else, `text` included, as interactive. One of its headless modes is not in the
+arguments at all — pi resolves a run whose stdin or stdout is not a terminal to
+print mode — so a piped or redirected launch in a fresh pane leaves the same
+stale window as a session closed before its first prompt. Guarding it would mean
+a terminal test the test suite cannot exercise, since it runs without one, so it
+is recorded rather than guarded and resolves with the same deferred work.
 
 Claude publishes no state of its own, so its pane depends on screen detection
 and only a release gives detection back. `herdr-agent-intercom-release` performs
