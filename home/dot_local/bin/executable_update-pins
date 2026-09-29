@@ -3,17 +3,16 @@
 # offers each drifted pin as an interactive bump. Called by `update-all`.
 # Keep this Bash 3.2 compatible.
 #
-# Two invariants shape the whole script:
+# Three invariants shape the whole script:
 #
 # 1. Every write targets the chezmoi SOURCE tree, never a live file under ~/.
 #    Pins change only through the source, exactly as a hand edit would do it;
 #    the change reaches the machine on the next `chezmoi apply`.
-# 2. Upstream being unreachable is a report, not a failure. One unreachable
-#    pin prints as unknown and the run continues, so `update-all` never looks
-#    broken because GitHub was down.
+# 2. An unreachable dependency upstream prints as unknown and the run continues.
+#    Failure to sync or publish the source repository is an error.
 # 3. An accepted bump is committed and pushed in the same run. Every clean-tree
-#    guard in the toolchain reads that source clone, so a bump left only on
-#    disk turns into a blocker for the next tool that touches it.
+#    guard in the toolchain reads that source clone. Sync before reading pins,
+#    and return failure if an accepted bump cannot be published.
 set -uo pipefail
 
 EXTERNAL_REL=".chezmoiexternal.toml"
@@ -163,10 +162,8 @@ confirm() {
 # --------------------------------------------------------------------------
 # Publishing accepted bumps
 #
-# Failing to publish is a report, not a failure: the bump is already written,
-# and the recovery is the one command this prints. Leaving the run half-way
-# through a rebase would be a worse mess than the dirty tree it set out to
-# avoid, so a conflicted rebase is aborted before reporting.
+# A failed publish leaves the commit available for retry and returns failure.
+# A conflicted retry rebase is aborted so it does not block the next command.
 # --------------------------------------------------------------------------
 
 publish_paths=()
@@ -177,10 +174,65 @@ record_bump() {
   publish_summaries[${#publish_summaries[@]}]="$2"
 }
 
+source_repo() {
+  local root="$1" repo physical
+  # Do not publish to an unrelated ancestor repository. Resolve symlinks on
+  # both sides, including macOS /var -> /private/var in disposable fixtures.
+  repo="$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)" || return 1
+  physical="$(cd "$root" 2>/dev/null && pwd -P)" || return 1
+  if [ "$repo" != "$physical" ] && [ "$repo" != "${physical%/*}" ]; then
+    return 1
+  fi
+  printf '%s\n' "$repo"
+}
+
+remote_git() {
+  GIT_TERMINAL_PROMPT=0 \
+    GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=20 git "$@"
+}
+
+rebase_source() {
+  local repo="$1" git_dir
+  git_dir="$(git -C "$repo" rev-parse --absolute-git-dir)" || return 1
+  # Never abort a rebase that this invocation did not start.
+  if [ -d "$git_dir/rebase-merge" ] || [ -d "$git_dir/rebase-apply" ]; then
+    warn "a rebase is already in progress in $repo"
+    return 1
+  fi
+  if remote_git -C "$repo" pull --rebase --no-autostash --quiet; then
+    return 0
+  fi
+  git -C "$repo" rebase --abort >/dev/null 2>&1
+  return 1
+}
+
+sync_source() {
+  local repo pending
+  [ "${UPDATE_PINS_PUBLISH:-1}" != 0 ] || return 0
+  repo="$(source_repo "$1")" || return 0
+
+  # Read the current pins only after fetching changes from other machines.
+  # Fast-forward first; a previous unpublished bump may need a rebase.
+  if ! remote_git -C "$repo" pull --ff-only --no-rebase --no-autostash --quiet &&
+    ! rebase_source "$repo"; then
+    warn "could not sync $repo; check the git error above and retry update-pins"
+    return 1
+  fi
+  # Retry a previous accepted but unpublished bump even if no new offer is
+  # accepted this time. Never accumulate more bumps behind a failed publish.
+  pending="$(git -C "$repo" rev-list --count '@{upstream}..HEAD')" || return 1
+  [ "$pending" -gt 0 ] || return 0
+  say "update-pins: publishing $pending pending commit(s) from $repo"
+  if ! remote_git -C "$repo" push --quiet; then
+    warn "could not publish pending commits in $repo; retry update-pins after fixing the push error"
+    return 1
+  fi
+}
+
 publish_bumps() {
   local root="$1"
   local count="${#publish_summaries[@]}"
-  local repo physical subject body push_error index=0
+  local repo subject body push_error index=0
 
   [ "$count" -gt 0 ] || return 0
 
@@ -190,16 +242,7 @@ publish_bumps() {
     return 0
   fi
 
-  # `rev-parse` walks up until it finds a repository, so an unrelated ancestor
-  # repository — a home directory under version control — would otherwise
-  # receive the commit. Only the source root itself, or its parent under the
-  # `.chezmoiroot` indirection, is the source's own repository. Both sides of
-  # the comparison are physical paths: `--show-toplevel` resolves symlinks, and
-  # a source root reached through one (macOS `/var` -> `/private/var`) would
-  # otherwise never match its own repository.
-  repo="$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)"
-  physical="$(cd "$root" 2>/dev/null && pwd -P)"
-  if [ -z "$repo" ] || { [ "$repo" != "$physical" ] && [ "$repo" != "${physical%/*}" ]; }; then
+  if ! repo="$(source_repo "$root")"; then
     warn 'the chezmoi source is not a git repository; the bumps stay uncommitted'
     return 0
   fi
@@ -220,24 +263,24 @@ publish_bumps() {
   # unrelated work already in the source tree or the index stays untouched.
   if ! git -C "$repo" commit --quiet -m "$subject" -m "$body" -- "${publish_paths[@]}"; then
     warn "could not commit the bumps in $repo; they stay on disk"
-    return 0
+    return 1
   fi
   say "update-pins: committed $count bump(s) in $repo"
 
-  if push_error="$(git -C "$repo" push 2>&1)"; then
+  if push_error="$(remote_git -C "$repo" push 2>&1)"; then
     say 'update-pins: pushed to origin'
     return 0
   fi
 
   # The clone fell behind between runs. One rebase-and-retry covers that;
   # anything else is the user's call.
-  if git -C "$repo" pull --rebase --quiet && git -C "$repo" push --quiet; then
+  if rebase_source "$repo" && remote_git -C "$repo" push --quiet; then
     say 'update-pins: rebased onto origin and pushed'
     return 0
   fi
-  git -C "$repo" rebase --abort >/dev/null 2>&1
   warn "$push_error"
-  warn "the bumps are committed but unpushed; finish with: git -C $repo push"
+  warn "the bumps are committed but unpushed; resolve the git error and retry update-pins"
+  return 1
 }
 
 # --------------------------------------------------------------------------
@@ -536,6 +579,7 @@ main() {
 
   local root external mise_config
   root="$(resolve_source_root)"
+  sync_source "$root" || return 1
   external="$root/$EXTERNAL_REL"
   mise_config="$root/$MISE_REL"
 

@@ -11359,6 +11359,164 @@ n
     ' M private_dot_config/mise/config.toml'
 }
 
+function test_scripts_1462_update_pins_syncs_remote_pins_before_offering_bumps() {
+  _bats_test_init 1462 'update-pins syncs remote pins before offering bumps'
+  # #given another machine has already bumped the same pin on origin
+  pins_fixture
+  pins_git_fixture
+  local peer="$BATS_TEST_TMPDIR/pins-peer" published="$BATS_TEST_TMPDIR/published"
+  git clone --quiet "$PINS_ORIGIN" "$peer"
+  git -C "$peer" config user.email 'peer@example.test'
+  git -C "$peer" config user.name 'Peer Fixture'
+  sed 's|/archive/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.tar.gz|/archive/cccccccccccccccccccccccccccccccccccccccc.tar.gz|' \
+    "$PINS_BASELINE/externals" >"$peer/.chezmoiexternal.toml"
+  git -C "$peer" commit --quiet -am 'bump from another machine'
+  git -C "$peer" push --quiet
+
+  # #when this machine accepts the next upstream version from its stale clone
+  run_pins 'y
+n
+n
+'
+
+  # #then origin receives the new version without a competing local pin commit
+  assert_success
+  assert_equal "$(git -C "$PINS_ROOT" status --porcelain)" ''
+  assert_equal "$(git -C "$PINS_ROOT" rev-parse HEAD)" \
+    "$(git -C "$PINS_ORIGIN" rev-parse main)"
+  git -C "$PINS_ORIGIN" show 'main:.chezmoiexternal.toml' >"$published"
+  assert_file_contains "$published" '/archive/0123456789abcdef0123456789abcdef01234567.tar.gz'
+}
+
+function test_scripts_1463_update_pins_reports_rejected_push_and_retries_on_next_run() {
+  _bats_test_init 1463 'update-pins reports rejected push and retries on next run'
+  # #given origin rejects writes but still permits fetches
+  pins_fixture
+  pins_git_fixture
+  local before pending
+  before="$(git -C "$PINS_ORIGIN" rev-parse main)"
+  printf '#!/bin/sh\nexit 1\n' >"$PINS_ORIGIN/hooks/pre-receive"
+  chmod +x "$PINS_ORIGIN/hooks/pre-receive"
+
+  # #when a bump is accepted but cannot be published
+  run_pins 'y
+n
+n
+'
+
+  # #then the caller sees failure and the accepted change remains recoverable
+  assert_failure
+  pending="$(git -C "$PINS_ROOT" rev-parse HEAD)"
+  assert_not_equals "$before" "$pending"
+  assert_equal "$(git -C "$PINS_ORIGIN" rev-parse main)" "$before"
+  assert_equal "$(git -C "$PINS_ROOT" status --porcelain)" ''
+
+  # #given origin accepts writes again and another machine has pushed meanwhile
+  rm "$PINS_ORIGIN/hooks/pre-receive"
+  local peer="$BATS_TEST_TMPDIR/pins-peer" remote_head
+  git clone --quiet "$PINS_ORIGIN" "$peer"
+  git -C "$peer" config user.email 'peer@example.test'
+  git -C "$peer" config user.name 'Peer Fixture'
+  printf 'another machine\n' >"$peer/other-change"
+  git -C "$peer" add other-change
+  git -C "$peer" commit --quiet -m 'unrelated remote change'
+  git -C "$peer" push --quiet
+  remote_head="$(git -C "$PINS_ORIGIN" rev-parse main)"
+  # #when the next run declines all new offers
+  run_pins 'n
+n
+n
+'
+  # #then the previously accepted bump still reaches origin
+  assert_success
+  assert_equal "$(git -C "$PINS_ORIGIN" rev-parse main)" \
+    "$(git -C "$PINS_ROOT" rev-parse HEAD)"
+  assert_equal "$(git -C "$PINS_ROOT" rev-parse HEAD~1)" "$remote_head"
+  assert_file_contains "$PINS_EXTERNAL" '/archive/0123456789abcdef0123456789abcdef01234567.tar.gz'
+}
+
+function test_scripts_1464_update_pins_does_not_edit_when_source_cannot_sync() {
+  _bats_test_init 1464 'update-pins does not edit when source cannot sync'
+  # #given the source remote is unavailable
+  pins_fixture
+  pins_git_fixture
+  local before
+  before="$(git -C "$PINS_ROOT" rev-parse HEAD)"
+  git -C "$PINS_ROOT" remote set-url origin "$BATS_TEST_TMPDIR/missing.git"
+
+  # #when the user would accept the first bump
+  run_pins 'y
+n
+n
+'
+
+  # #then no new unpublished change is created
+  assert_failure
+  assert_equal "$(git -C "$PINS_ROOT" rev-parse HEAD)" "$before"
+  assert_pins_files_unchanged
+}
+
+function test_scripts_1465_update_pins_reports_failed_commit_without_losing_bump() {
+  _bats_test_init 1465 'update-pins reports failed commit without losing bump'
+  # #given the source rejects commits
+  pins_fixture
+  pins_git_fixture
+  local before
+  before="$(git -C "$PINS_ROOT" rev-parse HEAD)"
+  printf '#!/bin/sh\nexit 1\n' >"$PINS_ROOT/.git/hooks/pre-commit"
+  chmod +x "$PINS_ROOT/.git/hooks/pre-commit"
+  # #when a bump is accepted
+  run_pins 'y
+n
+n
+'
+  # #then the caller sees failure, with the accepted change still on disk
+  assert_failure
+  assert_equal "$(git -C "$PINS_ROOT" rev-parse HEAD)" "$before"
+  assert_equal "$(git -C "$PINS_ORIGIN" rev-parse main)" "$before"
+  assert_file_contains "$PINS_EXTERNAL" '/archive/0123456789abcdef0123456789abcdef01234567.tar.gz'
+}
+
+function test_scripts_1466_update_pins_aborts_only_its_own_conflicted_rebase() {
+  _bats_test_init 1466 'update-pins aborts only its own conflicted rebase'
+  # #given a local bump and a different remote bump to the same pin
+  pins_fixture
+  pins_git_fixture
+  local peer="$BATS_TEST_TMPDIR/pins-peer" local_head
+  git clone --quiet "$PINS_ORIGIN" "$peer"
+  git -C "$peer" config user.email 'peer@example.test'
+  git -C "$peer" config user.name 'Peer Fixture'
+  sed 's|/archive/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.tar.gz|/archive/cccccccccccccccccccccccccccccccccccccccc.tar.gz|' \
+    "$PINS_BASELINE/externals" >"$peer/.chezmoiexternal.toml"
+  git -C "$peer" commit --quiet -am 'remote pin bump'
+  git -C "$peer" push --quiet
+  sed 's|/archive/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.tar.gz|/archive/dddddddddddddddddddddddddddddddddddddddd.tar.gz|' \
+    "$PINS_BASELINE/externals" >"$PINS_EXTERNAL"
+  git -C "$PINS_ROOT" commit --quiet -am 'local pin bump'
+  local_head="$(git -C "$PINS_ROOT" rev-parse HEAD)"
+
+  # #when the updater tries to publish and its rebase conflicts
+  run_pins ''
+  # #then it reports failure and restores the original local commit
+  assert_failure
+  assert_equal "$(git -C "$PINS_ROOT" rev-parse HEAD)" "$local_head"
+  assert_equal "$(git -C "$PINS_ROOT" status --porcelain)" ''
+  assert_directory_not_exists "$PINS_ROOT/.git/rebase-merge"
+
+  # #given the user starts a rebase to resolve that conflict themselves
+  run git -C "$PINS_ROOT" -c rebase.backend=merge rebase origin/main
+  assert_failure
+  assert_directory_exists "$PINS_ROOT/.git/rebase-merge"
+  local conflict
+  conflict="$(git -C "$PINS_ROOT" status --porcelain)"
+  # #when update-pins is invoked during that rebase
+  run_pins ''
+  # #then it leaves the user's in-progress resolution intact
+  assert_failure
+  assert_directory_exists "$PINS_ROOT/.git/rebase-merge"
+  assert_equal "$(git -C "$PINS_ROOT" status --porcelain)" "$conflict"
+}
+
 # herdr-agent-limits tab bar status
 # ===========================================
 
