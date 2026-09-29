@@ -72,6 +72,15 @@ acquisition guard discarded an unacknowledged request. Restoring the corrections
 made both cases pass. The move check also failed before canonical coordinates
 were saved from Herdr's returned pane identity.
 
+The process-reader control now fails only the selected client's `ps` lookup;
+server-peer identity reads remain available. A fresh calibration restored the
+bug by treating that lookup failure as death: the live agent record disappeared
+and the control failed. With the correct reader, the live claim remained and
+confirmed exit released it. All twelve owner cases passed in that run. This
+removes the earlier possibility that failed server-peer lookup, rather than
+client liveness handling, kept the control green. The owner-only command still
+returns 1 until the separate full client gate is complete.
+
 ## Rejected alternative
 
 `pane.clear_agent_authority` is a real raw socket method in v0.9.1. It is

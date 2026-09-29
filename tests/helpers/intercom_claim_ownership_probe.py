@@ -327,7 +327,7 @@ def main():
             native_run = subprocess.run
 
             def unavailable_ps(argv, *args, **kwargs):
-                if os.path.basename(argv[0]) == "ps":
+                if os.path.basename(argv[0]) == "ps" and argv[1:3] == ["-p", str(client.pid)]:
                     return subprocess.CompletedProcess(argv, 1, "", "temporary process lookup failure")
                 return native_run(argv, *args, **kwargs)
 
