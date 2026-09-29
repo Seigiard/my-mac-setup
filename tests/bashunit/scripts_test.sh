@@ -395,21 +395,45 @@ claude name=<> args= active=<> pi_load=<>'
   assert_file_not_exists "$marker"
   assert_equal "$(grep -c 'pane release-agent' "$log")" 0
 
-  # #when an OpenCode utility launch runs in the same pane. It exits through
-  # `exec` without ever reaching a client, and `exec` runs no EXIT trap, so a
-  # claim taken here would leave a record and a spent pool alias on the pane for
-  # as long as the pane lives.
+  # #when a launch that never reaches a client runs in the same pane. It exits
+  # through `exec` without ever starting one, and `exec` runs no EXIT trap, so a
+  # claim taken here would leave a record and a spent pool alias on the pane
+  # with nothing able to report it back. Each case below reaches the utility a
+  # different way: bare, behind a value-taking global option, behind a boolean
+  # one, and by disabling the plugins that would do the reporting. `opencode`
+  # accepts its global options before the subcommand, so a check that reads only
+  # the first argument passes the first case and claims on the next two.
+  local argv
+  for argv in 'serve --port 4096' '--log-level DEBUG serve' '--print-logs stats' '--pure' \
+    '--mode rpc' '--no-extensions'; do
+    local client=opencode
+    [[ "$argv" != --mode* && "$argv" != --no-extensions ]] || client=pi
+    : > "$log"; rm -f "$marker"
+    # shellcheck disable=SC2086
+    run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
+      HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+      HOME="$home" PATH="$stub:$PATH" bash "$launcher" "$client" $argv
+
+    # #then it declares nothing and hands the launch its argv untouched
+    assert_success
+    assert_output "$client name=<> args= active=<> pi_load=<><${argv// /><}>"
+    assert_equal "$(grep -c 'pane report-agent' "$log")" 0
+    assert_equal "$(grep -c 'agent rename' "$log")" 0
+    assert_file_not_exists "$marker"
+  done
+
+  # #when the launch is `opencode pr`, which checks a branch out and then runs
+  # the full client. It is the control that tells a working guard from one that
+  # passes every argv through and enrolls nobody.
   : > "$log"; rm -f "$marker"
   run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
     HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
-    HOME="$home" PATH="$stub:$PATH" bash "$launcher" opencode serve --port 4096
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" opencode pr 123
 
-  # #then it declares nothing and hands the utility its argv untouched
+  # #then it enrolls like any other interactive launch
   assert_success
-  assert_output 'opencode name=<> args= active=<> pi_load=<><serve><--port><4096>'
-  assert_equal "$(grep -c 'pane report-agent' "$log")" 0
-  assert_equal "$(grep -c 'agent rename' "$log")" 0
-  assert_file_not_exists "$marker"
+  assert_output 'opencode name=<ochre-okapi> args= active=<1> pi_load=<><pr><123>'
+  assert_file_contains "$log" 'agent rename w1:p2 ochre-okapi'
 
   # #when the allocator command is absent entirely
   rm -f "$stub/herdr-peer-alias"

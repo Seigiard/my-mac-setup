@@ -286,6 +286,14 @@ session that never took a claim, so the claim leaves no residue, and a release
 fired afterward is inert against a record its source no longer owns. They
 therefore take no claim marker and need no release caller.
 
+The take-back is what the client's own integration performs, so it happens only
+when that integration runs. A session closed before OpenCode's first prompt, and
+a launch whose plugins never load, leave the declared `unknown` in place with no
+marker behind it; the launcher passes the second case through rather than
+claiming for it, and the first leaves a stale window the next session in that
+pane closes. Pi's integration reports only for a TUI run, so its headless modes
+pass through on the same reasoning.
+
 Claude publishes no state of its own, so its pane depends on screen detection
 and only a release gives detection back. `herdr-agent-intercom-release` performs
 it from the client's first prompt, once detection can take over. Release is

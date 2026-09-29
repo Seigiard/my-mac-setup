@@ -82,31 +82,57 @@ case "$agent" in
     done
     ;;
   opencode)
-    # A claim declares a pane record before the client starts, and a utility
-    # launch exits through `exec` without ever reaching one -- the EXIT trap
-    # does not run after `exec`, so the record and the pool alias it spent stay
-    # on the pane for as long as the pane lives. Every recognized subcommand is
-    # therefore passed through. The list errs toward passthrough on purpose:
-    # sending a TUI launch down this path only costs it Intercom, which is what
-    # it had before, while letting a non-TUI one claim leaves a record behind
-    # that nothing can clear.
+    # A claim declares a pane record before the client starts. A launch that
+    # never reaches a client -- a utility subcommand, or one whose plugins are
+    # disabled -- exits through `exec`, which runs no EXIT trap, so the record
+    # and the pool alias it spent outlive the command and nothing reports under
+    # `herdr:opencode` to take the pane back. Those launches pass through.
+    #
+    # `--pure` is one of them: it runs without external plugins, so the Intercom
+    # adapter would not load and the Herdr integration would not report either.
+    #
+    # The subcommand can sit behind any number of global options, because yargs
+    # accepts them before it (`opencode --log-level DEBUG serve` runs `serve`),
+    # so the argv walk below skips options and their values and classifies the
+    # first bare word. `pr` is absent from the list deliberately: it checks out
+    # a branch and then runs the full client, so it enrolls like any other
+    # interactive launch.
     for arg in "$@"; do
       [[ "$arg" != "--" ]] || break
       case "$arg" in
-        -h|--help|-v|--version) exec "$agent_command" "$@" ;;
+        -h|--help|-v|--version|--pure) exec "$agent_command" "$@" ;;
       esac
     done
-    case "${1:-}" in
-      acp|agent|attach|completion|db|debug|export|github|import|mcp|models|plug|plugin|pr|providers|auth|run|serve|session|stats|uninstall|upgrade|web)
-        exec "$agent_command" "$@"
-        ;;
-    esac
+    opencode_args=("$@")
+    arg_index=0
+    while [[ "$arg_index" -lt "${#opencode_args[@]}" ]]; do
+      arg="${opencode_args[$arg_index]}"
+      case "$arg" in
+        --) break ;;
+        --agent|--cors|--hostname|--log-level|--model|-m|--port|--prompt|--replay-limit|--session|-s)
+          arg_index=$((arg_index + 2))
+          ;;
+        --*=*) arg_index=$((arg_index + 1)) ;;
+        -*) arg_index=$((arg_index + 1)) ;;
+        acp|agent|attach|completion|db|debug|export|github|import|mcp|models|plug|plugin|providers|auth|run|serve|session|stats|uninstall|upgrade|web)
+          exec "$agent_command" "$@"
+          ;;
+        *) break ;;
+      esac
+    done
     ;;
   pi)
+    # `--mode` and `--no-extensions` join the headless list now that Pi claims:
+    # the Herdr integration returns early unless the run is a TUI, and under
+    # `--no-extensions` it never loads, so neither reports the pane back and a
+    # claim taken for one of these would outlive the process.
     for arg in "$@"; do
       [[ "$arg" != "--" ]] || break
       case "$arg" in
         -p|--print|--export|--export=*|--list-models|--list-models=*)
+          exec "$agent_command" "$@"
+          ;;
+        --mode|--mode=*|--no-extensions|-ne)
           exec "$agent_command" "$@"
           ;;
       esac
