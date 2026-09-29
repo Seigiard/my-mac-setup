@@ -1,4 +1,4 @@
-<!-- Zero-context reviewer: they see only the diff. Around 350 words outside code blocks. Link only files committed in the repo; session artifacts, plan unit IDs, and review run IDs stay out. -->
+<!-- Zero-context reviewer: they see only the diff. At most 500 words outside code blocks. Link only files committed in the repo; session artifacts, plan unit IDs, and review run IDs stay out. -->
 
 {stakeholder block from explain-for-manager, verbatim, as the first paragraph}
 
