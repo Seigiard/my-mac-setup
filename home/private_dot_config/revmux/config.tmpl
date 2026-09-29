@@ -6,3 +6,20 @@ max-parallel = 5
 
 # The default roster: comprehensive plus a codex agent carrying simplify, efficiency and test-worth.
 profile = lean
+
+# One pool for every round, whatever directory it was launched from. `tasks-dir`
+# otherwise resolves against the process working directory, so a review run in a
+# herdr worktree wrote its archive into that worktree and lost it when the
+# worktree went away. Rounds are the evidence `revmux self` and issue #353 read,
+# so they have to accumulate in one place rather than one per checkout.
+#
+# The value is templated because revmux expands nothing: no `~`, no `$HOME`. It
+# takes the string as written and resolves a relative one against the working
+# directory, which is the behaviour this line exists to stop.
+#
+# Two consequences. `revmux stats` and `revmux cleanup --task` now act on every
+# repository's rounds at once. And task ids are machine-wide: two repositories
+# deriving the same id would share one history, and revmux injects a task's
+# prior rounds into every later round of it, so name a task for its subject
+# whenever the derived id could read as another repository's.
+tasks-dir = "{{ .chezmoi.homeDir }}/.local/state/revmux/tasks"
