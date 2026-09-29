@@ -272,28 +272,48 @@ collision meanwhile is reported rather than retried forever. A session that
 cannot record its pending rename starts without Intercom instead, because a name
 no peer can discover is worse than a warning.
 
-Only Claude Code takes this path. Declaring the record claims the pane's
-lifecycle authority, which suppresses Herdr's own screen detection until it is
-released, and the only release surface this repository deploys is Claude Code's
-first-prompt hook. OpenCode's and Pi's own transports gate tool calls rather
-than lifecycle, so a claim taken for them could never be given back; they keep
-the fallback until they have a release surface of their own. The launcher declares
-`unknown` rather than a state it cannot observe, so the window is honest instead
-of false, and `herdr-agent-intercom-release` ends it from the client's first
-prompt, once detection can take over. Release is deferred that far because
-against a pane with no detectable client it destroys the record and the alias
-with it. A session that dies before its release leaves the pane reading
-`unknown`: stale, and distinguishable from a healthy idle pane.
+All three clients take this path, and the launcher declares `unknown` rather
+than a state it cannot observe, so the window is honest instead of false. Who
+ends the claim differs, because declaring the record claims the pane's lifecycle
+authority and suppresses Herdr's own screen detection while it is held.
+
+OpenCode and Pi end it themselves. Measured against herdr 0.9.1 on 2026-09-29:
+their Herdr integrations report `pane.report_agent` under a `herdr:<client>`
+source and take the authority back over a held claim — OpenCode at its first
+prompt, Pi already at session start — keeping the alias the claim allocated.
+The pane then reads `full_lifecycle_hook_authority`, exactly as it does for a
+session that never took a claim, so the claim leaves no residue, and a release
+fired afterward is inert against a record its source no longer owns. They
+therefore take no claim marker and need no release caller.
+
+Claude publishes no state of its own, so its pane depends on screen detection
+and only a release gives detection back. `herdr-agent-intercom-release` performs
+it from the client's first prompt, once detection can take over. Release is
+deferred that far because against a pane with no detectable client it destroys
+the record and the alias with it. A Claude session that dies before its release
+leaves the pane reading `unknown`: stale, and distinguishable from a healthy
+idle pane.
+
+The pending-rename route for a used pane stays Claude-only for the same reason.
+It enrolls under a name Herdr does not carry until a first prompt renames the
+record, and that rename has one caller. OpenCode and Pi keep the fallback there
+rather than publish an Intercom name the sidebar contradicts with nothing able
+to close the gap.
 
 The launcher runs interactive Claude sessions through live MCP `cci`, exports OpenCode's
-adapter name, and passes Pi's normal session name. Claude and Pi utility
-launches and nested launches in the already-enrolled pane pass through unchanged.
+adapter name, and passes Pi's normal session name. Utility launches of all
+three clients, and nested launches in the already-enrolled pane, pass through
+unchanged. A utility command exits before a client exists, so a claim taken
+for one would leave its record and its pool alias on the pane for the pane's
+whole life.
 A new child pane resolves its own alias even when it inherits its parent's
 enrollment environment. The Claude bridge removes `cci`'s synthetic permission
 selector;
 the caller's native flag, or otherwise Claude's project and user settings,
-continues to decide the permission mode. OpenCode does not classify subcommands
-at the launcher boundary and loads only its server plugin. Codex is deferred
+continues to decide the permission mode. OpenCode's subcommand list errs toward
+passthrough: sending an interactive launch there costs it only Intercom, while
+letting a utility one claim leaves a record nothing can clear. OpenCode loads
+only its server plugin. Codex is deferred
 because its tested wakeable worker and proactive MCP surface register separate
 Intercom identities.
 
