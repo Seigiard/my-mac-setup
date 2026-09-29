@@ -11,6 +11,7 @@ import os
 import plistlib
 import signal
 import socket
+import struct
 import subprocess
 import sys
 import time
@@ -24,13 +25,8 @@ class RecoveryError(Exception):
     pass
 
 
-def clean_env(config_root):
-    env = os.environ.copy()
-    for name in tuple(env):
-        if name == "HERDR_ENV" or name.startswith("HERDR_"):
-            env.pop(name)
-    env["XDG_CONFIG_HOME"] = config_root
-    return env
+class ServerInstanceChanged(RecoveryError):
+    pass
 
 
 def atomic_write(path, value):
@@ -56,27 +52,73 @@ def read_json(path):
 
 
 def process_start_identity(pid):
-    result = subprocess.run(
-        ["ps", "-p", str(pid), "-o", "lstart="], text=True, capture_output=True, check=False
-    )
-    identity = result.stdout.strip()
-    return identity if result.returncode == 0 and identity else None
+    if not isinstance(pid, int) or pid <= 0:
+        raise RecoveryError("invalid process identity")
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "lstart=", "-o", "stat="],
+            text=True, capture_output=True, check=False, timeout=2,
+            env={**os.environ, "LC_ALL": "C", "TZ": "UTC"},
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RecoveryError(f"process lookup unavailable: {error}") from error
+    row = result.stdout.strip()
+    if result.returncode == 0 and row:
+        identity, status = row.rsplit(None, 1)
+        return None if status.startswith("Z") else identity
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return None
+    except OSError as error:
+        raise RecoveryError(f"process liveness unknown: {error}") from error
+    raise RecoveryError("process lookup failed for a live process")
+
+
+def peer_identity(connection):
+    if sys.platform == "darwin":
+        # LOCAL_PEERPID identifies the server attached to this connected descriptor.
+        pid = struct.unpack("i", connection.getsockopt(0, 2, 4))[0]
+    elif hasattr(socket, "SO_PEERCRED"):
+        pid, _, _ = struct.unpack("3i", connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+    else:
+        raise RecoveryError("connected-server identity is unavailable on this platform")
+    start = process_start_identity(pid)
+    if start is None:
+        raise RecoveryError("connected server exited")
+    return {"pid": pid, "start_identity": start}
+
+
+def capture_server_identity(path):
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+        connection.settimeout(5)
+        connection.connect(path)
+        return peer_identity(connection)
+
+
+def bound_request(intent, method, params):
+    # Herdr closes each connection after one response. Validate the actual peer
+    # on the descriptor used for the mutation; never reconnect after this check.
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+        connection.settimeout(5)
+        connection.connect(intent["connection"]["socket_path"])
+        if peer_identity(connection) != intent["connection"]["server_identity"]:
+            raise ServerInstanceChanged("server instance changed")
+        request = {"id": uuid.uuid4().hex, "method": method, "params": params}
+        connection.sendall((json.dumps(request) + "\n").encode())
+        with connection.makefile("rb") as stream:
+            line = stream.readline(1024 * 1024)
+        if not line.endswith(b"\n"):
+            raise RecoveryError("incomplete server response")
+        response = json.loads(line)
+        if response.get("id") != request["id"]:
+            raise RecoveryError("server response identity mismatch")
+        return response
 
 
 def socket_identity(path):
     stat = os.stat(path)
     return {"device": stat.st_dev, "inode": stat.st_ino}
-
-
-def command(intent, *args):
-    return subprocess.run(
-        [intent["connection"]["herdr_executable"], "--session", intent["connection"]["session"], *args],
-        text=True,
-        capture_output=True,
-        timeout=15,
-        check=False,
-        env=clean_env(intent["connection"]["config_root"]),
-    )
 
 
 def write_intent(intent_dir, intent):
@@ -96,11 +138,26 @@ def acknowledge_acquisition(intent_path):
 
 
 def update_intent(intent_path, intent, phase, diagnostic=None):
+    if intent["phase"] == phase and diagnostic == intent.get("diagnostic"):
+        return
     intent["phase"] = phase
     intent["updated_at_ns"] = time.time_ns()
     if diagnostic:
         intent["diagnostic"] = diagnostic
     atomic_write(intent_path, intent)
+
+
+def record_connection_failure(path, intent, error):
+    if isinstance(error, ServerInstanceChanged):
+        previous = intent["connection"]["server_identity"]
+        try:
+            old_start = process_start_identity(previous["pid"])
+        except RecoveryError:
+            old_start = previous["start_identity"]
+        if old_start != previous["start_identity"]:
+            update_intent(path, intent, "retired", "retired: original server instance ended")
+            return
+    update_intent(path, intent, intent["phase"], f"pending: {error}")
 
 
 def observe_one(path):
@@ -109,61 +166,103 @@ def observe_one(path):
         return
     pid = intent["client"]["pid"]
     expected_start = intent["client"]["start_identity"]
-    actual_start = process_start_identity(pid)
-    if actual_start == expected_start:
-        return
     try:
-        current_socket = socket_identity(intent["connection"]["socket_path"])
+        actual_start = process_start_identity(pid)
+    except RecoveryError as error:
+        update_intent(path, intent, intent["phase"], f"pending: {error}")
+        return
+    client_alive = actual_start == expected_start
+    try:
+        socket_identity(intent["connection"]["socket_path"])
     except OSError as error:
-        retry_path = intent["connection"].get("retry_socket_path")
-        if retry_path and os.path.exists(path + ".retry-socket"):
-            intent["connection"]["socket_path"] = retry_path
-            intent["connection"].pop("retry_socket_path", None)
-            atomic_write(path, intent)
-            return
         update_intent(path, intent, intent["phase"], f"pending: socket unavailable: {error.strerror}")
         return
-    if current_socket != intent["connection"]["socket_identity"]:
-        update_intent(path, intent, intent["phase"], "pending: server instance changed")
-        return
     pane_id = intent["terminal"]["pane_id"]
-    pane = command(intent, "pane", "get", pane_id)
-    if pane.returncode:
-        if "pane_not_found" in pane.stderr:
+    try:
+        pane = bound_request(intent, "pane.get", {"pane_id": pane_id})
+    except (OSError, RecoveryError) as error:
+        record_connection_failure(path, intent, error)
+        return
+    if "error" in pane and pane["error"].get("code") != "pane_not_found":
+        update_intent(path, intent, intent["phase"], f"pending: pane lookup failed: {pane['error']}")
+        return
+    observed_terminal = pane.get("result", {}).get("pane", {}).get("terminal_id")
+    if observed_terminal != intent["terminal"]["terminal_id"]:
+        try:
+            snapshot = bound_request(intent, "session.snapshot", {})
+        except (OSError, RecoveryError) as error:
+            record_connection_failure(path, intent, error)
+            return
+        if "error" in snapshot:
+            update_intent(path, intent, intent["phase"], f"pending: terminal lookup failed: {snapshot['error']}")
+            return
+        matches = [item for item in snapshot["result"]["snapshot"]["panes"]
+                   if item.get("terminal_id") == intent["terminal"]["terminal_id"]]
+        if not matches:
             update_intent(path, intent, "settled", "settled: terminal resource gone")
             return
-        update_intent(path, intent, intent["phase"], f"pending: pane lookup failed: {pane.stderr.strip()}")
+        if len(matches) != 1:
+            update_intent(path, intent, intent["phase"], "pending: ambiguous terminal identity")
+            return
+        pane_id = matches[0]["pane_id"]
+        intent["terminal"]["pane_id"] = pane_id
+        atomic_write(path, intent)
+    else:
+        resolved_id = pane["result"]["pane"]["pane_id"]
+        if resolved_id != pane_id:
+            # Herdr can resolve an old qualified ID to the moved terminal.
+            pane_id = resolved_id
+            intent["terminal"]["pane_id"] = resolved_id
+            atomic_write(path, intent)
+    try:
+        acquisition = bound_request(intent, "agent.get", {"target": pane_id})
+    except (OSError, RecoveryError) as error:
+        record_connection_failure(path, intent, error)
         return
-    observed_terminal = json.loads(pane.stdout)["result"]["pane"].get("terminal_id")
-    if observed_terminal != intent["terminal"]["terminal_id"]:
-        update_intent(path, intent, intent["phase"], "pending: terminal identity changed")
+    if intent["phase"] == "acquired" and "error" not in acquisition:
+        state = acquisition["result"]["agent"].get("agent_status")
+        # This source only ever declared unknown. A concrete published state
+        # witnesses takeover; retiring bookkeeping does not release its owner.
+        if state in {"working", "idle", "done", "blocked"}:
+            update_intent(path, intent, "retired", "retired: lifecycle takeover observed")
+            return
+    if client_alive:
         return
+    if intent["phase"] == "intent":
+        if acquisition.get("error", {}).get("code") == "agent_not_found":
+            # The acquisition request may still arrive. Absence now cannot
+            # settle an unacknowledged operation on a live server and pane.
+            update_intent(path, intent, "intent", "pending: acquisition outcome unknown")
+            return
+        if "error" in acquisition:
+            update_intent(path, intent, "intent", f"pending: acquisition lookup failed: {acquisition['error']}")
+            return
     barrier = intent.get("barrier")
     if barrier:
         atomic_write(barrier + ".checked", {"checked_at_ns": time.time_ns()})
         while not os.path.exists(barrier + ".continue"):
             time.sleep(POLL_SECONDS)
-    release = command(
-        intent,
-        "pane",
-        "release-agent",
-        pane_id,
-        "--source",
-        intent["claim"]["source"],
-        "--agent",
-        intent["agent_kind"],
-        "--seq",
-        str(intent["claim"]["release_seq"]),
-    )
-    if release.returncode:
-        update_intent(path, intent, intent["phase"], f"pending: release failed: {release.stderr.strip()}")
+    try:
+        release = bound_request(intent, "pane.release_agent", {
+            "pane_id": pane_id, "source": intent["claim"]["source"],
+            "agent": intent["agent_kind"], "seq": intent["claim"]["release_seq"],
+        })
+    except (OSError, RecoveryError) as error:
+        record_connection_failure(path, intent, error)
         return
-    state = command(intent, "agent", "get", pane_id)
-    if state.returncode == 0:
+    if "error" in release:
+        update_intent(path, intent, intent["phase"], f"pending: release failed: {release['error']}")
+        return
+    try:
+        state = bound_request(intent, "agent.get", {"target": pane_id})
+    except (OSError, RecoveryError) as error:
+        record_connection_failure(path, intent, error)
+        return
+    if "error" not in state:
         update_intent(path, intent, intent["phase"], "pending: release acknowledged but claim still published")
         return
-    if "agent_not_found" not in state.stderr:
-        update_intent(path, intent, intent["phase"], f"pending: state check failed: {state.stderr.strip()}")
+    if state["error"].get("code") != "agent_not_found":
+        update_intent(path, intent, intent["phase"], f"pending: state check failed: {state['error']}")
         return
     update_intent(path, intent, "settled", "settled: exact owned release observed")
 
