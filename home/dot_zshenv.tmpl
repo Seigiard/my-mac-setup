@@ -112,7 +112,6 @@ _tavily_api_keys=(
 )
 export TAVILY_API_KEY="${_tavily_api_keys[$((RANDOM % ${#_tavily_api_keys[@]} + 1))]}"
 unset _tavily_api_keys
-export JINA_API_KEY={{ env "MMS_CHEZMOI_FIXTURE_JINA_API_KEY" | quote }}
 export CONTEXT7_API_KEY={{ env "MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY" | quote }}
 export VECTOR_PRIME_API_KEY={{ env "MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY" | quote }}
 export OPENROUTER_API_KEY={{ env "MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY" | quote }}
@@ -128,7 +127,6 @@ _tavily_api_keys=(
 )
 export TAVILY_API_KEY="${_tavily_api_keys[$((RANDOM % ${#_tavily_api_keys[@]} + 1))]}"
 unset _tavily_api_keys
-export JINA_API_KEY="{{ onepasswordRead "op://Private/Jina API Key/credential" "my.1password.com" }}"
 export CONTEXT7_API_KEY="{{ onepasswordRead "op://Private/Context7 API Key/credential" "my.1password.com" }}"
 export VECTOR_PRIME_API_KEY="{{ onepasswordRead "op://Private/VectorPrime API Key/credential" "my.1password.com" }}"
 export OPENROUTER_API_KEY="{{ onepasswordRead "op://Private/Openrouter API Key/credential" "my.1password.com" }}"
@@ -146,7 +144,6 @@ _tavily_api_keys=(
 )
 export TAVILY_API_KEY="${_tavily_api_keys[$((RANDOM % ${#_tavily_api_keys[@]} + 1))]}"
 unset _tavily_api_keys
-export JINA_API_KEY="{{ onepasswordRead "op://Private/Jina API Key/credential" "my.1password.com" }}"
 export CONTEXT7_API_KEY="{{ onepasswordRead "op://Private/Context7 API Key/credential" "my.1password.com" }}"
 export VECTOR_PRIME_API_KEY="{{ onepasswordRead "op://Private/VectorPrime API Key/credential" "my.1password.com" }}"
 export OPENROUTER_API_KEY="{{ onepasswordRead "op://Private/Openrouter API Key/credential" "my.1password.com" }}"

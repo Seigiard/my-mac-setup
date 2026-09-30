@@ -46,8 +46,8 @@ class TestDockerContract(unittest.TestCase):
         cls.compose = COMPOSE.read_text(encoding="utf-8")
         cls.dockerfile = DOCKERFILE.read_text(encoding="utf-8")
         cls.workflow = WORKFLOW.read_text(encoding="utf-8")
-        if len(FIXTURE_CANARIES) != 10:
-            raise AssertionError("common.bash must define the ten canonical fixture canaries")
+        if len(FIXTURE_CANARIES) != 9:
+            raise AssertionError("common.bash must define the nine canonical fixture canaries")
 
     def service_names(self):
         names = re.findall(r"^  ([a-zA-Z0-9_-]+):\n", self.compose, re.MULTILINE)
@@ -344,14 +344,14 @@ class TestDockerContract(unittest.TestCase):
         self.assertEqual(applying, ["test-ubuntu", "test-macos"])
 
     def run_make_test_local(self, root, managed_rc=None):
-        """`make test-local` against a chezmoi that reports three managed
-        targets, two of them the credential-sensitive ones the host-partial
+        """`make test-local` against a chezmoi that reports two managed
+        targets, one of them the credential-sensitive one the host-partial
         profile exists to omit.
 
         Returns (completed process, the argv of the `diff` call). The stub
         RECORDS its argv instead of discarding it: without that, a launcher
-        that forwarded every managed target -- including ~/.zshenv and
-        ~/.claude.json -- is indistinguishable from one that filtered them.
+        that forwarded every managed target -- including ~/.zshenv -- is
+        indistinguishable from one that filtered it.
         """
         bin_dir = root / "bin"
         bin_dir.mkdir()
@@ -363,7 +363,7 @@ class TestDockerContract(unittest.TestCase):
             "for arg in \"$@\"; do\n"
             "  if [ \"$arg\" = managed ]; then\n"
             "    [ \"${MMS_TEST_MANAGED_RC:-0}\" -eq 0 ] || exit \"$MMS_TEST_MANAGED_RC\"\n"
-            "    printf '%s\\0' \"$HOME/.zshenv\" \"$HOME/.claude.json\" \"$HOME/.gitconfig\"\n"
+            "    printf '%s\\0' \"$HOME/.zshenv\" \"$HOME/.gitconfig\"\n"
             "    exit 0\n"
             "  fi\n"
             "done\n"
@@ -394,8 +394,8 @@ class TestDockerContract(unittest.TestCase):
             forwarded = diff_argv.read_text(encoding="utf-8").splitlines()
 
         # Everything the launcher forwarded that names a managed destination.
-        # The two omitted ones are the whole point of the host-partial
-        # profile; the third proves the filter did not simply drop every
+        # The omitted one is the whole point of the host-partial profile; the
+        # other proves the filter did not simply drop every
         # target, which would also satisfy an "absent" assertion.
         self.assertEqual(
             [argument for argument in forwarded if argument.startswith(str(home))],

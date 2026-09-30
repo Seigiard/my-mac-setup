@@ -1,8 +1,7 @@
 #!/bin/bash
-# Modify ~/.claude.json to register the MCP servers. Jina receives its API key
-# from unattended fixtures or 1Password; Tavily expands the shell-selected key
-# when Claude starts.
-# Requires: jq. Optional: op (1Password CLI).
+# Modify ~/.claude.json to register the MCP servers. Tavily expands the
+# shell-selected key when Claude starts.
+# Requires: jq.
 
 existing=$(cat)
 
@@ -13,51 +12,14 @@ if ! command -v jq &>/dev/null; then
   exit 0
 fi
 
-# Interactively, an empty credential means "do not register that server". A
-# machine with no `op` stays quiet; a failed read keeps `op`'s diagnostic and
-# adds context. It is not worth a non-zero exit: chezmoi aborts the whole apply
-# over one MCP server. Unattended handling below instead preserves a matching
-# existing entry when its fixture is empty.
-read_credential() {
-  command -v op &>/dev/null || return 0
-
-  local value
-  if ! value=$(op read "op://Private/$1/credential" --account my.1password.com); then
-    echo "modify_dot_claude.json: could not read $1 from 1Password; skipping its MCP server" >&2
-    return 0
-  fi
-  if [ -z "$value" ]; then
-    echo "modify_dot_claude.json: 1Password returned an empty $1; skipping its MCP server" >&2
-    return 0
-  fi
-
-  printf '%s' "$value"
-}
-
-# Select unattended inputs before read_credential can resolve or launch `op`.
-if [ "${MMS_CHEZMOI_UNATTENDED:-}" = "1" ]; then
-  UNATTENDED=true
-  JINA_KEY=${MMS_CHEZMOI_FIXTURE_JINA_API_KEY:-}
-else
-  UNATTENDED=false
-  JINA_KEY=$(read_credential "Jina API Key")
-fi
-
 # Tavily uses Claude's environment expansion so it shares TAVILY_API_KEY with
-# OpenCode and direct API consumers. Jina remains conditional on its key.
+# OpenCode and direct API consumers. The managed set replaces mcpServers whole,
+# so a server dropped from it is removed from the live file on the next apply.
 echo "$existing" | jq \
-  --arg jina_key "$JINA_KEY" \
   --arg home "$HOME" \
-  --argjson unattended "$UNATTENDED" \
-  '(.mcpServers // {}) as $existing_servers
-  | .mcpServers = ({
+  '.mcpServers = {
     "deepwiki": { "type": "http", "url": "https://mcp.deepwiki.com/mcp" },
     "fff": { "type": "stdio", "command": ($home + "/.local/bin/fff-mcp"), "args": [], "env": {} },
     "executor": { "type": "stdio", "command": ($home + "/.local/bin/executor"), "args": ["mcp"], "env": {} },
     "tavily-mcp": { "type": "http", "url": "https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}" }
-  }
-  + (if $jina_key != "" then {
-      "jina": { "type": "http", "url": "https://mcp.jina.ai/v1", "headers": { "Authorization": ("Bearer " + $jina_key) } }
-    } elif $unattended and ($existing_servers | has("jina")) then {
-      "jina": $existing_servers.jina
-    } else {} end))'
+  }'
