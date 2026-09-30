@@ -20,13 +20,93 @@ tags:
 
 ## Boundary
 
-This is opt-in proof tooling, not a runtime rollout. The owner now accepts the
+The owner accepts the
 [scoped upstream suspension exception](../../plans/2026-09-29-intercom-claim-recovery-spec.md#accepted-upstream-suspension-exception).
-Work may continue under that boundary. Full review of the earlier passing runs
-found nine major and ten minor defects or evidence gaps. The candidate and
-its probes have been revised. Both complete commands have fresh passing receipts
-on the corrected state. A confirming review is still required before acceptance.
-No managed path has changed. Historical results below remain unchanged.
+Proof PR #382 passed its confirming review and merged into the delivery branch
+at `402f12eb0eb2f73e1225032b49726d429231b081`. Runtime verification now executes
+the managed launcher, bridge, release command, shared engine and rendered
+launchd job from private staging. This is not a host rollout or final delivery
+acceptance. Historical proof results below remain unchanged.
+
+### Runtime verification checkpoint
+
+Artifacts live under `~/.claude/artifacts/377/`. The runtime uses the shared
+engine at `home/dot_local/lib/intercom-claim-recovery.py`; the former prototype
+module is a test shim that loads this same engine.
+
+The owner-requested post-review batch is tracked in
+[#377's checklist](https://github.com/Seigiard/my-mac-setup/issues/377#issuecomment-5914791500).
+Terminal intents now leave the hot scan for a bounded archive. The sidecar
+protocol lets queued callers finish on the original inode and prevents new
+callers from recreating it. The archive policy is in the specification.
+Current evidence after that batch:
+
+- `runtime-check-owner97.log`: 18 PASS, owner-only exit 3, with cleanup.
+  Artifact `ownership-proof-c054422872c54e3aa256c195932d3860.json`.
+- `runtime-client-100.log`: 28 PASS and three independently qualified
+  KNOWN_UPSTREAM_LIMITATION rows, no FAIL/SKIP/UNVERIFIED, with cleanup.
+  Artifact `client-proof-03b8a17f51344d93b10842b0eaa8a77d.json`.
+- `runtime-check-deploy99.log`: canonical `make test-ubuntu` passed on the
+  final deployment-relevant files. `make test-python` passed 42 tests after the
+  lock-contention assertion was strengthened. Lint and diff checks passed.
+- `restored-test-calibrations-95.json`: the restored collision retry failed
+  when retry was disabled; PTY Pi utilities failed without their guard and
+  passed with it restored. The normal-order collision case uses real Herdr.
+- `archive-calibrations-96.json`: disabling archival, recreating a removed
+  lock, and disabling retention each failed their intended assertion; the
+  restored archive suite passed. The separate contention test observes a real
+  failed flock attempt before moving the record.
+
+The failed client98 run is retained. Its collision control left an owned alias
+occupied into later cases; the fixture now closes that control pane after its
+preservation assertions. The pending-alias reuse race remains a recorded
+reproduction task, not a reproduced defect or a completed fix. The initial
+runtime review is not a confirming review for this batch.
+
+Earlier runtime checkpoints:
+
+- `runtime-check-owner82.log`: 18 owner controls passed. Exit 3 denotes the
+  separate client gate, not an owner failure. Artifact:
+  `ownership-proof-2bf5f6ab37744d8f86349b4d8e386aec.json`.
+- `runtime-client-82.log`: 24 PASS and three independently qualified
+  KNOWN_UPSTREAM_LIMITATION rows, with no FAIL, SKIP or UNVERIFIED rows. Artifact:
+  `client-proof-81bbc8f94caf4518916234a74542edb6.json`.
+- `runtime-client-90.log`: the cumulative runtime gate passed with 27 PASS and
+  three KNOWN_UPSTREAM_LIMITATION rows, no FAIL, SKIP or UNVERIFIED rows, and
+  complete owned cleanup. Artifact:
+  `client-proof-124aeba2e4ff4028820abe86472890f2.json`.
+- `runtime-check-legacy83.log`: the actual legacy release preserved a new
+  Claude runtime successor, including its private Intercom registration.
+- `runtime-check-partial87.log`: a real rename with a lost response preserved
+  native startup, removed inherited enrollment authority, retained durable
+  correlation and left no claim after client exit. The relay's ordinary-response
+  control completed enrollment. Unacknowledged absence may remain pending.
+- `runtime-check-restart88.log`: stale readiness was replaced before admission;
+  launchd restarted the killed production observer, which recovered client exit.
+- `runtime-check-deploy83.log`: `make test-ubuntu` passed. The first attempt
+  exposed a fixture's ambient `herdr-peer-alias` dependency; the fixture now
+  stages that helper explicitly and keeps its original assertions.
+- `make test-agent-intercom-loaders`: 14 PASS. `make lint` passed after the
+  runtime test additions.
+- `runtime-check-red91.log`: removing inherited-name cleanup from the private
+  staged launcher made the partial-acquisition test fail at
+  `partial-native-authority`. Raw artifact:
+  `runtime-red-inherited-identity-7f9fa4f7b656418a80f1bcca182c8e24.json`.
+  The earlier concurrent calibration attempt (`red89`) failed in its cleanup
+  control instead and is not regression evidence. The sequential run reached
+  the intended failure. Other new runtime cases have green observations but no
+  new mutation calibration yet.
+
+The complete client run used Herdr 0.9.3, Claude 2.1.280, OpenCode 1.18.30 and
+Pi 0.87.1. OpenCode and Pi retain an independent suspension baseline plus a
+recovery-disabled reference control with the same foreground status driver.
+Raw alias-loss assertions remain FAIL in the qualified evidence.
+
+Runtime review and delivery acceptance remain outstanding.
+Docker skips include platform-specific macOS checks, the opt-in live Codex
+account query, Herdr checks requiring a running caller session, and external
+client settings checks without the required installed client/model catalog.
+Those skips are not proof of the skipped behavior.
 
 ### Full-review repair evidence
 

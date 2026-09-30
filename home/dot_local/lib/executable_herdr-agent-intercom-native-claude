@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+claude_command="${AGENT_INTERCOM_CLAUDE_COMMAND:-}"
+arg_count="${AGENT_INTERCOM_CLAUDE_ARGC:-}"
+if [[ -z "$claude_command" || ! -x "$claude_command" || ! "$arg_count" =~ ^[0-9]+$ ]]; then
+  printf 'herdr-agent-intercom: invalid Claude bridge environment\n' >&2
+  exit 1
+fi
+
+original_args=()
+arg_index=0
+while [[ "$arg_index" -lt "$arg_count" ]]; do
+  arg_name="AGENT_INTERCOM_CLAUDE_ARG_$arg_index"
+  if ! declare -p "$arg_name" >/dev/null 2>&1; then
+    printf 'herdr-agent-intercom: missing Claude argument %s\n' "$arg_index" >&2
+    exit 1
+  fi
+  original_args+=("${!arg_name}")
+  unset "$arg_name"
+  arg_index=$((arg_index + 1))
+done
+unset AGENT_INTERCOM_CLAUDE_COMMAND AGENT_INTERCOM_CLAUDE_ARGC
+
+# Keep cci's generated controls before a native `--` terminator. Without this
+# split Claude reads the Intercom plugin and identity prompt as user messages.
+before_terminator=()
+after_terminator=()
+found_terminator=0
+set +u
+for arg in "${original_args[@]}"; do
+  if [[ "$found_terminator" -eq 0 && "$arg" == "--" ]]; then
+    found_terminator=1
+  fi
+  if [[ "$found_terminator" -eq 0 ]]; then
+    before_terminator+=("$arg")
+  else
+    after_terminator+=("$arg")
+  fi
+done
+
+# cci always generates a permission selector, defaulting to manual. The native
+# argv already carries any caller selector, so drop cci's copy and let Claude
+# settings remain authoritative when the caller supplied none.
+generated_args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --permission-mode)
+      shift
+      [[ $# -eq 0 ]] || shift
+      ;;
+    --permission-mode=*|--dangerously-skip-permissions) shift ;;
+    *)
+      generated_args+=("$1")
+      shift
+      ;;
+  esac
+done
+
+exec "$claude_command" "${before_terminator[@]}" "${generated_args[@]}" "${after_terminator[@]}"

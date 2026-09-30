@@ -1,8 +1,9 @@
 # Recover failed Intercom launches without restarting an agent
 
-Status: approved outcome with a scoped upstream suspension exception. Runtime
-implementation still requires the real-Herdr ownership gate below. This document
-does not claim that the launcher already recovers automatically.
+Status: approved outcome and owner/protocol addendum, with a scoped upstream
+suspension exception. Proof PR #382 was accepted and merged into the delivery
+branch. Runtime implementation is under verification; deployment and delivery
+acceptance remain separate from that proof.
 
 Related: [#377](https://github.com/Seigiard/my-mac-setup/issues/377),
 [#376](https://github.com/Seigiard/my-mac-setup/issues/376),
@@ -168,12 +169,13 @@ A skip or a fake server is not a pass. If isolation cannot be proved,
 keep runtime unchanged and return with the precise upstream API requirement or
 the client-side registration alternative. Do not silently weaken R1 or R2.
 
-## Implementation addendum — candidate under review
+## Implementation addendum — accepted baseline
 
-The candidate below was revised after full review found gaps in the owner and
-client evidence. The evidence note records the new complete checks. It becomes
-the runtime implementation baseline only after the revised complete proof PR
-and this addendum are reviewed. It does not describe deployed behavior.
+The addendum was accepted with proof PR #382 at reviewed head
+`14fdd99cbea55796d76eb470b9ae90f01607737a` and merged into the delivery branch at
+`402f12eb0eb2f73e1225032b49726d429231b081`. It is the runtime implementation
+baseline. The evidence note keeps proof acceptance separate from runtime checks
+and deployed behavior.
 
 ### Owner and admission
 
@@ -224,6 +226,22 @@ and this addendum are reviewed. It does not describe deployed behavior.
   ownership pending. Age and suspension are not death. Keep diagnostics explicit
   and retries independent of another launch. This protocol does not repair the
   accepted upstream suspension identity loss with a read-then-rename operation.
+
+### Terminal intent archive
+
+The owner approved keeping completed diagnostics outside the active scan.
+Pending and unresolved obligations stay active. Once a record is `settled` or
+`retired`, move it into `intents/archive` under its existing lock. The observer
+does not open archived records during its 100 ms scan.
+
+Keep terminal receipts for at most seven days and at most 1000 records, checked
+once per minute. Their original handles remain readable while retained. A late
+bind or handoff refuses a terminal or expired obligation. Handles are never
+reused. Only the initial writer creates an intent lock; later callers open the
+existing inode. After durable archival the sidecar can be removed: queued
+callers retain the old inode and observe terminal state, while new callers
+cannot create a replacement lock. Sequence and owner-admission locks remain
+persistent and are outside this retention policy.
 
 ### Recovery budget and evidence
 

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.seigiard.herdr-agent-intercom-recovery</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{{ if eq .chezmoi.arch "arm64" }}/opt/homebrew{{ else }}/usr/local{{ end }}/bin/python3</string>
+    <string>{{ .chezmoi.homeDir }}/.local/lib/intercom-claim-recovery.py</string>
+    <string>--observe</string>
+    <string>{{ env "XDG_STATE_HOME" | default (joinPath .chezmoi.homeDir ".local/state") }}/agent-intercom/recovery/v1/intents</string>
+    <string>--pid-file</string>
+    <string>{{ env "XDG_STATE_HOME" | default (joinPath .chezmoi.homeDir ".local/state") }}/agent-intercom/recovery/v1/observer.pid.json</string>
+    <string>--job-label</string>
+    <string>com.seigiard.herdr-agent-intercom-recovery</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>2</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>{{ env "XDG_STATE_HOME" | default (joinPath .chezmoi.homeDir ".local/state") }}/agent-intercom/recovery/v1/observer.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{ env "XDG_STATE_HOME" | default (joinPath .chezmoi.homeDir ".local/state") }}/agent-intercom/recovery/v1/observer.stderr.log</string>
+</dict>
+</plist>
