@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """Opt-in real-Herdr conformance probe for launch-claim cleanup ownership."""
 
+import argparse
 import json
+import fcntl
 import os
 import pty
 import shutil
 import signal
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
+import termios
 import threading
 import time
 import uuid
@@ -48,10 +52,6 @@ def native_executable(name):
     for path in result.stdout.splitlines():
         if not os.path.isfile(path) or not os.access(path, os.X_OK):
             continue
-        if name == "herdr":
-            with open(path, "rb") as handle:
-                if handle.read(2) == b"#!":
-                    continue
         if "herdr-agent-intercom" not in os.path.basename(path):
             return path
     raise ProbeError(f"cannot resolve native {name} executable")
@@ -86,6 +86,8 @@ class OwnedHerdr:
                 env.pop(name)
         env["XDG_CONFIG_HOME"] = self.root
         env["XDG_STATE_HOME"] = os.path.join(self.root, "state")
+        env["COLUMNS"] = "160"
+        env["LINES"] = "40"
         return env
 
     @property
@@ -101,10 +103,14 @@ class OwnedHerdr:
         if pty_errors:
             raise ProbeError("; ".join(pty_errors))
         master, slave = pty.openpty()
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 160, 0, 0))
         self.master = master
+        def own_terminal():
+            os.setsid()
+            fcntl.ioctl(0, termios.TIOCSCTTY, 0)
         self.client = subprocess.Popen(
             ["herdr", "--session", self.session], stdin=slave, stdout=slave, stderr=slave,
-            env=self.env, close_fds=True,
+            env=self.env, close_fds=True, preexec_fn=own_terminal,
         )
         os.close(slave)
         self.master_reader = threading.Thread(target=self._drain_master, args=(master,), daemon=True)
@@ -306,7 +312,8 @@ def durable_intent(owner, intent_dir, pane, sequence, client, start_identity, ba
         },
         "terminal": {"pane_id": pane["pane_id"], "terminal_id": pane["terminal_id"]},
         "agent_kind": AGENT,
-        "claim": {"source": OLD_SOURCE, "claim_seq": sequence, "release_seq": sequence + 1},
+        "claim": {"source": OLD_SOURCE, "claim_seq": sequence,
+                  "handoff_seq": sequence + 1, "release_seq": sequence + 2},
         "client": {"pid": client.pid, "start_identity": start_identity},
         "created_at_ns": time.time_ns(),
     }
@@ -350,24 +357,16 @@ def wait_for_trace_event(trace_dir, suffix, description, timeout=10):
     raise ProbeError(f"timed out waiting for {description} in {trace_dir}")
 
 
-def wait_for_entries(directory, suffix, count, description, timeout=10):
+def wait_for_entries(directory, predicate, count, description, timeout=10):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        entries = [entry for entry in os.listdir(directory) if entry.endswith(suffix)]
+        entries = [entry for entry in os.listdir(directory) if predicate(entry)]
         if len(entries) >= count:
             return entries
         time.sleep(0.05)
     raise ProbeError(f"timed out waiting for {count} {description} in {directory}")
 
 
-def wait_for_prefixed_entries(directory, prefix, count, description, timeout=10):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        entries = [entry for entry in os.listdir(directory) if entry.startswith(prefix)]
-        if len(entries) >= count:
-            return entries
-        time.sleep(0.05)
-    raise ProbeError(f"timed out waiting for {count} {description} in {directory}")
 
 
 def claim_and_confirm(owner, pane, source, sequence, step):
@@ -397,6 +396,10 @@ def case(owner, name, action, verdicts):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--case", choices=("all", "allocator-controls"), default="all")
+    parser.add_argument("--allocator-implementation", choices=("shared", "legacy"), default="shared")
+    arguments = parser.parse_args()
     if os.environ.get(OPT_IN) != "1":
         print(f"REFUSED: set {OPT_IN}=1 to create an isolated owned Herdr server.")
         return 2
@@ -614,7 +617,7 @@ def main():
             report(owner, pane["pane_id"], OLD_SOURCE, "working", sequence + 10)
             successor = owner.state(pane["pane_id"], "same-source-successor")
             require_agent(successor, status="working", terminal=pane["terminal_id"], alias=f"mms377-same-{sequence}")
-            release(owner, pane["pane_id"], OLD_SOURCE, sequence + 1)
+            release(owner, pane["pane_id"], OLD_SOURCE, sequence + 2)
             preserved = owner.state(pane["pane_id"], "old-release-after-same-source-successor")
             require_agent(preserved, status="working", terminal=pane["terminal_id"], alias=f"mms377-same-{sequence}")
             release(owner, pane["pane_id"], OLD_SOURCE, sequence + 11)
@@ -853,7 +856,7 @@ def main():
                 require(pending, record.get("name") == alias, "pending launch alias changed")
                 require(pending, record.get("agent") is None, "pending launch was already detectable")
                 require(pending, record.get("agent_status") == "unknown", "pending launch state is not unknown")
-                release(owner, pane["pane_id"], OLD_SOURCE, sequence + 1)
+                release(owner, pane["pane_id"], OLD_SOURCE, sequence + 2)
                 preserved = owner.state(pane["pane_id"], "old-release-during-managed-pending")
                 after = preserved["agent"] or {}
                 require(preserved, after.get("terminal_id") == pane["terminal_id"], "old release retargeted pending terminal")
@@ -885,10 +888,10 @@ def main():
                 second_owner.start()
                 client.terminate()
                 client.wait(timeout=5)
-                wait_for_prefixed_entries(owner.root, os.path.basename(entry_barrier) + ".checked.", 2,
-                                          "observer entry barriers")
+                wait_for_entries(owner.root, lambda entry: entry.startswith(os.path.basename(entry_barrier) + ".checked."), 2,
+                                           "observer entry barriers")
                 open(entry_barrier + ".continue", "w").close()
-                wait_for_entries(trace_dir, ".lock_attempt.json", 2, "lock attempts")
+                wait_for_entries(trace_dir, lambda entry: entry.endswith(".lock_attempt.json"), 2, "lock attempts")
                 release_result = wait_for_trace_event(trace_dir, ".release_result.json", "an exact release result")
                 response = release_result["response"]
                 require({"step": "concurrent-release"}, "error" not in response and response.get("result", {}).get("type") == "ok",
@@ -943,22 +946,143 @@ def main():
             finally:
                 open(barrier + ".continue", "a").close()
 
-        case(owner, "native binding serializes with cleanup after launcher death", native_binding_serializes_with_cleanup, verdicts)
-        case(owner, "late native binding cannot adopt an exited or settled launch", late_native_binding_is_refused, verdicts)
-        case(owner, "failed process lookup preserves a live claim", failed_process_lookup_preserves_live_claim, verdicts)
-        case(owner, "launchd restarts killed observer and it cleans actual client exit", observer_exit_restart_and_cleanup, verdicts)
-        case(owner, "abandoned proof owner unregisters its temporary observer", probe_owner_exit_unregisters_observer, verdicts)
-        case(owner, "same-source successor and delayed old clear", same_source_successor, verdicts)
-        case(owner, "lifecycle takeover retires bookkeeping without releasing its owner", takeover_retires_only_bookkeeping, verdicts)
-        case(owner, "moved pane follows stable terminal identity", moved_terminal_follows_stable_identity, verdicts)
-        case(owner, "fenced newer same-source claim survives old cleanup", fenced_newer_claim_survives_cleanup, verdicts)
-        case(owner, "unknown newer claim stays pending and preserved", unknown_newer_claim_stays_pending_and_preserved, verdicts)
-        case(owner, "unavailable socket retries and stale PID identity is not live", unavailable_socket_then_recovery_and_stale_pid, verdicts)
-        case(owner, "crash windows retain a safe obligation", crash_windows_and_server_change, verdicts)
-        case(owner, "source-scoped clear leaves a renamed stale claim", source_scoped_clear_limit, verdicts)
-        case(owner, "delayed old release preserves pending managed native successor", pending_managed_native_successor, verdicts)
-        case(owner, "repeated cleanup and closed resource", repeated_and_closed_resource, verdicts)
-        case(owner, "server restart prevents stale cleanup from retargeting", real_server_restart_settles_only_gone_terminal, verdicts)
+        def ten_claims_meet_healthy_budget():
+            cohort = []
+            for index in range(10):
+                pane = create_pane(owner, root)
+                client, start = start_client(seconds=90)
+                sequence = time.time_ns()
+                path = durable_intent(owner, launchd.intent_dir, pane, sequence, client, start)
+                claim_and_acknowledge(owner, path, pane, OLD_SOURCE, sequence, f"burst-{index}-claimed")
+                cohort.append({"pane": pane, "client": client, "intent": path})
+            published = json.loads(owner.run("agent", "list").stdout)["result"]["agents"]
+            targets = {item["pane"]["pane_id"] for item in cohort}
+            require({"step": "burst-presence"}, targets.issubset({item["pane_id"] for item in published}),
+                    "burst did not establish all ten live claims")
+            for item in cohort:
+                item["client"].terminate()
+                item["client"].wait(timeout=5)
+                item["exit_observed"] = time.monotonic()
+            latencies = {}
+            deadline = time.monotonic() + 30
+            while len(latencies) < len(cohort) and time.monotonic() < deadline:
+                published = json.loads(owner.run("agent", "list").stdout)["result"]["agents"]
+                live = {item["pane_id"] for item in published}
+                observed = time.monotonic()
+                for item in cohort:
+                    pane_id = item["pane"]["pane_id"]
+                    if pane_id not in live and pane_id not in latencies:
+                        latencies[pane_id] = observed - item["exit_observed"]
+                time.sleep(0.05)
+            require({"step": "burst-absence"}, len(latencies) == 10, "not all burst claims disappeared")
+            require({"step": "healthy-budget"}, max(latencies.values()) <= 10,
+                    f"ten-second healthy recovery budget exceeded: {latencies}")
+            for item in cohort:
+                wait_for(item["intent"], "settled")
+            owner.events.append({"healthy_budget_seconds": 10, "concurrent_claims": 10,
+                                 "verified_absence_seconds": latencies})
+
+        def allocator_controls():
+            source = f"mms-377-allocator-{uuid.uuid4().hex}"
+            sequence_dir = os.path.join(owner.root, "allocator-sequences")
+            def reserve(wall_clock):
+                with patch.object(recovery_prototype.time, "time_ns", return_value=wall_clock):
+                    if arguments.allocator_implementation == "legacy":
+                        # The former algorithm used the wall clock without a counter.
+                        return time.time_ns()
+                    return recovery_prototype.reserve_sequence(sequence_dir, source)
+
+            old_sequence = reserve(9_000)
+            later_sequence = reserve(1_000)
+            owner.events.append({"allocator_reservations": {
+                "implementation": arguments.allocator_implementation,
+                "old_sequence": old_sequence,
+                "later_sequence": later_sequence,
+            }})
+            pane = create_pane(owner, root)
+            report(owner, pane["pane_id"], source, "unknown", old_sequence)
+            report(owner, pane["pane_id"], source, "working", later_sequence)
+            release(owner, pane["pane_id"], source, old_sequence + 2)
+            survivor = owner.state(pane["pane_id"], "allocator-old-release-after-later-claim")
+            require_agent(survivor, status="working", terminal=pane["terminal_id"])
+            try:
+                reservation_code = (
+                    "import sys; "
+                    "sys.path.insert(0, sys.argv[1]); "
+                    "import intercom_claim_recovery_prototype as p; "
+                    "p.time.time_ns = lambda: int(sys.argv[4]); "
+                    "print(p.reserve_sequence(sys.argv[2], sys.argv[3]))"
+                )
+
+                def reserve_in_process(directory, reservation_source, wall_clock):
+                    completed = subprocess.run(
+                        [sys.executable, "-c", reservation_code, os.path.dirname(recovery_prototype.__file__),
+                         directory, reservation_source, str(wall_clock)],
+                        text=True, capture_output=True, timeout=10, check=False,
+                    )
+                    require({"step": "allocator-process-status"}, completed.returncode == 0,
+                            f"reservation process failed: {completed.stderr.strip()}")
+                    return int(completed.stdout.strip())
+
+                restart_source = source + "-restart"
+                restarted = [
+                    reserve_in_process(sequence_dir, restart_source, 500),
+                    reserve_in_process(sequence_dir, restart_source, 100),
+                ]
+                require({"step": "allocator-restart-persistence"}, restarted[1] > restarted[0] + 2,
+                         f"process restart lost high-water state: {restarted}")
+                concurrent_source = source + "-concurrent"
+                processes = []
+                for _ in range(4):
+                    process = subprocess.Popen(
+                        [sys.executable, "-c", reservation_code, os.path.dirname(recovery_prototype.__file__),
+                         sequence_dir, concurrent_source, "200"],
+                        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    )
+                    processes.append(process)
+                    OWNED_CLIENTS.append(process)
+                concurrent = []
+                for process in processes:
+                    stdout, stderr = process.communicate(timeout=10)
+                    require({"step": "allocator-concurrent-status"}, process.returncode == 0,
+                            f"concurrent reservation failed: {stderr.strip()}")
+                    concurrent.append(int(stdout.strip()))
+                reserved = {sequence + offset for sequence in concurrent for offset in (0, 1, 2)}
+                require({"step": "allocator-concurrent-reservations"}, len(reserved) == 12,
+                         f"four concurrent three-operation reservations overlapped: {concurrent}")
+                owner.events.append({"allocator": {
+                    "implementation": arguments.allocator_implementation,
+                    "old_sequence": old_sequence,
+                    "later_sequence": later_sequence,
+                    "restart_reservations": restarted,
+                    "concurrent_reservations": sorted(concurrent),
+                }})
+            finally:
+                release(owner, pane["pane_id"], source, later_sequence + 2)
+
+        cases = [
+            ("native binding serializes with cleanup after launcher death", native_binding_serializes_with_cleanup),
+            ("late native binding cannot adopt an exited or settled launch", late_native_binding_is_refused),
+            ("failed process lookup preserves a live claim", failed_process_lookup_preserves_live_claim),
+            ("launchd restarts killed observer and it cleans actual client exit", observer_exit_restart_and_cleanup),
+            ("abandoned proof owner unregisters its temporary observer", probe_owner_exit_unregisters_observer),
+            ("same-source successor and delayed old clear", same_source_successor),
+            ("lifecycle takeover retires bookkeeping without releasing its owner", takeover_retires_only_bookkeeping),
+            ("moved pane follows stable terminal identity", moved_terminal_follows_stable_identity),
+            ("fenced newer same-source claim survives old cleanup", fenced_newer_claim_survives_cleanup),
+            ("unknown newer claim stays pending and preserved", unknown_newer_claim_stays_pending_and_preserved),
+            ("unavailable socket retries and stale PID identity is not live", unavailable_socket_then_recovery_and_stale_pid),
+            ("crash windows retain a safe obligation", crash_windows_and_server_change),
+            ("source-scoped clear leaves a renamed stale claim", source_scoped_clear_limit),
+            ("delayed old release preserves pending managed native successor", pending_managed_native_successor),
+            ("repeated cleanup and closed resource", repeated_and_closed_resource),
+            ("server restart prevents stale cleanup from retargeting", real_server_restart_settles_only_gone_terminal),
+            ("ten simultaneous claims meet the healthy recovery budget", ten_claims_meet_healthy_budget),
+            ("allocator controls preserve a later claim across wall-clock rollback", allocator_controls),
+        ]
+        for name, action in cases:
+            if arguments.case == "all" or name.startswith("allocator controls"):
+                case(owner, name, action, verdicts)
         failures = [item for item in verdicts if item[1] != "PASS"]
         if failures:
             outcome = 1

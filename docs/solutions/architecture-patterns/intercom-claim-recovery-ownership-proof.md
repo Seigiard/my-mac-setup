@@ -22,9 +22,87 @@ tags:
 
 This is opt-in proof tooling, not a runtime rollout. The owner now accepts the
 [scoped upstream suspension exception](../../plans/2026-09-29-intercom-claim-recovery-spec.md#accepted-upstream-suspension-exception).
-Work may continue under that boundary. The gate is not yet accepted: evidence
-classification, full client-probe review and the implementation addendum remain.
-No managed path has changed. Historical FAIL results below remain unchanged.
+Work may continue under that boundary. Full review of the earlier passing runs
+found nine major and ten minor defects or evidence gaps. The candidate and
+its probes have been revised. Both complete commands have fresh passing receipts
+on the corrected state. A confirming review is still required before acceptance.
+No managed path has changed. Historical results below remain unchanged.
+
+### Full-review repair evidence
+
+The revised owner command completed with **18 PASS**, exit **3**, in
+`ownership-proof-83d9bbf6efef47608b588848cc19b845.json`. The ten-claim burst's
+slowest verified absence was **4.794 seconds**, rounded up. Cleanup removed its
+owned session tree. This verdict covers owner controls, not the client gate.
+
+The allocator control uses real Herdr after a backward clock step: a newer
+same-source claim must survive the older launch's reserved release. The former
+wall-clock-only algorithm fails that same control with exit 1
+(`ownership-proof-d74a943a09464dd2b9d010f075dc435a.json`). Separate processes
+check persistent ordering and four non-overlapping three-operation reservations;
+the assertions permit gaps between reservations.
+
+Rerun only this control with the owner command's `--case allocator-controls`.
+Add `--allocator-implementation legacy` for the expected-failing calibration.
+The ordinary owner command includes the shared-allocator control by default.
+The revised client command completed with **24 PASS** and **3
+KNOWN_UPSTREAM_LIMITATION**, exit **0**, in
+`client-proof-052038c585ae4787a25ab370c9dfe5ca.json`. Its 27 cases include initial
+admission failure, late Claude binding refusal, unrelated and nested native
+handoff refusal, and retry after a real first-prompt socket outage. The retry
+case observes a release by the observer PID after socket restoration, without a
+second prompt. The client run removed its scratch directory and isolated server.
+Versions were Herdr 0.9.1, Claude 2.1.277, OpenCode 1.18.30 and Pi 0.87.1.
+
+Admission controls cover a non-directory intent path and unavailable server
+or launcher process identity. Diagnostic receipts reuse only an identity already
+observed before the failure; they do not repeat the failed lookup. A real exec
+control verifies that fallback clears inherited `OPENCODE_INTERCOM_NAME`, which
+the managed adapter consumes. A fresh-pane `agent_name_taken` control verifies
+partial acquisition, native startup, durable correlation and the other alias
+owner's preservation. Native exit can clear the record before recovery observes
+it; the unacknowledged local obligation then remains pending under R5 rather
+than treating absence as an acknowledgement.
+
+The utility control audits actual Herdr CLI calls through an exec-forwarding
+recorder; the installed server supplies every response. A screen-detected,
+unnamed native utility record is not itself a launcher claim. The control
+rejects enrollment mutations and new durable intents. The final runtime task
+must replace the reference-launcher entry with its actual managed entrypoint.
+
+Suspension evidence now requires the wrapped alias before Ctrl-Z, equal native
+and wrapped stop mechanisms, matching observed loss shapes, and no additional
+identity loss after resume. A re-detected unnamed record where the baseline has
+none is not additional loss. Foreign names, kinds or terminal identities fail.
+Samples start at observed suspension before waiting for the observer. Elapsed
+times are diagnostic: independently scheduled runs do not establish a numeric
+latency-equivalence contract. The separate healthy cleanup budget still applies.
+Pi retains its independent, recovery-disabled reference baseline and also uses
+a recovery-disabled reference control with the same status-driver process tree
+for the shape comparison. Both observations remain in the artifact. This keeps
+the fixture's extra foreground process from being attributed to recovery.
+
+Isolated regression calibrations reached their intended failures:
+
+| Removed behavior | Regression evidence |
+|---|---|
+| Observer retries authorized handoff | `handoff-retry-mutant-1c6866bdf4bd4b7091f2cb61e3fcaf7c.json` |
+| Non-descendant handoff refusal | `handoff-non-descendant-mutant-62b174b4f1874599a3b558efa7adadbd.json` |
+| Nested native handoff refusal | `handoff-nested-mutant-664852d7d9264141b50653779395fbae.json` |
+| Initial admission preserves native startup | `admission-initial-mutant-4610b3a8dd77465cbfeb0be8e75acf6d.json` |
+| Late binding preserves native startup | `admission-late-mutant-7efca10f8c614bdab10e16c0f6d8a808.json` |
+| Known Pi utility bypass | `utility-classification-mutant-1a35837cf3714921a2f5e0dd9f802811.json` |
+| Wrapped Ctrl-Z reaches the client | `job-control-mutant-e5db52c14b064b319708f23be0259e25.json` |
+| Recovery leaves a stopped live client registered | `qualification-live-release-mutant-3478c97971154b82bf2bc4155cd50145.json` |
+| Recovery never renames that live client | `qualification-live-rename-mutant-89a53da71be241dda3cd3ac5e18fb5ba.json` |
+| Admission catches identity-reader failures | `admission-recovery-error-mutant-302ecd1ad7e74ec18db2c7d13b52eb65.json` |
+| Diagnostic receipt does not repeat a failed own-PID lookup | `admission-receipt-identity-mutant-469592817ed14b62978a9508715b1e8e.json` |
+| Partial admission retains pending correlation | `admission-pending-receipt-mutant-558f2ad4a5cf4b39b01c517f7b0eeb85.json` |
+| Fallback clears inherited OpenCode identity | `admission-focus-7945a54f7de24426a801b664cacd251a.json` |
+
+The positive sides ran in the complete client command above. These artifacts
+record failed guards, not additional passing client cases. A confirming full
+review of the changed protocol and checks remains outstanding.
 
 ### Observed Herdr limitation
 
@@ -106,6 +184,13 @@ mutated with the old intent. Before retirement, read-only requests fenced to the
 replacement server must establish that the old terminal or its agent record is
 absent. A retained record leaves an explicit pending diagnostic.
 
+Herdr 0.9.1 exposes neither a conditional rename nor claim source/sequence in
+`agent.get`. The initial acquisition rename, like the explicitly declined
+post-suspension repair, has no generation or process-identity fence. This proof
+does not claim to make overlapping same-pane acquisitions safe; the normal pane
+foreground-launch boundary makes that window narrow, but it is not an atomic
+Herdr guarantee.
+
 ### Claude's native process and first prompt
 
 `cci` probes its configured bridge with `--version` even in MCP mode. That
@@ -127,6 +212,13 @@ published lifecycle state being tested.
 
 `handoff_intended_at_ns` is diagnostic intent written before the RPC. It is not
 an acknowledgement and is never used as a retirement predicate.
+
+The proof uses Python 3.14.7. Its monotonic clock is shared by the hook and
+observer processes ([Python's documented contract](https://docs.python.org/3.14/library/time.html#time.monotonic)).
+Handoff retry consults that deadline only for the same live client incarnation.
+A host reboot ends that client; dead-client cleanup does not read the handoff
+deadline. An observer-process restart preserves the clock. The runtime must
+retain this shared-clock property; macOS requires Python 3.10 or later.
 
 ## Owner evidence
 
@@ -150,11 +242,8 @@ The current registered owner cases are:
 | Pending managed successor | A real `herdr agent start` reaches its pre-exec barrier. Old release preserves the reserved alias and terminal. The pane is closed before the unused native launch begins. |
 | Concurrent and repeated cleanup | Both observers reach an entry barrier and attempt the same intent; cleanup converges on a settled obligation. Repeated release and closed-terminal replay also settle safely. Lock sensitivity belongs to the separate binding case. |
 | Server restart | The old record is confirmed absent after restart, and a new server's unrelated named record remains unchanged. |
-
-`ownership-proof-c70cca5b3fc24561855a2ba1b13a25c6.json` records sixteen passing
-owner cases and 0.926 seconds of observed recovery latency. It includes the
-explicit unacknowledged-claim window and the calibrated binding race.
-No production recovery budget is selected from an isolated latency sample.
+| Healthy recovery budget | Ten live claims are first confirmed present, then their real processes exit. Batched Herdr agent-list observations confirm each claim absent within the ten-second target. |
+| Sequence allocation | A backward clock step cannot let old release remove a later claim. Separate processes retain ordering and reserve non-overlapping triples concurrently. |
 
 Calibration found and closed a false-green timing window in the new binding
 case. Its observer witness now requires an attempt that **started** after
@@ -165,6 +254,71 @@ PID plus start identity passes. The failed-client-reader regression was also
 observed red and green with server-peer lookup left functional.
 
 ## Real-client evidence and remaining work
+
+The current owner and client receipts are indexed under **Full-review repair
+evidence** above. The standalone native diagnostic retains its raw failing
+assertions. Reference-launcher utility classification is compatibility evidence;
+R8 on the candidate's managed admission entrypoint remains for task 377-2.
+
+The qualified baselines differ explicitly:
+
+- Claude and OpenCode: direct native launch, no cci or status driver, observer
+  confirmed stopped; same live PID/start identity across suspension/resume.
+- Pi: the unmodified launcher from merged #378, with recovery disabled and the
+  same upstream Herdr integration. A bare Pi renamed after session attachment
+  retained its name, so that different naming baseline was not used to excuse
+  the wrapped loss. The reference launcher also lost its early-assigned name
+  after verified Pi lifecycle takeover. The qualified client run records the
+  matched lifecycle phase and reference commit. A second reference control uses
+  the wrapped fixture's status driver for the direct shape comparison, with
+  recovery again confirmed stopped.
+
+Each wrapped case observes stopped/live process identity and resumed input;
+normal quit independently requires observed status 0 on each side. OpenCode
+and Claude also witness the observer examining a pending intent while stopped.
+Pi's intent has retired after lifecycle takeover, so its row proves suspension
+attribution for that retired state, not pending-claim cleanup behavior.
+The trace checks reject recovery mutations before quit. Append-only mutation
+attempts are recorded on the fenced descriptor before sending the RPC, so a lost
+response cannot hide a write. A native baseline that retains identity cannot
+excuse wrapped loss. A fully retained wrapped identity is PASS, not a permanent
+exception based only on a version string.
+
+Calibration rejects real bad operations: the live-release and live-rename mutants
+produce FAIL, not KNOWN_UPSTREAM_LIMITATION. The release control handles an early
+bad release that settles the intent before the next observation can start.
+Raw errors and native baseline evidence remain in the artifact.
+
+The live detected-successor case now drives a real Claude past first-prompt
+handoff, then performs delayed and repeated old release with no remaining hook
+authority. The named record, session reference, live process, and real private
+Intercom broker session ID/name survive unchanged.
+
+The fixture gives the isolated Herdr client its own controlling terminal and a
+160-column, 40-row PTY. Merely redirecting stdio left `/dev/tty` attached to the
+runner and caused six-row readiness failures. Resume waits for the shell's empty
+prompt, then for native raw-mode input readiness. Pi quits with Ctrl-D; `/exit`
+can autocomplete a skill. Claude's owned inbox-monitor exit confirmation is
+handled explicitly. Cleanup failure makes the saved gate verdict fail.
+
+The ten-claim burst in `owner-budget-5c20d93e2bb94ce5aafc142bb7815f53.json`
+verified all claims absent within a conservative 5.019-second maximum. The
+proposed addendum sets a 10-second healthy target, 100-ms observation cadence,
+and 2-second retry spacing for uncertain acknowledged release. The runtime
+implementation must repeat that measurement. No runtime has been deployed.
+
+### Historical owner and client results
+
+These artifacts are superseded checkpoints, not current gate receipts:
+
+- `ownership-proof-c70cca5b3fc24561855a2ba1b13a25c6.json`: sixteen passing owner
+  cases, 0.926 seconds of observed recovery latency, including the
+  unacknowledged-claim window and calibrated binding race.
+- `ownership-proof-e70dc9f4be734b86a82c07d43679a055.json`: seventeen passing owner
+  cases, including the ten-claim budget control at a 4.827-second maximum.
+- `client-proof-47a9c136573f49769068d4ee30bfb939.json`: eighteen PASS and three
+  KNOWN_UPSTREAM_LIMITATION rows, before the additional admission and handoff
+  controls were registered.
 
 `client-proof-4e8de3e25f634d9a8f9ead38205fbe54.json` records twenty client
 controls: eighteen passed, while OpenCode and Claude lost enrollment during
@@ -208,8 +362,10 @@ The owner command returns `1` for failed cases or cleanup, `2` for refusal, and
 `3` when its cases pass but the separate full client gate remains unverified.
 Read the UUID-named JSON artifact for the exact executed case set. A focused
 calibration is not evidence that omitted cases ran. The client command returns
-`0` only when every registered client case passes; it does not replace owner
-evidence or the required reviewed addendum.
+`0` only when every registered client case is either `PASS` or an independently
+attributed `KNOWN_UPSTREAM_LIMITATION`; it returns `1` for any `FAIL`, `SKIP` or
+`UNVERIFIED` row. Read the artifact counts for the PASS-only total. It does not
+replace owner evidence or the required reviewed addendum.
 
 The suspension-only command intentionally returns `1` on the observed Herdr
 limitation. Its JSON includes the live stopped PID/start identity, alias loss,

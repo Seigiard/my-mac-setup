@@ -168,6 +168,83 @@ A skip or a fake server is not a pass. If isolation cannot be proved,
 keep runtime unchanged and return with the precise upstream API requirement or
 the client-side registration alternative. Do not silently weaken R1 or R2.
 
+## Implementation addendum — candidate under review
+
+The candidate below was revised after full review found gaps in the owner and
+client evidence. The evidence note records the new complete checks. It becomes
+the runtime implementation baseline only after the revised complete proof PR
+and this addendum are reviewed. It does not describe deployed behavior.
+
+### Owner and admission
+
+- Use one narrow observer for each host-local recovery state root. On the proved
+  macOS host, a user `launchd` job is its restart owner: `RunAtLoad` plus
+  `KeepAlive.SuccessfulExit = false`. The actual SIGKILL/restart control passed;
+  `KeepAlive.Crashed = true` did not restart that signal on this host.
+- The proof-controller PID guard belongs only to disposable test jobs. The
+  deployed observer must outlive a launcher or client and read durable intents
+  after restart. Its readiness must be established before a new claim is made.
+- Keep versioned recovery intents separate from legacy claim/rename markers.
+  Failure to establish a proved restart owner or durable intent follows R10.
+  Other restart hosts are not proved here; do not acquire new claims behind an
+  unverified platform fallback. Independently valid existing aliases can still
+  be reused without adopting their cleanup responsibility.
+
+### Identity and ordering
+
+- Persist server socket location and connected peer PID/start identity, stable
+  terminal identity, launch generation, source, reserved sequences, and the
+  observed process PID/start identity before acquiring the claim.
+- Reserve ordered `N` (claim), `N+1` (handoff), and `N+2` (final release). Later
+  generations must sort after all earlier reserved operations. Sequence
+  allocation must remain monotonic across concurrent starts and clock changes.
+  The candidate allocator persists its high-water mark under an inode-stable
+  lock shared by launches using that source.
+- Use a new protocol source, distinct from legacy `herdr-agent-intercom` claims.
+  Fence each RPC to its connected server peer and verify the resulting state;
+  neither a successful response nor a pre-read licenses an unconditional change.
+  Herdr 0.9.1's acquisition rename is also unconditional: it cannot fence
+  overlapping acquisitions in one pane by generation or process identity.
+- Serialize acknowledgement, native binding, handoff and observation with the
+  same inode-stable per-intent lock. JSON replacement alone is insufficient.
+  Observer lock acquisition is nonblocking so a busy intent does not stop others.
+- OpenCode and Pi keep their actual exec PID. For Claude, pass through cci's
+  preliminary `--version` bridge call, then bind the real bridge PID before its
+  native exec. Validate the live parent before that locked binding. A late bridge
+  cannot revive a settled claim; preserve native argv without new enrollment.
+- Retire on verified client takeover without mutating its authority. Claude's
+  first-prompt handoff uses its reserved operation and native ancestry, preserves
+  the alias, and needs a later concrete published agent state as confirmation.
+  Persist the authorized request before its first RPC. The observer retries an
+  unavailable handoff for that same live PID/start identity without another
+  prompt. An acknowledged release still needs concrete state before retirement.
+  Follow moved terminals by stable identity. A new server permits only read-only
+  absence confirmation for the old obligation, never a stale mutation.
+- Keep unavailable observations, unacknowledged acquisition, and ambiguous
+  ownership pending. Age and suspension are not death. Keep diagnostics explicit
+  and retries independent of another launch. This protocol does not repair the
+  accepted upstream suspension identity loss with a read-then-rename operation.
+
+### Recovery budget and evidence
+
+The healthy-state target is verified recovery within **10 seconds** of confirmed
+client exit, with the observer available, successful local identity/Herdr reads,
+and known ownership. Poll at **100 ms**; retry an uncertain acknowledged release
+no more often than every **2 seconds**. A missed healthy budget fails acceptance;
+an unavailable observation stays pending rather than being called success.
+
+The registered ten-claim burst control measures verified absence after exit
+observations. The evidence note below is the single index of current artifacts
+and measured latency. These measurements cover representative workloads, not
+arbitrary load.
+The final runtime must meet the same budget and repeat the representative burst
+control; retain measured latency separately from hang-guard timeouts.
+
+The checked-in [evidence note](../solutions/architecture-patterns/intercom-claim-recovery-ownership-proof.md)
+names the owner/client runs, direct or recovery-disabled baselines, no-live-
+mutation calibration and cleanup receipts. Known upstream outcomes are distinct
+from PASS and remain governed by the exception above and follow-up #383.
+
 ## Verification ownership
 
 The consumer is a person or automation reading Herdr state after a failed launch.
@@ -188,8 +265,8 @@ enrollment must fail the interactive control.
 
 Apply `docs/agent-verification.md` to the final implementation. New managed paths
 or deployment-dependent lifecycle behavior require `make test-ubuntu`. Ubuntu
-and macOS CI must pass before merge. This specification-only change adds no
-runtime tests: no cleanup implementation exists for them to exercise yet.
+and macOS CI must pass before merge. This change adds opt-in proof tooling;
+deployed cleanup and its runtime tests remain part of the implementation task.
 
 ## Deferred runtime and documentation changes
 

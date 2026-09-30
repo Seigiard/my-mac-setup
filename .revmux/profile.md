@@ -114,6 +114,10 @@ false positive:
 A finding must be material, not merely true. One maintainer reads every round; noise is what
 makes rounds stop being read, so a false positive costs more here than a missed nit.
 
+For restart and timing findings, establish that the failing path is reachable
+through its lifecycle and identity guards. A stale persisted value alone carries
+no defect weight when the operation that reads it cannot survive that restart.
+
 Do not report: style and formatting preference; a restatement of what the diff already
 shows; "add a test" where the test-oracle gate says zero new tests is the right answer;
 production-service advice from the first section; any convention listed above; anything

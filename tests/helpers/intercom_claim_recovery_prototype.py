@@ -129,6 +129,8 @@ def bound_request(intent, method, params):
         connection.connect(intent["connection"]["socket_path"])
         if peer_identity(connection) != intent["connection"]["server_identity"]:
             raise ServerInstanceChanged("server instance changed")
+        if method in {"pane.report_agent", "agent.rename", "pane.release_agent", "pane.clear_agent_authority"}:
+            trace_event(intent, "mutation_attempt", unique=True, method=method, params=params)
         request = {"id": uuid.uuid4().hex, "method": method, "params": params}
         connection.sendall((json.dumps(request) + "\n").encode())
         with connection.makefile("rb") as stream:
@@ -155,6 +157,20 @@ def write_intent(intent_dir, intent):
     path = os.path.join(intent_dir, f"{intent['launch_id']}.json")
     atomic_write(path, intent)
     return path
+
+
+def reserve_sequence(directory, source):
+    """Persistently reserve claim, handoff and release sequence numbers per source."""
+    os.makedirs(directory, exist_ok=True)
+    path = os.path.join(directory, f"{source}.sequence.json")
+    with intent_lock(path, timeout=5):
+        try:
+            previous = read_json(path)["last"]
+        except FileNotFoundError:
+            previous = -1
+        candidate = max(time.time_ns(), previous + 3)
+        atomic_write(path, {"last": candidate + 2, "reserved_at_ns": time.time_ns()})
+        return candidate
 
 
 def acknowledge_acquisition(intent_path):
@@ -195,7 +211,9 @@ def require_client_ancestor(intent):
     """A first-prompt hook must descend from this native client, not a nested one."""
     expected = intent["client"]
     image = intent.get("native_executable")
-    if not image or process_start_identity(expected["pid"]) != expected["start_identity"]:
+    if not image:
+        raise RecoveryError("handoff intent has no bound native client")
+    if process_start_identity(expected["pid"]) != expected["start_identity"]:
         raise RecoveryError("handoff native process identity is unavailable")
     pid = os.getpid()
     for _ in range(64):
@@ -220,6 +238,31 @@ def request_handoff(path):
         if intent["phase"] in {"settled", "retired"}:
             return
         require_client_ancestor(intent)
+        sequence = intent["claim"]["handoff_seq"]
+        if not intent["claim"]["claim_seq"] < sequence < intent["claim"]["release_seq"]:
+            raise RecoveryError("handoff sequence was not reserved before acquisition")
+        # Authorization must survive a failed first RPC and the hook's exit.
+        intent["handoff_client"] = dict(intent["client"])
+        intent.setdefault("handoff_requested_at_ns", time.time_ns())
+        atomic_write(path, intent)
+        attempt_handoff(path, intent)
+
+
+def attempt_handoff(path, intent):
+    """Retry an authorized request while holding its per-intent lock."""
+    # Callers require the same live client incarnation. A reboot ends it;
+    # ordinary observer restarts share this boot's monotonic clock with the hook.
+    if intent.get("handoff_acknowledged"):
+        return
+    if time.monotonic() < intent.get("handoff_retry_after_monotonic", 0):
+        return
+    intent["handoff_retry_after_monotonic"] = time.monotonic() + PENDING_RETRY_SECONDS
+    atomic_write(path, intent)
+    try:
+        expected = intent["handoff_client"]
+        if expected != intent["client"] or process_start_identity(expected["pid"]) != expected["start_identity"]:
+            update_intent(path, intent, intent["phase"], "pending: authorized handoff client changed or exited")
+            return
         snapshot = bound_request(intent, "session.snapshot", {})
         if "error" in snapshot:
             raise RecoveryError("handoff terminal lookup failed")
@@ -239,9 +282,13 @@ def request_handoff(path):
         })
         if "error" in response:
             raise RecoveryError(f"handoff failed: {response['error']}")
+        intent["handoff_acknowledged"] = True
+        atomic_write(path, intent)
         # An ignored release also succeeds. Only the observer's later concrete
         # state read retires this obligation; the hook does not rename anything.
         update_intent(path, intent, intent["phase"], "pending: handoff awaiting published state")
+    except (OSError, RecoveryError) as error:
+        record_connection_failure(path, intent, error)
 
 
 def update_intent(intent_path, intent, phase, diagnostic=None):
@@ -288,11 +335,13 @@ def record_connection_failure(path, intent, error):
     update_intent(path, intent, intent["phase"], f"pending: {error}")
 
 
-def trace_event(intent, event, **details):
+def trace_event(intent, event, unique=False, **details):
     directory = intent.get("trace_dir")
     if directory:
-        atomic_write(os.path.join(directory, f"{os.getpid()}.{event}.json"),
-                     {"pid": os.getpid(), "event": event, "at_ns": time.time_ns(), **details})
+        suffix = f".{uuid.uuid4().hex}" if unique else ""
+        atomic_write(os.path.join(directory, f"{os.getpid()}.{event}{suffix}.json"),
+                     {"pid": os.getpid(), "event": event, "at_ns": time.time_ns(),
+                      "monotonic_ns": time.monotonic_ns(), **details})
 
 
 def probe_barrier(path, checked, timeout=10):
@@ -394,6 +443,8 @@ def _observe_one_locked(path):
             update_intent(path, intent, "retired", "retired: concrete successor state observed")
             return
     if client_alive:
+        if intent.get("handoff_requested_at_ns") and intent.get("handoff_client") == intent["client"]:
+            attempt_handoff(path, intent)
         return
     if intent["phase"] == "intent":
         if acquisition.get("error", {}).get("code") == "agent_not_found":
@@ -414,6 +465,8 @@ def _observe_one_locked(path):
     if time.time() < intent.get("retry_after", 0):
         return
     try:
+        trace_event(intent, "release_attempt", unique=True, target=pane_id,
+                    source=intent["claim"]["source"], seq=intent["claim"]["release_seq"])
         release = bound_request(intent, "pane.release_agent", {
             "pane_id": pane_id, "source": intent["claim"]["source"],
             "agent": intent["agent_kind"], "seq": intent["claim"]["release_seq"],
@@ -545,6 +598,17 @@ class LaunchdOwner:
         raise RecoveryError("launchd job or observer still present after bootout")
 
 
+def exec_without_enrollment(command, args, warning):
+    """Preserve native startup after admission fails, without inherited authority."""
+    for key in tuple(os.environ):
+        if key.startswith(("HERDR_AGENT_INTERCOM_", "AGENT_INTERCOM_", "CLAUDE_INTERCOM_")):
+            os.environ.pop(key)
+    os.environ.pop("MMS377_INTENT", None)
+    os.environ.pop("OPENCODE_INTERCOM_NAME", None)
+    print(warning, file=sys.stderr, flush=True)
+    os.execv(command, [command, *args])
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--observe")
@@ -587,12 +651,8 @@ def main():
         except (ValueError, KeyError):
             print("herdr-agent-intercom: invalid Claude bridge environment", file=sys.stderr)
             raise SystemExit(1)
-        for key in tuple(os.environ):
-            if key.startswith(("HERDR_AGENT_INTERCOM_", "AGENT_INTERCOM_", "CLAUDE_INTERCOM_")):
-                os.environ.pop(key)
-        os.environ.pop("MMS377_INTENT", None)
-        print("claim binding unavailable; starting native Claude without enrollment", file=sys.stderr)
-        os.execv(command, [command, *native_args])
+        exec_without_enrollment(command, native_args,
+                                "claim binding unavailable; starting native Claude without enrollment")
     if not arguments.observe or not arguments.pid_file:
         parser.error("--observe and --pid-file are required")
     probe_owner = None
