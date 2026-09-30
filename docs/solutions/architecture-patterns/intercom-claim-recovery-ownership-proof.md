@@ -20,13 +20,191 @@ tags:
 
 ## Boundary
 
-This is opt-in proof tooling, not a runtime rollout. The owner now accepts the
+The owner accepts the
 [scoped upstream suspension exception](../../plans/2026-09-29-intercom-claim-recovery-spec.md#accepted-upstream-suspension-exception).
-Work may continue under that boundary. Full review of the earlier passing runs
-found nine major and ten minor defects or evidence gaps. The candidate and
-its probes have been revised. Both complete commands have fresh passing receipts
-on the corrected state. A confirming review is still required before acceptance.
-No managed path has changed. Historical results below remain unchanged.
+Proof PR #382 passed its confirming review and merged into the delivery branch
+at `402f12eb0eb2f73e1225032b49726d429231b081`. Runtime verification now executes
+the managed launcher, bridge, release command, shared engine and rendered
+launchd job from private staging. This is not a host rollout or final delivery
+acceptance. Historical proof results below remain unchanged.
+
+### Runtime verification checkpoint
+
+Artifacts live under `~/.claude/artifacts/377/`. The runtime uses the shared
+engine at `home/dot_local/lib/intercom-claim-recovery.py`; the former prototype
+module is a test shim that loads this same engine.
+
+### Review confirmation and verification repair
+
+The third complete dual-model round confirmed the runtime/watcher repairs and
+kept one coverage finding: the historical OpenCode utility matrix was still
+missing. It is now restored through a valid existing-alias route, so a missing
+bypass is observable without a fake restart owner. Completion, option-value,
+`--pure=false`, and project-path mutants each fail the restored case; fixed code
+passes (`opencode-bypass-calibration-128.json`). Focused launcher verification
+passed 13 cases and 229 assertions. These final edits change tests and review
+calibration only; deployment126 and the owner/client receipts below remain
+valid for their unchanged runtime state. A confirming review is still required.
+
+The second full dual-model round had ten of ten sources, no degradation and
+confirmed source access. Its one major was a PTY-fixture drain that could wait
+past the command deadline when a descendant held the slave open. The helper is
+now under `tests/helpers`, with one bound for command execution and output
+draining. A Linux control was red before the fix and green after it
+(`runtime-check-pty-red119.log`, `runtime-check-pty-green120.log`). The generic
+Python suite on macOS passed 43 tests and explicitly skipped that Linux-only
+case; the focused Linux suite passed both cases.
+
+The archive test now makes age and count independently decisive. Removing each
+limit separately is red; restored code is green. The alias probe also asserts
+terminal old responsibility at the successor's pre-CCI gate and records the
+new admission route (`final-fix-calibrations-121.json`). Dead proof-env and
+uncalled CLI entries were removed without moving the probe functions.
+
+Current owner122 and client123 runs passed 18 owner cases and 30 client cases
+plus three separately qualified upstream limitations, with owned cleanup:
+`ownership-proof-81ad831668b84dbe857f07114d85e421.json` and
+`client-proof-67e23e40a3f54cc38a86a81982e56dca.json`.
+
+Deployment124 exposed a separate pre-existing watcher race, tracked in #388.
+Disappearance between a successful pane read and failed agent read lost the
+child-gone notification. The existing fixture now forces that ordering; the
+watcher revalidates the pane before exhausting the read budget, including a
+one-failure budget. Persistent agent errors still terminate with wait-error.
+Old code and a budget-reset mutant are red; restored cases pass
+(`watcher-read-gap-calibration-125.json`). Canonical deployment126 passed on
+the repaired state. This new watcher path requires another full review.
+
+The raw pty-red118 diagnostic also ran host-oriented tests inside a bare
+read-only container and hit unrelated Docker-marker/git-metadata assumptions.
+It is not a full-suite verdict; the focused Linux regression and canonical
+deployment checks above own their separate results.
+
+### Repairs after draft checkpoint #387
+
+Issues #384 and #385 track this batch. The alias-reuse race was reproduced on
+checkpoint `078b06e`: old cleanup removed the Herdr alias while the successor
+kept that name in the private broker. The stable regression barrier is at CCI's
+Node entry, after alias selection and before CCI starts. A native-exec barrier
+was too late because CCI itself could already become detectable. The permanent
+case failed at `reuse-successor-identity` in `runtime-check-race-red104.log`.
+
+The reuse guard now waits for confirmed-dead obligations on the same server and
+terminal to settle, then rereads the alias. Live or unverifiable prior ownership
+falls back to native startup without borrowing its identity. Both requested
+cleanup schedules passed in `runtime-check-race-green106.log`; the fix moves
+old cleanup before CCI in both, rather than allowing both unsafe orderings.
+The probe now asserts that old responsibility ended before the successor's
+gate, records its admission route and checks late observer calls before/after
+native detection. The live/unverifiable controls passed in that run too;
+`runtime-check-reuse-read107.log` covers stale readback and an independent alias.
+
+Current cumulative evidence:
+
+- `runtime-check-owner109.log`: 18 PASS, owner-only exit 3, cleanup complete.
+  Artifact `ownership-proof-eef4ed5d8f7442e383d843b274619c2b.json`.
+- `runtime-client-116.log`: 30 PASS and three KNOWN_UPSTREAM_LIMITATION rows,
+  no FAIL/SKIP/UNVERIFIED, cleanup complete. Artifact
+  `client-proof-d5aff934ae28483b9dac3bc507e54f54.json`.
+- `runtime-check-deploy113.log`: canonical `make test-ubuntu` passed with the
+  Python dependency moved to the full macOS Brewfile. Later edits only affect
+  live suspension measurement. Focused launcher checks passed 13 cases and 195
+  assertions; general Python checks passed 42 tests; lint passed.
+- `runtime-restart-calibration-108.json`: a staged restart-policy mutation
+  passed admission and failed at the restart assertion; restored code passed.
+- `suspension-safety-calibration-115.json`: live-release and live-rename mutants
+  failed their safety guards; restored code qualified only the upstream loss.
+
+The failed client110 and client112 runs remain recorded. Client110 exposed a
+non-atomic readiness marker in the new fixture; it now uses `atomic_write`.
+Client112 compared immediate post-fg snapshots at different detection phases.
+`opencode-resume-diagnostic-114.json` observed this transient in the control too.
+OpenCode now records the first snapshot, waits for Herdr redetection in both
+routes, and records the wait and the same resumed PID/start identity. The bound
+is an observation hang guard, not a latency-equivalence assertion.
+
+Suspension loss and its exception qualification now use the same comparison
+baseline: a recovery-disabled reference with the matching status driver for
+OpenCode/Pi, and direct native Claude. Separate direct-native observations and
+raw assertions remain in the artifact. The accepted contract permits native or
+recovery-disabled evidence; no live mutation, foreign identity or unqualified
+loss is accepted. Final cumulative review remains outstanding.
+
+### Earlier runtime checkpoints
+
+The owner-requested post-review batch is tracked in
+[#377's checklist](https://github.com/Seigiard/my-mac-setup/issues/377#issuecomment-5914791500).
+Terminal intents now leave the hot scan for a bounded archive. The sidecar
+protocol lets queued callers finish on the original inode and prevents new
+callers from recreating it. The archive policy is in the specification.
+Evidence at that checkpoint:
+
+- `runtime-check-owner97.log`: 18 PASS, owner-only exit 3, with cleanup.
+  Artifact `ownership-proof-c054422872c54e3aa256c195932d3860.json`.
+- `runtime-client-100.log`: 28 PASS and three independently qualified
+  KNOWN_UPSTREAM_LIMITATION rows, no FAIL/SKIP/UNVERIFIED, with cleanup.
+  Artifact `client-proof-03b8a17f51344d93b10842b0eaa8a77d.json`.
+- `runtime-check-deploy99.log`: canonical `make test-ubuntu` passed on the
+  final deployment-relevant files. `make test-python` passed 42 tests after the
+  lock-contention assertion was strengthened. Lint and diff checks passed.
+- `restored-test-calibrations-95.json`: the restored collision retry failed
+  when retry was disabled; PTY Pi utilities failed without their guard and
+  passed with it restored. The normal-order collision case uses real Herdr.
+- `archive-calibrations-96.json`: disabling archival, recreating a removed
+  lock, and disabling retention each failed their intended assertion; the
+  restored archive suite passed. The separate contention test observes a real
+  failed flock attempt before moving the record.
+
+The failed client98 run is retained. Its collision control left an owned alias
+occupied into later cases; the fixture now closes that control pane after its
+preservation assertions. At that checkpoint the alias-reuse reproduction was
+still pending. The later reproduction and fix are recorded above. The initial
+runtime review did not confirm this batch.
+
+Earlier runtime checkpoints:
+
+- `runtime-check-owner82.log`: 18 owner controls passed. Exit 3 denotes the
+  separate client gate, not an owner failure. Artifact:
+  `ownership-proof-2bf5f6ab37744d8f86349b4d8e386aec.json`.
+- `runtime-client-82.log`: 24 PASS and three independently qualified
+  KNOWN_UPSTREAM_LIMITATION rows, with no FAIL, SKIP or UNVERIFIED rows. Artifact:
+  `client-proof-81bbc8f94caf4518916234a74542edb6.json`.
+- `runtime-client-90.log`: the cumulative runtime gate passed with 27 PASS and
+  three KNOWN_UPSTREAM_LIMITATION rows, no FAIL, SKIP or UNVERIFIED rows, and
+  complete owned cleanup. Artifact:
+  `client-proof-124aeba2e4ff4028820abe86472890f2.json`.
+- `runtime-check-legacy83.log`: the actual legacy release preserved a new
+  Claude runtime successor, including its private Intercom registration.
+- `runtime-check-partial87.log`: a real rename with a lost response preserved
+  native startup, removed inherited enrollment authority, retained durable
+  correlation and left no claim after client exit. The relay's ordinary-response
+  control completed enrollment. Unacknowledged absence may remain pending.
+- `runtime-check-restart88.log`: stale readiness was replaced before admission;
+  launchd restarted the killed production observer, which recovered client exit.
+- `runtime-check-deploy83.log`: `make test-ubuntu` passed. The first attempt
+  exposed a fixture's ambient `herdr-peer-alias` dependency; the fixture now
+  stages that helper explicitly and keeps its original assertions.
+- `make test-agent-intercom-loaders`: 14 PASS. `make lint` passed after the
+  runtime test additions.
+- `runtime-check-red91.log`: removing inherited-name cleanup from the private
+  staged launcher made the partial-acquisition test fail at
+  `partial-native-authority`. Raw artifact:
+  `runtime-red-inherited-identity-7f9fa4f7b656418a80f1bcca182c8e24.json`.
+  The earlier concurrent calibration attempt (`red89`) failed in its cleanup
+  control instead and is not regression evidence. The sequential run reached
+  the intended failure. Other new runtime cases have green observations but no
+  new mutation calibration yet.
+
+The complete client run used Herdr 0.9.3, Claude 2.1.280, OpenCode 1.18.30 and
+Pi 0.87.1. OpenCode and Pi retain an independent suspension baseline plus a
+recovery-disabled reference control with the same foreground status driver.
+Raw alias-loss assertions remain FAIL in the qualified evidence.
+
+Runtime review and delivery acceptance remain outstanding.
+Docker skips include platform-specific macOS checks, the opt-in live Codex
+account query, Herdr checks requiring a running caller session, and external
+client settings checks without the required installed client/model catalog.
+Those skips are not proof of the skipped behavior.
 
 ### Full-review repair evidence
 
@@ -255,23 +433,25 @@ observed red and green with server-peer lookup left functional.
 
 ## Real-client evidence and remaining work
 
-The current owner and client receipts are indexed under **Full-review repair
-evidence** above. The standalone native diagnostic retains its raw failing
-assertions. Reference-launcher utility classification is compatibility evidence;
-R8 on the candidate's managed admission entrypoint remains for task 377-2.
+Current runtime receipts are indexed under **Repairs after draft checkpoint
+#387** above; **Full-review repair evidence** records the earlier accepted proof.
+The standalone native diagnostic retains its raw assertions. Runtime utility
+controls now execute the managed admission entrypoint.
 
 The qualified baselines differ explicitly:
 
-- Claude and OpenCode: direct native launch, no cci or status driver, observer
-  confirmed stopped; same live PID/start identity across suspension/resume.
-- Pi: the unmodified launcher from merged #378, with recovery disabled and the
-  same upstream Herdr integration. A bare Pi renamed after session attachment
+- Claude: direct native launch, no cci or status driver, observer confirmed
+  stopped; same live PID/start identity across suspension/resume.
+- OpenCode: the recovery-disabled #378 reference launcher with the same status
+  driver as the wrapped case. Its loss determines qualification. The separate
+  direct-native observation remains raw diagnostic evidence.
+- Pi: the recovery-disabled #378 reference launcher with the matching status
+  driver and upstream Herdr integration. A bare Pi renamed after session attachment
   retained its name, so that different naming baseline was not used to excuse
   the wrapped loss. The reference launcher also lost its early-assigned name
   after verified Pi lifecycle takeover. The qualified client run records the
-  matched lifecycle phase and reference commit. A second reference control uses
-  the wrapped fixture's status driver for the direct shape comparison, with
-  recovery again confirmed stopped.
+  matched lifecycle phase and reference commit. The driverless reference result
+  remains diagnostic; loss shape and eligibility use the matching-driver control.
 
 Each wrapped case observes stopped/live process identity and resumed input;
 normal quit independently requires observed status 0 on each side. OpenCode

@@ -27,6 +27,7 @@ fi
 
 if [[ "${HERDR_AGENT_INTERCOM_ACTIVE:-}" == "1" ]] &&
   [[ -n "${HERDR_PANE_ID:-}" && "${HERDR_AGENT_INTERCOM_PANE:-}" == "$HERDR_PANE_ID" ]]; then
+  unset HERDR_AGENT_INTERCOM_RECOVERY_INTENT
   exec "$agent_command" "$@"
 fi
 
@@ -35,6 +36,33 @@ fi
 unset HERDR_AGENT_INTERCOM_ACTIVE HERDR_AGENT_INTERCOM_NAME HERDR_AGENT_INTERCOM_PANE
 unset OPENCODE_INTERCOM_NAME HERDR_AGENT_INTERCOM_PI_LOAD
 unset HERDR_AGENT_INTERCOM_CLAIM HERDR_AGENT_INTERCOM_CLAIM_AGENT
+unset HERDR_AGENT_INTERCOM_RECOVERY_INTENT
+
+recovery_configuration() {
+  recovery_root="${XDG_STATE_HOME:-$HOME/.local/state}/agent-intercom/recovery/v1"
+  recovery_engine="${HERDR_AGENT_INTERCOM_LIB_DIR:-$HOME/.local/lib}/intercom-claim-recovery.py"
+  recovery_label="${HERDR_AGENT_INTERCOM_RECOVERY_LABEL:-com.seigiard.herdr-agent-intercom-recovery}"
+  recovery_plist="${HERDR_AGENT_INTERCOM_RECOVERY_PLIST:-$HOME/Library/LaunchAgents/$recovery_label.plist}"
+  recovery_python="$(command -v python3 2>/dev/null)" || return 1
+  [[ -r "$recovery_engine" ]] || return 1
+}
+
+prepare_recovery_owner() {
+  [[ -n "${HERDR_SOCKET_PATH:-}" && "$(uname -s)" == Darwin ]] || return 1
+  recovery_configuration || return 1
+  "$recovery_python" "$recovery_engine" --ensure-owner --owner-root "$recovery_root" \
+    --owner-label "$recovery_label" --owner-plist "$recovery_plist" >/dev/null
+}
+
+resolve_recovery_alias() {
+  # No recovery state means the independently allocated alias can be reused.
+  [[ -e "${XDG_STATE_HOME:-$HOME/.local/state}/agent-intercom/recovery/v1" ]] || return 0
+  recovery_configuration || return 1
+  local result
+  result="$("$recovery_python" "$recovery_engine" --reuse-alias "$recovery_root" \
+    --alias "$intercom_name" --owner-label "$recovery_label" --owner-plist "$recovery_plist")" || return 1
+  intercom_name="$(printf '%s' "$result" | "$recovery_python" -c 'import json,sys; print(json.load(sys.stdin)["alias"])')" || return 1
+}
 
 case "$agent" in
   claude)
@@ -82,11 +110,9 @@ case "$agent" in
     done
     ;;
   opencode)
-    # A claim declares a pane record before the client starts. A launch that
-    # never reaches a client -- a utility subcommand, or one whose plugins are
-    # disabled -- exits through `exec`, which runs no EXIT trap, so the record
-    # and the pool alias it spent outlive the command and nothing reports under
-    # `herdr:opencode` to take the pane back. Those launches pass through.
+    # Known utilities and disabled integrations bypass enrollment to avoid
+    # spending a pool alias. Missed classifications still get recovery after
+    # confirmed process exit, but need not acquire a claim in the first place.
     #
     # `--pure` is one of them: it runs without external plugins, so the Intercom
     # adapter would not load and the Herdr integration would not report either.
@@ -136,10 +162,13 @@ case "$agent" in
     done
     ;;
   pi)
-    # Two headless shapes join the list now that Pi claims, because the Herdr
-    # integration binds only on an interactive run and under `--no-extensions`
-    # never loads, so neither reports the pane back and a claim taken for one of
-    # them would outlive the process.
+    # Pi's pipe-driven print mode cannot take lifecycle authority.
+    if [[ ! -t 0 || ! -t 1 ]]; then
+      exec "$agent_command" "$@"
+    fi
+    # Headless modes and disabled extensions cannot take lifecycle authority.
+    # Bypass known cases instead of acquiring a claim that only exit recovery
+    # would release.
     #
     # `--mode` is decided by its value, not by the token: `resolveAppMode` in
     # pi 0.87.1 treats `rpc` and `json` as headless and everything else --
@@ -178,6 +207,21 @@ case "$agent" in
 esac
 
 intercom_name=""
+intercom_root="$HOME/.local/share/agent-intercom"
+if [[ "$agent" == claude ]]; then
+  cci="$intercom_root/node_modules/.bin/cci"
+  bridge="${HERDR_AGENT_INTERCOM_BIN_DIR:-$HOME/.local/bin}/herdr-agent-intercom-claude"
+  native_bridge="${HERDR_AGENT_INTERCOM_LIB_DIR:-$HOME/.local/lib}/herdr-agent-intercom-native-claude"
+  claude_server="$intercom_root/node_modules/@dataforxyz/agent-intercom-claude/dist/claude-server.mjs"
+  inbox_monitor="$intercom_root/node_modules/@dataforxyz/agent-intercom-claude/dist/inbox-monitor.mjs"
+  monitor_manifest="$intercom_root/node_modules/@dataforxyz/agent-intercom-claude/monitors/monitors.json"
+  # Missing optional enrollment components must be known before acquiring a claim.
+  if [[ ! -x "$cci" || ! -x "$bridge" || ! -x "$native_bridge" || ! -f "$claude_server" ||
+        ! -f "$inbox_monitor" || ! -f "$monitor_manifest" ]]; then
+    printf 'herdr-agent-intercom: enrollment components unavailable; starting claude without Intercom\n' >&2
+    exec "$agent_command" "$@"
+  fi
+fi
 if [[ -n "${HERDR_PANE_ID:-}" ]]; then
   snapshot="$(herdr agent get "$HERDR_PANE_ID" 2>/dev/null)" || snapshot=""
   intercom_name="$(printf '%s' "$snapshot" | python3 -c '
@@ -217,6 +261,11 @@ if [[ -n "$intercom_name" ]]; then
   [[ "$allocated" == 1 ]] || intercom_name=""
 fi
 
+if [[ -n "$intercom_name" ]] && ! resolve_recovery_alias; then
+  printf 'herdr-agent-intercom: existing alias recovery is unresolved; starting %s without Intercom\n' "$agent" >&2
+  exec "$agent_command" "$@"
+fi
+
 # A pane that has never hosted an agent carries no record at all, and Herdr
 # allocates its alias only after detecting the started client from the terminal
 # title that client emits. There is therefore nothing to read here, and waiting
@@ -244,8 +293,8 @@ fi
 # a release would be inert against a record it no longer owns. Claude publishes
 # no such state, so its pane depends on screen detection, and only its release
 # gives detection back: `herdr-agent-intercom-release` performs it from the
-# `UserPromptSubmit` hook this repository deploys, and
-# HERDR_AGENT_INTERCOM_CLAIM tells it that this launcher is the claimant.
+# `UserPromptSubmit` hook this repository deploys.
+# The durable recovery handle identifies this launch independently of legacy markers.
 if [[ -z "$intercom_name" && -n "${HERDR_PANE_ID:-}" ]] &&
   command -v herdr >/dev/null 2>&1 &&
   command -v herdr-peer-alias >/dev/null 2>&1; then
@@ -255,25 +304,10 @@ if [[ -z "$intercom_name" && -n "${HERDR_PANE_ID:-}" ]] &&
   # away the one message this branch exists to match.
   claim_probe="$(herdr agent get "$HERDR_PANE_ID" 2>&1)" || true
   if [[ "$claim_probe" == *agent_not_found* ]]; then
-    claim_pane="$HERDR_PANE_ID"
-    claim_agent="$agent"
-    claim_held=0
-    # Every exit between taking the claim and handing the pane to the client
-    # would otherwise leave a record with detection suppressed and nothing
-    # behind it. A successful exec replaces this process and runs no EXIT trap,
-    # so this fires only on the paths that never reach the client -- a signal,
-    # or one of the argument checks further down that exit non-zero.
-    release_unfinished_claim() {
-      [[ "$claim_held" == 1 ]] || return 0
-      claim_held=0
-      herdr pane release-agent "$claim_pane" --source herdr-agent-intercom \
-        --agent "$claim_agent" --seq "$(date +%s%N)" >/dev/null 2>&1 || true
-    }
-    trap release_unfinished_claim EXIT INT TERM
+    recovery_intent=""
 
     pane_key="${HERDR_PANE_ID//[^A-Za-z0-9]/_}"
     claim_seed="${HERDR_SOCKET_PATH:-no-socket}|$HERDR_PANE_ID|$agent|$$|$(date +%s)-$RANDOM"
-    claimed=0
     unreconciled_name=""
     reserved=()
     attempt=1
@@ -298,70 +332,45 @@ if [[ -z "$intercom_name" && -n "${HERDR_PANE_ID:-}" ]] &&
       if [[ -n "$candidate" && "$candidate" != unnamed-* ]]; then
         unreconciled_name="$candidate"
       fi
-    else
+    elif prepare_recovery_owner; then
       while [[ "$attempt" -le 3 ]]; do
         candidate="$(herdr-peer-alias "$claim_seed" "${reserved[@]+"${reserved[@]}"}" 2>/dev/null)" || candidate=""
         # herdr-peer-alias degrades to an `unnamed-*` placeholder when the
         # allocator is silent. That name is outside the pool on purpose, so
         # claiming it would only produce a record the pool check rejects.
         [[ -n "$candidate" && "$candidate" != unnamed-* ]] || break
-        herdr pane report-agent "$HERDR_PANE_ID" --source herdr-agent-intercom \
-          --agent "$agent" --state unknown --seq "$(date +%s%N)" >/dev/null 2>&1 || break
-        claim_held=1
-        if rename_result="$(herdr agent rename "$HERDR_PANE_ID" "$candidate" 2>&1)"; then
+        recovery_result="$("$recovery_python" "$recovery_engine" --claim-intent "$recovery_root/intents" \
+          --agent "$agent" --source herdr-agent-intercom-recovery-v1 --alias "$candidate" --launcher-pid "$$")" || recovery_result=""
+        recovery_intent="$(printf '%s' "$recovery_result" | "$recovery_python" -c 'import json,sys; print(json.load(sys.stdin).get("intent", ""))' 2>/dev/null)" || recovery_intent=""
+        claimed_result="$(printf '%s' "$recovery_result" | "$recovery_python" -c 'import json,sys; print(json.load(sys.stdin).get("claimed") is True)' 2>/dev/null)" || claimed_result=False
+        if [[ "$claimed_result" == True && -n "$recovery_intent" ]]; then
           intercom_name="$candidate"
-          claimed=1
+          export HERDR_AGENT_INTERCOM_RECOVERY_INTENT="$recovery_intent"
+          export HERDR_AGENT_INTERCOM_PYTHON="$recovery_python"
           break
         fi
-        # Releasing a claim on a pane with no running client destroys the record,
-        # which is exactly the state to return to before trying the next name.
-        release_unfinished_claim
-        # Only a taken name is worth another candidate. The refusal that means
-        # the declaration never landed is decided before this loop, so any other
-        # rejection here is a condition this launcher does not model. Keep the
-        # name and let the first prompt reconcile it: that path is correct for
-        # an unmodelled refusal for the same reason it is correct for a used
-        # pane, and it costs no further candidates either way.
-        if [[ "$rename_result" != *agent_name_taken* ]]; then
-          unreconciled_name="$candidate"
+        # Retry only a collision whose reserved rollback was verified by the engine.
+        retry_result="$(printf '%s' "$recovery_result" | "$recovery_python" -c 'import json,sys; print(json.load(sys.stdin).get("retry") is True)' 2>/dev/null)" || retry_result=False
+        if [[ "$retry_result" != True ]]; then
+          printf 'herdr-agent-intercom: enrollment unavailable; any partial claim remains pending for recovery\n' >&2
           break
         fi
         reserved+=("$candidate")
         attempt=$((attempt + 1))
       done
+    else
+      printf 'herdr-agent-intercom: automatic claim recovery unavailable; starting %s without a new claim\n' "$agent" >&2
     fi
 
-    # Both settlements below belong to Claude alone, for the same reason: each
-    # is finished by `herdr-agent-intercom-release`, and the only caller this
-    # repository deploys is Claude's `UserPromptSubmit` hook. OpenCode and Pi
-    # need neither. They end their own claim by reporting state under their
-    # `herdr:<client>` source, which takes the pane's lifecycle authority back
-    # and leaves this launcher's record owning nothing, so there is no release
-    # to perform and no marker worth writing -- one would sit on every pane they
-    # ever enroll in with no reader able to remove it.
-    if [[ "$claimed" == 1 && "$agent" == claude ]]; then
-      # The marker is what lets the release find a claim whose launcher is gone
-      # -- a session killed before its first prompt exports nothing to its
-      # successor. Without the marker the claim could never be released at all,
-      # so a claim that cannot be recorded is given back instead of leaked.
-      claim_dir="${XDG_STATE_HOME:-$HOME/.local/state}/agent-intercom/claims"
-      if mkdir -p "$claim_dir" 2>/dev/null &&
-        printf '%s\n' "$agent" > "$claim_dir/$pane_key" 2>/dev/null; then
-        export HERDR_AGENT_INTERCOM_CLAIM="$HERDR_PANE_ID"
-        export HERDR_AGENT_INTERCOM_CLAIM_AGENT="$agent"
-      else
-        printf 'herdr-agent-intercom: cannot record the pane claim; releasing it\n' >&2
-        release_unfinished_claim
-        intercom_name=""
-      fi
-    elif [[ "$claimed" != 1 && -n "$unreconciled_name" && "$agent" == claude ]]; then
+    # Used-pane reconciliation remains separate; new claims never create legacy markers.
+    if [[ -n "$unreconciled_name" && "$agent" == claude ]]; then
       # The name is a real Intercom identity immediately, but Herdr does not
       # know it until detection creates the record, so until the first prompt
       # the sidebar alias and the Intercom name differ. Recording the pending
       # rename is what makes closing that gap possible at all: the hook cannot
       # re-derive which alias this session enrolled under. A session that cannot
       # be reconciled would keep a name no peer can discover, so it starts
-      # without Intercom instead -- the same trade the claim marker makes.
+      # without Intercom rather than keep a name that cannot be reconciled.
       reconcile_dir="${XDG_STATE_HOME:-$HOME/.local/state}/agent-intercom/reconcile"
       if mkdir -p "$reconcile_dir" 2>/dev/null &&
         printf '%s\n' "$unreconciled_name" > "$reconcile_dir/$pane_key" 2>/dev/null; then
@@ -370,11 +379,6 @@ if [[ -z "$intercom_name" && -n "${HERDR_PANE_ID:-}" ]] &&
         printf 'herdr-agent-intercom: cannot record the pending rename for %s\n' "$unreconciled_name" >&2
       fi
     fi
-    # Give back only a claim that bought nothing. A successful claim is held
-    # deliberately until the client's first prompt releases it, and the loop
-    # breaks before the first `pane report-agent` when the allocator is silent,
-    # so there is nothing to release on that path either.
-    [[ "$claimed" == 1 ]] || release_unfinished_claim
   fi
 fi
 
@@ -383,7 +387,6 @@ if [[ -z "$intercom_name" ]]; then
   exec "$agent_command" "$@"
 fi
 
-intercom_root="$HOME/.local/share/agent-intercom"
 # Shared durable state belongs to Intercom, not to any client's config tree.
 export INTERCOM_DIR="${INTERCOM_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-intercom}"
 export HERDR_AGENT_INTERCOM_ACTIVE=1
@@ -391,24 +394,6 @@ export HERDR_AGENT_INTERCOM_NAME="$intercom_name"
 export HERDR_AGENT_INTERCOM_PANE="$HERDR_PANE_ID"
 case "$agent" in
   claude)
-    cci="$intercom_root/node_modules/.bin/cci"
-    bridge="$HOME/.local/bin/herdr-agent-intercom-claude"
-    claude_server="$intercom_root/node_modules/@dataforxyz/agent-intercom-claude/dist/claude-server.mjs"
-    inbox_monitor="$intercom_root/node_modules/@dataforxyz/agent-intercom-claude/dist/inbox-monitor.mjs"
-    # The monitor binary is inert without the manifest that tells Claude to run
-    # it, so a tree holding one and not the other enrolls a session no inbound
-    # message can wake. The installer rejects that tree too, but only at apply
-    # time, and npm ci has already written it by then.
-    monitor_manifest="$intercom_root/node_modules/@dataforxyz/agent-intercom-claude/monitors/monitors.json"
-    if [[ ! -x "$cci" || ! -x "$bridge" || ! -f "$claude_server" || ! -f "$inbox_monitor" || ! -f "$monitor_manifest" ]]; then
-      # Nothing will answer to the name here, so the pending rename must not
-      # publish it: a sidebar alias no session serves sends every peer that
-      # reads it nowhere, which is worse than this pane keeping Herdr's own.
-      if [[ -n "${reconcile_dir:-}" && -n "${pane_key:-}" ]]; then
-        rm -f "$reconcile_dir/$pane_key"
-      fi
-      exec "$agent_command" "$@"
-    fi
     export AGENT_INTERCOM_CLAUDE_COMMAND="$agent_command"
     export AGENT_INTERCOM_CLAUDE_ARGC="$#"
     arg_index=0

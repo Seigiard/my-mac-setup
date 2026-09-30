@@ -1,8 +1,9 @@
 # Recover failed Intercom launches without restarting an agent
 
-Status: approved outcome with a scoped upstream suspension exception. Runtime
-implementation still requires the real-Herdr ownership gate below. This document
-does not claim that the launcher already recovers automatically.
+Status: approved outcome and owner/protocol addendum, with a scoped upstream
+suspension exception. Proof PR #382 was accepted and merged into the delivery
+branch. Runtime implementation is under verification; deployment and delivery
+acceptance remain separate from that proof.
 
 Related: [#377](https://github.com/Seigiard/my-mac-setup/issues/377),
 [#376](https://github.com/Seigiard/my-mac-setup/issues/376),
@@ -168,12 +169,13 @@ A skip or a fake server is not a pass. If isolation cannot be proved,
 keep runtime unchanged and return with the precise upstream API requirement or
 the client-side registration alternative. Do not silently weaken R1 or R2.
 
-## Implementation addendum — candidate under review
+## Implementation addendum — accepted baseline
 
-The candidate below was revised after full review found gaps in the owner and
-client evidence. The evidence note records the new complete checks. It becomes
-the runtime implementation baseline only after the revised complete proof PR
-and this addendum are reviewed. It does not describe deployed behavior.
+The addendum was accepted with proof PR #382 at reviewed head
+`14fdd99cbea55796d76eb470b9ae90f01607737a` and merged into the delivery branch at
+`402f12eb0eb2f73e1225032b49726d429231b081`. It is the runtime implementation
+baseline. The evidence note keeps proof acceptance separate from runtime checks
+and deployed behavior.
 
 ### Owner and admission
 
@@ -189,6 +191,12 @@ and this addendum are reviewed. It does not describe deployed behavior.
   Other restart hosts are not proved here; do not acquire new claims behind an
   unverified platform fallback. Independently valid existing aliases can still
   be reused without adopting their cleanup responsibility.
+- An alias still covered by an unresolved intent on the same server and terminal
+  is not independently reusable. For a confirmed-dead prior client, establish the
+  observer and wait up to the healthy recovery budget before starting cci or the
+  native client. Then read the alias again and use fresh admission if it is gone.
+  Live or unverifiable prior ownership, or cleanup still pending at the bound,
+  preserves bare native startup with a warning instead of borrowing the identity.
 
 ### Identity and ordering
 
@@ -224,6 +232,22 @@ and this addendum are reviewed. It does not describe deployed behavior.
   ownership pending. Age and suspension are not death. Keep diagnostics explicit
   and retries independent of another launch. This protocol does not repair the
   accepted upstream suspension identity loss with a read-then-rename operation.
+
+### Terminal intent archive
+
+The owner approved keeping completed diagnostics outside the active scan.
+Pending and unresolved obligations stay active. Once a record is `settled` or
+`retired`, move it into `intents/archive` under its existing lock. The observer
+does not open archived records during its 100 ms scan.
+
+Keep terminal receipts for at most seven days and at most 1000 records, checked
+once per minute. Their original handles remain readable while retained. A late
+bind or handoff refuses a terminal or expired obligation. Handles are never
+reused. Only the initial writer creates an intent lock; later callers open the
+existing inode. After durable archival the sidecar can be removed: queued
+callers retain the old inode and observe terminal state, while new callers
+cannot create a replacement lock. Sequence and owner-admission locks remain
+persistent and are outside this retention policy.
 
 ### Recovery budget and evidence
 
@@ -265,23 +289,22 @@ enrollment must fail the interactive control.
 
 Apply `docs/agent-verification.md` to the final implementation. New managed paths
 or deployment-dependent lifecycle behavior require `make test-ubuntu`. Ubuntu
-and macOS CI must pass before merge. This change adds opt-in proof tooling;
-deployed cleanup and its runtime tests remain part of the implementation task.
+and macOS CI must pass before merge. The managed runtime and its opt-in
+conformance probes are implemented together; acceptance requires both layers.
 
-## Deferred runtime and documentation changes
+## Runtime implementation and remaining acceptance
 
-- Implement the proved lifecycle protocol in the launcher/release path and its
-  selected observation host. Preserve the #378 enrollment work.
-- Write durable intent for every newly acquired supported-client claim; handle
-  takeover and local-record retirement without the current Claude-only gate.
-- Replace the first-prompt-only recovery description in
-  `home/private_dot_claude/shared/agent-intercom-contract.md` only after proving
-  the new behavior. State the legacy-marker boundary and pending-recovery case.
-- Update ADR-0018's launch lifecycle section with the demonstrated mechanism and
-  deployed scope. Keep its fresh/used-pane distinction and alias-collision rules.
-- Add the behavioral and real-boundary evidence described above. Do not remove
-  the documented early-exit windows until the implementation demonstrates R1–R10.
+- Implemented in draft PR #387: the shared recovery engine, launcher and Claude
+  bridge, launchd owner, durable intents, takeover and archival. The #378 fresh
+  and used-pane paths remain distinct.
+- The agent-read contract and ADR-0018 describe the runtime, legacy boundary and
+  pending diagnostics. The evidence note records behavioral and live checks.
+- #384 owns the reproduced old-claim/new-Claude alias race and its regression
+  fix. An unresolved recovery claim is not an independently reusable alias.
+- #385 owns the remaining first-review repairs and their verification.
 
-Keep the delivery PR open while these changes are built into it. This document
-and ADR can be reviewed now; the full change is not ready to merge until the
-implementation and its evidence arrive.
+The final acceptance checklist lives in #377: complete cumulative review and
+confirming rounds, final-diff checks, exact-head runtime acceptance, then epic
+integration, CI and a live demonstration. Keep #387 draft until that runtime
+acceptance is complete. PR #381 remains the final delivery PR; the owner decides
+its merge to main. Implemented and locally checked does not mean deployed.

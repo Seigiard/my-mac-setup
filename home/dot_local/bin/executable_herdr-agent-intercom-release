@@ -21,6 +21,16 @@ pane="${HERDR_PANE_ID:-}"
 [[ -n "$pane" ]] || exit 0
 command -v herdr >/dev/null 2>&1 || exit 0
 
+# New-protocol intents are fenced to the launcher's bound client and have their
+# own reserved handoff sequence. Legacy markers deliberately keep their old
+# successor path below; they cannot establish this authority.
+if [[ -n "${HERDR_AGENT_INTERCOM_RECOVERY_INTENT:-}" ]]; then
+  engine="${HERDR_AGENT_INTERCOM_LIB_DIR:-$HOME/.local/lib}/intercom-claim-recovery.py"
+  [[ -r "$engine" ]] || exit 0
+  "${HERDR_AGENT_INTERCOM_PYTHON:-python3}" "$engine" --handoff >/dev/null 2>&1 || true
+  exit 0
+fi
+
 # An exported claim belongs to this process tree, so it must be for this pane.
 # A claim from a launcher that is gone -- a session killed before it was ever
 # prompted -- leaves only the marker, and the successor in that pane inherits

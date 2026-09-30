@@ -1,24 +1,27 @@
 #!/usr/bin/env python3
 """Opt-in live-client conformance probe for Intercom launch claims.
 
-This deliberately runs installed clients in a disposable Herdr server. It is
-not a launcher test double: the prelaunch process records an intent, acquires
-an actual pool alias, then execs the audited #378 launcher in that same PID.
+This deliberately runs installed clients in a disposable Herdr server. Runtime
+cases stage and execute the checkout launcher, recovery engine, bridge, and
+native leaf. They discover the durable intent the launcher actually creates.
 """
 
 import argparse
 import json
 import os
 import pathlib
+import plistlib
 import shlex
 import shutil
 import signal
 import socket
+import socketserver
 import struct
 import subprocess
 import sys
 import tempfile
 import termios
+import threading
 import time
 import uuid
 
@@ -35,18 +38,13 @@ from intercom_claim_ownership_probe import (
     OLD_SOURCE,
 )
 from intercom_claim_recovery_prototype import (
-    LaunchdOwner,
-    RecoveryError,
-    acknowledge_acquisition,
     atomic_write,
     bound_request,
     capture_server_identity,
     process_start_identity,
-    read_json,
+    read_intent as read_json,
+    intent_handles,
     reserve_sequence,
-    socket_identity,
-    exec_without_enrollment,
-    write_intent,
     observe_one,
 )
 
@@ -56,6 +54,90 @@ SOURCE = "mms-377-live-client"
 # PR #378's accepted launcher is byte-for-byte identical at this merge commit.
 REFERENCE = "dc33b385891fdab07af303037cc1ad2e3e161471"
 CLIENTS = ("opencode", "pi", "claude")
+
+
+class HerdrResponseRelay:
+    """Forward real RPCs, optionally losing the first acknowledged rename reply."""
+
+    def __init__(self, path, upstream, drop_rename=False):
+        self.path = path
+        self.upstream = upstream
+        self.drop_rename = drop_rename
+        self.dropped = []
+        relay = self
+
+        class Handler(socketserver.StreamRequestHandler):
+            def handle(self):
+                line = self.rfile.readline(1024 * 1024)
+                if not line:
+                    return  # Peer-identity probes connect without sending an RPC.
+                request = json.loads(line)
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+                    connection.settimeout(5)
+                    connection.connect(relay.upstream)
+                    connection.sendall(line)
+                    with connection.makefile("rb") as stream:
+                        response = stream.readline(1024 * 1024)
+                if relay.drop_rename and request["method"] == "agent.rename" and not relay.dropped:
+                    relay.dropped.append({"request": request, "response": json.loads(response)})
+                    return
+                self.wfile.write(response)
+
+        self.server = socketserver.ThreadingUnixStreamServer(str(path), Handler)
+        self.server.daemon_threads = True
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *args):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+        self.path.unlink()
+
+
+class RuntimeOwner:
+    """Own the real rendered observer job without touching the user's job."""
+
+    def __init__(self, stage, label, plist, engine, state_root):
+        self.stage = stage
+        self.label = label
+        self.plist = plist
+        self.engine = engine
+        self.state_root = state_root
+        self.intent_dir = str(state_root / "intents")
+        self.pid_file = str(state_root / "observer.pid.json")
+
+    def start(self):
+        # The same production ensure-owner path the launcher takes is the
+        # readiness authority; it validates the rendered plist and engine.
+        result = subprocess.run(
+            [sys.executable, str(self.engine), "--ensure-owner", "--owner-root", str(self.state_root),
+             "--owner-label", self.label, "--owner-plist", str(self.plist)],
+            text=True, capture_output=True, check=False, timeout=20,
+        )
+        if result.returncode:
+            raise ProbeError(f"real recovery owner failed: {result.stderr.strip()}")
+        ready = wait_until(lambda: read_json(self.pid_file) if pathlib.Path(self.pid_file).exists() else None,
+                           10, "real recovery owner readiness")
+        require({"step": "real-owner-readiness"},
+                process_start_identity(ready["pid"]) == ready["start_identity"] and
+                ready.get("job_label") == self.label and ready.get("intent_dir") == os.path.realpath(self.intent_dir),
+                f"real recovery readiness is not this owner: {ready}")
+        return ready
+
+    def close(self):
+        old = read_json(self.pid_file) if pathlib.Path(self.pid_file).exists() else None
+        subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/{self.label}"],
+                       text=True, capture_output=True, check=False, timeout=10)
+        wait_until(
+            lambda: subprocess.run(["launchctl", "print", f"gui/{os.getuid()}/{self.label}"],
+                                   text=True, capture_output=True, check=False, timeout=10).returncode != 0 and
+            (old is None or process_start_identity(old["pid"]) != old["start_identity"]),
+            10, "owned real recovery owner cleanup",
+        )
 
 
 def wait_until(predicate, timeout, description):
@@ -122,87 +204,6 @@ def terminal_driver(arguments):
     return 0
 
 
-def prelaunch(arguments):
-    """Record/acquire before exec so recovery follows the real client PID."""
-    pane = os.environ.get("HERDR_PANE_ID")
-    socket_path = os.environ.get("HERDR_SOCKET_PATH")
-    if not pane or not socket_path:
-        raise ProbeError("prelaunch is not running in a Herdr pane")
-    connection = {"socket_path": socket_path, "server_identity": capture_server_identity(socket_path)}
-    terminal_response = bound_request({"connection": connection}, "pane.get", {"pane_id": pane})
-    if "error" in terminal_response:
-        raise ProbeError(f"could not read launch pane: {terminal_response['error']}")
-    terminal = terminal_response["result"]["pane"]
-    pid = os.getpid()
-    start = process_start_identity(pid)
-    if not start:
-        raise ProbeError("could not capture prelaunch process identity")
-    arguments.start_identity = start
-    intent = {
-        "launch_id": f"live-{arguments.agent}-{pid}-{time.time_ns()}",
-        "phase": "intent",
-        "connection": {**connection, "socket_identity": socket_identity(socket_path)},
-        "terminal": {"pane_id": pane, "terminal_id": terminal["terminal_id"]},
-        "agent_kind": arguments.agent,
-        "claim": {"source": SOURCE, "claim_seq": arguments.sequence,
-                  "handoff_seq": arguments.sequence + 1, "release_seq": arguments.sequence + 2},
-        "client": {"pid": pid, "start_identity": start},
-        "created_at_ns": time.time_ns(),
-    }
-    trace_dir = os.environ.get("MMS377_TRACE_DIR")
-    if trace_dir:
-        intent["trace_dir"] = trace_dir
-    path = write_intent(arguments.intent_dir, intent)
-    arguments.intent_path = path
-    response = bound_request(intent, "pane.report_agent", {
-        "pane_id": pane, "source": SOURCE, "agent": arguments.agent,
-        "state": "unknown", "seq": arguments.sequence,
-    })
-    if "error" in response:
-        raise ProbeError(f"claim rejected: {response['error']}")
-    response = bound_request(intent, "agent.rename", {"target": pane, "name": arguments.alias})
-    if "error" in response:
-        raise ProbeError(f"alias rejected: {response['error']}")
-    published = bound_request(intent, "agent.get", {"target": pane})
-    if "error" in published:
-        raise ProbeError(f"claim did not become visible: {published['error']}")
-    record = published["result"]["agent"]
-    require({"step": "prelaunch-claim"},
-            record.get("terminal_id") == terminal["terminal_id"]
-            and record.get("name") == arguments.alias
-            and record.get("agent") == arguments.agent
-            and record.get("agent_status") == "unknown",
-            f"claim readback did not match this launch: {record}")
-    acknowledge_acquisition(path)
-    os.environ["MMS377_INTENT"] = str(path)
-    atomic_write(arguments.receipt, {"pid": pid, "start_identity": start, "intent": path,
-                                      "alias": arguments.alias, "agent": arguments.agent,
-                                      "stdin_isatty": os.isatty(0), "stdout_isatty": os.isatty(1),
-                                      "pi_observer": os.environ.get("MMS377_PI_OBSERVER")})
-    os.execv(arguments.launcher, [arguments.launcher, arguments.agent, *arguments.client_args])
-
-
-def admission_fallback(arguments):
-    """Keep the shared prelaunch strict while giving R10 one explicit escape hatch."""
-    command = native_executable(arguments.agent)
-    try:
-        prelaunch(arguments)
-    except (OSError, ValueError, KeyError, ProbeError, RecoveryError) as error:
-        intent_path = getattr(arguments, "intent_path", None)
-        pending = intent_path is not None
-        atomic_write(arguments.receipt, {
-            "pid": os.getpid(), "start_identity": getattr(arguments, "start_identity", None),
-            "admission_error": str(error), "fallback": True,
-            "intent": intent_path, "agent": arguments.agent, "requested_alias": arguments.alias,
-            "claim_pending": pending,
-        })
-        exec_without_enrollment(
-            command, arguments.client_args,
-            "claim admission remains pending; starting native client without enrollment" if pending
-            else "claim admission unavailable; starting native client without enrollment",
-        )
-
-
 class ClientProbe:
     def __init__(self):
         self.scratch = pathlib.Path(tempfile.mkdtemp(prefix="mms377-client-proof-", dir="/tmp"))
@@ -242,25 +243,46 @@ class ClientProbe:
         self.reference_launcher = self.scratch / "reference-herdr-agent-intercom"
         self.reference_launcher.write_text(launcher.stdout, encoding="utf-8")
         self.reference_launcher.chmod(0o700)
-        prototype = ROOT / "tests/helpers/intercom_claim_recovery_prototype.py"
-        bridge = self.scratch / "bound-claude"
-        real_bridge = self.scratch / "native-claude-bridge"
-        real_bridge.write_text((ROOT / "home/dot_local/bin/executable_herdr-agent-intercom-claude").read_text(), encoding="utf-8")
-        real_bridge.chmod(0o700)
-        # The reference launcher stays the baseline. Only its bridge entry is
-        # replaced by the candidate's before-exec native binding for this proof.
-        bridge.write_text("#!/bin/sh\nexec " + shlex.join([
-            sys.executable, str(prototype), "--bind-exec", str(real_bridge), "--",
-        ]) + ' "$@"\n', encoding="utf-8")
-        bridge.chmod(0o700)
-        old_bridge = 'bridge="$HOME/.local/bin/herdr-agent-intercom-claude"'
-        require({"step": "reference-bridge"}, launcher.stdout.count(old_bridge) == 1,
-                "reference launcher bridge entry changed")
-        self.launcher.write_text(launcher.stdout.replace(old_bridge, "bridge=" + shlex.quote(str(bridge))), encoding="utf-8")
-        self.launcher.chmod(0o755)
+        self.runtime_home = self.scratch / "runtime-home"
+        self.runtime_bin = self.runtime_home / ".local/bin"
+        self.runtime_lib = self.runtime_home / ".local/lib"
+        self.runtime_state = self.runtime_home / ".local/state"
+        self.runtime_root = self.runtime_state / "agent-intercom/recovery/v1"
+        self.runtime_bin.mkdir(parents=True, exist_ok=True)
+        self.runtime_lib.mkdir(parents=True, exist_ok=True)
+        for name in ("herdr-agent-intercom", "herdr-agent-intercom-release", "herdr-agent-intercom-claude"):
+            target = self.runtime_bin / name
+            shutil.copy2(ROOT / "home/dot_local/bin" / ("executable_" + name), target)
+            target.chmod(0o700)
+        shutil.copy2(ROOT / "home/dot_local/lib/intercom-claim-recovery.py",
+                     self.runtime_lib / "intercom-claim-recovery.py")
+        shutil.copy2(ROOT / "home/dot_local/lib/executable_herdr-agent-intercom-native-claude",
+                     self.runtime_lib / "herdr-agent-intercom-native-claude")
+        (self.runtime_lib / "herdr-agent-intercom-native-claude").chmod(0o700)
+        self.launcher = self.runtime_bin / "herdr-agent-intercom"
+        self.release_entrypoint = self.runtime_bin / "herdr-agent-intercom-release"
+        self.runtime_label = "dev.seigiard.mms377.client." + uuid.uuid4().hex
+        self.runtime_plist = self.runtime_home / "owner.plist"
+        configuration = self.runtime_home / "chezmoi.json"
+        configuration.write_text(json.dumps({"sourceDir": str(ROOT / "home")}), encoding="utf-8")
+        rendered = subprocess.run(
+            ["chezmoi", "--config", str(configuration), "--persistent-state", str(self.runtime_home / "chezmoi-state.db"),
+             "--cache", str(self.runtime_home / "cache"), "execute-template", "--file",
+             str(ROOT / "home/private_Library/LaunchAgents/com.seigiard.herdr-agent-intercom-recovery.plist.tmpl")],
+            env=os.environ | {"HOME": str(self.runtime_home), "XDG_STATE_HOME": str(self.runtime_state)},
+            text=True, capture_output=True, check=False, timeout=20,
+        )
+        require({"step": "runtime-template-render"}, rendered.returncode == 0,
+                f"real plist template did not render: {rendered.stderr}")
+        plist = plistlib.loads(rendered.stdout.encode())
+        plist["Label"] = self.runtime_label
+        plist["ProgramArguments"][plist["ProgramArguments"].index("--job-label") + 1] = self.runtime_label
+        with self.runtime_plist.open("wb") as handle:
+            plistlib.dump(plist, handle)
+        self.runtime_plist_payload = plist
         self.claude_settings = self.scratch / "claude-settings.json"
         atomic_write(self.claude_settings, {"hooks": {"UserPromptSubmit": [{"hooks": [{
-            "type": "command", "command": shlex.join([sys.executable, str(prototype), "--handoff"]), "timeout": 10,
+            "type": "command", "command": str(self.release_entrypoint), "timeout": 10,
         }]}]}})
         allocator = self.scratch / "aliases"
         allocator.write_text("#!/bin/sh\nprintf '%s\\n' \"$MMS377_ALIAS\"\n", encoding="utf-8")
@@ -309,8 +331,12 @@ export default function (pi) {
 
     def start(self):
         self.root_pane = self.owner.start()
-        self.launchd = LaunchdOwner(self.owner.root)
+        self.launchd = RuntimeOwner(self.runtime_home, self.runtime_label, self.runtime_plist,
+                                    self.runtime_lib / "intercom-claim-recovery.py", self.runtime_root)
         self.launchd.start()
+
+    def intent_paths(self):
+        return {pathlib.Path(path) for path in intent_handles(self.launchd.intent_dir)}
 
     def close(self):
         errors = []
@@ -336,7 +362,7 @@ export default function (pi) {
         if self.launchd:
             # cci may already be gone while the bound native process remains.
             # Its durable identity is still owned, including after handoff.
-            for path in pathlib.Path(self.launchd.intent_dir).glob("*.json"):
+            for path in self.intent_paths():
                 try:
                     client = read_json(path)["client"]
                     if process_start_identity(client["pid"]) == client["start_identity"]:
@@ -393,6 +419,8 @@ export default function (pi) {
     def start_foreground_driver(self, pane, receipt, command, exports, label):
         driver_receipt = self.scratch / f"{label}.driver.json"
         driver_script = self.scratch / f"{label}.driver.sh"
+        exports = exports | {"HERDR_ENV": "1", "HERDR_PANE_ID": pane["pane_id"],
+                             "HERDR_SOCKET_PATH": self.owner.socket_path}
         lines = ["#!/bin/sh", "set -eu"]
         lines.extend(f"export {key}={shlex.quote(value)}" for key, value in exports.items())
         driver = [sys.executable, str(pathlib.Path(__file__).resolve()), "--terminal-driver",
@@ -407,22 +435,34 @@ export default function (pi) {
         return driver_receipt
 
     def foreground_exports(self, alias, sequence):
-        return {
+        exports = {
             "MMS377_ALIAS": alias,
             "HERDR_ALIAS_ALLOCATOR": str(self.scratch / "aliases"),
             "INTERCOM_DIR": str(self.scratch / "intercom"),
-            "XDG_STATE_HOME": str(self.scratch / "xdg/state"),
             "XDG_CONFIG_HOME": str(self.scratch / "xdg/config"),
             "PI_CODING_AGENT_DIR": str(self.scratch / "pi"),
             "PI_CODING_AGENT_SESSION_DIR": str(self.scratch / "pi/sessions"),
             "MMS377_PI_OBSERVER": str(self.scratch / f"pi-{sequence}.observer.jsonl"),
+            "HERDR_AGENT_INTERCOM_BIN_DIR": str(self.runtime_bin),
+            "HERDR_AGENT_INTERCOM_LIB_DIR": str(self.runtime_lib),
+            "HERDR_AGENT_INTERCOM_RECOVERY_LABEL": self.runtime_label,
+            "HERDR_AGENT_INTERCOM_RECOVERY_PLIST": str(self.runtime_plist),
+            "HERDR_AGENT_INTERCOM_PYTHON": sys.executable,
+            "XDG_STATE_HOME": str(self.runtime_state),
         }
+        # A parent agent's live recovery handle must never authorize this test
+        # process. The staged launcher creates the only allowed handle.
+        for name in os.environ:
+            if name.startswith(("HERDR_AGENT_INTERCOM_", "AGENT_INTERCOM_", "CLAUDE_INTERCOM_")) or name == "OPENCODE_INTERCOM_NAME":
+                if name not in exports:
+                    exports[name] = ""
+        return exports
 
     def reserve_sequence(self):
         return reserve_sequence(str(self.scratch / "sequences"), SOURCE)
 
     def launch(self, agent, args, *, interactive=False, alias_index=0, hold_group=False, offline=True, pane=None,
-               admission_fallback_mode=False, claude_settings=None, trace=False):
+               claude_settings=None, trace=False, claim_required=True, extra_env=None):
         if agent == "claude":
             args = ["--settings", str(claude_settings or self.claude_settings), *args]
         if pane is None:
@@ -432,18 +472,15 @@ export default function (pi) {
         receipt = self.scratch / f"{agent}-{sequence}.receipt.json"
         log = self.scratch / f"{agent}-{sequence}.log"
         exit_file = self.scratch / f"{agent}-{sequence}.exit"
-        command = [sys.executable, str(pathlib.Path(__file__).resolve()),
-                   "--admission-fallback" if admission_fallback_mode else "--prelaunch",
-                   "--agent", agent, "--sequence", str(sequence), "--alias", alias,
-                   "--intent-dir", self.launchd.intent_dir, "--receipt", str(receipt),
-                   "--launcher", str(self.launcher), "--", *args]
+        command = [str(self.launcher), agent, *args]
         exports = self.foreground_exports(alias, sequence)
+        exports.update(extra_env or {})
         if offline:
             exports["PI_OFFLINE"] = "1"
         if hold_group or trace:
             trace_dir = self.scratch / f"trace-{sequence}"
             trace_dir.mkdir()
-            exports["MMS377_TRACE_DIR"] = str(trace_dir)
+            exports["HERDR_AGENT_INTERCOM_TRACE_DIR"] = str(trace_dir)
         if hold_group:
             exports["MMS377_DRIVER_HOLD"] = str(receipt) + ".release"
         if interactive:
@@ -468,7 +505,34 @@ export default function (pi) {
             process.stdin.close()
             self.processes[str(log)] = (process, handle)
         try:
-            wait_until(receipt.exists, 8, f"{agent} prelaunch receipt")
+            driver = wait_until(lambda: value if (value := self.driver_details(receipt)) and "client_pid" in value else None,
+                                8, f"{agent} runtime terminal driver") if interactive else None
+            terminal_id = pane["terminal_id"]
+            def actual_intent():
+                matches = []
+                for path in self.intent_paths():
+                    value = read_json(path)
+                    if (value.get("terminal", {}).get("terminal_id") == terminal_id and
+                            value.get("agent_kind") == agent and value.get("acquired_at_ns")):
+                        matches.append((path, value))
+                return matches[0] if len(matches) == 1 else None
+            found = wait_until(actual_intent, 12, f"actual {agent} launcher intent") if claim_required else None
+            if found:
+                path, intent = found
+                client = intent.get("launcher_client", intent["client"])
+                actual_pid = driver["client_pid"] if interactive else process.pid
+                require({"step": f"{agent}-runtime-exec-pid"}, actual_pid == client["pid"],
+                        f"runtime intent followed a helper instead of exec client: pid={actual_pid}; intent={intent}")
+                atomic_write(receipt, {"pid": actual_pid, "start_identity": client["start_identity"],
+                                       "intent": str(path), "alias": alias,
+                                       "agent": agent, "stdin_isatty": interactive, "stdout_isatty": interactive,
+                                       "pi_observer": exports["MMS377_PI_OBSERVER"]})
+            else:
+                # Non-TTY utility controls deliberately bypass enrollment.
+                actual_pid = driver["client_pid"] if interactive else process.pid
+                atomic_write(receipt, {"pid": actual_pid, "intent": None, "alias": alias, "agent": agent,
+                                       "stdin_isatty": interactive, "stdout_isatty": interactive,
+                                       "pi_observer": exports["MMS377_PI_OBSERVER"]})
         except ProbeError as error:
             contents = log.read_text(encoding="utf-8") if log.exists() else "<no client log>"
             driver = self.driver_receipts.get(str(receipt))
@@ -724,7 +788,7 @@ export default function (pi) {
                 client = self.native_process(self.driver_details(receipt)["client_pid"], "claude")
             else:
                 intent = read_json(read_json(receipt)["intent"])
-                client = self.native_process(intent["client"]["pid"], "claude") if "launcher_client" in intent else None
+                client = self.native_process(intent["client"]["pid"], "claude")
             if not client:
                 return None
             if not self.native_input_ready(client["pid"]):
@@ -842,19 +906,23 @@ export default function (pi) {
 
     def pi_non_tty(self):
         # A pipe gives Pi non-TTY stdio while the pane still supplies Herdr identity.
-        pane, receipt, log, exit_file = self.launch("pi", ["--invalid-option"])
+        before = self.intent_paths()
+        pane, receipt, log, exit_file = self.launch("pi", ["--invalid-option"], claim_required=False)
         status = self.wait_exit(log, exit_file, receipt)
-        intent = self.wait_settled(receipt, pane)
+        state = self.state(pane)
+        require({"step": "pi-non-tty-bypass"}, (state is None or not state.get("name")) and
+                self.intent_paths() == before,
+                "non-TTY Pi launch entered runtime claim recovery")
         control = subprocess.run([native_executable("pi"), "--version"], text=True, capture_output=True, check=False)
         require({"step": "pi-native-control"}, control.returncode == 0, "native Pi utility control failed")
-        return {"status": status, "intent": intent, "control": {"status": control.returncode,
+        return {"status": status, "runtime_bypass": True, "control": {"status": control.returncode,
                 "stdout": control.stdout, "stderr": control.stderr}, "log": log.read_text(encoding="utf-8")[-2000:]}
 
     def pi_known_utility_bypasses_claim(self):
         pane = self.client_pane()
         require({"step": "pi-utility-empty-pane"}, self.state(pane) is None,
                 "utility bypass control did not start with an empty pane")
-        before = set(pathlib.Path(self.launchd.intent_dir).glob("*.json"))
+        before = self.intent_paths()
         sequence = self.reserve_sequence()
         receipt = self.scratch / f"pi-utility-{sequence}.receipt.json"
         calls = self.scratch / f"pi-utility-{sequence}.calls.jsonl"
@@ -875,10 +943,10 @@ export default function (pi) {
         exports = self.foreground_exports(self.aliases[2], sequence) | {
             "PATH": str(tap_dir) + os.pathsep + os.environ["PATH"],
         }
-        self.start_foreground_driver(pane, receipt, [str(self.reference_launcher), "pi", "--version"],
+        self.start_foreground_driver(pane, receipt, [str(self.launcher), "pi", "--version"],
                                      exports, f"pi-utility-{sequence}")
         status = self.wait_exit(None, None, receipt)
-        require({"step": "pi-utility-status"}, status == 0, f"reference utility exited {status}")
+        require({"step": "pi-utility-status"}, status == 0, f"runtime utility exited {status}")
         observed_calls = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
         mutations = [args for args in observed_calls if any(args[index:index + 2] in (
             ["pane", "report-agent"], ["pane", "release-agent"], ["agent", "rename"])
@@ -888,7 +956,7 @@ export default function (pi) {
         state = self.state(pane)
         require({"step": "pi-utility-no-alias"}, state is None or not state.get("name"),
                 f"known Pi utility mode acquired an alias: {state}")
-        after = set(pathlib.Path(self.launchd.intent_dir).glob("*.json"))
+        after = self.intent_paths()
         require({"step": "pi-utility-no-intent"}, after == before,
                 f"known Pi utility mode created durable intent(s): {after - before}")
         return {"status": status, "driver": self.driver_details(receipt), "intent_count": len(after),
@@ -902,37 +970,35 @@ export default function (pi) {
                 f"bare native Claude unexpectedly has a launcher alias: {native_state}")
         self.send_normal_quit("claude", native_pane, native_receipt, None, None)
         pane = self.client_pane()
-        require({"step": "r10-empty-pane"}, self.state(pane) is None, "R10 fallback did not start on an empty pane")
         sequence = self.reserve_sequence()
         receipt = self.scratch / f"r10-claude-{sequence}.receipt.json"
-        settled = self.scratch / f"r10-settled-{sequence}.json"
         stderr = self.scratch / f"r10-claude-{sequence}.stderr"
+        before = self.intent_paths()
+        settled = self.scratch / f"r10-settled-{sequence}.json"
         atomic_write(settled, {"phase": "settled"})
-        native = native_executable("claude")
-        command = [sys.executable, str(ROOT / "tests/helpers/intercom_claim_recovery_prototype.py"),
-                   "--bind-exec", native, "--", "--no-chrome"]
         exports = self.foreground_exports("r10-fallback", sequence) | {
-            "MMS377_INTENT": str(settled), "AGENT_INTERCOM_CLAUDE_COMMAND": native,
+            "HERDR_AGENT_INTERCOM_RECOVERY_INTENT": str(settled),
+            "AGENT_INTERCOM_CLAUDE_COMMAND": native_executable("claude"),
             "AGENT_INTERCOM_CLAUDE_ARGC": "1", "AGENT_INTERCOM_CLAUDE_ARG_0": "--no-chrome",
             "MMS377_DRIVER_STDERR": str(stderr),
         }
-        self.start_foreground_driver(pane, receipt, command, exports, f"r10-claude-{sequence}")
+        self.start_foreground_driver(pane, receipt, [str(self.runtime_bin / "herdr-agent-intercom-claude")],
+                                     exports, f"r10-claude-{sequence}")
         ready = self.wait_client_ready("claude", pane, receipt, native=True)
         fallback_state = self.state(pane)
-        require({"step": "r10-no-launcher-claim"}, fallback_state is not None and not fallback_state.get("name") and
-                fallback_state.get("agent") == native_state.get("agent") and
-                fallback_state.get("agent_status") == native_state.get("agent_status"),
-                f"late bind fallback differs from bare native client state: {fallback_state}")
+        require({"step": "r10-claude-late-bind-no-claim"}, fallback_state is not None and not fallback_state.get("name") and
+                self.intent_paths() == before,
+                f"late bridge fallback acquired a claim: {fallback_state}")
         warning = stderr.read_text(encoding="utf-8")
-        require({"step": "r10-warning"}, "claim binding unavailable; starting native Claude without enrollment" in warning,
-                f"late bind fallback warning was absent: {warning[-2000:]}")
+        require({"step": "r10-warning"}, "starting native Claude without enrollment" in warning,
+                f"late bind did not warn: {warning}")
         status = self.send_normal_quit("claude", pane, receipt, None, None)
-        return {"ready": ready, "status": status, "native_state": native_state, "fallback_state": fallback_state,
-                "driver": self.driver_details(receipt), "warning": warning[-1000:]}
+        return {"ready": ready, "status": status, "native_state": native_state, "state": fallback_state,
+                "driver": self.driver_details(receipt), "warning": stderr.read_text(encoding="utf-8")[-1000:]}
 
     def initial_admission_failure(self, fault):
         pane = self.client_pane()
-        before = set(pathlib.Path(self.launchd.intent_dir).glob("*.json"))
+        before = self.intent_paths()
         pane_before = self.state(pane)
         require({"step": "admission-fallback-empty-pane"}, pane_before is None,
                 f"admission fallback did not start from an empty pane: {pane_before}")
@@ -942,7 +1008,9 @@ export default function (pi) {
         exports = self.foreground_exports(self.aliases[15 % len(self.aliases)], sequence) | {
             "MMS377_DRIVER_STDERR": str(stderr),
         }
-        intent_dir = self.launchd.intent_dir
+        intent_dir = pathlib.Path(self.launchd.intent_dir)
+        displaced = self.scratch / f"admission-intents-backup-{sequence}"
+        command = [str(self.launcher), "opencode"]
         if fault in {"server", "client"}:
             fault_bin = self.scratch / f"admission-ps-{sequence}"
             fault_bin.mkdir()
@@ -951,63 +1019,59 @@ export default function (pi) {
             # Fail one actual identity reader; all other ps calls stay real.
             (fault_bin / "ps").write_text(
                 "#!/bin/sh\ntarget=$MMS377_FAULT_IDENTITY_PID\n"
-                "if [ \"$target\" = self ]; then target=$PPID; fi\n"
+                "if [ -n \"${MMS377_FAULT_PID_FILE:-}\" ]; then target=$(cat \"$MMS377_FAULT_PID_FILE\"); fi\n"
                 "previous=\nfor argument in \"$@\"; do\n"
                 "  if [ \"$previous\" = -p ] && [ \"$argument\" = \"$target\" ]; then exit 1; fi\n"
                 "  previous=$argument\ndone\n"
                 f"exec {shlex.quote(real_ps)} \"$@\"\n", encoding="utf-8",
             )
             (fault_bin / "ps").chmod(0o700)
-            exports.update(MMS377_FAULT_IDENTITY_PID="self" if fault == "client" else str(self.owner.server_identity["pid"]),
+            exports.update(MMS377_FAULT_IDENTITY_PID=str(self.owner.server_identity["pid"]),
                            PATH=str(fault_bin) + os.pathsep + os.environ["PATH"])
+            if fault == "client":
+                pid_file = self.scratch / f"fault-client-{sequence}.pid"
+                wrapper = self.scratch / f"fault-client-{sequence}.sh"
+                wrapper.write_text("#!/bin/sh\nprintf '%s' \"$$\" > " + shlex.quote(str(pid_file)) +
+                                   "\nexec " + shlex.join(command) + "\n", encoding="utf-8")
+                wrapper.chmod(0o700)
+                exports["MMS377_FAULT_PID_FILE"] = str(pid_file)
+                command = [str(wrapper)]
         elif fault == "intent":
-            invalid_directory = self.scratch / f"admission-file-{sequence}"
-            invalid_directory.write_text("not a directory\n", encoding="utf-8")
-            intent_dir = str(invalid_directory)
+            self.launchd.close()
+            intent_dir.rename(displaced)
+            intent_dir.write_text("not a directory\n", encoding="utf-8")
+        elif fault == "owner":
+            exports["HERDR_AGENT_INTERCOM_RECOVERY_PLIST"] = str(self.scratch / "missing-owner.plist")
         else:
             raise ProbeError(f"unknown admission fault: {fault}")
-        command = [sys.executable, str(pathlib.Path(__file__).resolve()), "--admission-fallback",
-                    "--agent", "opencode", "--sequence", str(sequence), "--alias", self.aliases[15 % len(self.aliases)],
-                    "--intent-dir", intent_dir, "--receipt", str(receipt), "--launcher", str(self.launcher), "--"]
-        self.start_foreground_driver(pane, receipt, command, exports, f"admission-r10-{sequence}")
-        fallback = wait_until(lambda: read_json(receipt) if receipt.exists() else None, 8, "admission fallback receipt")
-        driver = self.wait_driver(receipt, "running")
-        native = wait_until(lambda: self.native_process(fallback["pid"], "opencode"), 20,
-                            "admission fallback native OpenCode")
-        require({"step": "admission-fallback-pid"}, fallback["pid"] == driver["client_pid"] == native["pid"],
-                f"admission fallback changed the prelaunch PID: {fallback}; driver={driver}; native={native}")
-        self.wait_client_ready("opencode", pane, receipt)
-        warning = stderr.read_text(encoding="utf-8")
-        require({"step": "admission-fallback-warning"},
-                "claim admission unavailable; starting native client without enrollment" in warning,
-                f"admission fallback warning was absent: {warning[-2000:]}")
-        fallback_state = self.state(pane)
-        require({"step": "admission-fallback-no-alias"}, fallback_state is not None and not fallback_state.get("name"),
-                f"admission fallback acquired a launcher alias: {fallback_state}")
-        require({"step": "admission-fallback-no-intent"}, set(pathlib.Path(self.launchd.intent_dir).glob("*.json")) == before,
+        try:
+            self.start_foreground_driver(pane, receipt, command, exports, f"admission-r10-{sequence}")
+            driver = self.wait_driver(receipt, "running")
+            ready = self.wait_client_ready("opencode", pane, receipt, native=True)
+            native = ready["native"]
+            require({"step": "admission-fallback-pid"}, driver["client_pid"] == native["pid"],
+                    f"admission fallback changed the exec PID: {driver}; {native}")
+            warning = stderr.read_text(encoding="utf-8")
+            require({"step": "admission-fallback-warning"}, "unavailable" in warning,
+                    f"admission fallback warning was absent: {warning[-2000:]}")
+            fallback_state = self.state(pane)
+            require({"step": "admission-fallback-no-alias"}, fallback_state is None or not fallback_state.get("name"),
+                    f"admission fallback acquired a launcher alias: {fallback_state}")
+            status = self.send_normal_quit("opencode", pane, receipt, None, None)
+        finally:
+            if displaced.exists():
+                intent_dir.unlink()
+                displaced.rename(intent_dir)
+                self.launchd.start()
+        require({"step": "admission-fallback-no-intent"}, self.intent_paths() == before,
                 "admission fallback created a durable intent")
-        status = self.send_normal_quit("opencode", pane, receipt, None, None)
-        return {"fault": fault, "fallback": fallback, "state": fallback_state, "native": native,
+        return {"fault": fault, "state": fallback_state, "native": native,
                 "warning": warning[-1000:], "status": status, "driver": self.driver_details(receipt)}
 
     def opencode_initial_admission_r10_fallback(self):
-        # The managed OpenCode adapter consumes this exact variable at import.
-        # Observe the environment at the real exec boundary, before it can clear it.
-        child = "import json, os; print(json.dumps(os.environ.get('OPENCODE_INTERCOM_NAME')))"
-        invocation = (
-            f"import sys; sys.path.insert(0, {str(ROOT / 'tests/helpers')!r}); "
-            "from intercom_claim_recovery_prototype import exec_without_enrollment; "
-            f"exec_without_enrollment(sys.executable, ['-c', {child!r}], 'proof native fallback')"
-        )
-        environment = subprocess.run([sys.executable, "-c", invocation],
-                                     env=os.environ | {"OPENCODE_INTERCOM_NAME": "forbidden-parent-alias"},
-                                     text=True, capture_output=True, check=False, timeout=10)
-        require({"step": "admission-fallback-exec"}, environment.returncode == 0,
-                f"native fallback exec failed: {environment.stderr}")
-        require({"step": "admission-fallback-inherited-name"}, environment.stdout == "null\n",
-                f"native fallback inherited another OpenCode identity: {environment.stdout!r}")
+        # A real admitted launch remains the positive control.
         control_pane, control_receipt, control_log, control_exit = self.launch("opencode", [], interactive=True,
-                                                                            alias_index=15)
+                                                                             alias_index=15)
         control = read_json(control_receipt)
         self.wait_client_ready("opencode", control_pane, control_receipt)
         control_state = self.state(control_pane)
@@ -1016,84 +1080,226 @@ export default function (pi) {
                 f"successful admission did not publish the expected alias: {control_state}")
         self.send_normal_quit("opencode", control_pane, control_receipt, control_log, control_exit)
         self.wait_settled(control_receipt, control_pane)
-        filesystem = self.initial_admission_failure("intent")
-        identity = self.initial_admission_failure("server")
-        client_identity = self.initial_admission_failure("client")
+        failures = {fault: self.initial_admission_failure(fault) for fault in ("owner", "intent", "server", "client")}
+        return {"control": control_state, "failure_controls": failures}
 
-        pending_pane = self.client_pane()
-        reserved_sequence = self.reserve_sequence()
-        reserved_alias = self.aliases[16 % len(self.aliases)]
-        report(self.owner, pending_pane["pane_id"], SOURCE, "unknown", reserved_sequence)
-        self.owner.run("agent", "rename", pending_pane["pane_id"], reserved_alias)
-        reserved = self.state(pending_pane)
-        require({"step": "admission-pending-alias-control"}, reserved is not None and reserved.get("name") == reserved_alias,
-                f"alias collision control did not retain its owned record: {reserved}")
-        pending_receipt = self.scratch / f"admission-pending-{reserved_sequence}.receipt.json"
-        pending_stderr = self.scratch / f"admission-pending-{reserved_sequence}.stderr"
-        pending_command = [sys.executable, str(pathlib.Path(__file__).resolve()), "--admission-fallback",
-                           "--agent", "opencode", "--sequence", str(self.reserve_sequence()), "--alias", reserved_alias,
-                           "--intent-dir", self.launchd.intent_dir, "--receipt", str(pending_receipt),
-                           "--launcher", str(self.launcher), "--"]
+    def alias_reuse_refreshes_a_stale_read(self):
         pane = self.client_pane()
-        require({"step": "admission-collision-fresh-pane"}, self.state(pane) is None,
-                "post-report collision needs a fresh claim-capable pane")
+        alias = self.aliases[0]
+        command = [sys.executable, str(self.runtime_lib / "intercom-claim-recovery.py"),
+                   "--reuse-alias", str(self.runtime_root), "--alias", alias,
+                   "--owner-label", self.runtime_label, "--owner-plist", str(self.runtime_plist)]
+        env = self.owner.env | {"HERDR_PANE_ID": pane["pane_id"], "HERDR_SOCKET_PATH": self.owner.socket_path}
         try:
-            self.start_foreground_driver(pane, pending_receipt, pending_command,
-                                         self.foreground_exports(reserved_alias, reserved_sequence) | {
-                                             "MMS377_DRIVER_STDERR": str(pending_stderr),
-                                         }, f"admission-pending-{reserved_sequence}")
-            pending = wait_until(lambda: read_json(pending_receipt) if pending_receipt.exists() else None, 8,
-                                  "post-report fallback receipt")
-            require({"step": "admission-actual-alias-collision"}, "agent_name_taken" in pending["admission_error"],
-                    f"control did not reach the real alias collision: {pending}")
-            pending_driver = self.wait_driver(pending_receipt, "running")
-            pending_native = wait_until(lambda: self.native_process(pending["pid"], "opencode"), 20,
-                                        "post-report fallback native OpenCode")
-            require({"step": "admission-pending-native"}, pending["pid"] == pending_driver["client_pid"] == pending_native["pid"],
-                    f"post-report fallback did not exec the native client: {pending}")
-            require({"step": "admission-pending-receipt"}, pending.get("claim_pending") is True and
-                    pathlib.Path(pending["intent"]).exists() and pending.get("agent") == "opencode" and
-                    pending.get("requested_alias") == reserved_alias,
-                    f"post-report fallback did not preserve durable claim correlation: {pending}")
-            pending_warning = pending_stderr.read_text(encoding="utf-8")
-            require({"step": "admission-pending-warning"},
-                    "claim admission remains pending; starting native client without enrollment" in pending_warning,
-                    f"post-report fallback warning was inaccurate: {pending_warning[-2000:]}")
-            self.wait_client_ready("opencode", pane, pending_receipt)
-            unacknowledged = read_json(pending["intent"])
-            require({"step": "admission-pending-unacknowledged"}, unacknowledged["phase"] == "intent",
-                    f"post-report fallback incorrectly acknowledged its unfenced intent: {unacknowledged}")
-            status_pending = self.send_normal_quit("opencode", pane, pending_receipt, None, None)
-            try:
-                wait_until(lambda: self.state(pane) is None, 15, "post-report native client cleanup")
-            except ProbeError as error:
-                error.evidence = {"pending_receipt": pending, "pending_intent": read_json(pending["intent"]),
-                                  "pane_state": self.state(pane), "reserved_state": self.state(pending_pane)}
-                raise
-            pending_intent = read_json(pending["intent"])
-            # Native exit can clear the record before recovery observes it. R5
-            # then keeps the unacknowledged obligation pending; absence alone
-            # is not a settlement receipt. Its durable ownership must survive.
-            ownership_keys = ("launch_id", "agent_kind", "client", "terminal", "claim")
-            require({"step": "admission-pending-ownership-preserved"},
-                    {key: pending_intent[key] for key in ownership_keys} ==
-                    {key: unacknowledged[key] for key in ownership_keys},
-                    f"fallback lost durable ownership: {unacknowledged} -> {pending_intent}")
-            reserved_after = self.state(pending_pane)
-            identity_keys = ("name", "terminal_id", "agent", "agent_status", "agent_session")
-            require({"step": "admission-collision-owner-preserved"}, reserved_after is not None and
-                    {key: reserved_after.get(key) for key in identity_keys} ==
-                    {key: reserved.get(key) for key in identity_keys},
-                    f"failed admission changed the alias owner: {reserved} -> {reserved_after}")
+            require({"step": "reuse-absent-control"}, self.state(pane) is None, "control pane already has a record")
+            absent = subprocess.run(command, env=env, text=True, capture_output=True, timeout=15)
+            require({"step": "reuse-refresh-status"}, absent.returncode == 0, f"alias revalidation failed: {absent.stderr}")
+            require({"step": "reuse-refresh-absence"}, json.loads(absent.stdout) == {"alias": ""},
+                    f"empty recovery directory licensed a stale alias: {absent.stdout}")
+            self.owner.run("pane", "report-agent", pane["pane_id"], "--source", "reuse-control",
+                           "--agent", "claude", "--state", "working", "--seq", str(self.reserve_sequence()))
+            self.owner.run("agent", "rename", pane["pane_id"], alias)
+            present = subprocess.run(command, env=env, text=True, capture_output=True, timeout=15)
+            require({"step": "reuse-independent-status"}, present.returncode == 0,
+                    f"independent identity was rejected: {present.stderr}")
+            require({"step": "reuse-independent-alias"}, json.loads(present.stdout) == {"alias": alias},
+                    "independent existing alias was not preserved")
+            return {"absent": json.loads(absent.stdout), "present": json.loads(present.stdout)}
         finally:
-            release(self.owner, pending_pane["pane_id"], SOURCE, reserved_sequence + 1)
-        require({"step": "admission-pending-control-cleanup"}, self.state(pending_pane) is None,
-                "alias collision control record survived teardown")
-        return {"control": control_state, "filesystem_failure": filesystem, "identity_failure": identity,
-                "client_identity_failure": client_identity,
-                "pending": pending, "pending_native": pending_native, "pending_warning": pending_warning[-1000:],
-                "pending_status": status_pending, "pending_intent": pending_intent, "reserved_control": reserved,
-                "reserved_after": reserved_after, "unacknowledged": unacknowledged}
+            self.owner.run("pane", "close", pane["pane_id"])
+
+    def alias_reuse_preserves_successor_identity(self):
+        from intercom_alias_reuse_probe import run_order
+        observations = {}
+        for name, early in (("late_observation_after_detection", False), ("late_observation_before_detection", True)):
+            isolated = ClientProbe()
+            try:
+                isolated.start()
+                observations[name] = run_order(isolated, early)
+            finally:
+                isolated.close()
+        return observations
+
+    def alias_collision_rolls_back_and_retries(self):
+        # Restore base test 1346's stale first candidate, now with real Herdr.
+        occupied = self.client_pane()
+        first, second = self.aliases[:2]
+        sequence = self.reserve_sequence()
+        self.owner.run("pane", "report-agent", occupied["pane_id"], "--source", "collision-control",
+                       "--agent", "claude", "--state", "working", "--seq", str(sequence))
+        self.owner.run("agent", "rename", occupied["pane_id"], first)
+        protected = self.state(occupied)
+        require({"step": "collision-occupied-control"}, protected is not None and protected.get("name") == first,
+                "collision control did not establish the first alias owner")
+        stub = self.scratch / f"collision-{sequence}.bin"
+        stub.mkdir()
+        calls = self.scratch / f"collision-{sequence}.calls"
+        peer = stub / "herdr-peer-alias"
+        peer.write_text(
+            "#!/bin/sh\nshift\n"
+            f"printf '%s\\n' \"$*\" >> {shlex.quote(str(calls))}\n"
+            "for taken in \"$@\"; do\n"
+            f"  [ \"$taken\" != {shlex.quote(first)} ] || {{ printf '%s\\n' {shlex.quote(second)}; exit 0; }}\n"
+            "done\n"
+            f"printf '%s\\n' {shlex.quote(first)}\n", encoding="utf-8")
+        peer.chmod(0o700)
+        before = self.intent_paths()
+        pane, receipt, log, exit_file = self.launch(
+            "claude", ["--no-chrome"], interactive=True, alias_index=1, trace=True,
+            extra_env={"PATH": str(stub) + os.pathsep + os.environ["PATH"]})
+        self.wait_claude_ready(pane, receipt)
+        paths = self.intent_paths() - before
+        require({"step": "collision-attempt-count"}, len(paths) == 2,
+                f"expected rejected and successful attempts, got {paths}")
+        attempts = sorted((read_json(path) for path in paths), key=lambda item: item["claim"]["claim_seq"])
+        rejected, acquired = attempts
+        require({"step": "collision-rollback"}, rejected["phase"] == "settled" and
+                rejected["diagnostic"] == "settled: alias acquisition rejected",
+                f"rejected alias was not rolled back: {rejected}")
+        require({"step": "collision-next-generation"}, acquired["phase"] == "acquired" and
+                acquired["claim"]["claim_seq"] > rejected["claim"]["release_seq"],
+                f"retry did not reserve a later generation: {attempts}")
+        mutations = [read_json(path) for path in pathlib.Path(rejected["trace_dir"]).glob("*.mutation_attempt.*.json")]
+        releases = [item for item in mutations if item["method"] == "pane.release_agent"]
+        require({"step": "collision-reserved-release"}, len(releases) == 1 and releases[0]["params"] == {
+            "pane_id": pane["pane_id"], "source": rejected["claim"]["source"], "agent": "claude",
+            "seq": rejected["claim"]["release_seq"]}, "rollback did not use its reserved release")
+        require({"step": "collision-excludes-first-candidate"}, calls.read_text() == f"\n{first}\n",
+                f"retry did not exclude the rejected candidate: {calls.read_text()!r}")
+        state = self.state(pane)
+        require({"step": "collision-second-alias"}, state is not None and state.get("name") == second,
+                f"client did not enroll under the second alias: {state}")
+        after = self.state(occupied)
+        keys = ("name", "terminal_id", "agent", "agent_status", "agent_session")
+        require({"step": "collision-other-owner-preserved"}, after is not None and
+                {key: after.get(key) for key in keys} == {key: protected.get(key) for key in keys},
+                f"rollback disturbed the first alias owner: {protected} -> {after}")
+        status = self.send_normal_quit("claude", pane, receipt, log, exit_file)
+        self.wait_settled(receipt, pane)
+        self.owner.run("pane", "close", occupied["pane_id"])
+        return {"attempts": attempts, "candidate_calls": calls.read_text(), "successor": state,
+                "protected_before": protected, "protected_after": after, "status": status}
+
+    def runtime_owner_recovers_stale_readiness_and_crash(self):
+        ready_path = self.runtime_root / "observer.ready"
+        original = read_json(ready_path)
+        atomic_write(ready_path, original | {"start_identity": "stale-readiness-control"})
+        pane, receipt, log, exit_file = self.launch("opencode", [], interactive=True, trace=True)
+        native = self.wait_client_ready("opencode", pane, receipt)["native"]
+        admitted = read_json(ready_path)
+        require({"step": "stale-ready-replaced"}, admitted["pid"] != original["pid"] and
+                process_start_identity(admitted["pid"]) == admitted["start_identity"] and
+                process_start_identity(original["pid"]) != original["start_identity"],
+                "admission trusted stale readiness or left its former observer alive")
+        require({"step": "owned-runtime-observer"}, admitted["job_label"] == self.runtime_label and
+                admitted["intent_dir"] == str(pathlib.Path(self.launchd.intent_dir).resolve()),
+                "observer receipt does not belong to this isolated runtime")
+        os.kill(admitted["pid"], signal.SIGKILL)
+
+        def restarted_owner():
+            ready = read_json(ready_path)
+            return ready if ready["pid"] != admitted["pid"] and \
+                process_start_identity(ready["pid"]) == ready["start_identity"] else None
+
+        restarted = wait_until(restarted_owner, 15, "production launchd observer restart")
+        expected = read_json(receipt)
+        state = self.state(pane)
+        require({"step": "restarted-owner-preserves-client"}, state is not None and
+                state.get("name") == expected["alias"] and
+                process_start_identity(native["pid"]) == native["start_identity"],
+                "observer restart disturbed the live client")
+        os.kill(native["pid"], signal.SIGTERM)
+        self.wait_exit(log, exit_file, receipt)
+        completed = self.wait_settled(receipt, pane)
+        return {"original": original, "admitted": admitted, "restarted": restarted,
+                "native": native, "completed": completed}
+
+    def partial_admission_preserves_native_startup(self):
+        results = []
+        for drop_response in (False, True):
+            pane = self.client_pane()
+            sequence = self.reserve_sequence()
+            receipt = self.scratch / f"partial-{sequence}.receipt.json"
+            native_env = self.scratch / f"partial-{sequence}.env.json"
+            stderr = self.scratch / f"partial-{sequence}.stderr"
+            wrapper_dir = self.scratch / f"partial-{sequence}.bin"
+            wrapper_dir.mkdir()
+            fields = ("OPENCODE_INTERCOM_NAME", "HERDR_AGENT_INTERCOM_ACTIVE",
+                      "HERDR_AGENT_INTERCOM_NAME", "HERDR_AGENT_INTERCOM_PANE",
+                      "HERDR_AGENT_INTERCOM_CLAIM", "HERDR_AGENT_INTERCOM_CLAIM_AGENT",
+                      "HERDR_AGENT_INTERCOM_RECOVERY_INTENT", "HERDR_AGENT_INTERCOM_PI_LOAD")
+            executable = native_executable("opencode")
+            wrapper = wrapper_dir / "opencode"
+            wrapper.write_text(
+                f"#!{sys.executable}\nimport json,os,sys\n"
+                f"with open({str(native_env)!r}, 'w') as stream: "
+                f"json.dump({{key:os.environ.get(key) for key in {fields!r}}}, stream)\n"
+                f"os.execv({executable!r}, [{executable!r}, *sys.argv[1:]])\n", encoding="utf-8")
+            wrapper.chmod(0o700)
+            inherited = self.scratch / f"parent-{sequence}.json"
+            atomic_write(inherited, {"phase": "settled", "sentinel": "another-pane"})
+            inherited_before = inherited.read_bytes()
+            before = self.intent_paths()
+            with HerdrResponseRelay(self.scratch / f"relay-{sequence}.sock",
+                                    self.owner.socket_path, drop_response) as relay:
+                exports = self.foreground_exports(self.aliases[15], sequence) | {
+                    "PATH": str(wrapper_dir) + os.pathsep + os.environ["PATH"],
+                    "MMS377_DRIVER_STDERR": str(stderr),
+                    "OPENCODE_INTERCOM_NAME": "parent-alias", "HERDR_AGENT_INTERCOM_ACTIVE": "1",
+                    "HERDR_AGENT_INTERCOM_NAME": "parent-alias", "HERDR_AGENT_INTERCOM_PANE": "other-pane",
+                    "HERDR_AGENT_INTERCOM_CLAIM": "other-pane", "HERDR_AGENT_INTERCOM_CLAIM_AGENT": "claude",
+                    "HERDR_AGENT_INTERCOM_RECOVERY_INTENT": str(inherited),
+                    "HERDR_AGENT_INTERCOM_PI_LOAD": "parent-load",
+                }
+                self.start_foreground_driver(pane, receipt,
+                                             ["env", f"HERDR_SOCKET_PATH={relay.path}", str(self.launcher), "opencode"], exports,
+                                             f"partial-{sequence}")
+                native = self.wait_client_ready("opencode", pane, receipt, native=True)["native"]
+                driver = self.driver_details(receipt)
+                require({"step": "partial-native-pid"}, native["pid"] == driver["client_pid"],
+                        "partial acquisition fallback changed the exec PID")
+                paths = self.intent_paths() - before
+                require({"step": "partial-obligation"}, len(paths) == 1,
+                        f"expected one durable launch obligation: {paths}")
+                path = paths.pop()
+                intent = read_json(path)
+                require({"step": "partial-client-correlation"}, intent["client"] == {
+                    "pid": native["pid"], "start_identity": native["start_identity"]},
+                    "pending obligation lost its actual native process identity")
+                environment = read_json(native_env)
+                if drop_response:
+                    require({"step": "partial-real-rename"}, len(relay.dropped) == 1 and
+                            "error" not in relay.dropped[0]["response"],
+                            f"fault did not lose a successful real rename response: {relay.dropped}; intent={intent}; stderr={stderr.read_text()}")
+                    require({"step": "partial-native-authority"}, environment == dict.fromkeys(fields),
+                            f"native fallback inherited enrollment authority: {environment}")
+                    require({"step": "partial-pending"}, intent["phase"] == "intent",
+                            f"unacknowledged acquisition was marked complete: {intent}")
+                    require({"step": "partial-diagnostic"}, "partial claim remains pending" in stderr.read_text(),
+                            "partial acquisition did not report its pending obligation")
+                else:
+                    require({"step": "partial-valid-control"}, intent["phase"] == "acquired" and
+                            environment["HERDR_AGENT_INTERCOM_RECOVERY_INTENT"] == str(path) and
+                            environment["OPENCODE_INTERCOM_NAME"] == self.aliases[15],
+                            f"relay control did not complete real enrollment: {intent}; {environment}")
+                state = self.state(pane)
+                require({"step": "partial-published-alias"}, state is not None and
+                        state.get("name") == self.aliases[15], "real rename did not publish the requested alias")
+                require({"step": "partial-parent-preserved"}, inherited.read_bytes() == inherited_before,
+                        "launch changed another pane's inherited obligation")
+                self.send_normal_quit("opencode", pane, receipt, None, None)
+                wait_until(lambda: self.state(pane) is None, 10,
+                           "autonomous partial-claim cleanup after native exit")
+                # An unacknowledged operation remains pending if Herdr clears
+                # the record before the observer can witness its own release.
+                after_exit = read_json(path)
+                require({"step": "partial-correlation-retained"}, after_exit["client"] == intent["client"] and
+                        after_exit["claim"] == intent["claim"],
+                        "cleanup lost the unresolved acquisition's durable correlation")
+                results.append({"drop_response": drop_response, "native": native, "intent_before_exit": intent,
+                                "environment": environment, "dropped": relay.dropped,
+                                "intent_after_exit": after_exit})
+        return {"controls": results}
 
     def pi_print_mode_parity(self):
         args = ["--print", "--no-tools", "--no-session", "Reply with exactly PI_PRINT_OK."]
@@ -1102,16 +1308,20 @@ export default function (pi) {
                 f"native Pi print exited {native.returncode}: {native.stderr[-1000:]}")
         require({"step": "pi-native-print-output"}, native.stdout.strip() == "PI_PRINT_OK",
                 f"native Pi print did not return its fixed response: {native.stdout[-1000:]}")
-        pane, receipt, log, exit_file = self.launch("pi", args, alias_index=2, offline=False)
+        before = self.intent_paths()
+        pane, receipt, log, exit_file = self.launch("pi", args, alias_index=2, offline=False, claim_required=False)
         wrapped_status = self.wait_exit(log, exit_file, receipt, timeout=60)
-        intent = self.wait_settled(receipt, pane)
         output = log.read_text(encoding="utf-8")
         require({"step": "pi-wrapped-print-status"}, wrapped_status == 0,
                 f"wrapped Pi print exited {wrapped_status}: {output[-1000:]}")
         require({"step": "pi-wrapped-print-output"}, output.strip() == "PI_PRINT_OK",
                 f"wrapped Pi print did not return its fixed response: {output[-1000:]}")
+        state = self.state(pane)
+        require({"step": "pi-print-runtime-bypass"}, (state is None or not state.get("name")) and
+                self.intent_paths() == before,
+                "Pi print mode unexpectedly claimed a runtime alias")
         return {"native_status": native.returncode, "wrapped_status": wrapped_status,
-                "intent": intent, "native_output": native.stdout[-1000:], "wrapped_output": output[-1000:]}
+                "runtime_bypass": True, "native_output": native.stdout[-1000:], "wrapped_output": output[-1000:]}
 
     def pi_interactive(self):
         pane, receipt, log, exit_file = self.launch(
@@ -1237,31 +1447,33 @@ export default function (pi) {
     def stop_resume(self, agent, alias_index):
         matched_baseline = None
         native_samples = []
-        if agent == "pi":
+        matched_reference = agent in {"pi", "opencode"}
+        if matched_reference:
             baseline_observer = read_json(self.launchd.pid_file)
             self.launchd.close()
-            require({"step": "pi-matched-observer-stopped"},
+            require({"step": f"{agent}-matched-observer-stopped"},
                     process_start_identity(baseline_observer["pid"]) != baseline_observer["start_identity"],
                     "recovery is still running for the matched reference control")
             native_pane = self.client_pane()
-            label = "pi-reference-driver-" + uuid.uuid4().hex
+            label = agent + "-reference-driver-" + uuid.uuid4().hex
             native_receipt = self.scratch / (label + ".receipt.json")
             self.start_foreground_driver(
                 native_pane, native_receipt,
-                [str(self.reference_launcher), "pi", *self.interactive_args("pi", True)],
+                [str(self.reference_launcher), agent, *self.interactive_args(agent, True)],
                 self.foreground_exports(self.aliases[0], time.time_ns()), label,
             )
         else:
             native_pane, native_receipt = self.launch_native(agent, self.interactive_args(agent, False))
         native_ready = self.wait_client_ready(agent, native_pane, native_receipt, native=True)
         native = native_ready["native"]
-        if agent == "pi":
+        if matched_reference:
             native_before = wait_until(
                 lambda: state if (state := self.state(native_pane)) and
                 state.get("name") == self.aliases[0] and
-                (state.get("agent_session") or {}).get("source") == "herdr:pi" and
-                state.get("agent_status") in {"idle", "working", "done", "blocked"} else None,
-                15, "matched reference Pi lifecycle takeover",
+                state.get("terminal_id") == native_pane["terminal_id"] and
+                (agent != "pi" or ((state.get("agent_session") or {}).get("source") == "herdr:pi" and
+                 state.get("agent_status") in {"idle", "working", "done", "blocked"})) else None,
+                15, f"matched reference {agent} identity",
             )
 
         def suspend_and_resume(pane, client, target_receipt, while_stopped=None):
@@ -1305,29 +1517,37 @@ export default function (pi) {
 
         def sample_native(stopped_at):
             for _ in range(15):
-                require({"step": "pi-matched-stopped-live"},
+                require({"step": f"{agent}-matched-stopped-live"},
                         process_start_identity(native["pid"]) == native["start_identity"] and
                         "T" in (self.process_state(native["pid"]) or ""),
-                        "matched reference Pi left its stopped live state")
+                        f"matched reference {agent} left its stopped live state")
                 native_samples.append({"elapsed_monotonic_ns": time.monotonic_ns() - stopped_at,
                                        "agent": self.state(native_pane)})
                 time.sleep(0.1)
 
         native_transition = suspend_and_resume(native_pane, native, native_receipt,
-                                               while_stopped=sample_native if agent == "pi" else None)
+                                               while_stopped=sample_native if matched_reference else None)
         self.wait_client_ready(agent, native_pane, native_receipt, native=True)
-        if agent == "pi":
+        if matched_reference:
             native_after = self.state(native_pane)
+            native_immediate = native_after
+            native_redetection_started = time.monotonic_ns()
+            if agent == "opencode":
+                native_after = wait_until(lambda: self.state(native_pane), 20, "reference OpenCode redetection after fg")
+            native_redetection_ns = time.monotonic_ns() - native_redetection_started
+            self.wait_process_live(native["pid"], native["start_identity"])
             matched_baseline = {
                 "before": native_before, "native": native,
                 "samples_while_stopped": native_samples, "after_resume": native_after,
+                "immediate_after_resume": native_immediate,
+                "redetection_wait_ns": native_redetection_ns,
                 "terminal": self.stable_terminal(native_pane), "transition": native_transition,
                 "observer_confirmed_stopped": baseline_observer,
                 "baseline_kind": "reference_without_recovery_with_status_driver",
                 "reference_commit": REFERENCE, "status_driver_used": True,
             }
         native_status = self.send_normal_quit(agent, native_pane, native_receipt, None, None)
-        if agent == "pi":
+        if matched_reference:
             self.restart_observer()
 
         pane, receipt, log, exit_file = self.launch(
@@ -1409,6 +1629,12 @@ export default function (pi) {
                     f"native/wrapped Ctrl-Z mechanism differs: {native_transition} != {wrapped_transition}")
             self.wait_client_ready(agent, pane, receipt)
             after_resume = self.state(pane)
+            immediate_after_resume = after_resume
+            redetection_started = time.monotonic_ns()
+            if agent == "opencode":
+                after_resume = wait_until(lambda: self.state(pane), 20, "wrapped OpenCode redetection after fg")
+            redetection_ns = time.monotonic_ns() - redetection_started
+            self.wait_process_live(wrapped["pid"], wrapped["start_identity"])
             trace_dir = pathlib.Path(read_json(expected["intent"])["trace_dir"])
             release_attempts = [read_json(path) for path in trace_dir.glob("*.release_attempt.*.json")]
             require({"step": f"{agent}-resumed-no-release"}, not release_attempts,
@@ -1430,6 +1656,8 @@ export default function (pi) {
                 "wrapped": wrapped, "wrapped_transition": wrapped_transition, "wrapped_status": wrapped_status,
                 "observer_pass": observer_pass, "pre_suspend": pre_suspend, "retained": retained,
                 "retained_samples": retained_samples, "after_resume": after_resume,
+                "immediate_after_resume": immediate_after_resume,
+                "redetection_wait_ns": redetection_ns,
                 "alias_retained": alias_retained,
                 "release_attempts_before_quit": release_attempts,
                 "live_window_start_monotonic_ns": live_window_start, "mutations_while_live": live_mutations,
@@ -1437,7 +1665,8 @@ export default function (pi) {
 
     def restart_observer(self):
         """Give each direct-native control its own positively stopped observer."""
-        self.launchd = LaunchdOwner(self.owner.root)
+        self.launchd = RuntimeOwner(self.runtime_home, self.runtime_label, self.runtime_plist,
+                                    self.runtime_lib / "intercom-claim-recovery.py", self.runtime_root)
         self.launchd.start()
 
     def direct_native_suspension(self, agent, attempt_repair=False, reference_launch=False):
@@ -1606,16 +1835,19 @@ export default function (pi) {
         require_comparison({"step": f"{agent}-suspension-after-resume-shape"},
                 all(not present or wrapped_after_resume[field] for field, present in baseline_after_resume.items()),
                 f"wrapped post-resume identity lost more than native: {baseline_after_resume} -> {wrapped_after_resume}")
-        baseline_lost_alias = not native["alias_retained"]
+        baseline_lost_alias = any(not state["alias_present"] for state in baseline_shape) or \
+            not baseline_after_resume["alias_present"]
         if not baseline_lost_alias and not wrapped["alias_retained"]:
             error = ProbeError(
-                f"native {agent} suspension retained its alias; wrapped loss cannot inherit an exception"
+                f"comparison {agent} suspension retained its alias; wrapped loss cannot inherit an exception"
             )
             error.evidence = {"baseline": native, "wrapped": wrapped}
             raise error
         return {
             "classification": "PASS" if wrapped["alias_retained"] else "KNOWN_UPSTREAM_LIMITATION",
             "raw_baseline_alias_retention_assertion": native["raw_alias_retention_assertion"],
+            "raw_comparison_alias_retention_assertion": "FAIL" if baseline_lost_alias else "PASS",
+            "qualification_baseline_kind": comparison["baseline_kind"],
             "baseline": native,
             "baseline_kind": native["baseline_kind"],
             "comparison_baseline": comparison,
@@ -1683,6 +1915,57 @@ export default function (pi) {
                         send({"type": "unregister"})
                     except OSError:
                         pass  # Closing this private connection also removes its auditor.
+
+    def legacy_release_preserves_runtime_successor(self):
+        pane = self.client_pane()
+        sequence = self.reserve_sequence()
+        self.owner.run("pane", "report-agent", pane["pane_id"], "--source", "herdr-agent-intercom",
+                       "--agent", "claude", "--state", "unknown", "--seq", str(sequence))
+        self.owner.run("pane", "release-agent", pane["pane_id"], "--source", "herdr-agent-intercom",
+                       "--agent", "claude", "--seq", str(sequence + 1))
+        require({"step": "legacy-control-released"}, self.state(pane) is None,
+                "legacy control did not release its own claim")
+        pane, receipt, log, exit_file = self.launch("claude", ["--no-chrome"], interactive=True,
+                                                  pane=pane, trace=True)
+        native = self.wait_claude_ready(pane, receipt)["native"]
+        expected = read_json(receipt)
+        self.owner.run("pane", "send-text", pane["pane_id"], "Reply with OK only.")
+        self.owner.run("pane", "send-keys", pane["pane_id"], "enter")
+        wait_until(lambda: read_json(expected["intent"])["phase"] == "retired", 20,
+                   "runtime successor handoff before legacy cleanup")
+        before = self.state(pane)
+        require({"step": "legacy-runtime-successor"}, before is not None and
+                before.get("name") == expected["alias"], "runtime successor did not retain its alias")
+        broker_before = wait_until(lambda: self.intercom_identity(expected["alias"]), 15,
+                                   "runtime successor broker registration")
+        markers = self.runtime_state / "agent-intercom/claims"
+        markers.mkdir(parents=True, exist_ok=True)
+        marker = markers / "".join(char if char.isalnum() else "_" for char in pane["pane_id"])
+        marker.write_text("claude\n", encoding="utf-8")
+        env = self.owner.env | self.foreground_exports("legacy-check", sequence) | {
+            "HERDR_ENV": "1", "HERDR_PANE_ID": pane["pane_id"],
+            "HERDR_SOCKET_PATH": self.owner.socket_path,
+            "HERDR_AGENT_INTERCOM_RECOVERY_INTENT": "",
+        }
+        result = subprocess.run([str(self.release_entrypoint)], env=env, text=True,
+                                capture_output=True, check=False, timeout=15)
+        require({"step": "legacy-release-status"}, result.returncode == 0,
+                f"legacy release failed: {result.stderr}")
+        after = self.state(pane)
+        keys = ("name", "terminal_id", "agent", "agent_session")
+        require({"step": "legacy-successor-preserved"}, after is not None and
+                {key: before.get(key) for key in keys} == {key: after.get(key) for key in keys},
+                f"legacy cleanup changed the runtime successor: {before} -> {after}")
+        broker_after = self.intercom_identity(expected["alias"])
+        require({"step": "legacy-broker-preserved"}, broker_after == broker_before,
+                f"legacy cleanup changed broker identity: {broker_before} -> {broker_after}")
+        require({"step": "legacy-native-preserved"},
+                process_start_identity(native["pid"]) == native["start_identity"],
+                "legacy cleanup terminated the live native client")
+        status = self.send_normal_quit("claude", pane, receipt, log, exit_file)
+        return {"before": before, "after": after, "native": native, "quit_status": status,
+                "broker_before": broker_before, "broker_after": broker_after,
+                "legacy_status": result.returncode, "marker_retained": marker.exists()}
 
     def detected_successor_survives_old_release(self):
         pane = self.client_pane()
@@ -1846,7 +2129,7 @@ export default function (pi) {
             mutations = [read_json(path) for path in trace_dir.glob("*.mutation_attempt.*.json")]
             require({"step": "handoff-hook-reserved-release"}, any(
                 event["pid"] != observer["pid"] and event["method"] == "pane.release_agent" and
-                event["params"].get("source") == SOURCE and
+                event["params"].get("source") == retired["claim"]["source"] and
                 event["params"].get("seq") == retired["claim"]["handoff_seq"]
                 for event in mutations
             ), f"first-prompt hook has no source-scoped reserved release trace: {mutations}")
@@ -1874,7 +2157,7 @@ export default function (pi) {
         before = self.wait_claude_session(pane)
         attempts_before = list(trace_dir.glob("*.mutation_attempt.*.json"))
         result = subprocess.run([sys.executable, str(ROOT / "tests/helpers/intercom_claim_recovery_prototype.py"), "--handoff"],
-                                cwd=ROOT, env=os.environ | {"MMS377_INTENT": expected["intent"]},
+                                cwd=ROOT, env=self.owner.env | {"HERDR_AGENT_INTERCOM_RECOVERY_INTENT": expected["intent"]},
                                 text=True, capture_output=True, check=False, timeout=15)
         require({"step": "handoff-non-descendant-refusal"}, result.returncode != 0 and
                 "handoff caller is not a descendant" in result.stderr,
@@ -1898,7 +2181,7 @@ export default function (pi) {
             "import os, pathlib, sys, time\n"
             f"sys.path.insert(0, {str(ROOT / 'tests/helpers')!r})\n"
             "from intercom_claim_recovery_prototype import atomic_write, request_handoff\n"
-            "intent = os.environ['MMS377_INTENT']\n"
+            "intent = os.environ['HERDR_AGENT_INTERCOM_RECOVERY_INTENT']\n"
             "socket = pathlib.Path(os.environ['HERDR_SOCKET_PATH'])\n"
             f"hidden = pathlib.Path({str(hidden)!r})\n"
             f"receipt = pathlib.Path({str(hook_receipt)!r})\n"
@@ -2119,8 +2402,18 @@ def run_probe(suspension_only=False):
         probe.case("native and wrapped OpenCode preserve foreground PTY TERM status", probe.opencode_term_parity)
         probe.case("native and wrapped OpenCode preserve normal TUI quit status", probe.opencode_normal_quit_parity)
         probe.case("native and wrapped Pi preserve foreground PTY TERM status", probe.pi_term_parity)
-        probe.case("initial and partial admission failures preserve native startup and ownership",
+        probe.case("initial admission failures preserve native startup and ownership",
                    probe.opencode_initial_admission_r10_fallback)
+        probe.case("lost acquisition response preserves native startup, pending cleanup, and inherited identity",
+                   probe.partial_admission_preserves_native_startup)
+        probe.case("runtime owner replaces stale readiness and recovers after SIGKILL",
+                   probe.runtime_owner_recovers_stale_readiness_and_crash)
+        probe.case("fresh alias collision rolls back and retries without disturbing its owner",
+                   probe.alias_collision_rolls_back_and_retries)
+        probe.case("old cleanup settles before successor startup and late observations preserve identity",
+                   probe.alias_reuse_preserves_successor_identity)
+        probe.case("alias reuse refreshes stale lookup and preserves an independent identity",
+                   probe.alias_reuse_refreshes_a_stale_read)
         probe.case("late Claude binding refusal preserves native startup without a claim", probe.claude_late_bind_r10_fallback)
         probe.case("cci crash preserves the bound live native client until its own exit", probe.claude_relation_and_handoff)
         probe.case("real Claude /exit preserves normal native exit status", probe.claude_normal_exit)
@@ -2130,10 +2423,12 @@ def run_probe(suspension_only=False):
         probe.case("Claude handoff retries after its first prompt sees an unavailable socket",
                    probe.claude_handoff_retries_after_socket_restoration)
         probe.case("delayed old release preserves a real detected successor and its Intercom identity", probe.detected_successor_survives_old_release)
+        probe.case("legacy release preserves a new runtime successor and its Intercom identity",
+                   probe.legacy_release_preserves_runtime_successor)
         probe.case("native and wrapped Claude preserve normal interactive quit status", probe.claude_normal_quit_parity)
         probe.case("native and wrapped Claude preserve interactive Ctrl-C behavior and status", probe.claude_ctrl_c_parity)
         probe.case("native and wrapped Claude preserve TERM behavior and exact cci status", probe.claude_term_parity)
-        probe.known_upstream_case("OpenCode native suspension is independently attributed and recovery remains non-interfering",
+        probe.known_upstream_case("OpenCode recovery-disabled suspension is independently attributed and recovery remains non-interfering",
                                   lambda: probe.qualify_suspension_exception("opencode", 12))
         probe.known_upstream_case("Pi reference-launcher suspension is independently attributed and recovery remains non-interfering",
                                   lambda: probe.qualify_suspension_exception("pi", 13))
@@ -2163,33 +2458,15 @@ def run_probe(suspension_only=False):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--prelaunch", action="store_true")
-    parser.add_argument("--admission-fallback", action="store_true")
     parser.add_argument("--terminal-driver", action="store_true")
     parser.add_argument("--suspension-diagnostic", action="store_true")
     parser.add_argument("--driver-receipt")
     parser.add_argument("--cwd")
-    parser.add_argument("--agent", choices=CLIENTS)
-    parser.add_argument("--sequence", type=int)
-    parser.add_argument("--alias")
-    parser.add_argument("--intent-dir")
-    parser.add_argument("--receipt")
-    parser.add_argument("--launcher")
     parser.add_argument("client_args", nargs=argparse.REMAINDER)
     arguments = parser.parse_args()
     arguments.driver_command = arguments.client_args
     if arguments.terminal_driver:
         return terminal_driver(arguments)
-    if arguments.prelaunch:
-        if arguments.client_args[:1] == ["--"]:
-            arguments.client_args = arguments.client_args[1:]
-        prelaunch(arguments)
-        return 0
-    if arguments.admission_fallback:
-        if arguments.client_args[:1] == ["--"]:
-            arguments.client_args = arguments.client_args[1:]
-        admission_fallback(arguments)
-        return 0
     return run_probe(arguments.suspension_diagnostic)
 
 

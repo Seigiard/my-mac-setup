@@ -82,7 +82,7 @@ class OwnedHerdr:
     def env(self):
         env = os.environ.copy()
         for name in tuple(env):
-            if name == "HERDR_ENV" or name.startswith("HERDR_"):
+            if name.startswith(("HERDR_", "AGENT_INTERCOM_", "CLAUDE_INTERCOM_")) or name == "OPENCODE_INTERCOM_NAME":
                 env.pop(name)
         env["XDG_CONFIG_HOME"] = self.root
         env["XDG_STATE_HOME"] = os.path.join(self.root, "state")
@@ -330,8 +330,7 @@ def durable_intent(owner, intent_dir, pane, sequence, client, start_identity, ba
 def wait_for(path, phase, timeout=10):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        with open(path, encoding="utf-8") as handle:
-            intent = json.load(handle)
+        intent = recovery_prototype.read_intent(path)
         if intent.get("phase") == phase:
             return intent
         time.sleep(0.05)
@@ -428,7 +427,7 @@ def main():
             os.mkdir(trace_dir)
             binder_code = (
                 "import os,sys,time; "
-                f"sys.path.insert(0,{os.path.dirname(recovery_prototype.__file__)!r}); "
+                f"sys.path.insert(0,{os.path.dirname(__file__)!r}); "
                 "import intercom_claim_recovery_prototype as p; "
                 "bound=p.bind_native_client(sys.argv[1]); "
                 "p.atomic_write(sys.argv[2],{'bound':bound,'pid':os.getpid(),"
@@ -510,18 +509,18 @@ def main():
             launcher.wait(timeout=5)
             code = (
                 "import json,sys; "
-                f"sys.path.insert(0,{os.path.dirname(recovery_prototype.__file__)!r}); "
+                f"sys.path.insert(0,{os.path.dirname(__file__)!r}); "
                 "import intercom_claim_recovery_prototype as p; "
                 "print(json.dumps({'bound':p.bind_native_client(sys.argv[1])}))"
             )
             for phase in ("acquired", "settled"):
-                before = recovery_prototype.read_json(path)
+                before = recovery_prototype.read_intent(path)
                 require({"step": "late-binding-phase"}, before["phase"] == phase, "late binding control has the wrong phase")
                 attempt = subprocess.run([sys.executable, "-c", code, path], text=True, capture_output=True, timeout=10)
                 require({"step": "late-binding-status"}, attempt.returncode == 0, f"late binder failed to execute: {attempt.stderr}")
                 require({"step": "late-binding-refused"}, json.loads(attempt.stdout) == {"bound": False},
                         "a late bridge adopted the exited launch")
-                require({"step": "late-binding-record"}, recovery_prototype.read_json(path) == before,
+                require({"step": "late-binding-record"}, recovery_prototype.read_intent(path) == before,
                         "a refused bridge changed the durable intent")
                 recovery_prototype.observe_one(path)
             ended = owner.state(pane["pane_id"], "late-binding-old-claim-settled")
@@ -574,7 +573,7 @@ def main():
                     recovery_prototype.observe_one(intent)
                 uncertain = owner.state(pane["pane_id"], "failed-lookup-live-process")
                 require_agent(uncertain, status="unknown", terminal=pane["terminal_id"])
-                record = json.load(open(intent, encoding="utf-8"))
+                record = recovery_prototype.read_intent(intent)
                 require({"step": "failed-lookup-intent"}, record["phase"] == "acquired", "failed lookup settled a live claim")
                 client.terminate()
                 client.wait(timeout=5)
@@ -703,7 +702,7 @@ def main():
                 open(barrier + ".continue", "w").close()
                 deadline = time.monotonic() + 5
                 while time.monotonic() < deadline:
-                    pending = json.load(open(intent, encoding="utf-8"))
+                    pending = recovery_prototype.read_intent(intent)
                     if pending.get("diagnostic") == "pending: release acknowledged but claim still published":
                         break
                     time.sleep(0.05)
@@ -729,7 +728,7 @@ def main():
                 deadline = time.monotonic() + 5
                 pending = {}
                 while time.monotonic() < deadline:
-                    pending = json.load(open(intent, encoding="utf-8"))
+                    pending = recovery_prototype.read_intent(intent)
                     if "socket unavailable" in pending.get("diagnostic", ""):
                         break
                     time.sleep(0.05)
@@ -782,7 +781,7 @@ def main():
             deadline = time.monotonic() + 5
             pending = {}
             while time.monotonic() < deadline:
-                pending = json.load(open(before, encoding="utf-8"))
+                pending = recovery_prototype.read_intent(before)
                 if pending.get("diagnostic") == "pending: acquisition outcome unknown":
                     break
                 time.sleep(0.05)
@@ -882,6 +881,7 @@ def main():
             intent = durable_intent(owner, launchd.intent_dir, pane, sequence, client, start_identity,
                                    entry_barrier=entry_barrier, trace_dir=trace_dir)
             claim_and_acknowledge(owner, intent, pane, OLD_SOURCE, sequence, "concurrent-claimed")
+            before_retirement = recovery_prototype.read_intent(intent)
             second_owner = LaunchdOwner(owner.root)
             OWNED_OBSERVERS.append(second_owner)
             try:
@@ -904,12 +904,12 @@ def main():
             settled = owner.state(pane["pane_id"], "repeated-clear")
             require(settled, settled["agent"] is None, "repeated clear recreated a claim")
             # Simulate a crash after Herdr accepted the release and before local retirement.
-            post_release = json.load(open(intent, encoding="utf-8"))
-            post_release["phase"] = "acquired"
-            atomic_write(intent, post_release)
+            # Replay the persisted pre-retirement image through the real writer.
+            # Archived handles are immutable and their removed locks cannot be recreated.
+            intent = write_intent(launchd.intent_dir, before_retirement)
             wait_for(intent, "settled")
             owner.run("pane", "close", pane["pane_id"])
-            atomic_write(intent, post_release)
+            intent = write_intent(launchd.intent_dir, before_retirement)
             closed = wait_for(intent, "settled")
             require({"step": "closed-terminal"}, closed.get("diagnostic") == "settled: terminal resource gone", "closed terminal was not verified before retirement")
 
@@ -1016,7 +1016,7 @@ def main():
 
                 def reserve_in_process(directory, reservation_source, wall_clock):
                     completed = subprocess.run(
-                        [sys.executable, "-c", reservation_code, os.path.dirname(recovery_prototype.__file__),
+                        [sys.executable, "-c", reservation_code, os.path.dirname(__file__),
                          directory, reservation_source, str(wall_clock)],
                         text=True, capture_output=True, timeout=10, check=False,
                     )
@@ -1035,7 +1035,7 @@ def main():
                 processes = []
                 for _ in range(4):
                     process = subprocess.Popen(
-                        [sys.executable, "-c", reservation_code, os.path.dirname(recovery_prototype.__file__),
+                        [sys.executable, "-c", reservation_code, os.path.dirname(__file__),
                          sequence_dir, concurrent_source, "200"],
                         text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                     )
