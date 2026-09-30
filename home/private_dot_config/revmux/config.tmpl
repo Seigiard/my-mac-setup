@@ -1,0 +1,40 @@
+# revmux runtime knobs. Precedence: command line, ./.revmux/config, this file, built-in default.
+# Layers merge per key, so only the keys set here differ from what ships.
+
+# TEMPORARY, for the measurement in issue #353. `dual-model` runs every `lean` lens group
+# twice, once on claude and once on codex, so a few days of ordinary rounds produce the
+# per-group evidence for whether the duplicate finds anything the single model missed. It is
+# the default rather than an explicit `--profile` because the corpus has to come from real
+# rounds, and a flag nobody remembers to pass collects nothing.
+#
+# Revert to `profile = lean` when #353 closes, taking the measured groups into `lean`'s own
+# roster first. Every round costs roughly twice what `lean` costs, so this is not a setting to
+# leave on by inertia.
+profile = dual-model
+
+# `dual-model` runs ten agents, and six at a time keeps both halves of a pair in one wave: the
+# roster lists pairs adjacently, so 6 + 4 splits between pairs where 5 + 5 would split the
+# third pair down the middle. That matters because each agent runs the diff command in
+# `scope.md` itself. Two halves launched ten minutes apart would read different material from a
+# working tree still being edited, and comparing them is the whole point of the roster.
+#
+# Revert to 5 together with `profile`: that is what `lean`'s five agents need, one more than the
+# shipped cap of 4.
+max-parallel = 6
+
+# One pool for every round, whatever directory it was launched from. `tasks-dir`
+# otherwise resolves against the process working directory, so a review run in a
+# herdr worktree wrote its archive into that worktree and lost it when the
+# worktree went away. Rounds are the evidence `revmux self` and issue #353 read,
+# so they have to accumulate in one place rather than one per checkout.
+#
+# The value is templated because revmux expands nothing: no `~`, no `$HOME`. It
+# takes the string as written and resolves a relative one against the working
+# directory, which is the behaviour this line exists to stop.
+#
+# Two consequences. `revmux stats` and `revmux cleanup --task` now act on every
+# repository's rounds at once. And task ids are machine-wide: two repositories
+# deriving the same id would share one history, and revmux injects a task's
+# prior rounds into every later round of it, so name a task for its subject
+# whenever the derived id could read as another repository's.
+tasks-dir = "{{ .chezmoi.homeDir }}/.local/state/revmux/tasks"

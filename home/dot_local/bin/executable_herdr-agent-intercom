@@ -81,17 +81,96 @@ case "$agent" in
       esac
     done
     ;;
-  pi)
+  opencode)
+    # A claim declares a pane record before the client starts. A launch that
+    # never reaches a client -- a utility subcommand, or one whose plugins are
+    # disabled -- exits through `exec`, which runs no EXIT trap, so the record
+    # and the pool alias it spent outlive the command and nothing reports under
+    # `herdr:opencode` to take the pane back. Those launches pass through.
+    #
+    # `--pure` is one of them: it runs without external plugins, so the Intercom
+    # adapter would not load and the Herdr integration would not report either.
+    #
+    # The subcommand can sit behind any number of global options, because yargs
+    # accepts them before it (`opencode --log-level DEBUG serve` runs `serve`),
+    # so the argv walk below skips options and their values and classifies the
+    # first bare word. The list is the `Commands:` block of `opencode --help`
+    # plus `help`, which yargs registers without printing, and minus two:
+    # `pr` checks out a branch and then runs the full client, so it enrolls like
+    # any other interactive launch, and `version` is not a command at all --
+    # `opencode version` starts the client in a directory of that name.
     for arg in "$@"; do
       [[ "$arg" != "--" ]] || break
       case "$arg" in
+        -h|--help|-v|--version|--pure) exec "$agent_command" "$@" ;;
+        # The shell completion Homebrew installs calls the bare name, which is
+        # this launcher's wrapper function, so every Tab press after `opencode `
+        # arrives here. yargs answers it and exits without a client, and the
+        # words it passes start with the command name rather than a subcommand,
+        # so the walk below would read it as an interactive launch.
+        --get-yargs-completions|--get-yargs-completions=*) exec "$agent_command" "$@" ;;
+        # An explicit false leaves the plugins loaded, so that launch enrolls
+        # like any other. Every other spelling counts as pure, because guessing
+        # wrong that way only costs the launch its Intercom, while guessing it
+        # the other way claims a pane no plugin will ever report back.
+        --pure=false|--pure=0) ;;
+        --pure=*) exec "$agent_command" "$@" ;;
+      esac
+    done
+    opencode_args=("$@")
+    arg_index=0
+    while [[ "$arg_index" -lt "${#opencode_args[@]}" ]]; do
+      arg="${opencode_args[$arg_index]}"
+      case "$arg" in
+        --) break ;;
+        --agent|--cors|--hostname|--log-level|--mdns-domain|--model|-m|--port|--prompt|--replay-limit|--session|-s)
+          arg_index=$((arg_index + 2))
+          ;;
+        --*=*) arg_index=$((arg_index + 1)) ;;
+        -*) arg_index=$((arg_index + 1)) ;;
+        acp|agent|attach|completion|db|debug|export|github|help|import|mcp|models|plug|plugin|providers|auth|run|serve|session|stats|uninstall|upgrade|web)
+          exec "$agent_command" "$@"
+          ;;
+        *) break ;;
+      esac
+    done
+    ;;
+  pi)
+    # Two headless shapes join the list now that Pi claims, because the Herdr
+    # integration binds only on an interactive run and under `--no-extensions`
+    # never loads, so neither reports the pane back and a claim taken for one of
+    # them would outlive the process.
+    #
+    # `--mode` is decided by its value, not by the token: `resolveAppMode` in
+    # pi 0.87.1 treats `rpc` and `json` as headless and everything else --
+    # `text`, the documented default -- as interactive. Passing through on the
+    # bare flag would cost `pi --mode text` the Intercom it has today. Pi rejects
+    # the `--mode=value` spelling outright ("Unknown option: --mode"), so the
+    # space-separated form is the only one to match.
+    pi_prev=""
+    for arg in "$@"; do
+      [[ "$arg" != "--" ]] || break
+      case "$pi_prev $arg" in
+        '--mode json'|'--mode rpc') exec "$agent_command" "$@" ;;
+      esac
+      case "$arg" in
+        -h|--help|-v|--version)
+          exec "$agent_command" "$@"
+          ;;
         -p|--print|--export|--export=*|--list-models|--list-models=*)
           exec "$agent_command" "$@"
           ;;
+        --no-extensions|-ne)
+          exec "$agent_command" "$@"
+          ;;
       esac
+      pi_prev="$arg"
     done
+    # Pi reads a subcommand only in first position -- `pi --verbose list` sends
+    # `list` to the model as a message -- so unlike the flags above this needs
+    # no argv walk.
     case "${1:-}" in
-      auth|config|install|list|remove|uninstall|update|-h|--help|-v|--version)
+      auth|config|install|list|remove|uninstall|update)
         exec "$agent_command" "$@"
         ;;
     esac
@@ -154,13 +233,20 @@ fi
 # The claim suppresses screen detection for as long as it is held, so it
 # declares `unknown` rather than a state it cannot know. A session that dies
 # before the release then reads as "no information" instead of a confident lie.
-# `herdr-agent-intercom-release` performs the release once detection can take
-# over; HERDR_AGENT_INTERCOM_CLAIM tells it that this launcher is the claimant.
-# Only Claude Code has a surface that can end the claim: the `UserPromptSubmit`
-# hook this repository deploys. OpenCode's and Pi's own transports are tool-call
-# gates, not lifecycle surfaces, so a claim taken for them would be held for the
-# life of the session with nothing able to release it. They keep the fallback.
-if [[ -z "$intercom_name" && "$agent" == claude && -n "${HERDR_PANE_ID:-}" ]] &&
+#
+# Who ends the claim differs by client, and only Claude needs this launcher's
+# help. Measured on herdr 0.9.1: OpenCode's and Pi's own Herdr integrations
+# report `pane.report_agent` under their `herdr:<client>` source and take the
+# pane's lifecycle authority back over a held claim -- OpenCode at its first
+# prompt, Pi already at session start -- keeping the alias this claim allocated.
+# From then on the pane reads `full_lifecycle_hook_authority`, exactly as it
+# does for a session that never took a claim, so the claim leaves no residue and
+# a release would be inert against a record it no longer owns. Claude publishes
+# no such state, so its pane depends on screen detection, and only its release
+# gives detection back: `herdr-agent-intercom-release` performs it from the
+# `UserPromptSubmit` hook this repository deploys, and
+# HERDR_AGENT_INTERCOM_CLAIM tells it that this launcher is the claimant.
+if [[ -z "$intercom_name" && -n "${HERDR_PANE_ID:-}" ]] &&
   command -v herdr >/dev/null 2>&1 &&
   command -v herdr-peer-alias >/dev/null 2>&1; then
   # `herdr agent get` reports a missing record on stderr and exits non-zero, so
@@ -245,7 +331,15 @@ if [[ -z "$intercom_name" && "$agent" == claude && -n "${HERDR_PANE_ID:-}" ]] &&
       done
     fi
 
-    if [[ "$claimed" == 1 ]]; then
+    # Both settlements below belong to Claude alone, for the same reason: each
+    # is finished by `herdr-agent-intercom-release`, and the only caller this
+    # repository deploys is Claude's `UserPromptSubmit` hook. OpenCode and Pi
+    # need neither. They end their own claim by reporting state under their
+    # `herdr:<client>` source, which takes the pane's lifecycle authority back
+    # and leaves this launcher's record owning nothing, so there is no release
+    # to perform and no marker worth writing -- one would sit on every pane they
+    # ever enroll in with no reader able to remove it.
+    if [[ "$claimed" == 1 && "$agent" == claude ]]; then
       # The marker is what lets the release find a claim whose launcher is gone
       # -- a session killed before its first prompt exports nothing to its
       # successor. Without the marker the claim could never be released at all,
@@ -260,7 +354,7 @@ if [[ -z "$intercom_name" && "$agent" == claude && -n "${HERDR_PANE_ID:-}" ]] &&
         release_unfinished_claim
         intercom_name=""
       fi
-    elif [[ -n "$unreconciled_name" ]]; then
+    elif [[ "$claimed" != 1 && -n "$unreconciled_name" && "$agent" == claude ]]; then
       # The name is a real Intercom identity immediately, but Herdr does not
       # know it until detection creates the record, so until the first prompt
       # the sidebar alias and the Intercom name differ. Recording the pending

@@ -364,18 +364,122 @@ claude name=<> args= active=<> pi_load=<>'
   assert_equal "$(grep -c 'pane release-agent' "$log")" 0
   assert_file_not_exists "$marker"
 
-  # #when the client is one with no surface that could ever release a claim
+  # #when OpenCode starts by hand in that pane. Its own Herdr integration takes
+  # the pane's lifecycle authority back by reporting under `herdr:opencode`, so
+  # this claim needs no release and leaves nothing for a marker to be found by.
   : > "$log"; rm -f "$marker"
   run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
     HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
     HOME="$home" PATH="$stub:$PATH" bash "$launcher" opencode
 
-  # #then it takes no claim at all rather than leaking one for the session
+  # #then it enrolls under the allocated name and records no claim to release
   assert_success
-  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting opencode without Intercom
-opencode name=<> args= active=<> pi_load=<>'
-  assert_equal "$(grep -c 'pane report-agent' "$log")" 0
+  assert_output 'opencode name=<ochre-okapi> args= active=<1> pi_load=<>'
+  assert_file_contains "$log" 'pane report-agent w1:p2 --source herdr-agent-intercom --agent opencode --state unknown'
+  assert_file_contains "$log" 'agent rename w1:p2 ochre-okapi'
   assert_file_not_exists "$marker"
+  assert_equal "$(grep -c 'pane release-agent' "$log")" 0
+
+  # #when Pi starts the same way. Its integration reports from session start
+  # rather than the first prompt, so it settles the pane even sooner.
+  : > "$log"; rm -f "$marker"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
+    HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" pi
+
+  # #then it enrolls the same way and records no claim either
+  assert_success
+  assert_output 'pi name=<> args= active=<1> pi_load=<self><--name><ochre-okapi>'
+  assert_file_contains "$log" 'pane report-agent w1:p2 --source herdr-agent-intercom --agent pi --state unknown'
+  assert_file_contains "$log" 'agent rename w1:p2 ochre-okapi'
+  assert_file_not_exists "$marker"
+  assert_equal "$(grep -c 'pane release-agent' "$log")" 0
+
+  # #when a launch that never reaches a client runs in the same pane. It exits
+  # through `exec` without ever starting one, and `exec` runs no EXIT trap, so a
+  # claim taken here would leave a record and a spent pool alias on the pane
+  # with nothing able to report it back. Each case below reaches the utility a
+  # different way: bare, behind a value-taking global option, behind a boolean
+  # one, and by disabling the plugins that would do the reporting. `opencode`
+  # accepts its global options before the subcommand, so a check that reads only
+  # the first argument passes the first case and claims on the next two.
+  local argv
+  local client
+  for argv in 'opencode serve --port 4096' 'opencode --log-level DEBUG serve' \
+    'opencode --print-logs stats' 'opencode --mdns-domain opencode.local serve' \
+    'opencode --cors http://a serve' 'opencode --mdns serve' \
+    'opencode --log-level DEBUG --version' 'opencode --pure' 'opencode --pure=true' \
+    'opencode help' 'opencode help run' \
+    'opencode --get-yargs-completions opencode' \
+    'opencode --get-yargs-completions opencode serve' \
+    'opencode --get-yargs-completions=opencode' \
+    'pi --mode rpc' 'pi --mode json' 'pi --no-extensions' \
+    'pi --provider google --version' 'pi --thinking high --help'; do
+    client="${argv%% *}"
+    argv="${argv#* }"
+    : > "$log"; rm -f "$marker"
+    # shellcheck disable=SC2086
+    run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
+      HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+      HOME="$home" PATH="$stub:$PATH" bash "$launcher" "$client" $argv
+
+    # #then it declares nothing and hands the launch its argv untouched
+    assert_success
+    assert_output "$client name=<> args= active=<> pi_load=<><${argv// /><}>"
+    assert_equal "$(grep -c 'pane report-agent' "$log")" 0
+    assert_equal "$(grep -c 'agent rename' "$log")" 0
+    assert_file_not_exists "$marker"
+  done
+
+  # #when the launch reaches a real client despite looking like the cases above.
+  # `opencode pr` checks a branch out and then runs the full client, and
+  # `pi --mode text` names the documented default output mode, which pi resolves
+  # to an interactive run. These are the controls that tell a working guard from
+  # one that passes on the token and enrolls nobody.
+  : > "$log"; rm -f "$marker"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
+    HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" opencode pr 123
+
+  # #then it enrolls like any other interactive launch
+  assert_success
+  assert_output 'opencode name=<ochre-okapi> args= active=<1> pi_load=<><pr><123>'
+  assert_file_contains "$log" 'agent rename w1:p2 ochre-okapi'
+
+  : > "$log"; rm -f "$marker"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
+    HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" pi --mode text
+
+  # #then it enrolls too, and the alias reaches Pi as its session name
+  assert_success
+  assert_output 'pi name=<> args= active=<1> pi_load=<self><--name><ochre-okapi><--mode><text>'
+  assert_file_contains "$log" 'agent rename w1:p2 ochre-okapi'
+
+  # #when the bare word is a project path rather than a subcommand. `version` is
+  # the readiest trap: it looks like a utility and OpenCode reads it as a
+  # directory to start the client in.
+  : > "$log"; rm -f "$marker"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
+    HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" opencode version
+
+  # #then it enrolls, so the list cannot grow into a catch-all
+  assert_success
+  assert_output 'opencode name=<ochre-okapi> args= active=<1> pi_load=<><version>'
+  assert_file_contains "$log" 'agent rename w1:p2 ochre-okapi'
+
+  # #when the flag that disables the plugins is spelled false. OpenCode parses
+  # it as a boolean, so the plugins load and the client enrolls normally.
+  : > "$log"; rm -f "$marker"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
+    HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" opencode --pure=false
+
+  # #then it enrolls rather than reading the flag as its own opposite
+  assert_success
+  assert_output 'opencode name=<ochre-okapi> args= active=<1> pi_load=<><--pure=false>'
+  assert_file_contains "$log" 'agent rename w1:p2 ochre-okapi'
 
   # #when the allocator command is absent entirely
   rm -f "$stub/herdr-peer-alias"
@@ -555,6 +659,29 @@ SH
   assert_equal "$(grep -c 'agent rename' "$log")" 0
   assert_file_not_exists "$marker"
   assert_equal "$(cat "$note")" 'ochre-okapi'
+
+  # #when OpenCode or Pi launches into that same undeclarable pane. This route
+  # enrolls under a name Herdr does not carry until a first prompt renames its
+  # record, and the only caller of that rename is Claude's `UserPromptSubmit`
+  # hook. Taking the route for them would publish an Intercom name while the
+  # sidebar kept another, with nothing able to close the gap.
+  local client
+  for client in opencode pi; do
+    : > "$log"; rm -f "$note" "$marker"
+    run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
+      HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+      HOME="$home" PATH="$stub:$PATH" bash "$launcher" "$client"
+
+    # #then it keeps the fallback rather than a name no prompt will reconcile
+    assert_success
+    assert_output "herdr-agent-intercom: canonical pane alias unavailable; starting $client without Intercom
+$client name=<> args= active=<> pi_load=<>"
+    assert_file_contains "$log" 'pane get w1:p2'
+    assert_equal "$(grep -c 'pane report-agent' "$log")" 0
+    assert_equal "$(grep -c 'agent rename' "$log")" 0
+    assert_file_not_exists "$note"
+    assert_file_not_exists "$marker"
+  done
 
   # #when the same launch finds no Intercom runtime to start
   rm -f "$home/.local/share/agent-intercom/node_modules/.bin/cci"
@@ -829,6 +956,26 @@ function test_scripts_1337_agent_intercom_launcher_preserves_utility_and_nested_
     PATH="$stub:$PATH" bash "$launcher" claude mcp list
   assert_success
   assert_output 'claude name=<> args= active=<> pi_load=<><mcp><list>'
+
+  # An OpenCode utility launch must not carry the pane's Intercom identity
+  # either. This pane already has its alias, so the name would reach the
+  # process through `OPENCODE_INTERCOM_NAME` with nothing to stop it; the
+  # interactive control below is what tells a working guard from a broken
+  # adapter that enrolls nobody.
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
+    PATH="$stub:$PATH" bash "$launcher" opencode models anthropic
+  assert_success
+  assert_output 'opencode name=<> args= active=<> pi_load=<><models><anthropic>'
+
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
+    PATH="$stub:$PATH" bash "$launcher" opencode --version
+  assert_success
+  assert_output 'opencode name=<> args= active=<> pi_load=<><--version>'
+
+  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
+    PATH="$stub:$PATH" bash "$launcher" opencode --mini /work
+  assert_success
+  assert_output 'opencode name=<ochre-okapi> args= active=<1> pi_load=<><--mini></work>'
 
   run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude --verbose plugins list
