@@ -1,8 +1,8 @@
 # Recover failed Intercom launches without restarting an agent
 
-Status: approved outcome; implementation blocked on the real-Herdr ownership
-gate below. This document specifies future behavior. It does not claim that the
-launcher already recovers automatically.
+Status: approved outcome with a scoped upstream suspension exception. Runtime
+implementation still requires the real-Herdr ownership gate below. This document
+does not claim that the launcher already recovers automatically.
 
 Related: [#377](https://github.com/Seigiard/my-mac-setup/issues/377),
 [#376](https://github.com/Seigiard/my-mac-setup/issues/376),
@@ -36,7 +36,7 @@ created by the new protocol.
 | R1 | A launch exits or fails before reporting lifecycle state | Remove its own temporary claim without a successor session or prompt. Native pane detection can resume; do not force an `idle` label. |
 | R2 | A newer launch occupies the same pane before old cleanup runs | Preserve the newer record, alias, lifecycle authority, and Intercom identity. Old cleanup cannot rename, release, or erase its recovery record. |
 | R3 | A client takes over lifecycle reporting | Retire the launcher's recovery responsibility without releasing the client's authority. Claude's handoff to screen detection must retain its alias. |
-| R4 | An interactive client is alive but has received no prompt | Keep its alias and enrollment. Age alone is not evidence that the claim is abandoned. |
+| R4 | An interactive client is alive but has received no prompt | Keep its alias and enrollment, subject only to the upstream suspension exception below. Recovery itself must never release, rename or replace a live client's identity, including while suspended. Age or loss of foreground is not exit evidence. |
 | R5 | Herdr is temporarily unreachable or a process identity cannot be verified | Keep the recovery obligation, expose a pending diagnostic, and retry independently of another launch. Do not claim success or infer death from a failed lookup. |
 | R6 | The cleanup owner crashes while its claim remains | Recovery resumes from durable intent without another agent launch. The recovery mechanism itself must have a proved restart owner. |
 | R7 | A pane closes, moves, or the server restarts | Use stable terminal and server identity to avoid retargeting stale pane coordinates. Remove an orphaned local record only after establishing that its resource is gone or its obligation was settled. |
@@ -55,6 +55,40 @@ A long-lived process with no lifecycle reports is not known to be dead. Known
 headless modes bypass acquisition; an unrecognized live process may retain the
 temporary claim until it exits. This specification does not make a blanket
 "all unknown modes enroll harmlessly" promise.
+
+## Accepted upstream suspension exception
+
+The owner permits #377 to proceed despite Herdr independently dropping a live
+client's alias or registration during Ctrl-Z/fg, as tracked in
+[herdrdev/herdr#1647](https://github.com/herdrdev/herdr/issues/1647). This is a
+narrow exception to end-to-end suspension identity retention, not an exemption
+from the recovery mechanism's responsibility for its own actions.
+
+For each affected client and Herdr build, record a native or recovery-disabled
+control that reproduces the loss, plus the corresponding wrapped observation.
+Record version, PID/start identity, terminal identity and relevant state changes.
+Also prove that our recovery neither releases nor renames the live client's
+record and adds no regression against the native control. A similar error on
+another client or version does not inherit the exception without evidence.
+
+R1–R3 and R5–R10 remain mandatory. In particular, older recovery must preserve a
+newer launch, uncertain observations stay pending, and actual exit must still
+trigger cleanup. Terminal input, stop/resume, signals and exact exit-status
+controls still run. A read-then-rename repair without ownership fencing is not
+authorized by this exception.
+
+Keep raw failing observations and the suspension diagnostic. Attribute a
+qualified result as `KNOWN_UPSTREAM_LIMITATION`, separately from PASS, FAIL and
+SKIP; do not turn the failing assertion into a pass or skip the scenario. Only
+the independently attributed suspension identity loss is non-blocking. A local
+regression, a failure of the safety controls above, or an unattributed failure
+still blocks acceptance. Historical results are not automatically reclassified,
+and this requirements change does not itself pass the implementation gate.
+
+[Follow-up #383](https://github.com/Seigiard/my-mac-setup/issues/383) owns restoring
+strict end-to-end tests and acceptance after the upstream fix is verified on the
+supported Herdr build. Upstream issue closure alone does not remove this
+exception or establish that the installed build is fixed.
 
 ## Ownership and transitions
 
@@ -129,7 +163,8 @@ isolation. The full gate must exercise:
    approve a changed process tree.
 
 Gate passes only with observed safe outcomes and a reviewed owner/protocol
-addendum. A skip or a fake server is not a pass. If isolation cannot be proved,
+addendum, accounting for the scoped exception above as a separate verdict.
+A skip or a fake server is not a pass. If isolation cannot be proved,
 keep runtime unchanged and return with the precise upstream API requirement or
 the client-side registration alternative. Do not silently weaken R1 or R2.
 
