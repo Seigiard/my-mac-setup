@@ -9,8 +9,9 @@ test that looks right and cannot fail is a permanent false signal every later re
 it costs more than the gap it covers.
 
 For each test, write down the one edit to production code that turns it red. The test earns its
-place when that edit is one someone would notice in use. Done when every test in the change has its
-red-making edit written down, or is reported.
+place when that edit is one someone would notice in use. A test you name as another's owner needs
+its own red-making edit first: an owner that cannot go red makes redundancy the wrong finding. Done
+when every test in the change has its red-making edit written down, or is reported.
 
 A test that cannot go red takes one of five shapes, the ones generated tests take most:
 
@@ -19,9 +20,10 @@ A test that cannot go red takes one of five shapes, the ones generated tests tak
   never calls the code under test and re-implements it in the test file. A mock configured at the
   top of the file and asserted at the bottom is still this
 - **the oracle mirrors the implementation** — the expected value is derived by running the same
-  logic, template, transform or helper the production path runs: green by construction, and still
-  green when both are wrong. The expected value comes from outside the patch: a literal the contract
-  fixes, a reproduced failure, a documented interface
+  logic, template, transform or helper the production path runs, or transcribed from a table,
+  fixture, config or inventory this patch wrote: green by construction, and still green when both
+  are wrong. The expected value comes from outside the patch: a literal the contract fixes, a
+  reproduced failure, a documented interface
 - **weak assertion** — greater than zero, not null, defined, truthy, contains, non-empty, an exit
   code alone, where an exact value is known. Loosening is legitimate only where the surrounding
   output is genuinely unstable, and then the matched text must itself change when the behavior breaks
@@ -51,9 +53,10 @@ A test stops earning its place in these:
 - **coverage for its own sake** — a test added because coverage is expected, pinning nothing that
   can regress. Zero new tests is a legitimate outcome
 
-Rate by the defect the red-making edit would let through: minor when contained, major when the suite
-exists to catch exactly that. A finding names that edit; a remark on how a test is written belongs
-to `quality`.
+Rate by the defect that still passes: minor when contained, major when the suite exists to catch
+exactly that. A test with no red-making edit lets everything through; one that goes red only on a
+one-sided edit to what it transcribes still lets a wrong value through. A finding names that
+edit, or its absence; a remark on how a test is written belongs to `quality`.
 
 Leave alone: setup repeated across tests for readability, a plain assertion on a trivial pure
 function, a hand-written literal that happens to equal what the code computes.
