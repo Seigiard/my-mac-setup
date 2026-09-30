@@ -36,6 +36,16 @@ module is a test shim that loads this same engine.
 
 ### Review confirmation and verification repair
 
+The third complete dual-model round confirmed the runtime/watcher repairs and
+kept one coverage finding: the historical OpenCode utility matrix was still
+missing. It is now restored through a valid existing-alias route, so a missing
+bypass is observable without a fake restart owner. Completion, option-value,
+`--pure=false`, and project-path mutants each fail the restored case; fixed code
+passes (`opencode-bypass-calibration-128.json`). Focused launcher verification
+passed 13 cases and 229 assertions. These final edits change tests and review
+calibration only; deployment126 and the owner/client receipts below remain
+valid for their unchanged runtime state. A confirming review is still required.
+
 The second full dual-model round had ten of ten sources, no degradation and
 confirmed source access. Its one major was a PTY-fixture drain that could wait
 past the command deadline when a descendant held the slave open. The helper is

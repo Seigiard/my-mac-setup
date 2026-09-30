@@ -781,7 +781,7 @@ function test_scripts_1334_agent_intercom_shell_wrappers_only_intercept_herdr_la
 function test_scripts_1337_agent_intercom_launcher_preserves_utility_and_nested_commands() {
   _bats_test_init 1337 'agent intercom launcher preserves utility commands and nested launches'
   local launcher="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom"
-  local stub home="$BATS_TEST_TMPDIR/agent-intercom-home"
+  local stub argv home="$BATS_TEST_TMPDIR/agent-intercom-home"
   stub="$(agent_intercom_stub_bin)"
   export HERDR_PANE_ID=w1:p2 HERDR_ALIAS_ALLOCATOR="$stub/allocator"
 
@@ -809,6 +809,29 @@ function test_scripts_1337_agent_intercom_launcher_preserves_utility_and_nested_
     PATH="$stub:$PATH" bash "$launcher" opencode --mini /work
   assert_success
   assert_output 'opencode name=<ochre-okapi> args= active=<1> pi_load=<><--mini></work>'
+
+  # Restore the OpenCode controls from base test 1346. A valid existing alias
+  # makes a missing bypass observable without fabricating a restart owner.
+  for argv in 'serve --port 4096' '--log-level DEBUG serve' \
+    '--print-logs stats' '--mdns-domain opencode.local serve' \
+    '--cors http://a serve' '--mdns serve' '--log-level DEBUG --version' \
+    '--pure' '--pure=true' 'help' 'help run' \
+    '--get-yargs-completions opencode' '--get-yargs-completions opencode serve' \
+    '--get-yargs-completions=opencode'; do
+    # shellcheck disable=SC2086
+    run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 HOME="$home" XDG_STATE_HOME="$home/.local/state" \
+      PATH="$stub:$PATH" bash "$launcher" opencode $argv
+    assert_success
+    assert_output "opencode name=<> args= active=<> pi_load=<><${argv// /><}>"
+  done
+
+  for argv in 'pr 123' 'version' '--pure=false'; do
+    # shellcheck disable=SC2086
+    run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 HOME="$home" XDG_STATE_HOME="$home/.local/state" \
+      PATH="$stub:$PATH" bash "$launcher" opencode $argv
+    assert_success
+    assert_output "opencode name=<ochre-okapi> args= active=<1> pi_load=<><${argv// /><}>"
+  done
 
   run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
     PATH="$stub:$PATH" bash "$launcher" claude --verbose plugins list
@@ -867,7 +890,6 @@ function test_scripts_1337_agent_intercom_launcher_preserves_utility_and_nested_
 
   # Restore the terminal utility controls from base test 1346. A pipe must not
   # mask these guards, and --mode text must still take the enrollment path.
-  local argv
   for argv in '--mode rpc' '--mode json' '--no-extensions' \
     '--provider google --version' '--thinking high --help'; do
     # shellcheck disable=SC2086
