@@ -5,7 +5,7 @@ category: architecture-patterns
 module: herdr-agent-intercom
 problem_type: architecture_pattern
 severity: high
-status: blocked
+status: in-progress
 applies_when:
   - Implementing or reviewing failed Intercom launch recovery
   - Checking durable claim ownership across process exit and suspension
@@ -20,9 +20,11 @@ tags:
 
 ## Boundary
 
-This is opt-in proof tooling, not a runtime rollout. The full implementation
-gate is **BLOCKED** by the installed Herdr suspension behavior below. No managed
-path has changed, and there is no accepted implementation addendum.
+This is opt-in proof tooling, not a runtime rollout. The owner now accepts the
+[scoped upstream suspension exception](../../plans/2026-09-29-intercom-claim-recovery-spec.md#accepted-upstream-suspension-exception).
+Work may continue under that boundary. The gate is not yet accepted: evidence
+classification, full client-probe review and the implementation addendum remain.
+No managed path has changed. Historical FAIL results below remain unchanged.
 
 ### Observed Herdr limitation
 
@@ -53,13 +55,13 @@ and [rejects custom claims after that observation](https://github.com/herdrdev/h
 The live stopped-process trace observes both effects; it is not evidence that
 the process actually exited.
 
-R4 requires preserving a live unprompted client's alias, and the required gate
-includes job control. Passing cleanup and first-prompt cases cannot substitute
-for that failed condition. Herdr must retain a generation's alias while its
-PID/start identity is alive, including suspension, until a real successor takes
-over; alternatively it needs an atomic identity-fenced restoration operation.
-A client-side registration redesign requires a new decision. The prototype does
-not rename after a read or weaken R4 to bypass this result.
+The approved exception permits this independently attributed upstream behavior
+without permitting recovery to release or rename a live client or a newer
+launch. Each client/build needs its own attribution and local-safety evidence;
+the direct-Claude control alone does not qualify OpenCode's failure. See the
+specification for the acceptance rule. [#383](https://github.com/Seigiard/my-mac-setup/issues/383)
+tracks restoring strict end-to-end retention after a verified Herdr fix. The
+prototype does not attempt an unsafe read-then-rename repair.
 
 The owner probe runs installed Herdr 0.9.1 in an isolated named session. A
 temporary macOS `launchd` job in `gui/<uid>` restarts the observer with
@@ -181,8 +183,9 @@ The client probe stages the launcher from merged PR #378 at
 changed. Real clients retain PTY streams through a status-recording driver.
 The pane shell survives client exit, so claim cleanup cannot pass merely because
 the terminal disappeared. Read the latest native/wrapped print, signal and
-job-control outcomes from their named artifacts. The independently reproduced
-suspension failure keeps the full gate blocked regardless of the other outcomes.
+job-control outcomes from their named artifacts. Qualified upstream suspension
+loss can be reported separately under the approved exception; local regressions
+and unattributed failures remain blocking. These older runs are not a new gate pass.
 
 ## Rerun and verdicts
 
