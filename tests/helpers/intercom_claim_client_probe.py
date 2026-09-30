@@ -453,9 +453,7 @@ export default function (pi) {
         # A parent agent's live recovery handle must never authorize this test
         # process. The staged launcher creates the only allowed handle.
         for name in os.environ:
-            if name.startswith(("HERDR_AGENT_INTERCOM_", "AGENT_INTERCOM_", "CLAUDE_INTERCOM_")) or name in {
-                "MMS377_INTENT", "OPENCODE_INTERCOM_NAME",
-            }:
+            if name.startswith(("HERDR_AGENT_INTERCOM_", "AGENT_INTERCOM_", "CLAUDE_INTERCOM_")) or name == "OPENCODE_INTERCOM_NAME":
                 if name not in exports:
                     exports[name] = ""
         return exports
@@ -1113,7 +1111,7 @@ export default function (pi) {
     def alias_reuse_preserves_successor_identity(self):
         from intercom_alias_reuse_probe import run_order
         observations = {}
-        for name, early in (("control", False), ("early_cleanup", True)):
+        for name, early in (("late_observation_after_detection", False), ("late_observation_before_detection", True)):
             isolated = ClientProbe()
             try:
                 isolated.start()
@@ -1947,7 +1945,7 @@ export default function (pi) {
         env = self.owner.env | self.foreground_exports("legacy-check", sequence) | {
             "HERDR_ENV": "1", "HERDR_PANE_ID": pane["pane_id"],
             "HERDR_SOCKET_PATH": self.owner.socket_path,
-            "HERDR_AGENT_INTERCOM_RECOVERY_INTENT": "", "MMS377_INTENT": "",
+            "HERDR_AGENT_INTERCOM_RECOVERY_INTENT": "",
         }
         result = subprocess.run([str(self.release_entrypoint)], env=env, text=True,
                                 capture_output=True, check=False, timeout=15)
@@ -2412,7 +2410,7 @@ def run_probe(suspension_only=False):
                    probe.runtime_owner_recovers_stale_readiness_and_crash)
         probe.case("fresh alias collision rolls back and retries without disturbing its owner",
                    probe.alias_collision_rolls_back_and_retries)
-        probe.case("old cleanup preserves successor identity before and after native detection",
+        probe.case("old cleanup settles before successor startup and late observations preserve identity",
                    probe.alias_reuse_preserves_successor_identity)
         probe.case("alias reuse refreshes stale lookup and preserves an independent identity",
                    probe.alias_reuse_refreshes_a_stale_read)

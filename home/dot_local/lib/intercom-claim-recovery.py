@@ -735,7 +735,6 @@ def exec_without_enrollment(command, args, warning):
     for key in tuple(os.environ):
         if key.startswith(("HERDR_AGENT_INTERCOM_", "AGENT_INTERCOM_", "CLAUDE_INTERCOM_")):
             os.environ.pop(key)
-    os.environ.pop("MMS377_INTENT", None)
     os.environ.pop("OPENCODE_INTERCOM_NAME", None)
     print(warning, file=sys.stderr, flush=True)
     os.execv(command, [command, *args])
@@ -839,7 +838,7 @@ def ensure_owner(root, label, plist):
 
 
 def recovery_intent_path():
-    return os.environ.get("HERDR_AGENT_INTERCOM_RECOVERY_INTENT") or os.environ.get("MMS377_INTENT")
+    return os.environ.get("HERDR_AGENT_INTERCOM_RECOVERY_INTENT")
 
 
 def prepare_intent(intent_dir, agent, source, launcher_pid=None, launcher_start=None):
@@ -1000,8 +999,6 @@ def main():
     parser.add_argument("--job-label")
     parser.add_argument("--handoff", action="store_true")
     parser.add_argument("--bind-exec")
-    parser.add_argument("--prepare-intent")
-    parser.add_argument("--acknowledge-intent")
     parser.add_argument("--agent")
     parser.add_argument("--source")
     parser.add_argument("--alias")
@@ -1026,24 +1023,12 @@ def main():
             parser.error("--owner-root, --owner-label and --owner-plist are required with --ensure-owner")
         print(json.dumps(ensure_owner(arguments.owner_root, arguments.owner_label, arguments.owner_plist)))
         return
-    if arguments.prepare_intent:
-        if not arguments.agent or not arguments.source:
-            parser.error("--agent and --source are required with --prepare-intent")
-        path, intent = prepare_intent(arguments.prepare_intent, arguments.agent, arguments.source,
-                                      arguments.launcher_pid, arguments.launcher_start)
-        print(json.dumps({"intent": path, "claim_seq": intent["claim"]["claim_seq"],
-                          "handoff_seq": intent["claim"]["handoff_seq"],
-                          "release_seq": intent["claim"]["release_seq"]}))
-        return
     if arguments.claim_intent:
         if not all((arguments.agent, arguments.source, arguments.alias, arguments.launcher_pid)):
             parser.error("claim admission requires agent, source, alias and launcher identity")
         print(json.dumps(claim_intent(arguments.claim_intent, arguments.agent, arguments.source,
                                       arguments.alias, arguments.launcher_pid,
                                       arguments.launcher_start)))
-        return
-    if arguments.acknowledge_intent:
-        acknowledge_acquisition(arguments.acknowledge_intent)
         return
     if arguments.handoff:
         path = recovery_intent_path()

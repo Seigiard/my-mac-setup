@@ -82,9 +82,7 @@ class OwnedHerdr:
     def env(self):
         env = os.environ.copy()
         for name in tuple(env):
-            if name.startswith(("HERDR_", "AGENT_INTERCOM_", "CLAUDE_INTERCOM_")) or name in {
-                "MMS377_INTENT", "OPENCODE_INTERCOM_NAME",
-            }:
+            if name.startswith(("HERDR_", "AGENT_INTERCOM_", "CLAUDE_INTERCOM_")) or name == "OPENCODE_INTERCOM_NAME":
                 env.pop(name)
         env["XDG_CONFIG_HOME"] = self.root
         env["XDG_STATE_HOME"] = os.path.join(self.root, "state")

@@ -28,6 +28,9 @@ inherited file descriptor, an unbounded wait loop, a teardown racing a surviving
 green-looking runner that never returns. Generic instinct rates this a medium tidiness
 issue; here it is high, because the failure mode is not a red test, it is *no verdict at
 all*, and it surfaces under `--jobs` or in Docker after passing focused on a workstation.
+For a test harness, failure inputs within its supported command interface count
+as reachable. Today's clean fixtures do not discount a reproduced hang on such
+an input: the harness must return a failure when the code under test regresses.
 `docs/solutions/design-patterns/outliving-processes-hang-the-suite.md` carries
 `severity: high` for exactly this class; read its `applies_when` before rating anything that
 spawns, polls, or cleans up.

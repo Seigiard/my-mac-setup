@@ -62,11 +62,11 @@ def check_unsafe_reuse_fallback(probe, pane, first, directory, gate_bin, alias):
     return observations
 
 
-def run_order(probe, cleanup_before_detection):
-    result = {"cleanup_before_detection": cleanup_before_detection}
+def run_order(probe, request_before_detection):
+    result = {"late_observation_before_detection": request_before_detection}
     pane = None
     try:
-        directory = probe.scratch / ("reuse-early" if cleanup_before_detection else "reuse-normal")
+        directory = probe.scratch / ("reuse-early" if request_before_detection else "reuse-normal")
         directory.mkdir()
         gate_bin = directory / "bin"
         gate_bin.mkdir()
@@ -106,7 +106,7 @@ def run_order(probe, cleanup_before_detection):
         require({"step": "reuse-observer-stopped"},
                 process_start_identity(observer["pid"]) != observer["start_identity"], "old observer is still live")
         alias = read_json(receipt)["alias"]
-        if not cleanup_before_detection:
+        if not request_before_detection:
             result["fallback_controls"] = check_unsafe_reuse_fallback(probe, pane, first, directory, gate_bin, alias)
         os.kill(first["pid"], signal.SIGKILL)
         first_status = probe.wait_exit(log, exit_file, receipt)
@@ -131,6 +131,13 @@ def run_order(probe, cleanup_before_detection):
         require({"step": "reuse-pre-detection-barrier"}, probe.descendants(second["pid"]) == [],
                 "successor cci spawned children before the controlled release")
         result["successor_pre_exec"] = second
+        ended = read_json(intent_path)
+        require({"step": "reuse-old-obligation-ended"}, ended["phase"] in {"settled", "retired"},
+                f"successor started before old cleanup settled: {ended}")
+        result["old_intent_at_successor_gate"] = ended
+        successor_handle = second["environment"]["HERDR_AGENT_INTERCOM_RECOVERY_INTENT"]
+        result["successor_route"] = "fresh_claim" if successor_handle else "independent_alias"
+        result["successor_intent_at_gate"] = read_json(successor_handle) if successor_handle else None
 
         def ready():
             clients = [client for pid, _, _ in probe.descendants(second["pid"])
@@ -143,19 +150,13 @@ def run_order(probe, cleanup_before_detection):
             details = json.loads(explanation.stdout)
             return clients[0] if (details.get("matched_rule") or {}).get("id") == "live_prompt_box" else None
 
-        if not cleanup_before_detection:
+        if not request_before_detection:
             second_gate.touch()
             wait_until(ready, 25, "normal-order native detection")
-            result["detected_before_cleanup"] = probe.state(pane)
-        if cleanup_before_detection:
-            def cleaned():
-                observe_one(intent_path)
-                return read_json(intent_path)["phase"] in {"settled", "retired"}
-            wait_until(cleaned, 10, "old cleanup resolution before successor detection")
-        else:
-            observe_one(intent_path)
-        result["immediately_after_cleanup"] = probe.state(pane)
-        result["old_intent_after_cleanup"] = read_json(intent_path)
+            result["detected_before_late_observation"] = probe.state(pane)
+        observe_one(intent_path)
+        result["after_late_observation"] = probe.state(pane)
+        result["old_intent_after_late_observation"] = read_json(intent_path)
         second_gate.touch()
         client = wait_until(ready, 25, "successor native input prompt")
         broker = wait_until(lambda: probe.intercom_identity(selected), 20, "successor broker registration")

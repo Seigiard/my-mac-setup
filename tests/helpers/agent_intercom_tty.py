@@ -10,7 +10,7 @@ import time
 import fcntl
 
 
-def main():
+def main(timeout_seconds=10):
     if len(sys.argv) < 2:
         raise SystemExit("usage: agent_intercom_tty.py command [arguments...]")
 
@@ -30,8 +30,21 @@ def main():
         os.execvp(sys.argv[1], sys.argv[1:])
 
     os.close(slave)
-    deadline = time.monotonic() + 10
+    os.set_blocking(master, False)
+    deadline = time.monotonic() + timeout_seconds
     status = None
+
+    def stop_group():
+        try:
+            os.killpg(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        time.sleep(0.1)
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
     try:
         while status is None:
             ready, _, _ = select.select([master], [], [], 0.05)
@@ -45,16 +58,21 @@ def main():
             if waited == 0:
                 status = None
             if status is None and time.monotonic() >= deadline:
-                os.killpg(pid, signal.SIGTERM)
-                time.sleep(0.1)
-                waited, status = os.waitpid(pid, os.WNOHANG)
-                if waited == 0:
-                    os.killpg(pid, signal.SIGKILL)
-                    _, status = os.waitpid(pid, 0)
-                raise TimeoutError("PTY command exceeded 10 seconds")
+                stop_group()
+                _, status = os.waitpid(pid, 0)
+                raise TimeoutError(f"PTY command exceeded {timeout_seconds} seconds")
         while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                stop_group()
+                raise TimeoutError("PTY output remained open after command exit")
+            ready, _, _ = select.select([master], [], [], remaining)
+            if not ready:
+                continue
             try:
                 chunk = os.read(master, 65536)
+            except BlockingIOError:
+                continue
             except OSError:
                 break
             if not chunk:

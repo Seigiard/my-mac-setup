@@ -34,6 +34,42 @@ Artifacts live under `~/.claude/artifacts/377/`. The runtime uses the shared
 engine at `home/dot_local/lib/intercom-claim-recovery.py`; the former prototype
 module is a test shim that loads this same engine.
 
+### Review confirmation and verification repair
+
+The second full dual-model round had ten of ten sources, no degradation and
+confirmed source access. Its one major was a PTY-fixture drain that could wait
+past the command deadline when a descendant held the slave open. The helper is
+now under `tests/helpers`, with one bound for command execution and output
+draining. A Linux control was red before the fix and green after it
+(`runtime-check-pty-red119.log`, `runtime-check-pty-green120.log`). The generic
+Python suite on macOS passed 43 tests and explicitly skipped that Linux-only
+case; the focused Linux suite passed both cases.
+
+The archive test now makes age and count independently decisive. Removing each
+limit separately is red; restored code is green. The alias probe also asserts
+terminal old responsibility at the successor's pre-CCI gate and records the
+new admission route (`final-fix-calibrations-121.json`). Dead proof-env and
+uncalled CLI entries were removed without moving the probe functions.
+
+Current owner122 and client123 runs passed 18 owner cases and 30 client cases
+plus three separately qualified upstream limitations, with owned cleanup:
+`ownership-proof-81ad831668b84dbe857f07114d85e421.json` and
+`client-proof-67e23e40a3f54cc38a86a81982e56dca.json`.
+
+Deployment124 exposed a separate pre-existing watcher race, tracked in #388.
+Disappearance between a successful pane read and failed agent read lost the
+child-gone notification. The existing fixture now forces that ordering; the
+watcher revalidates the pane before exhausting the read budget, including a
+one-failure budget. Persistent agent errors still terminate with wait-error.
+Old code and a budget-reset mutant are red; restored cases pass
+(`watcher-read-gap-calibration-125.json`). Canonical deployment126 passed on
+the repaired state. This new watcher path requires another full review.
+
+The raw pty-red118 diagnostic also ran host-oriented tests inside a bare
+read-only container and hit unrelated Docker-marker/git-metadata assumptions.
+It is not a full-suite verdict; the focused Linux regression and canonical
+deployment checks above own their separate results.
+
 ### Repairs after draft checkpoint #387
 
 Issues #384 and #385 track this batch. The alias-reuse race was reproduced on
@@ -45,8 +81,12 @@ case failed at `reuse-successor-identity` in `runtime-check-race-red104.log`.
 
 The reuse guard now waits for confirmed-dead obligations on the same server and
 terminal to settle, then rereads the alias. Live or unverifiable prior ownership
-falls back to native startup without borrowing its identity. Both orderings and
-the live/unverifiable controls passed in `runtime-check-race-green106.log`;
+falls back to native startup without borrowing its identity. Both requested
+cleanup schedules passed in `runtime-check-race-green106.log`; the fix moves
+old cleanup before CCI in both, rather than allowing both unsafe orderings.
+The probe now asserts that old responsibility ended before the successor's
+gate, records its admission route and checks late observer calls before/after
+native detection. The live/unverifiable controls passed in that run too;
 `runtime-check-reuse-read107.log` covers stale readback and an independent alias.
 
 Current cumulative evidence:
@@ -383,23 +423,25 @@ observed red and green with server-peer lookup left functional.
 
 ## Real-client evidence and remaining work
 
-The current owner and client receipts are indexed under **Full-review repair
-evidence** above. The standalone native diagnostic retains its raw failing
-assertions. Reference-launcher utility classification is compatibility evidence;
-R8 on the candidate's managed admission entrypoint remains for task 377-2.
+Current runtime receipts are indexed under **Repairs after draft checkpoint
+#387** above; **Full-review repair evidence** records the earlier accepted proof.
+The standalone native diagnostic retains its raw assertions. Runtime utility
+controls now execute the managed admission entrypoint.
 
 The qualified baselines differ explicitly:
 
-- Claude and OpenCode: direct native launch, no cci or status driver, observer
-  confirmed stopped; same live PID/start identity across suspension/resume.
-- Pi: the unmodified launcher from merged #378, with recovery disabled and the
-  same upstream Herdr integration. A bare Pi renamed after session attachment
+- Claude: direct native launch, no cci or status driver, observer confirmed
+  stopped; same live PID/start identity across suspension/resume.
+- OpenCode: the recovery-disabled #378 reference launcher with the same status
+  driver as the wrapped case. Its loss determines qualification. The separate
+  direct-native observation remains raw diagnostic evidence.
+- Pi: the recovery-disabled #378 reference launcher with the matching status
+  driver and upstream Herdr integration. A bare Pi renamed after session attachment
   retained its name, so that different naming baseline was not used to excuse
   the wrapped loss. The reference launcher also lost its early-assigned name
   after verified Pi lifecycle takeover. The qualified client run records the
-  matched lifecycle phase and reference commit. A second reference control uses
-  the wrapped fixture's status driver for the direct shape comparison, with
-  recovery again confirmed stopped.
+  matched lifecycle phase and reference commit. The driverless reference result
+  remains diagnostic; loss shape and eligibility use the matching-driver control.
 
 Each wrapped case observes stopped/live process identity and resumed input;
 normal quit independently requires observed status 0 on each side. OpenCode

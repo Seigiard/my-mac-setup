@@ -9,8 +9,6 @@ _bats_file_init "${BASH_SOURCE[0]}"
 load 'helpers/common'
 load 'helpers/herdr_worktree_identity'
 
-AGENT_INTERCOM_PTY_RUNNER="$(dirname "${BASH_SOURCE[0]}")/helpers/agent_intercom_tty.py"
-
 setup() {
   export HERDR_ALIAS_ALLOCATOR="$BATS_TEST_DIRNAME/helpers/herdr_alias_allocator"
   unset HERDR_ENV
@@ -144,7 +142,7 @@ SH
 }
 
 agent_intercom_run_with_pty() {
-  python3 "$AGENT_INTERCOM_PTY_RUNNER" "$@"
+  python3 "$BATS_TEST_DIRNAME/helpers/agent_intercom_tty.py" "$@"
 }
 
 function test_scripts_1330_agent_intercom_launcher_is_an_exact_non_herdr_passthrough() {
@@ -4067,6 +4065,11 @@ case "${1:-} ${2:-}" in
       printf '{"error":{"code":"agent_not_found"}}\n' >&2
       exit 1
     fi
+    if [ "$count" -gt 1 ] && [ -f "$CHILD_STUB/persistent-agent-read-error" ]; then
+      printf 'failed\n' >> "$CHILD_STUB/agent-read-failures"
+      printf '{"error":{"code":"internal_error","message":"agent read failed"}}\n' >&2
+      exit 1
+    fi
     if [ "$count" -gt 1 ] && [ -f "$CHILD_STUB/malformed-state" ]; then
       printf 'not-json\n'
       exit 0
@@ -5601,6 +5604,32 @@ function test_scripts_043_herdr_child_sliced_wait_publishes_one_typed_non() {
   assert_output 1
 }
 
+function test_scripts_0431_herdr_child_agent_read_failures_keep_a_bounded_budget() {
+  _bats_test_init 0431 'herdr-child agent read failures keep a bounded budget without inferring disappearance'
+  # #given healthy pane identity and a held first watcher agent read
+  child_lifecycle_stub_herdr
+  export HERDR_CHILD_MAX_DELIVERY_RETRIES=3
+  : > "$CHILD_STUB/hold-agent-get"
+  run child_lifecycle_start --supervision-timeout 600000
+  assert_success
+  child_wait_for_file "$CHILD_STUB/held-agent-get.ready"
+
+  # #when only agent reads fail persistently, while every pane read succeeds
+  : > "$CHILD_STUB/persistent-agent-read-error"
+  : > "$CHILD_STUB/release-agent-get"
+  child_wait_for_log 'supervision_failure_reason=wait-error'
+
+  # #then successful pane reads do not replenish the shared failure budget
+  run grep -c '^failed$' "$CHILD_STUB/agent-read-failures"
+  assert_success
+  assert_output 3
+  run grep -c 'supervision_failure_reason=wait-error' "$CHILD_STUB/calls.log"
+  assert_success
+  assert_output 1
+  run grep -q 'event=child-gone' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
 function test_scripts_044_herdr_child_detached_watcher_rejects_malformed_s() {
   _bats_test_init 44 'herdr-child detached watcher rejects malformed state and child identity replacement'
   child_lifecycle_stub_herdr
@@ -5665,9 +5694,14 @@ function test_scripts_045_herdr_child_reap_invalidates_before_close_while() {
   teardown
   setup
   child_lifecycle_stub_herdr
+  : > "$CHILD_STUB/hold-agent-get"
+  export HERDR_CHILD_MAX_DELIVERY_RETRIES=1
   run child_lifecycle_start --supervision-timeout 600000
   assert_success
+  # The pane read succeeded; disappearance now races the following agent read.
+  child_wait_for_file "$CHILD_STUB/held-agent-get.ready"
   : > "$CHILD_STUB/child-gone"
+  : > "$CHILD_STUB/release-agent-get"
   child_wait_for_log 'event=child-gone'
   run grep -c 'event=child-gone' "$CHILD_STUB/calls.log"
   assert_success

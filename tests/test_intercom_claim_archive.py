@@ -94,9 +94,12 @@ class IntentArchiveTests(unittest.TestCase):
         for path, modified in zip(paths, (10, 950, 960, 970)):
             recovery.observe_one(path)
             os.utime(recovery.archived_intent_path(path), (modified, modified))
-        # when both retention limits apply
-        recovery.prune_intent_archive(str(self.directory), now=1000, max_age=100, max_records=2)
-        # then only the two newest terminal records survive and pending is untouched
+        # when age is decisive and the count cap cannot remove anything
+        recovery.prune_intent_archive(str(self.directory), now=1000, max_age=100, max_records=10)
+        self.assertEqual({item.name for item in (self.directory / "archive").iterdir()},
+                         {Path(path).name for path in paths[1:]})
+        # when only count is decisive, the two newest receipts survive
+        recovery.prune_intent_archive(str(self.directory), now=1000, max_age=10000, max_records=2)
         remaining = {item.name for item in (self.directory / "archive").iterdir()}
         self.assertEqual(remaining, {Path(path).name for path in paths[2:]})
         self.assertEqual(recovery.active_intent_paths(str(self.directory)), [pending])
