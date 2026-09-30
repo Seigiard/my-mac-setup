@@ -48,8 +48,6 @@ brew "ni"
 # JavaScript runtimes
 {{/* node is kept: it is the only source of sqlite3 in the Docker image, which seven tests guard on */ -}}
 brew "node"
-{{/* Persistent recovery needs the shared monotonic clock available since Python 3.10 on macOS. */ -}}
-brew "python"
 {{/* bun is kept for repository-owned Pi and TypeScript tests */ -}}
 brew "oven-sh/bun/bun"  # bun
 

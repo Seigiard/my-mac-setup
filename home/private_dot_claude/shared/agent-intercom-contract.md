@@ -81,6 +81,8 @@ Active obligations stay in `intents/`. Completed receipts move to `intents/archi
 
 Where the restart owner or durable intent cannot be established, native startup continues with a warning and no new unowned claim. Independently valid existing aliases can still be reused. Legacy markers keep their successor-only recovery path and are not adopted by the observer. The known upstream suspension identity loss remains tracked separately; it does not authorize recovery to mutate a live client.
 
+An existing alias held by unresolved recovery is not borrowed. If its previous client has exited, the launcher restores the observer, waits for confirmed cleanup and rereads the alias before enrollment. Live or uncertain prior ownership, or cleanup that remains pending, starts the native client without Intercom and emits a warning. This prevents an old observer from removing a new session's reused name during startup.
+
 An OpenCode session closed before its first prompt is recovered by the observer under the new protocol. Legacy claims can still wait for a successor. In either case, `unknown` supplies no liveness or reachability evidence; check the process and broker separately.
 
 So a peer missing from `intercom_list` is usually unwrapped, not broken. Confirm with `herdr agent list`, which shows panes regardless of registration, before reporting a fault.

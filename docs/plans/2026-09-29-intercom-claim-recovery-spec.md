@@ -191,6 +191,12 @@ and deployed behavior.
   Other restart hosts are not proved here; do not acquire new claims behind an
   unverified platform fallback. Independently valid existing aliases can still
   be reused without adopting their cleanup responsibility.
+- An alias still covered by an unresolved intent on the same server and terminal
+  is not independently reusable. For a confirmed-dead prior client, establish the
+  observer and wait up to the healthy recovery budget before starting cci or the
+  native client. Then read the alias again and use fresh admission if it is gone.
+  Live or unverifiable prior ownership, or cleanup still pending at the bound,
+  preserves bare native startup with a warning instead of borrowing the identity.
 
 ### Identity and ordering
 
@@ -283,23 +289,22 @@ enrollment must fail the interactive control.
 
 Apply `docs/agent-verification.md` to the final implementation. New managed paths
 or deployment-dependent lifecycle behavior require `make test-ubuntu`. Ubuntu
-and macOS CI must pass before merge. This change adds opt-in proof tooling;
-deployed cleanup and its runtime tests remain part of the implementation task.
+and macOS CI must pass before merge. The managed runtime and its opt-in
+conformance probes are implemented together; acceptance requires both layers.
 
-## Deferred runtime and documentation changes
+## Runtime implementation and remaining acceptance
 
-- Implement the proved lifecycle protocol in the launcher/release path and its
-  selected observation host. Preserve the #378 enrollment work.
-- Write durable intent for every newly acquired supported-client claim; handle
-  takeover and local-record retirement without the current Claude-only gate.
-- Replace the first-prompt-only recovery description in
-  `home/private_dot_claude/shared/agent-intercom-contract.md` only after proving
-  the new behavior. State the legacy-marker boundary and pending-recovery case.
-- Update ADR-0018's launch lifecycle section with the demonstrated mechanism and
-  deployed scope. Keep its fresh/used-pane distinction and alias-collision rules.
-- Add the behavioral and real-boundary evidence described above. Do not remove
-  the documented early-exit windows until the implementation demonstrates R1–R10.
+- Implemented in draft PR #387: the shared recovery engine, launcher and Claude
+  bridge, launchd owner, durable intents, takeover and archival. The #378 fresh
+  and used-pane paths remain distinct.
+- The agent-read contract and ADR-0018 describe the runtime, legacy boundary and
+  pending diagnostics. The evidence note records behavioral and live checks.
+- #384 owns the reproduced old-claim/new-Claude alias race and its regression
+  fix. An unresolved recovery claim is not an independently reusable alias.
+- #385 owns the remaining first-review repairs and their verification.
 
-Keep the delivery PR open while these changes are built into it. This document
-and ADR can be reviewed now; the full change is not ready to merge until the
-implementation and its evidence arrive.
+The final acceptance checklist lives in #377: complete cumulative review and
+confirming rounds, final-diff checks, exact-head runtime acceptance, then epic
+integration, CI and a live demonstration. Keep #387 draft until that runtime
+acceptance is complete. PR #381 remains the final delivery PR; the owner decides
+its merge to main. Implemented and locally checked does not mean deployed.

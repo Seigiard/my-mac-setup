@@ -938,6 +938,57 @@ def claim_intent(intent_dir, agent, source, alias, launcher_pid, launcher_start)
         return {"claimed": False, "intent": path, "error": str(error), "retry": False, "pending": True}
 
 
+def resolve_existing_alias(root, label, plist, expected_alias):
+    """A pending launch claim is not an independently reusable pane identity."""
+    directory = os.path.join(root, "intents")
+    socket_path = os.environ.get("HERDR_SOCKET_PATH")
+    pane_id = os.environ.get("HERDR_PANE_ID")
+    if not socket_path or not pane_id:
+        raise RecoveryError("existing alias server identity is unavailable")
+    connection = {"socket_path": socket_path, "server_identity": capture_server_identity(socket_path)}
+    scope = {"connection": connection}
+    response = bound_request(scope, "pane.get", {"pane_id": pane_id})
+    if "error" in response:
+        raise RecoveryError("existing alias terminal identity is unavailable")
+    terminal = response["result"]["pane"]
+
+    def pending():
+        obligations = []
+        for path in active_intent_paths(directory):
+            try:
+                intent = read_json(path)
+            except FileNotFoundError:
+                continue  # A completed record moved into the archive.
+            if (intent["phase"] not in TERMINAL_PHASES and
+                    intent["connection"]["server_identity"] == connection["server_identity"] and
+                    intent["terminal"]["terminal_id"] == terminal["terminal_id"]):
+                obligations.append(intent)
+        return obligations
+
+    obligations = pending()
+    if obligations:
+        for intent in obligations:
+            if process_start_identity(intent["client"]["pid"]) == intent["client"]["start_identity"]:
+                raise RecoveryError("existing alias belongs to a live unresolved launch")
+        # Only the established observer mutates old claims. Waiting happens
+        # before cci/native startup, so cleanup cannot strand this caller's name.
+        ensure_owner(root, label, plist)
+        deadline = time.monotonic() + 10
+        while pending():
+            if time.monotonic() >= deadline:
+                raise RecoveryError("existing alias cleanup remains pending")
+            time.sleep(POLL_SECONDS)
+    response = bound_request(scope, "agent.get", {"target": terminal["pane_id"]})
+    if response.get("error", {}).get("code") == "agent_not_found":
+        return ""  # Re-enter fresh admission instead of borrowing the old alias.
+    if "error" in response:
+        raise RecoveryError("existing alias readback failed")
+    agent = response["result"]["agent"]
+    if agent.get("terminal_id") != terminal["terminal_id"] or agent.get("name") != expected_alias:
+        raise RecoveryError("existing alias changed during recovery")
+    return expected_alias
+
+
 def main():
     if sys.platform == "darwin" and sys.version_info < (3, 10):
         raise RecoveryError("claim recovery requires Python 3.10 or later on macOS")
@@ -958,11 +1009,18 @@ def main():
     parser.add_argument("--launcher-start")
     parser.add_argument("--claim-intent")
     parser.add_argument("--ensure-owner", action="store_true")
+    parser.add_argument("--reuse-alias")
     parser.add_argument("--owner-root")
     parser.add_argument("--owner-label")
     parser.add_argument("--owner-plist")
     parser.add_argument("bridge_args", nargs=argparse.REMAINDER)
     arguments = parser.parse_args()
+    if arguments.reuse_alias:
+        if not all((arguments.alias, arguments.owner_label, arguments.owner_plist)):
+            parser.error("alias reuse requires --alias, --owner-label and --owner-plist")
+        print(json.dumps({"alias": resolve_existing_alias(arguments.reuse_alias, arguments.owner_label,
+                                                        arguments.owner_plist, arguments.alias)}))
+        return
     if arguments.ensure_owner:
         if not all((arguments.owner_root, arguments.owner_label, arguments.owner_plist)):
             parser.error("--owner-root, --owner-label and --owner-plist are required with --ensure-owner")

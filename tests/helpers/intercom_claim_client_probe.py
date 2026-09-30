@@ -38,9 +38,6 @@ from intercom_claim_ownership_probe import (
     OLD_SOURCE,
 )
 from intercom_claim_recovery_prototype import (
-    LaunchdOwner,
-    RecoveryError,
-    acknowledge_acquisition,
     atomic_write,
     bound_request,
     capture_server_identity,
@@ -48,9 +45,6 @@ from intercom_claim_recovery_prototype import (
     read_intent as read_json,
     intent_handles,
     reserve_sequence,
-    socket_identity,
-    exec_without_enrollment,
-    write_intent,
     observe_one,
 )
 
@@ -208,87 +202,6 @@ def terminal_driver(arguments):
         os.tcsetpgrp(0, os.getpgid(os.getppid()))
         wait_until(pathlib.Path(hold).exists, 30, "owned foreground-group release")
     return 0
-
-
-def prelaunch(arguments):
-    """Record/acquire before exec so recovery follows the real client PID."""
-    pane = os.environ.get("HERDR_PANE_ID")
-    socket_path = os.environ.get("HERDR_SOCKET_PATH")
-    if not pane or not socket_path:
-        raise ProbeError("prelaunch is not running in a Herdr pane")
-    connection = {"socket_path": socket_path, "server_identity": capture_server_identity(socket_path)}
-    terminal_response = bound_request({"connection": connection}, "pane.get", {"pane_id": pane})
-    if "error" in terminal_response:
-        raise ProbeError(f"could not read launch pane: {terminal_response['error']}")
-    terminal = terminal_response["result"]["pane"]
-    pid = os.getpid()
-    start = process_start_identity(pid)
-    if not start:
-        raise ProbeError("could not capture prelaunch process identity")
-    arguments.start_identity = start
-    intent = {
-        "launch_id": f"live-{arguments.agent}-{pid}-{time.time_ns()}",
-        "phase": "intent",
-        "connection": {**connection, "socket_identity": socket_identity(socket_path)},
-        "terminal": {"pane_id": pane, "terminal_id": terminal["terminal_id"]},
-        "agent_kind": arguments.agent,
-        "claim": {"source": SOURCE, "claim_seq": arguments.sequence,
-                  "handoff_seq": arguments.sequence + 1, "release_seq": arguments.sequence + 2},
-        "client": {"pid": pid, "start_identity": start},
-        "created_at_ns": time.time_ns(),
-    }
-    trace_dir = os.environ.get("MMS377_TRACE_DIR")
-    if trace_dir:
-        intent["trace_dir"] = trace_dir
-    path = write_intent(arguments.intent_dir, intent)
-    arguments.intent_path = path
-    response = bound_request(intent, "pane.report_agent", {
-        "pane_id": pane, "source": SOURCE, "agent": arguments.agent,
-        "state": "unknown", "seq": arguments.sequence,
-    })
-    if "error" in response:
-        raise ProbeError(f"claim rejected: {response['error']}")
-    response = bound_request(intent, "agent.rename", {"target": pane, "name": arguments.alias})
-    if "error" in response:
-        raise ProbeError(f"alias rejected: {response['error']}")
-    published = bound_request(intent, "agent.get", {"target": pane})
-    if "error" in published:
-        raise ProbeError(f"claim did not become visible: {published['error']}")
-    record = published["result"]["agent"]
-    require({"step": "prelaunch-claim"},
-            record.get("terminal_id") == terminal["terminal_id"]
-            and record.get("name") == arguments.alias
-            and record.get("agent") == arguments.agent
-            and record.get("agent_status") == "unknown",
-            f"claim readback did not match this launch: {record}")
-    acknowledge_acquisition(path)
-    os.environ["MMS377_INTENT"] = str(path)
-    atomic_write(arguments.receipt, {"pid": pid, "start_identity": start, "intent": path,
-                                      "alias": arguments.alias, "agent": arguments.agent,
-                                      "stdin_isatty": os.isatty(0), "stdout_isatty": os.isatty(1),
-                                      "pi_observer": os.environ.get("MMS377_PI_OBSERVER")})
-    os.execv(arguments.launcher, [arguments.launcher, arguments.agent, *arguments.client_args])
-
-
-def admission_fallback(arguments):
-    """Keep the shared prelaunch strict while giving R10 one explicit escape hatch."""
-    command = native_executable(arguments.agent)
-    try:
-        prelaunch(arguments)
-    except (OSError, ValueError, KeyError, ProbeError, RecoveryError) as error:
-        intent_path = getattr(arguments, "intent_path", None)
-        pending = intent_path is not None
-        atomic_write(arguments.receipt, {
-            "pid": os.getpid(), "start_identity": getattr(arguments, "start_identity", None),
-            "admission_error": str(error), "fallback": True,
-            "intent": intent_path, "agent": arguments.agent, "requested_alias": arguments.alias,
-            "claim_pending": pending,
-        })
-        exec_without_enrollment(
-            command, arguments.client_args,
-            "claim admission remains pending; starting native client without enrollment" if pending
-            else "claim admission unavailable; starting native client without enrollment",
-        )
 
 
 class ClientProbe:
@@ -551,7 +464,7 @@ export default function (pi) {
         return reserve_sequence(str(self.scratch / "sequences"), SOURCE)
 
     def launch(self, agent, args, *, interactive=False, alias_index=0, hold_group=False, offline=True, pane=None,
-               admission_fallback_mode=False, claude_settings=None, trace=False, claim_required=True, extra_env=None):
+               claude_settings=None, trace=False, claim_required=True, extra_env=None):
         if agent == "claude":
             args = ["--settings", str(claude_settings or self.claude_settings), *args]
         if pane is None:
@@ -561,8 +474,6 @@ export default function (pi) {
         receipt = self.scratch / f"{agent}-{sequence}.receipt.json"
         log = self.scratch / f"{agent}-{sequence}.log"
         exit_file = self.scratch / f"{agent}-{sequence}.exit"
-        if admission_fallback_mode:
-            raise ProbeError("synthetic admission fallback is not a runtime path")
         command = [str(self.launcher), agent, *args]
         exports = self.foreground_exports(alias, sequence)
         exports.update(extra_env or {})
@@ -1174,6 +1085,43 @@ export default function (pi) {
         failures = {fault: self.initial_admission_failure(fault) for fault in ("owner", "intent", "server", "client")}
         return {"control": control_state, "failure_controls": failures}
 
+    def alias_reuse_refreshes_a_stale_read(self):
+        pane = self.client_pane()
+        alias = self.aliases[0]
+        command = [sys.executable, str(self.runtime_lib / "intercom-claim-recovery.py"),
+                   "--reuse-alias", str(self.runtime_root), "--alias", alias,
+                   "--owner-label", self.runtime_label, "--owner-plist", str(self.runtime_plist)]
+        env = self.owner.env | {"HERDR_PANE_ID": pane["pane_id"], "HERDR_SOCKET_PATH": self.owner.socket_path}
+        try:
+            require({"step": "reuse-absent-control"}, self.state(pane) is None, "control pane already has a record")
+            absent = subprocess.run(command, env=env, text=True, capture_output=True, timeout=15)
+            require({"step": "reuse-refresh-status"}, absent.returncode == 0, f"alias revalidation failed: {absent.stderr}")
+            require({"step": "reuse-refresh-absence"}, json.loads(absent.stdout) == {"alias": ""},
+                    f"empty recovery directory licensed a stale alias: {absent.stdout}")
+            self.owner.run("pane", "report-agent", pane["pane_id"], "--source", "reuse-control",
+                           "--agent", "claude", "--state", "working", "--seq", str(self.reserve_sequence()))
+            self.owner.run("agent", "rename", pane["pane_id"], alias)
+            present = subprocess.run(command, env=env, text=True, capture_output=True, timeout=15)
+            require({"step": "reuse-independent-status"}, present.returncode == 0,
+                    f"independent identity was rejected: {present.stderr}")
+            require({"step": "reuse-independent-alias"}, json.loads(present.stdout) == {"alias": alias},
+                    "independent existing alias was not preserved")
+            return {"absent": json.loads(absent.stdout), "present": json.loads(present.stdout)}
+        finally:
+            self.owner.run("pane", "close", pane["pane_id"])
+
+    def alias_reuse_preserves_successor_identity(self):
+        from intercom_alias_reuse_probe import run_order
+        observations = {}
+        for name, early in (("control", False), ("early_cleanup", True)):
+            isolated = ClientProbe()
+            try:
+                isolated.start()
+                observations[name] = run_order(isolated, early)
+            finally:
+                isolated.close()
+        return observations
+
     def alias_collision_rolls_back_and_retries(self):
         # Restore base test 1346's stale first candidate, now with real Herdr.
         occupied = self.client_pane()
@@ -1584,9 +1532,17 @@ export default function (pi) {
         self.wait_client_ready(agent, native_pane, native_receipt, native=True)
         if matched_reference:
             native_after = self.state(native_pane)
+            native_immediate = native_after
+            native_redetection_started = time.monotonic_ns()
+            if agent == "opencode":
+                native_after = wait_until(lambda: self.state(native_pane), 20, "reference OpenCode redetection after fg")
+            native_redetection_ns = time.monotonic_ns() - native_redetection_started
+            self.wait_process_live(native["pid"], native["start_identity"])
             matched_baseline = {
                 "before": native_before, "native": native,
                 "samples_while_stopped": native_samples, "after_resume": native_after,
+                "immediate_after_resume": native_immediate,
+                "redetection_wait_ns": native_redetection_ns,
                 "terminal": self.stable_terminal(native_pane), "transition": native_transition,
                 "observer_confirmed_stopped": baseline_observer,
                 "baseline_kind": "reference_without_recovery_with_status_driver",
@@ -1675,6 +1631,12 @@ export default function (pi) {
                     f"native/wrapped Ctrl-Z mechanism differs: {native_transition} != {wrapped_transition}")
             self.wait_client_ready(agent, pane, receipt)
             after_resume = self.state(pane)
+            immediate_after_resume = after_resume
+            redetection_started = time.monotonic_ns()
+            if agent == "opencode":
+                after_resume = wait_until(lambda: self.state(pane), 20, "wrapped OpenCode redetection after fg")
+            redetection_ns = time.monotonic_ns() - redetection_started
+            self.wait_process_live(wrapped["pid"], wrapped["start_identity"])
             trace_dir = pathlib.Path(read_json(expected["intent"])["trace_dir"])
             release_attempts = [read_json(path) for path in trace_dir.glob("*.release_attempt.*.json")]
             require({"step": f"{agent}-resumed-no-release"}, not release_attempts,
@@ -1696,6 +1658,8 @@ export default function (pi) {
                 "wrapped": wrapped, "wrapped_transition": wrapped_transition, "wrapped_status": wrapped_status,
                 "observer_pass": observer_pass, "pre_suspend": pre_suspend, "retained": retained,
                 "retained_samples": retained_samples, "after_resume": after_resume,
+                "immediate_after_resume": immediate_after_resume,
+                "redetection_wait_ns": redetection_ns,
                 "alias_retained": alias_retained,
                 "release_attempts_before_quit": release_attempts,
                 "live_window_start_monotonic_ns": live_window_start, "mutations_while_live": live_mutations,
@@ -1873,16 +1837,19 @@ export default function (pi) {
         require_comparison({"step": f"{agent}-suspension-after-resume-shape"},
                 all(not present or wrapped_after_resume[field] for field, present in baseline_after_resume.items()),
                 f"wrapped post-resume identity lost more than native: {baseline_after_resume} -> {wrapped_after_resume}")
-        baseline_lost_alias = not native["alias_retained"]
+        baseline_lost_alias = any(not state["alias_present"] for state in baseline_shape) or \
+            not baseline_after_resume["alias_present"]
         if not baseline_lost_alias and not wrapped["alias_retained"]:
             error = ProbeError(
-                f"native {agent} suspension retained its alias; wrapped loss cannot inherit an exception"
+                f"comparison {agent} suspension retained its alias; wrapped loss cannot inherit an exception"
             )
             error.evidence = {"baseline": native, "wrapped": wrapped}
             raise error
         return {
             "classification": "PASS" if wrapped["alias_retained"] else "KNOWN_UPSTREAM_LIMITATION",
             "raw_baseline_alias_retention_assertion": native["raw_alias_retention_assertion"],
+            "raw_comparison_alias_retention_assertion": "FAIL" if baseline_lost_alias else "PASS",
+            "qualification_baseline_kind": comparison["baseline_kind"],
             "baseline": native,
             "baseline_kind": native["baseline_kind"],
             "comparison_baseline": comparison,
@@ -2445,6 +2412,10 @@ def run_probe(suspension_only=False):
                    probe.runtime_owner_recovers_stale_readiness_and_crash)
         probe.case("fresh alias collision rolls back and retries without disturbing its owner",
                    probe.alias_collision_rolls_back_and_retries)
+        probe.case("old cleanup preserves successor identity before and after native detection",
+                   probe.alias_reuse_preserves_successor_identity)
+        probe.case("alias reuse refreshes stale lookup and preserves an independent identity",
+                   probe.alias_reuse_refreshes_a_stale_read)
         probe.case("late Claude binding refusal preserves native startup without a claim", probe.claude_late_bind_r10_fallback)
         probe.case("cci crash preserves the bound live native client until its own exit", probe.claude_relation_and_handoff)
         probe.case("real Claude /exit preserves normal native exit status", probe.claude_normal_exit)
@@ -2459,7 +2430,7 @@ def run_probe(suspension_only=False):
         probe.case("native and wrapped Claude preserve normal interactive quit status", probe.claude_normal_quit_parity)
         probe.case("native and wrapped Claude preserve interactive Ctrl-C behavior and status", probe.claude_ctrl_c_parity)
         probe.case("native and wrapped Claude preserve TERM behavior and exact cci status", probe.claude_term_parity)
-        probe.known_upstream_case("OpenCode native suspension is independently attributed and recovery remains non-interfering",
+        probe.known_upstream_case("OpenCode recovery-disabled suspension is independently attributed and recovery remains non-interfering",
                                   lambda: probe.qualify_suspension_exception("opencode", 12))
         probe.known_upstream_case("Pi reference-launcher suspension is independently attributed and recovery remains non-interfering",
                                   lambda: probe.qualify_suspension_exception("pi", 13))
@@ -2489,33 +2460,15 @@ def run_probe(suspension_only=False):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--prelaunch", action="store_true")
-    parser.add_argument("--admission-fallback", action="store_true")
     parser.add_argument("--terminal-driver", action="store_true")
     parser.add_argument("--suspension-diagnostic", action="store_true")
     parser.add_argument("--driver-receipt")
     parser.add_argument("--cwd")
-    parser.add_argument("--agent", choices=CLIENTS)
-    parser.add_argument("--sequence", type=int)
-    parser.add_argument("--alias")
-    parser.add_argument("--intent-dir")
-    parser.add_argument("--receipt")
-    parser.add_argument("--launcher")
     parser.add_argument("client_args", nargs=argparse.REMAINDER)
     arguments = parser.parse_args()
     arguments.driver_command = arguments.client_args
     if arguments.terminal_driver:
         return terminal_driver(arguments)
-    if arguments.prelaunch:
-        if arguments.client_args[:1] == ["--"]:
-            arguments.client_args = arguments.client_args[1:]
-        prelaunch(arguments)
-        return 0
-    if arguments.admission_fallback:
-        if arguments.client_args[:1] == ["--"]:
-            arguments.client_args = arguments.client_args[1:]
-        admission_fallback(arguments)
-        return 0
     return run_probe(arguments.suspension_diagnostic)
 
 

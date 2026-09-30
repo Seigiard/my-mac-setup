@@ -34,12 +34,60 @@ Artifacts live under `~/.claude/artifacts/377/`. The runtime uses the shared
 engine at `home/dot_local/lib/intercom-claim-recovery.py`; the former prototype
 module is a test shim that loads this same engine.
 
+### Repairs after draft checkpoint #387
+
+Issues #384 and #385 track this batch. The alias-reuse race was reproduced on
+checkpoint `078b06e`: old cleanup removed the Herdr alias while the successor
+kept that name in the private broker. The stable regression barrier is at CCI's
+Node entry, after alias selection and before CCI starts. A native-exec barrier
+was too late because CCI itself could already become detectable. The permanent
+case failed at `reuse-successor-identity` in `runtime-check-race-red104.log`.
+
+The reuse guard now waits for confirmed-dead obligations on the same server and
+terminal to settle, then rereads the alias. Live or unverifiable prior ownership
+falls back to native startup without borrowing its identity. Both orderings and
+the live/unverifiable controls passed in `runtime-check-race-green106.log`;
+`runtime-check-reuse-read107.log` covers stale readback and an independent alias.
+
+Current cumulative evidence:
+
+- `runtime-check-owner109.log`: 18 PASS, owner-only exit 3, cleanup complete.
+  Artifact `ownership-proof-eef4ed5d8f7442e383d843b274619c2b.json`.
+- `runtime-client-116.log`: 30 PASS and three KNOWN_UPSTREAM_LIMITATION rows,
+  no FAIL/SKIP/UNVERIFIED, cleanup complete. Artifact
+  `client-proof-d5aff934ae28483b9dac3bc507e54f54.json`.
+- `runtime-check-deploy113.log`: canonical `make test-ubuntu` passed with the
+  Python dependency moved to the full macOS Brewfile. Later edits only affect
+  live suspension measurement. Focused launcher checks passed 13 cases and 195
+  assertions; general Python checks passed 42 tests; lint passed.
+- `runtime-restart-calibration-108.json`: a staged restart-policy mutation
+  passed admission and failed at the restart assertion; restored code passed.
+- `suspension-safety-calibration-115.json`: live-release and live-rename mutants
+  failed their safety guards; restored code qualified only the upstream loss.
+
+The failed client110 and client112 runs remain recorded. Client110 exposed a
+non-atomic readiness marker in the new fixture; it now uses `atomic_write`.
+Client112 compared immediate post-fg snapshots at different detection phases.
+`opencode-resume-diagnostic-114.json` observed this transient in the control too.
+OpenCode now records the first snapshot, waits for Herdr redetection in both
+routes, and records the wait and the same resumed PID/start identity. The bound
+is an observation hang guard, not a latency-equivalence assertion.
+
+Suspension loss and its exception qualification now use the same comparison
+baseline: a recovery-disabled reference with the matching status driver for
+OpenCode/Pi, and direct native Claude. Separate direct-native observations and
+raw assertions remain in the artifact. The accepted contract permits native or
+recovery-disabled evidence; no live mutation, foreign identity or unqualified
+loss is accepted. Final cumulative review remains outstanding.
+
+### Earlier runtime checkpoints
+
 The owner-requested post-review batch is tracked in
 [#377's checklist](https://github.com/Seigiard/my-mac-setup/issues/377#issuecomment-5914791500).
 Terminal intents now leave the hot scan for a bounded archive. The sidecar
 protocol lets queued callers finish on the original inode and prevents new
 callers from recreating it. The archive policy is in the specification.
-Current evidence after that batch:
+Evidence at that checkpoint:
 
 - `runtime-check-owner97.log`: 18 PASS, owner-only exit 3, with cleanup.
   Artifact `ownership-proof-c054422872c54e3aa256c195932d3860.json`.
@@ -59,9 +107,9 @@ Current evidence after that batch:
 
 The failed client98 run is retained. Its collision control left an owned alias
 occupied into later cases; the fixture now closes that control pane after its
-preservation assertions. The pending-alias reuse race remains a recorded
-reproduction task, not a reproduced defect or a completed fix. The initial
-runtime review is not a confirming review for this batch.
+preservation assertions. At that checkpoint the alias-reuse reproduction was
+still pending. The later reproduction and fix are recorded above. The initial
+runtime review did not confirm this batch.
 
 Earlier runtime checkpoints:
 

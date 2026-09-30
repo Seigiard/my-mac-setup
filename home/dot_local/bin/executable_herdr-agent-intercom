@@ -38,16 +38,30 @@ unset OPENCODE_INTERCOM_NAME HERDR_AGENT_INTERCOM_PI_LOAD
 unset HERDR_AGENT_INTERCOM_CLAIM HERDR_AGENT_INTERCOM_CLAIM_AGENT
 unset HERDR_AGENT_INTERCOM_RECOVERY_INTENT
 
-prepare_recovery_owner() {
-  [[ -n "${HERDR_SOCKET_PATH:-}" && "$(uname -s)" == Darwin ]] || return 1
+recovery_configuration() {
   recovery_root="${XDG_STATE_HOME:-$HOME/.local/state}/agent-intercom/recovery/v1"
   recovery_engine="${HERDR_AGENT_INTERCOM_LIB_DIR:-$HOME/.local/lib}/intercom-claim-recovery.py"
   recovery_label="${HERDR_AGENT_INTERCOM_RECOVERY_LABEL:-com.seigiard.herdr-agent-intercom-recovery}"
   recovery_plist="${HERDR_AGENT_INTERCOM_RECOVERY_PLIST:-$HOME/Library/LaunchAgents/$recovery_label.plist}"
   recovery_python="$(command -v python3 2>/dev/null)" || return 1
   [[ -r "$recovery_engine" ]] || return 1
+}
+
+prepare_recovery_owner() {
+  [[ -n "${HERDR_SOCKET_PATH:-}" && "$(uname -s)" == Darwin ]] || return 1
+  recovery_configuration || return 1
   "$recovery_python" "$recovery_engine" --ensure-owner --owner-root "$recovery_root" \
     --owner-label "$recovery_label" --owner-plist "$recovery_plist" >/dev/null
+}
+
+resolve_recovery_alias() {
+  # No recovery state means the independently allocated alias can be reused.
+  [[ -e "${XDG_STATE_HOME:-$HOME/.local/state}/agent-intercom/recovery/v1" ]] || return 0
+  recovery_configuration || return 1
+  local result
+  result="$("$recovery_python" "$recovery_engine" --reuse-alias "$recovery_root" \
+    --alias "$intercom_name" --owner-label "$recovery_label" --owner-plist "$recovery_plist")" || return 1
+  intercom_name="$(printf '%s' "$result" | "$recovery_python" -c 'import json,sys; print(json.load(sys.stdin)["alias"])')" || return 1
 }
 
 case "$agent" in
@@ -96,11 +110,9 @@ case "$agent" in
     done
     ;;
   opencode)
-    # A claim declares a pane record before the client starts. A launch that
-    # never reaches a client -- a utility subcommand, or one whose plugins are
-    # disabled -- exits through `exec`, which runs no EXIT trap, so the record
-    # and the pool alias it spent outlive the command and nothing reports under
-    # `herdr:opencode` to take the pane back. Those launches pass through.
+    # Known utilities and disabled integrations bypass enrollment to avoid
+    # spending a pool alias. Missed classifications still get recovery after
+    # confirmed process exit, but need not acquire a claim in the first place.
     #
     # `--pure` is one of them: it runs without external plugins, so the Intercom
     # adapter would not load and the Herdr integration would not report either.
@@ -154,10 +166,9 @@ case "$agent" in
     if [[ ! -t 0 || ! -t 1 ]]; then
       exec "$agent_command" "$@"
     fi
-    # Two headless shapes join the list now that Pi claims, because the Herdr
-    # integration binds only on an interactive run and under `--no-extensions`
-    # never loads, so neither reports the pane back and a claim taken for one of
-    # them would outlive the process.
+    # Headless modes and disabled extensions cannot take lifecycle authority.
+    # Bypass known cases instead of acquiring a claim that only exit recovery
+    # would release.
     #
     # `--mode` is decided by its value, not by the token: `resolveAppMode` in
     # pi 0.87.1 treats `rpc` and `json` as headless and everything else --
@@ -248,6 +259,11 @@ if [[ -n "$intercom_name" ]]; then
     fi
   done <<< "$candidates"
   [[ "$allocated" == 1 ]] || intercom_name=""
+fi
+
+if [[ -n "$intercom_name" ]] && ! resolve_recovery_alias; then
+  printf 'herdr-agent-intercom: existing alias recovery is unresolved; starting %s without Intercom\n' "$agent" >&2
+  exec "$agent_command" "$@"
 fi
 
 # A pane that has never hosted an agent carries no record at all, and Herdr
@@ -354,7 +370,7 @@ if [[ -z "$intercom_name" && -n "${HERDR_PANE_ID:-}" ]] &&
       # rename is what makes closing that gap possible at all: the hook cannot
       # re-derive which alias this session enrolled under. A session that cannot
       # be reconciled would keep a name no peer can discover, so it starts
-      # without Intercom instead -- the same trade the claim marker makes.
+      # without Intercom rather than keep a name that cannot be reconciled.
       reconcile_dir="${XDG_STATE_HOME:-$HOME/.local/state}/agent-intercom/reconcile"
       if mkdir -p "$reconcile_dir" 2>/dev/null &&
         printf '%s\n' "$unreconciled_name" > "$reconcile_dir/$pane_key" 2>/dev/null; then

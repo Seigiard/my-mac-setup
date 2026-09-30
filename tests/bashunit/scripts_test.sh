@@ -701,21 +701,18 @@ SH
     assert_success
   done
 
-  # The fixture also rejects recovery handles and helper overrides inherited
-  # from the host, rather than directing a test at host recovery state.
+  # Recovery handles and helper overrides are manually listed isolation inputs.
+  # The real existing-alias launches above do not emit fresh-claim controls.
   printf '%s\n' HERDR_SOCKET_PATH HERDR_AGENT_INTERCOM_RECOVERY_INTENT \
     HERDR_AGENT_INTERCOM_PYTHON HERDR_AGENT_INTERCOM_BIN_DIR \
     HERDR_AGENT_INTERCOM_LIB_DIR HERDR_AGENT_INTERCOM_RECOVERY_LABEL \
     HERDR_AGENT_INTERCOM_RECOVERY_PLIST >> "$dump"
 
-  # #then the collected set reaches actual clients, and the host controls are
-  # explicitly part of the setup boundary. The checks below cannot pass empty.
+  # #then actual clients contributed exports; this cannot pass on an empty dump.
   assert_file_contains "$dump" '^HERDR_AGENT_INTERCOM_ACTIVE$'
   assert_file_contains "$dump" '^HERDR_AGENT_INTERCOM_PI_LOAD$'
   assert_file_contains "$dump" '^OPENCODE_INTERCOM_NAME$'
   assert_file_contains "$dump" '^INTERCOM_DIR$'
-  assert_file_contains "$dump" '^HERDR_SOCKET_PATH$'
-  assert_file_contains "$dump" '^HERDR_AGENT_INTERCOM_LIB_DIR$'
 
   # #when a runner carries every one of them, as any shell inside an enrolled
   # pane does, and the suite's own setup runs
