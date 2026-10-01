@@ -18,7 +18,169 @@ tags:
 
 # Intercom claim recovery ownership proof
 
-## Boundary
+The recovery engine is `home/dot_local/lib/intercom-claim-recovery.py`. Read the
+engine for every timing and retention value; this note does not restate them.
+**Current protocol** describes the deployed behavior. **History** keeps the dated proof
+and runtime checkpoints from #377 and PR #381 as they were recorded.
+
+## Current protocol
+
+One observer serves each host-local recovery state root. On macOS a user
+`launchd` job is its restart owner. chezmoi deploys it from
+`home/private_Library/LaunchAgents/com.seigiard.herdr-agent-intercom-recovery.plist.tmpl`.
+Before a launch takes a new claim, `ensure_owner` checks the job's label,
+restart policy and observer arguments, then bootstraps it and waits for the
+observer's readiness. The engine's `LaunchdOwner` class is the proof harness's
+temporary job, not the deployed one.
+Without a verified owner or a durable intent, the launcher takes no new claim.
+
+Before acquisition, a durable fsync-and-rename intent identifies the connected
+server PID/start identity, stable terminal, launch generation, source, reserved
+sequences, and process PID/start identity. `intent` means acquisition is not
+acknowledged; `acquired` follows claim readback. An unacknowledged operation
+cannot retire merely because the pane has no record: the request can arrive
+after its process exits.
+
+An inode-stable sidecar lock serializes acknowledgement, native binding,
+handoff and observation for one intent. JSON rename alone is not that lock.
+Observer lock attempts are nonblocking, so a busy intent does not stop the
+observer from checking others. Test barriers have deadlines and failure-path
+release guards; they are not part of the deployed protocol.
+
+Every RPC verifies the kernel peer PID/start identity on the descriptor used
+for that request. Herdr closes the connection after a response. A path or inode
+read followed by another connection would not provide this fence. Socket inode
+data in client evidence is diagnostic only.
+
+The observer follows process identity, not age. Failed process reads remain
+pending unless the kernel establishes absence. A concrete successor state
+retires an acknowledged launch without a release, whether the publisher is a
+newer same-source launch or a client integration. An unknown record does not
+expose its authority source or claim sequence through `agent.get`. An ignored
+release therefore remains pending; the observer spaces these release retries
+by `PENDING_RETRY_SECONDS` instead of inferring ownership from RPC success.
+
+Moved panes are resolved by stable terminal identity. A changed server is never
+mutated with the old intent. Before retirement, read-only requests fenced to the
+replacement server must establish that the old terminal or its agent record is
+absent. A retained record leaves an explicit pending diagnostic.
+
+Herdr 0.9.1 exposes neither a conditional rename nor claim source/sequence in
+`agent.get`. The initial acquisition rename, like the explicitly declined
+post-suspension repair, has no generation or process-identity fence. The
+protocol does not claim to make overlapping same-pane acquisitions safe; the normal pane
+foreground-launch boundary makes that window narrow, but it is not an atomic
+Herdr guarantee.
+
+### Claude's native process and first prompt
+
+`cci` probes its configured bridge with `--version` even in MCP mode. That
+short-lived process is not the interactive client. The Claude bridge passes the
+utility through, then validates that the real before-exec bridge descends from
+its recorded live launcher. Binding can finish under the lock after that parent
+exits. The bridge and native exec share a PID.
+Binding uses the same lock as cleanup. A bridge arriving after settlement
+starts the native argv without cci's generated enrollment rather than reviving
+the old claim.
+
+The real first-prompt hook checks native ancestry and stable terminal identity.
+It requests a source-scoped, reserved-sequence release. Admission reserves `N`
+for acquisition, `N+1` for handoff and `N+2` for final cleanup. Only a later
+published concrete agent state retires the intent; a successful release response is
+not the handoff verdict.
+
+`handoff_intended_at_ns` is diagnostic intent written before the RPC. It is not
+an acknowledgement and is never used as a retirement predicate.
+
+The hook and the observer share Python's monotonic clock ([Python's documented contract](https://docs.python.org/3.14/library/time.html#time.monotonic)).
+Handoff retry consults that deadline only for the same live client incarnation.
+A host reboot ends that client; dead-client cleanup does not read the handoff
+deadline. An observer-process restart preserves the clock. The runtime must
+retain this shared-clock property; macOS requires Python 3.10 or later. The
+proof ran on Python 3.14.7.
+
+### Terminal intent archive
+
+A `settled` or `retired` intent moves into `intents/archive` under its existing
+lock, so the observer's scan never opens it. The observer prunes the archive
+periodically by age and by count; the limits and the interval are the
+`ARCHIVE_*` constants in the engine. Pending intents are never pruned. A late
+bind or handoff refuses a terminal or expired handle, and handles are never
+reused.
+
+### Known Herdr limitation
+
+The suspension diagnostic starts native Claude directly, with no `cci`, no
+terminal status driver, and the recovery observer confirmed stopped. It waits
+for the real input prompt, assigns a pool alias, then sends Ctrl-Z. The native
+PID and start identity remain unchanged and its process state is `T`, but
+Herdr removes the alias and agent record. `fg` resumes that same native process
+without restoring the alias.
+
+`suspension-proof-1790719684444367000.json` records this independent control.
+The earlier wrapped control, `suspended-claim-aa33a4e4052e425ba59f3732b763b320.json`,
+shows the same loss while its recovery observer is stopped. Both runs cleaned
+their owned clients, server and private state.
+
+Checked restoration paths do not close the gap:
+
+- `pane.report_agent` returns `ok` for the stopped terminal but publishes no
+  record, both with the old sequence and with a fresh sequence.
+- `agent.rename` then returns `agent_not_found`.
+- The bundled `AgentRenameParams` schema has only `target` and `name`. A rename
+  after resume has no expected-generation or process-identity precondition, so
+  using it to repair an old launch can overwrite a newer launch's alias.
+- `pane.report_metadata` changes presentation, not the canonical agent name.
+
+Herdr 0.9.1 has a [name-clear path after exit observation](https://github.com/herdrdev/herdr/blob/v0.9.1/src/terminal/state.rs#L577-L584)
+and [rejects custom claims after that observation](https://github.com/herdrdev/herdr/blob/v0.9.1/src/terminal/state.rs#L650-L659).
+The live stopped-process trace observes both effects; it is not evidence that
+the process actually exited.
+
+The approved exception permits this independently attributed upstream behavior
+without permitting recovery to release or rename a live client or a newer
+launch. Each client/build needs its own attribution and local-safety evidence;
+the direct-Claude control alone does not qualify OpenCode's failure. See the
+specification for the acceptance rule. [#383](https://github.com/Seigiard/my-mac-setup/issues/383)
+tracks restoring strict end-to-end retention after a verified Herdr fix.
+Recovery does not attempt an unsafe read-then-rename repair.
+
+## Rerun and verdicts
+
+```sh
+MMS_LIVE_HERDR_OWNERSHIP_PROBE=1 \
+MMS_LIVE_HERDR_OWNERSHIP_EVIDENCE_DIR="$HOME/.claude/artifacts/377/proof" \
+python3 tests/helpers/intercom_claim_ownership_probe.py
+
+MMS_LIVE_HERDR_OWNERSHIP_PROBE=1 \
+MMS_LIVE_HERDR_OWNERSHIP_EVIDENCE_DIR="$HOME/.claude/artifacts/377/proof" \
+python3 tests/helpers/intercom_claim_client_probe.py
+
+MMS_LIVE_HERDR_OWNERSHIP_PROBE=1 \
+MMS_LIVE_HERDR_OWNERSHIP_EVIDENCE_DIR="$HOME/.claude/artifacts/377/proof" \
+python3 tests/helpers/intercom_claim_client_probe.py --suspension-diagnostic
+```
+
+These commands require a Herdr-managed caller and create only owned resources.
+The owner command returns `1` for failed cases or cleanup, `2` for refusal, and
+`3` when its cases pass but the separate full client gate remains unverified.
+Read the UUID-named JSON artifact for the exact executed case set. A focused
+calibration is not evidence that omitted cases ran. The client command returns
+`0` only when every registered client case is either `PASS` or an independently
+attributed `KNOWN_UPSTREAM_LIMITATION`; it returns `1` for any `FAIL`, `SKIP` or
+`UNVERIFIED` row. Read the artifact counts for the PASS-only total. It does not
+replace owner evidence or the required reviewed addendum.
+
+The suspension-only command intentionally returns `1` on the observed Herdr
+limitation. Its JSON includes the live stopped PID/start identity, alias loss,
+checked API responses, and observer-disabled control. Keep that failure visible.
+
+## History
+
+These sections record what was measured at each checkpoint. Where their wording
+differs from **Current protocol**, the current section and the engine win.
+
+### Delivery boundary
 
 The owner accepts the
 [scoped upstream suspension exception](../../plans/2026-09-29-intercom-claim-recovery-spec.md#accepted-upstream-suspension-exception).
@@ -28,13 +190,13 @@ the managed launcher, bridge, release command, shared engine and rendered
 launchd job from private staging. This is not a host rollout or final delivery
 acceptance. Historical proof results below remain unchanged.
 
-### Runtime verification checkpoint
+#### Runtime verification checkpoint
 
 Artifacts live under `~/.claude/artifacts/377/`. The runtime uses the shared
-engine at `home/dot_local/lib/intercom-claim-recovery.py`; the former prototype
-module is a test shim that loads this same engine.
+engine at `home/dot_local/lib/intercom-claim-recovery.py`. The test shim
+`tests/helpers/intercom_claim_recovery_prototype.py` loads this same engine.
 
-### Review confirmation and verification repair
+#### Review confirmation and verification repair
 
 The third complete dual-model round confirmed the runtime/watcher repairs and
 kept one coverage finding: the historical OpenCode utility matrix was still
@@ -80,7 +242,7 @@ read-only container and hit unrelated Docker-marker/git-metadata assumptions.
 It is not a full-suite verdict; the focused Linux regression and canonical
 deployment checks above own their separate results.
 
-### Repairs after draft checkpoint #387
+#### Repairs after draft checkpoint #387
 
 Issues #384 and #385 track this batch. The alias-reuse race was reproduced on
 checkpoint `078b06e`: old cleanup removed the Herdr alias while the successor
@@ -130,7 +292,7 @@ raw assertions remain in the artifact. The accepted contract permits native or
 recovery-disabled evidence; no live mutation, foreign identity or unqualified
 loss is accepted. Final cumulative review remains outstanding.
 
-### Earlier runtime checkpoints
+#### Earlier runtime checkpoints
 
 The owner-requested post-review batch is tracked in
 [#377's checklist](https://github.com/Seigiard/my-mac-setup/issues/377#issuecomment-5914791500).
@@ -206,7 +368,7 @@ account query, Herdr checks requiring a running caller session, and external
 client settings checks without the required installed client/model catalog.
 Those skips are not proof of the skipped behavior.
 
-### Full-review repair evidence
+#### Full-review repair evidence
 
 The revised owner command completed with **18 PASS**, exit **3**, in
 `ownership-proof-83d9bbf6efef47608b588848cc19b845.json`. The ten-claim burst's
@@ -282,42 +444,7 @@ The positive sides ran in the complete client command above. These artifacts
 record failed guards, not additional passing client cases. A confirming full
 review of the changed protocol and checks remains outstanding.
 
-### Observed Herdr limitation
-
-The suspension diagnostic starts native Claude directly, with no `cci`, no
-terminal status driver, and the recovery observer confirmed stopped. It waits
-for the real input prompt, assigns a pool alias, then sends Ctrl-Z. The native
-PID and start identity remain unchanged and its process state is `T`, but
-Herdr removes the alias and agent record. `fg` resumes that same native process
-without restoring the alias.
-
-`suspension-proof-1790719684444367000.json` records this independent control.
-The earlier wrapped control, `suspended-claim-aa33a4e4052e425ba59f3732b763b320.json`,
-shows the same loss while its recovery observer is stopped. Both runs cleaned
-their owned clients, server and private state.
-
-Checked restoration paths do not close the gap:
-
-- `pane.report_agent` returns `ok` for the stopped terminal but publishes no
-  record, both with the old sequence and with a fresh sequence.
-- `agent.rename` then returns `agent_not_found`.
-- The bundled `AgentRenameParams` schema has only `target` and `name`. A rename
-  after resume has no expected-generation or process-identity precondition, so
-  using it to repair an old launch can overwrite a newer launch's alias.
-- `pane.report_metadata` changes presentation, not the canonical agent name.
-
-Herdr 0.9.1 has a [name-clear path after exit observation](https://github.com/herdrdev/herdr/blob/v0.9.1/src/terminal/state.rs#L577-L584)
-and [rejects custom claims after that observation](https://github.com/herdrdev/herdr/blob/v0.9.1/src/terminal/state.rs#L650-L659).
-The live stopped-process trace observes both effects; it is not evidence that
-the process actually exited.
-
-The approved exception permits this independently attributed upstream behavior
-without permitting recovery to release or rename a live client or a newer
-launch. Each client/build needs its own attribution and local-safety evidence;
-the direct-Claude control alone does not qualify OpenCode's failure. See the
-specification for the acceptance rule. [#383](https://github.com/Seigiard/my-mac-setup/issues/383)
-tracks restoring strict end-to-end retention after a verified Herdr fix. The
-prototype does not attempt an unsafe read-then-rename repair.
+### Proof harness restart owner
 
 The owner probe runs installed Herdr 0.9.1 in an isolated named session. A
 temporary macOS `launchd` job in `gui/<uid>` restarts the observer with
@@ -329,76 +456,7 @@ boots it out and confirms process exit before deleting its files. Cleanup
 failures preserve available scratch state for diagnosis; removal errors fail
 the verdict rather than being ignored.
 
-## Candidate protocol
-
-Before acquisition, a durable fsync-and-rename intent identifies the connected
-server PID/start identity, stable terminal, launch generation, source, reserved
-sequences, and process PID/start identity. `intent` means acquisition is not
-acknowledged; `acquired` follows claim readback. An unacknowledged operation
-cannot retire merely because the pane has no record: the request can arrive
-after its process exits.
-
-An inode-stable sidecar lock serializes acknowledgement, native binding,
-handoff and observation for one intent. JSON rename alone is not that lock.
-Observer lock attempts are nonblocking, so a busy intent does not stop the
-observer from checking others. Test barriers have deadlines and failure-path
-release guards; they are not part of the proposed deployed protocol.
-
-Every RPC verifies the kernel peer PID/start identity on the descriptor used
-for that request. Herdr closes the connection after a response. A path or inode
-read followed by another connection would not provide this fence. Socket inode
-data in client evidence is diagnostic only.
-
-The observer follows process identity, not age. Failed process reads remain
-pending unless the kernel establishes absence. A concrete successor state
-retires an acknowledged launch without a release, whether the publisher is a
-newer same-source launch or a client integration. An unknown record does not
-expose its authority source or claim sequence through `agent.get`. An ignored
-release therefore remains pending; the prototype bounds these release retries
-to one per two seconds instead of inferring ownership from RPC success.
-
-Moved panes are resolved by stable terminal identity. A changed server is never
-mutated with the old intent. Before retirement, read-only requests fenced to the
-replacement server must establish that the old terminal or its agent record is
-absent. A retained record leaves an explicit pending diagnostic.
-
-Herdr 0.9.1 exposes neither a conditional rename nor claim source/sequence in
-`agent.get`. The initial acquisition rename, like the explicitly declined
-post-suspension repair, has no generation or process-identity fence. This proof
-does not claim to make overlapping same-pane acquisitions safe; the normal pane
-foreground-launch boundary makes that window narrow, but it is not an atomic
-Herdr guarantee.
-
-### Claude's native process and first prompt
-
-`cci` probes its configured bridge with `--version` even in MCP mode. That
-short-lived process is not the interactive client. The proof bridge passes the
-utility through, then validates that the real before-exec bridge descends from
-its recorded live launcher. Binding can finish under the lock after that parent
-exits. The bridge and native exec share a PID.
-Binding uses the same lock as cleanup. A bridge arriving after settlement
-starts the native argv without cci's generated enrollment rather than reviving
-the old claim.
-
-The real first-prompt hook checks native ancestry and stable terminal identity.
-It requests a source-scoped, reserved-sequence release. The client probe reserves
-`N` for acquisition, `N+1` for handoff and `N+2` for final cleanup. Only a later
-published concrete agent state retires the intent; a successful release response is
-not the handoff verdict. The probe also requires the same alias and a live native
-client. Input readiness is a positive `live_prompt_box` rule, separate from the
-published lifecycle state being tested.
-
-`handoff_intended_at_ns` is diagnostic intent written before the RPC. It is not
-an acknowledgement and is never used as a retirement predicate.
-
-The proof uses Python 3.14.7. Its monotonic clock is shared by the hook and
-observer processes ([Python's documented contract](https://docs.python.org/3.14/library/time.html#time.monotonic)).
-Handoff retry consults that deadline only for the same live client incarnation.
-A host reboot ends that client; dead-client cleanup does not read the handoff
-deadline. An observer-process restart preserves the clock. The runtime must
-retain this shared-clock property; macOS requires Python 3.10 or later.
-
-## Owner evidence
+### Owner evidence
 
 The current registered owner cases are:
 
@@ -420,7 +478,7 @@ The current registered owner cases are:
 | Pending managed successor | A real `herdr agent start` reaches its pre-exec barrier. Old release preserves the reserved alias and terminal. The pane is closed before the unused native launch begins. |
 | Concurrent and repeated cleanup | Both observers reach an entry barrier and attempt the same intent; cleanup converges on a settled obligation. Repeated release and closed-terminal replay also settle safely. Lock sensitivity belongs to the separate binding case. |
 | Server restart | The old record is confirmed absent after restart, and a new server's unrelated named record remains unchanged. |
-| Healthy recovery budget | Ten live claims are first confirmed present, then their real processes exit. Batched Herdr agent-list observations confirm each claim absent within the ten-second target. |
+| Healthy recovery budget | Ten live claims are first confirmed present, then their real processes exit. Batched Herdr agent-list observations confirm each claim absent within the healthy budget that `ten_claims_meet_healthy_budget` in the ownership probe checks. |
 | Sequence allocation | A backward clock step cannot let old release remove a later claim. Separate processes retain ordering and reserve non-overlapping triples concurrently. |
 
 Calibration found and closed a false-green timing window in the new binding
@@ -431,7 +489,7 @@ any live PID as the same incarnation fails the same-PID/different-token case;
 PID plus start identity passes. The failed-client-reader regression was also
 observed red and green with server-peer lookup left functional.
 
-## Real-client evidence and remaining work
+### Real-client evidence and remaining work
 
 Current runtime receipts are indexed under **Repairs after draft checkpoint
 #387** above; **Full-review repair evidence** records the earlier accepted proof.
@@ -483,11 +541,14 @@ handled explicitly. Cleanup failure makes the saved gate verdict fail.
 
 The ten-claim burst in `owner-budget-5c20d93e2bb94ce5aafc142bb7815f53.json`
 verified all claims absent within a conservative 5.019-second maximum. The
-proposed addendum sets a 10-second healthy target, 100-ms observation cadence,
-and 2-second retry spacing for uncertain acknowledged release. The runtime
-implementation must repeat that measurement. No runtime has been deployed.
+proposed addendum set the healthy target, the observation cadence and the
+retry spacing for uncertain acknowledged release. The ownership probe now
+checks the target, and the engine holds the other two as `POLL_SECONDS` and
+`PENDING_RETRY_SECONDS`.
+The runtime implementation had to repeat that measurement. No runtime had been
+deployed at that checkpoint.
 
-### Historical owner and client results
+#### Historical owner and client results
 
 These artifacts are superseded checkpoints, not current gate receipts:
 
@@ -520,33 +581,3 @@ the terminal disappeared. Read the latest native/wrapped print, signal and
 job-control outcomes from their named artifacts. Qualified upstream suspension
 loss can be reported separately under the approved exception; local regressions
 and unattributed failures remain blocking. These older runs are not a new gate pass.
-
-## Rerun and verdicts
-
-```sh
-MMS_LIVE_HERDR_OWNERSHIP_PROBE=1 \
-MMS_LIVE_HERDR_OWNERSHIP_EVIDENCE_DIR="$HOME/.claude/artifacts/377/proof" \
-python3 tests/helpers/intercom_claim_ownership_probe.py
-
-MMS_LIVE_HERDR_OWNERSHIP_PROBE=1 \
-MMS_LIVE_HERDR_OWNERSHIP_EVIDENCE_DIR="$HOME/.claude/artifacts/377/proof" \
-python3 tests/helpers/intercom_claim_client_probe.py
-
-MMS_LIVE_HERDR_OWNERSHIP_PROBE=1 \
-MMS_LIVE_HERDR_OWNERSHIP_EVIDENCE_DIR="$HOME/.claude/artifacts/377/proof" \
-python3 tests/helpers/intercom_claim_client_probe.py --suspension-diagnostic
-```
-
-These commands require a Herdr-managed caller and create only owned resources.
-The owner command returns `1` for failed cases or cleanup, `2` for refusal, and
-`3` when its cases pass but the separate full client gate remains unverified.
-Read the UUID-named JSON artifact for the exact executed case set. A focused
-calibration is not evidence that omitted cases ran. The client command returns
-`0` only when every registered client case is either `PASS` or an independently
-attributed `KNOWN_UPSTREAM_LIMITATION`; it returns `1` for any `FAIL`, `SKIP` or
-`UNVERIFIED` row. Read the artifact counts for the PASS-only total. It does not
-replace owner evidence or the required reviewed addendum.
-
-The suspension-only command intentionally returns `1` on the observed Herdr
-limitation. Its JSON includes the live stopped PID/start identity, alias loss,
-checked API responses, and observer-disabled control. Keep that failure visible.

@@ -289,8 +289,8 @@ prompt, Pi already at session start — keeping the alias the claim allocated.
 The pane then reads `full_lifecycle_hook_authority`, exactly as it does for a
 session that never took a claim, so the claim leaves no residue, and a release
 fired afterward is inert against a record its source no longer owns. They
-therefore need no first-prompt release caller. All newly acquired claims now have
-a versioned recovery intent, separate from the legacy Claude-only marker.
+therefore need no first-prompt release caller. Every claim now has a versioned
+recovery intent.
 
 Takeover occurs only when the client's integration runs. New claims no longer
 depend on it for failed-launch cleanup: the observer follows the actual exec
@@ -312,7 +312,6 @@ the record and the alias with it. The new protocol binds the native bridge PID
 before exec, excludes cci's version probe, and persists handoff authorization
 before RPC. Its observer retries a failed handoff without another prompt. If
 the native client exits first, reserved cleanup settles its claim instead.
-Legacy markers retain the previous successor-only release path.
 
 The pending-rename route for a used pane stays Claude-only for the same reason.
 It enrolls under a name Herdr does not carry until a first prompt renames the
