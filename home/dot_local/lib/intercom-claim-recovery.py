@@ -12,7 +12,6 @@ import json
 import os
 import plistlib
 import re
-import signal
 import socket
 import struct
 import subprocess
@@ -221,8 +220,6 @@ def bound_request(intent, method, params):
         connection.connect(intent["connection"]["socket_path"])
         if peer_identity(connection) != intent["connection"]["server_identity"]:
             raise ServerInstanceChanged("server instance changed")
-        if method in {"pane.report_agent", "agent.rename", "pane.release_agent", "pane.clear_agent_authority"}:
-            trace_event(intent, "mutation_attempt", unique=True, method=method, params=params)
         request = {"id": uuid.uuid4().hex, "method": method, "params": params}
         connection.sendall((json.dumps(request) + "\n").encode())
         with connection.makefile("rb") as stream:
@@ -273,16 +270,6 @@ def reserve_sequence(directory, source):
         return candidate
 
 
-def acknowledge_acquisition(intent_path):
-    with intent_lock(intent_path, timeout=5):
-        intent = read_json(intent_path)
-        if intent["phase"] != "intent":
-            raise RecoveryError(f"cannot acknowledge phase {intent['phase']!r}")
-        intent["phase"] = "acquired"
-        intent["acquired_at_ns"] = time.time_ns()
-        atomic_write(intent_path, intent)
-
-
 def bind_native_client(path):
     """Bind in the bridge's PID before exec, or refuse enrollment after cleanup."""
     try:
@@ -304,9 +291,6 @@ def _bind_native_client(path):
         start = process_start_identity(os.getpid())
         if start is None:
             raise RecoveryError("native bridge process identity is unavailable")
-        if intent.get("bind_barrier"):
-            barrier = intent["bind_barrier"]
-            probe_barrier(barrier, barrier + ".checked")
         intent["launcher_client"] = launcher
         intent["client"] = {"pid": os.getpid(), "start_identity": start}
         intent["native_executable"] = os.environ.get("AGENT_INTERCOM_CLAUDE_COMMAND")
@@ -449,46 +433,13 @@ def record_connection_failure(path, intent, error):
     update_intent(path, intent, intent["phase"], f"pending: {error}")
 
 
-def trace_event(intent, event, unique=False, **details):
-    directory = intent.get("trace_dir")
-    if directory:
-        suffix = f".{uuid.uuid4().hex}" if unique else ""
-        atomic_write(os.path.join(directory, f"{os.getpid()}.{event}{suffix}.json"),
-                     {"pid": os.getpid(), "event": event, "at_ns": time.time_ns(),
-                      "monotonic_ns": time.monotonic_ns(), **details})
-
-
-def probe_barrier(path, checked, timeout=10):
-    atomic_write(checked, {"pid": os.getpid(), "checked_at_ns": time.time_ns()})
-    deadline = time.monotonic() + timeout
-    while not os.path.exists(path + ".continue"):
-        if not os.path.isdir(os.path.dirname(path)):
-            raise RecoveryError("probe barrier owner directory disappeared")
-        if time.monotonic() >= deadline:
-            raise RecoveryError("probe barrier timed out")
-        time.sleep(POLL_SECONDS)
-
-
 def observe_one(path):
-    started_monotonic_ns = time.monotonic_ns()
-    try:
-        preview = read_json(path)
-    except FileNotFoundError:
-        return
-    entry_barrier = preview.get("entry_barrier")
-    if entry_barrier:
-        probe_barrier(entry_barrier, entry_barrier + f".checked.{os.getpid()}")
-    trace_event(preview, "lock_attempt")
     try:
         with intent_lock(path):
-            trace_event(preview, "lock_acquired")
             _observe_one_locked(path)
             archive_terminal_intent(path)
-            trace_event(preview, "observe_complete", started_monotonic_ns=started_monotonic_ns)
     except (IntentBusy, FileNotFoundError):
         return
-    finally:
-        trace_event(preview, "attempt_complete", started_monotonic_ns=started_monotonic_ns)
 
 
 def _observe_one_locked(path):
@@ -571,23 +522,13 @@ def _observe_one_locked(path):
         if "error" in acquisition:
             update_intent(path, intent, "intent", f"pending: acquisition lookup failed: {acquisition['error']}")
             return
-    barrier = intent.get("barrier")
-    if barrier:
-        try:
-            probe_barrier(barrier, barrier + ".checked")
-        except RecoveryError as error:
-            update_intent(path, intent, intent["phase"], f"pending: {error}")
-            return
     if time.time() < intent.get("retry_after", 0):
         return
     try:
-        trace_event(intent, "release_attempt", unique=True, target=pane_id,
-                    source=intent["claim"]["source"], seq=intent["claim"]["release_seq"])
         release = bound_request(intent, "pane.release_agent", {
             "pane_id": pane_id, "source": intent["claim"]["source"],
             "agent": intent["agent_kind"], "seq": intent["claim"]["release_seq"],
         })
-        trace_event(intent, "release_result", response=release)
     except (OSError, RecoveryError) as error:
         record_connection_failure(path, intent, error)
         return
@@ -613,7 +554,7 @@ def _observe_one_locked(path):
     update_intent(path, intent, "settled", "settled: exact owned release observed")
 
 
-def observer(intent_dir, pid_file, probe_owner=None, job_label=None):
+def observer(intent_dir, pid_file, job_label=None):
     os.makedirs(intent_dir, exist_ok=True)
     ready_path = os.path.join(os.path.dirname(intent_dir), "observer.ready")
     identity = process_start_identity(os.getpid())
@@ -625,17 +566,9 @@ def observer(intent_dir, pid_file, probe_owner=None, job_label=None):
     atomic_write(ready_path, receipt)
     next_prune = 0
     while True:
-        if probe_owner:
-            try:
-                if process_start_identity(probe_owner["pid"]) != probe_owner["start_identity"]:
-                    break
-            except RecoveryError as error:
-                print(f"probe owner observation pending: {error}", file=sys.stderr, flush=True)
         try:
             paths = active_intent_paths(intent_dir)
         except FileNotFoundError:
-            if probe_owner:
-                break
             print("recovery pending: intent directory is unavailable", file=sys.stderr, flush=True)
             time.sleep(PENDING_RETRY_SECONDS)
             continue
@@ -651,83 +584,6 @@ def observer(intent_dir, pid_file, probe_owner=None, job_label=None):
                 print(f"archive maintenance pending: {error}", file=sys.stderr, flush=True)
             next_prune = time.monotonic() + ARCHIVE_PRUNE_SECONDS
         time.sleep(POLL_SECONDS)
-    if job_label and probe_owner:
-        # This is a temporary proof job, not the eventual deployed service.
-        # Deregister it if the controlling proof process disappeared.
-        subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/{job_label}"],
-                       text=True, capture_output=True, check=False, timeout=10)
-
-
-class LaunchdOwner:
-    """A temporary per-proof launchd job. launchd is the observer restart owner."""
-
-    def __init__(self, scratch, probe_owner=None):
-        self.scratch = scratch
-        self.intent_dir = os.path.join(scratch, "intents")
-        self.label = f"dev.seigiard.mms377.recovery.{os.getpid()}.{uuid.uuid4().hex[:8]}"
-        self.plist = os.path.join(scratch, f"{self.label}.plist")
-        self.stdout = os.path.join(scratch, f"{self.label}.stdout.log")
-        self.stderr = os.path.join(scratch, f"{self.label}.stderr.log")
-        self.pid_file = os.path.join(scratch, f"{self.label}.pid.json")
-        self.domain = f"gui/{os.getuid()}"
-        self.probe_owner = probe_owner or {"pid": os.getpid(), "start_identity": process_start_identity(os.getpid())}
-        os.makedirs(self.intent_dir, exist_ok=True)
-
-    def start(self):
-        payload = {
-            "Label": self.label,
-            "ProgramArguments": [sys.executable, os.path.abspath(__file__), "--observe", self.intent_dir, "--pid-file", self.pid_file,
-                                 "--probe-owner-pid", str(self.probe_owner["pid"]), "--probe-owner-start", self.probe_owner["start_identity"],
-                                 "--job-label", self.label],
-            "RunAtLoad": True,
-            "KeepAlive": {"SuccessfulExit": False},
-            "ThrottleInterval": 1,
-            "ProcessType": "Background",
-            "StandardOutPath": self.stdout,
-            "StandardErrorPath": self.stderr,
-        }
-        with open(self.plist, "wb") as handle:
-            plistlib.dump(payload, handle)
-        result = subprocess.run(["launchctl", "bootstrap", self.domain, self.plist], text=True, capture_output=True, check=False)
-        if result.returncode:
-            raise RecoveryError(f"launchd bootstrap failed: {result.stderr.strip()}")
-        return self.wait_for_pid(None)
-
-    def wait_for_pid(self, previous, timeout=8):
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            try:
-                current = read_json(self.pid_file)
-            except (OSError, ValueError):
-                time.sleep(POLL_SECONDS)
-                continue
-            if current.get("pid") != previous and process_start_identity(current.get("pid")) == current.get("start_identity"):
-                return current
-            time.sleep(POLL_SECONDS)
-        raise RecoveryError("launchd observer did not become live")
-
-    def kill_observer(self):
-        previous = read_json(self.pid_file)
-        os.kill(previous["pid"], signal.SIGKILL)
-        return self.wait_for_pid(previous["pid"], timeout=10)
-
-    def close(self):
-        try:
-            observed = read_json(self.pid_file)
-        except FileNotFoundError:
-            observed = None
-        result = subprocess.run(["launchctl", "bootout", f"{self.domain}/{self.label}"], text=True, capture_output=True, check=False)
-        if result.returncode and not any(text in result.stderr for text in ("No such process", "Operation now in progress", "Could not find service")):
-            raise RecoveryError(f"launchd bootout failed: {result.stderr.strip()}")
-        deadline = time.monotonic() + 10
-        while time.monotonic() < deadline:
-            job = subprocess.run(["launchctl", "print", f"{self.domain}/{self.label}"], text=True, capture_output=True, check=False)
-            absent = job.returncode != 0 and any(text in job.stderr for text in ("Could not find service", "No such process"))
-            process_gone = observed is None or process_start_identity(observed["pid"]) != observed["start_identity"]
-            if absent and process_gone:
-                return
-            time.sleep(POLL_SECONDS)
-        raise RecoveryError("launchd job or observer still present after bootout")
 
 
 def exec_without_enrollment(command, args, warning):
@@ -886,8 +742,6 @@ def prepare_intent(intent_dir, agent, source, launcher_pid=None, launcher_start=
         "client": {"pid": launcher_pid, "start_identity": observed_start},
         "created_at_ns": time.time_ns(),
     }
-    if os.environ.get("HERDR_AGENT_INTERCOM_TRACE_DIR"):
-        intent["trace_dir"] = os.environ["HERDR_AGENT_INTERCOM_TRACE_DIR"]
     return write_intent(intent_dir, intent), intent
 
 
@@ -905,7 +759,6 @@ def claim_intent(intent_dir, agent, source, alias, launcher_pid, launcher_start)
             })
             if "error" in response:
                 raise RecoveryError(f"claim rejected: {response['error']}")
-            trace_event(intent, "claim_report_complete", unique=True, response=response)
             response = bound_request(intent, "agent.rename", {
                 "target": intent["terminal"]["pane_id"], "name": alias,
             })
@@ -994,8 +847,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--observe")
     parser.add_argument("--pid-file")
-    parser.add_argument("--probe-owner-pid", type=int)
-    parser.add_argument("--probe-owner-start")
     parser.add_argument("--job-label")
     parser.add_argument("--handoff", action="store_true")
     parser.add_argument("--bind-exec")
@@ -1068,17 +919,16 @@ def main():
                                 "claim binding unavailable; starting native Claude without enrollment")
     if not arguments.observe or not arguments.pid_file:
         parser.error("--observe and --pid-file are required")
-    probe_owner = None
-    if arguments.probe_owner_pid is not None:
-        if not arguments.probe_owner_start:
-            parser.error("--probe-owner-start is required with --probe-owner-pid")
-        probe_owner = {"pid": arguments.probe_owner_pid, "start_identity": arguments.probe_owner_start}
-    observer(arguments.observe, arguments.pid_file, probe_owner, arguments.job_label)
+    observer(arguments.observe, arguments.pid_file, arguments.job_label)
 
 
-if __name__ == "__main__":
+def cli():
     try:
         main()
     except (OSError, ValueError, KeyError, RecoveryError) as error:
         print(f"herdr-agent-intercom recovery: {error}", file=sys.stderr)
         raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    cli()

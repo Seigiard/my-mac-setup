@@ -30,8 +30,8 @@ One observer serves each host-local recovery state root. On macOS a user
 `home/private_Library/LaunchAgents/com.seigiard.herdr-agent-intercom-recovery.plist.tmpl`.
 Before a launch takes a new claim, `ensure_owner` checks the job's label,
 restart policy and observer arguments, then bootstraps it and waits for the
-observer's readiness. The engine's `LaunchdOwner` class is the proof harness's
-temporary job, not the deployed one.
+observer's readiness. The live proofs render their temporary jobs from the same
+template; the engine carries no proof job of its own.
 Without a verified owner or a durable intent, the launcher takes no new claim.
 
 Before acquisition, a durable fsync-and-rename intent identifies the connected
@@ -45,7 +45,9 @@ An inode-stable sidecar lock serializes acknowledgement, native binding,
 handoff and observation for one intent. JSON rename alone is not that lock.
 Observer lock attempts are nonblocking, so a busy intent does not stop the
 observer from checking others. Test barriers have deadlines and failure-path
-release guards; they are not part of the deployed protocol.
+release guards. They live in the probe engine entry and attach by launch ID
+through a probe-owned control directory; they are not part of the deployed
+protocol, and intent JSON carries no test control field.
 
 Every RPC verifies the kernel peer PID/start identity on the descriptor used
 for that request. Herdr closes the connection after a response. A path or inode
@@ -193,8 +195,11 @@ acceptance. Historical proof results below remain unchanged.
 #### Runtime verification checkpoint
 
 Artifacts live under `~/.claude/artifacts/377/`. The runtime uses the shared
-engine at `home/dot_local/lib/intercom-claim-recovery.py`. The test shim
-`tests/helpers/intercom_claim_recovery_prototype.py` loads this same engine.
+engine at `home/dot_local/lib/intercom-claim-recovery.py`. The former prototype
+module, `tests/helpers/intercom_claim_recovery_prototype.py`, is now the probe
+engine entry. It executes this same engine and attaches the proofs' barriers,
+trace events and abandonment guard from outside. Each runtime home stages it as
+that home's engine. The deployed engine reads no barrier or trace field.
 
 #### Review confirmation and verification repair
 
@@ -448,9 +453,12 @@ review of the changed protocol and checks remains outstanding.
 
 The owner probe runs installed Herdr 0.9.1 in an isolated named session. A
 temporary macOS `launchd` job in `gui/<uid>` restarts the observer with
-`RunAtLoad` and restart-on-failure `KeepAlive`. A proof-controller PID/start guard
-unregisters the temporary job when that controller exits. This is a harness
-abandonment guard, not the eventual deployed service lifetime. Each job has its
+`RunAtLoad` and restart-on-failure `KeepAlive`. Both probes render that job from
+the deployed plist template, so every job key has one source; a proof changes
+only the label, the runtime home and the probe environment. The production
+ensure-owner path starts it. A proof-controller PID/start guard in the probe
+engine entry unregisters the temporary job when that controller exits. This is
+a harness abandonment guard, not the deployed service lifetime. Each job has its
 own plist, logs and PID receipt. Teardown
 boots it out and confirms process exit before deleting its files. Cleanup
 failures preserve available scratch state for diagnosis; removal errors fail

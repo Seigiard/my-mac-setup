@@ -10,7 +10,6 @@ import argparse
 import json
 import os
 import pathlib
-import plistlib
 import shlex
 import shutil
 import signal
@@ -30,6 +29,7 @@ from intercom_claim_ownership_probe import (
     OPT_IN,
     OwnedHerdr,
     ProbeError,
+    RecoveryJob,
     native_executable,
     require,
     durable_intent,
@@ -38,6 +38,8 @@ from intercom_claim_ownership_probe import (
     OLD_SOURCE,
 )
 from intercom_claim_recovery_prototype import (
+    CONTROL_ENV,
+    TRACE_ENV,
     atomic_write,
     bound_request,
     capture_server_identity,
@@ -46,6 +48,7 @@ from intercom_claim_recovery_prototype import (
     intent_handles,
     reserve_sequence,
     observe_one,
+    trace_dir as probe_trace_dir,
 )
 
 
@@ -96,48 +99,6 @@ class HerdrResponseRelay:
         self.server.server_close()
         self.thread.join(timeout=5)
         self.path.unlink()
-
-
-class RuntimeOwner:
-    """Own the real rendered observer job without touching the user's job."""
-
-    def __init__(self, stage, label, plist, engine, state_root):
-        self.stage = stage
-        self.label = label
-        self.plist = plist
-        self.engine = engine
-        self.state_root = state_root
-        self.intent_dir = str(state_root / "intents")
-        self.pid_file = str(state_root / "observer.pid.json")
-
-    def start(self):
-        # The same production ensure-owner path the launcher takes is the
-        # readiness authority; it validates the rendered plist and engine.
-        result = subprocess.run(
-            [sys.executable, str(self.engine), "--ensure-owner", "--owner-root", str(self.state_root),
-             "--owner-label", self.label, "--owner-plist", str(self.plist)],
-            text=True, capture_output=True, check=False, timeout=20,
-        )
-        if result.returncode:
-            raise ProbeError(f"real recovery owner failed: {result.stderr.strip()}")
-        ready = wait_until(lambda: read_json(self.pid_file) if pathlib.Path(self.pid_file).exists() else None,
-                           10, "real recovery owner readiness")
-        require({"step": "real-owner-readiness"},
-                process_start_identity(ready["pid"]) == ready["start_identity"] and
-                ready.get("job_label") == self.label and ready.get("intent_dir") == os.path.realpath(self.intent_dir),
-                f"real recovery readiness is not this owner: {ready}")
-        return ready
-
-    def close(self):
-        old = read_json(self.pid_file) if pathlib.Path(self.pid_file).exists() else None
-        subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/{self.label}"],
-                       text=True, capture_output=True, check=False, timeout=10)
-        wait_until(
-            lambda: subprocess.run(["launchctl", "print", f"gui/{os.getuid()}/{self.label}"],
-                                   text=True, capture_output=True, check=False, timeout=10).returncode != 0 and
-            (old is None or process_start_identity(old["pid"]) != old["start_identity"]),
-            10, "owned real recovery owner cleanup",
-        )
 
 
 def wait_until(predicate, timeout, description):
@@ -207,6 +168,10 @@ def terminal_driver(arguments):
 class ClientProbe:
     def __init__(self):
         self.scratch = pathlib.Path(tempfile.mkdtemp(prefix="mms377-client-proof-", dir="/tmp"))
+        # Probe-side hooks read the control root from the environment. A nested
+        # probe takes it over until its close() hands it back.
+        self.control = str(self.scratch / "probe-control")
+        self.previous_control = os.environ.get(CONTROL_ENV)
         self.owner = OwnedHerdr()
         self.launchd = None
         self.root_pane = None
@@ -215,12 +180,14 @@ class ClientProbe:
         self.driver_receipts = {}
         self.quit_steps = {}
         self.foreground_groups = {}
+        os.environ[CONTROL_ENV] = self.control
         try:
             self.aliases = self.pool_aliases()
             self.launcher = self.scratch / "herdr-agent-intercom"
             self.stage()
         except Exception:
             # No server or client has started while staging these owned files.
+            self.restore_control()
             shutil.rmtree(self.scratch)
             shutil.rmtree(self.owner.root)
             raise
@@ -254,32 +221,15 @@ class ClientProbe:
             target = self.runtime_bin / name
             shutil.copy2(ROOT / "home/dot_local/bin" / ("executable_" + name), target)
             target.chmod(0o700)
-        shutil.copy2(ROOT / "home/dot_local/lib/intercom-claim-recovery.py",
-                     self.runtime_lib / "intercom-claim-recovery.py")
         shutil.copy2(ROOT / "home/dot_local/lib/executable_herdr-agent-intercom-native-claude",
                      self.runtime_lib / "herdr-agent-intercom-native-claude")
         (self.runtime_lib / "herdr-agent-intercom-native-claude").chmod(0o700)
         self.launcher = self.runtime_bin / "herdr-agent-intercom"
         self.release_entrypoint = self.runtime_bin / "herdr-agent-intercom-release"
         self.runtime_label = "dev.seigiard.mms377.client." + uuid.uuid4().hex
-        self.runtime_plist = self.runtime_home / "owner.plist"
-        configuration = self.runtime_home / "chezmoi.json"
-        configuration.write_text(json.dumps({"sourceDir": str(ROOT / "home")}), encoding="utf-8")
-        rendered = subprocess.run(
-            ["chezmoi", "--config", str(configuration), "--persistent-state", str(self.runtime_home / "chezmoi-state.db"),
-             "--cache", str(self.runtime_home / "cache"), "execute-template", "--file",
-             str(ROOT / "home/private_Library/LaunchAgents/com.seigiard.herdr-agent-intercom-recovery.plist.tmpl")],
-            env=os.environ | {"HOME": str(self.runtime_home), "XDG_STATE_HOME": str(self.runtime_state)},
-            text=True, capture_output=True, check=False, timeout=20,
-        )
-        require({"step": "runtime-template-render"}, rendered.returncode == 0,
-                f"real plist template did not render: {rendered.stderr}")
-        plist = plistlib.loads(rendered.stdout.encode())
-        plist["Label"] = self.runtime_label
-        plist["ProgramArguments"][plist["ProgramArguments"].index("--job-label") + 1] = self.runtime_label
-        with self.runtime_plist.open("wb") as handle:
-            plistlib.dump(plist, handle)
-        self.runtime_plist_payload = plist
+        # The job stages the probe engine entry as this runtime home's engine.
+        self.recovery_job = RecoveryJob(self.runtime_home, self.runtime_label)
+        self.runtime_plist = pathlib.Path(self.recovery_job.plist)
         self.claude_settings = self.scratch / "claude-settings.json"
         atomic_write(self.claude_settings, {"hooks": {"UserPromptSubmit": [{"hooks": [{
             "type": "command", "command": str(self.release_entrypoint), "timeout": 10,
@@ -331,14 +281,20 @@ export default function (pi) {
 
     def start(self):
         self.root_pane = self.owner.start()
-        self.launchd = RuntimeOwner(self.runtime_home, self.runtime_label, self.runtime_plist,
-                                    self.runtime_lib / "intercom-claim-recovery.py", self.runtime_root)
+        self.launchd = self.recovery_job
         self.launchd.start()
 
     def intent_paths(self):
         return {pathlib.Path(path) for path in intent_handles(self.launchd.intent_dir)}
 
+    def restore_control(self):
+        if self.previous_control is None:
+            os.environ.pop(CONTROL_ENV, None)
+        else:
+            os.environ[CONTROL_ENV] = self.previous_control
+
     def close(self):
+        self.restore_control()
         errors = []
         launchd_stopped = True
         for pid, client in self.foreground_groups.items():
@@ -448,6 +404,7 @@ export default function (pi) {
             "HERDR_AGENT_INTERCOM_RECOVERY_LABEL": self.runtime_label,
             "HERDR_AGENT_INTERCOM_RECOVERY_PLIST": str(self.runtime_plist),
             "HERDR_AGENT_INTERCOM_PYTHON": sys.executable,
+            CONTROL_ENV: self.control,
             "XDG_STATE_HOME": str(self.runtime_state),
         }
         # A parent agent's live recovery handle must never authorize this test
@@ -480,7 +437,7 @@ export default function (pi) {
         if hold_group or trace:
             trace_dir = self.scratch / f"trace-{sequence}"
             trace_dir.mkdir()
-            exports["HERDR_AGENT_INTERCOM_TRACE_DIR"] = str(trace_dir)
+            exports[TRACE_ENV] = str(trace_dir)
         if hold_group:
             exports["MMS377_DRIVER_HOLD"] = str(receipt) + ".release"
         if interactive:
@@ -1159,7 +1116,7 @@ export default function (pi) {
         require({"step": "collision-next-generation"}, acquired["phase"] == "acquired" and
                 acquired["claim"]["claim_seq"] > rejected["claim"]["release_seq"],
                 f"retry did not reserve a later generation: {attempts}")
-        mutations = [read_json(path) for path in pathlib.Path(rejected["trace_dir"]).glob("*.mutation_attempt.*.json")]
+        mutations = [read_json(path) for path in pathlib.Path(probe_trace_dir(rejected)).glob("*.mutation_attempt.*.json")]
         releases = [item for item in mutations if item["method"] == "pane.release_agent"]
         require({"step": "collision-reserved-release"}, len(releases) == 1 and releases[0]["params"] == {
             "pane_id": pane["pane_id"], "source": rejected["claim"]["source"], "agent": "claude",
@@ -1596,7 +1553,7 @@ export default function (pi) {
                     return
                 before_observer = time.monotonic_ns()
                 observer_pid = read_json(self.launchd.pid_file)["pid"]
-                trace_dir = pathlib.Path(read_json(expected["intent"])["trace_dir"])
+                trace_dir = pathlib.Path(probe_trace_dir(read_json(expected["intent"])))
                 witness = trace_dir / f"{observer_pid}.observe_complete.json"
                 # Keep the first stopped window on the baseline cadence. The
                 # observer is then evidence about that same already-sampled run.
@@ -1633,7 +1590,7 @@ export default function (pi) {
                 after_resume = wait_until(lambda: self.state(pane), 20, "wrapped OpenCode redetection after fg")
             redetection_ns = time.monotonic_ns() - redetection_started
             self.wait_process_live(wrapped["pid"], wrapped["start_identity"])
-            trace_dir = pathlib.Path(read_json(expected["intent"])["trace_dir"])
+            trace_dir = pathlib.Path(probe_trace_dir(read_json(expected["intent"])))
             release_attempts = [read_json(path) for path in trace_dir.glob("*.release_attempt.*.json")]
             require({"step": f"{agent}-resumed-no-release"}, not release_attempts,
                     f"recovery attempted cleanup before this live client quit: {release_attempts}")
@@ -1663,8 +1620,7 @@ export default function (pi) {
 
     def restart_observer(self):
         """Give each direct-native control its own positively stopped observer."""
-        self.launchd = RuntimeOwner(self.runtime_home, self.runtime_label, self.runtime_plist,
-                                    self.runtime_lib / "intercom-claim-recovery.py", self.runtime_root)
+        self.launchd = self.recovery_job
         self.launchd.start()
 
     def direct_native_suspension(self, agent, attempt_repair=False, reference_launch=False):
@@ -2071,7 +2027,7 @@ export default function (pi) {
                 ) from error
             retired = wait_until(lambda: value if (value := read_json(expected["intent"]))["phase"] == "retired" else None,
                                  10, "handoff observer retirement")
-            trace_dir = pathlib.Path(read_json(expected["intent"])["trace_dir"])
+            trace_dir = pathlib.Path(probe_trace_dir(read_json(expected["intent"])))
             observer = read_json(self.launchd.pid_file)
             mutations = [read_json(path) for path in trace_dir.glob("*.mutation_attempt.*.json")]
             require({"step": "handoff-hook-reserved-release"}, any(
@@ -2100,7 +2056,7 @@ export default function (pi) {
                                                     alias_index=16, trace=True)
         expected = read_json(receipt)
         readiness = self.wait_claude_ready(pane, receipt)
-        trace_dir = pathlib.Path(read_json(expected["intent"])["trace_dir"])
+        trace_dir = pathlib.Path(probe_trace_dir(read_json(expected["intent"])))
         before = self.wait_claude_session(pane)
         attempts_before = list(trace_dir.glob("*.mutation_attempt.*.json"))
         result = subprocess.run([sys.executable, str(ROOT / "tests/helpers/intercom_claim_recovery_prototype.py"), "--handoff"],
@@ -2172,7 +2128,7 @@ export default function (pi) {
             after = wait_until(handed_off, 20, "observer retry handoff without second prompt")
             retired = wait_until(lambda: value if (value := read_json(expected["intent"])).get("phase") == "retired" else None,
                                  10, "concrete handoff retirement")
-            trace_dir = pathlib.Path(read_json(expected["intent"])["trace_dir"])
+            trace_dir = pathlib.Path(probe_trace_dir(read_json(expected["intent"])))
             observer = read_json(self.launchd.pid_file)
             mutations = [read_json(path) for path in trace_dir.glob("*.mutation_attempt.*.json")]
             require({"step": "handoff-retry-observer-mutation"}, any(event["pid"] == observer["pid"] and
@@ -2217,7 +2173,7 @@ export default function (pi) {
                                                     claude_settings=outer_settings, trace=True)
         expected = read_json(receipt)
         readiness = self.wait_claude_ready(pane, receipt)
-        trace_dir = pathlib.Path(read_json(expected["intent"])["trace_dir"])
+        trace_dir = pathlib.Path(probe_trace_dir(read_json(expected["intent"])))
         before = self.wait_claude_session(pane)
         attempts_before = list(trace_dir.glob("*.mutation_attempt.*.json"))
         try:
@@ -2266,7 +2222,7 @@ export default function (pi) {
             require({"step": "cci-killed"}, status == -signal.SIGKILL, f"cci status was {status}")
             after_exit = time.monotonic_ns()
             observer_pid = read_json(self.launchd.pid_file)["pid"]
-            witness = pathlib.Path(bound["trace_dir"]) / f"{observer_pid}.observe_complete.json"
+            witness = pathlib.Path(probe_trace_dir(bound)) / f"{observer_pid}.observe_complete.json"
             wait_until(lambda: witness.exists() and read_json(witness)["started_monotonic_ns"] > after_exit,
                        10, "observer pass after cci exit")
             require({"step": "native-survivor"},
