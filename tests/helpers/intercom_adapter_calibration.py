@@ -6,8 +6,9 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 
-from intercom_recovery_adapters import FakeHerdr, recovery
+from intercom_recovery_adapters import FakeHerdr, FakeHost, recovery
 from intercom_claim_ownership_probe import OwnedHerdr, create_pane
 
 
@@ -17,26 +18,52 @@ def checked(response):
     return response
 
 
-def scenarios(factory, socket_path, first, second, move, replace):
-    # These are adapter connection/terminal arguments, never persisted intents.
-    connection = factory.connect(socket_path)
-    scope = {"connection": connection, "terminal": first, "agent_kind": "claude",
-             "claim": {"source": "mms393-calibration"}}
-    session = factory(scope)
-    request = session.request
+class CapturedSessions:
+    """Retain the adapter instances the engine creates, without building scopes."""
+
+    def __init__(self, factory):
+        self.factory = factory
+        self.created = []
+
+    def connect(self, path):
+        return self.factory.connect(path)
+
+    def __call__(self, scope):
+        session = self.factory(scope)
+        self.created.append(session)
+        return session
+
+
+def scenarios(factory, socket_path, first, second, move, replace, host):
+    with tempfile.TemporaryDirectory(prefix="intercom-calibration-") as root:
+        return session_scenarios(factory, socket_path, first, second, move, replace, host, root)
+
+
+def session_scenarios(factory, socket_path, first, second, move, replace, host, root):
     first_id, second_id = first["pane_id"], second["pane_id"]
     source = "mms393-calibration"
+    host.wall_time = lambda: 0.0000001
+    host.wall_time_ns = lambda: 100
+    captured = CapturedSessions(factory)
+    engine = recovery.RecoveryEngine(root, host=host, sessions=captured)
+    claim = engine.acquire(socket_path=socket_path, pane_id=first_id, source=source,
+                           agent="claude", alias="mms393-calibration-owner", launcher_pid=host.parent_pid())
+    if claim["claimed"] is not True:
+        raise AssertionError(claim)
+    session = captured.created[-1]
+    request = session.request
     report = {"pane_id": first_id, "source": source, "agent": "claude", "state": "unknown", "seq": 100}
-    checked(request("pane.report_agent", report))
-    checked(request("agent.rename", {"target": first_id, "name": "mms393-calibration-owner"}))
     agent = checked(request("agent.get", {"target": first_id}))["result"]["agent"]
     results = {"unknown_record": agent["agent_status"],
                "ownership_fields_absent": all(key not in agent for key in ("source", "seq"))}
-    checked(request("pane.report_agent", {**report, "pane_id": second_id}))
-    collision = request("agent.rename", {"target": second_id, "name": "mms393-calibration-owner"})
+    collision = engine.acquire(socket_path=socket_path, pane_id=second_id, source=source,
+                               agent="claude", alias="mms393-calibration-owner", launcher_pid=host.parent_pid())
+    if collision["claimed"] is not False or collision.get("retry") is not True:
+        raise AssertionError(collision)
     results["collision"] = collision.get("error", {}).get("code")
-    other = factory({**scope, "terminal": second})
-    results["collision_rollback"] = other.release_with_readback(102).get("error", {}).get("code")
+    other = captured.created[-1]
+    results["collision_rollback"] = other.agent_state(other.locate_terminal()).get("error", {}).get("code")
+    results["collision_owner_preserved"] = checked(request("agent.get", {"target": first_id}))["result"]["agent"]["name"] == "mms393-calibration-owner"
     checked(request("pane.report_agent", {**report, "seq": 110}))
     results["unknown_successor_after_old_release"] = session.release_with_readback(102)["result"]["agent"]["agent_status"]
     checked(request("pane.report_agent", {**report, "seq": 120, "state": "working"}))
@@ -52,7 +79,7 @@ def scenarios(factory, socket_path, first, second, move, replace):
     replace()
     # Make pathname metadata agree with the replacement while retaining the old
     # peer identity. An inode/path-only fence would now permit this mutation.
-    connection["socket_identity"] = factory.connect(socket_path).get("socket_identity")
+    session.intent["connection"]["socket_identity"] = factory.connect(socket_path).get("socket_identity")
     try:
         # Deliberately valid mutation: only the connected-descriptor fence may reject it.
         request("pane.report_agent", {**report, "seq": 140})
@@ -76,7 +103,7 @@ def main():
     def fake_move(pane):
         fake.move(pane, "w2:p1")
         return "w2:p1"
-    modeled = scenarios(fake, "fake.sock", dict(fake.panes["w1:p1"]), dict(fake.panes["w1:p2"]), fake_move, fake.replace)
+    modeled = scenarios(fake, "fake.sock", dict(fake.panes["w1:p1"]), dict(fake.panes["w1:p2"]), fake_move, fake.replace, FakeHost())
     owner = OwnedHerdr()
     try:
         root = owner.start()
@@ -88,7 +115,8 @@ def main():
             owner.run("server", "stop")
             owner.client.wait(timeout=5)
             owner.start()
-        observed = scenarios(recovery.HerdrSession, owner.socket_path, first, second, live_move, live_replace)
+        host = recovery.Host()
+        observed = scenarios(recovery.HerdrSessions(host), owner.socket_path, first, second, live_move, live_replace, host)
         if observed != modeled:
             raise AssertionError({"fake": modeled, "real": observed})
         print(json.dumps({"version": version, "scenarios": observed, "verdict": "PASS"}, sort_keys=True), flush=True)
