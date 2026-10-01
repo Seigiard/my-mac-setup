@@ -43,7 +43,7 @@ setup() {
   # Recovery admission reads the connected server identity. Fixtures use their
   # own CLI stub and must never inherit this runner's live Herdr socket.
   unset HERDR_SOCKET_PATH
-  unset HERDR_AGENT_INTERCOM_RECOVERY_INTENT
+  unset HERDR_AGENT_INTERCOM_RECOVERY_ROOT HERDR_AGENT_INTERCOM_RECOVERY_INTENT HERDR_AGENT_INTERCOM_NATIVE_ONLY
   unset HERDR_AGENT_INTERCOM_PYTHON
   unset HERDR_AGENT_INTERCOM_BIN_DIR
   unset HERDR_AGENT_INTERCOM_LIB_DIR
@@ -290,16 +290,17 @@ opencode name=<> args= active=<> pi_load=<>'
   assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting opencode without Intercom
 opencode name=<> args= active=<> pi_load=<>'
 
-  # A valid fresh claim must reach the interim path-based bridge contract.
+  # A valid fresh claim transports a root and opaque handle to the client.
   cat > "$stub/opencode" <<'SH'
 #!/usr/bin/env bash
-printf '%s\n' "${HERDR_AGENT_INTERCOM_RECOVERY_INTENT-}" "${OPENCODE_INTERCOM_NAME-}"
+printf '%s\n' "${HERDR_AGENT_INTERCOM_RECOVERY_ROOT-}" "${HERDR_AGENT_INTERCOM_RECOVERY_INTENT-}" "${OPENCODE_INTERCOM_NAME-}"
 SH
   run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 \
     ADMISSION_RESULT=$'v1\tenrolled\tclaimed\tsilver-ibis\tlaunch-123\tok' \
     HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" bash "$launcher" opencode
   assert_success
-  assert_output "$BATS_TEST_TMPDIR/agent-intercom-home/.local/state/agent-intercom/recovery/v1/intents/launch-123.json
+  assert_output "$BATS_TEST_TMPDIR/agent-intercom-home/.local/state/agent-intercom/recovery/v1
+launch-123
 silver-ibis"
 }
 
@@ -472,7 +473,7 @@ SH
 
   # Recovery handles and helper overrides are manually listed isolation inputs.
   # The real existing-alias launches above do not emit fresh-claim controls.
-  printf '%s\n' HERDR_SOCKET_PATH HERDR_AGENT_INTERCOM_RECOVERY_INTENT \
+  printf '%s\n' HERDR_SOCKET_PATH HERDR_AGENT_INTERCOM_RECOVERY_ROOT HERDR_AGENT_INTERCOM_RECOVERY_INTENT \
     HERDR_AGENT_INTERCOM_PYTHON HERDR_AGENT_INTERCOM_BIN_DIR \
     HERDR_AGENT_INTERCOM_LIB_DIR HERDR_AGENT_INTERCOM_RECOVERY_LABEL \
     HERDR_AGENT_INTERCOM_RECOVERY_PLIST >> "$dump"

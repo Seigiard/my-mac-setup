@@ -79,6 +79,8 @@ Pi takes lifecycle authority at session start and OpenCode at its first prompt. 
 
 Active obligations stay in `intents/`. Completed receipts move to `intents/archive/`, outside the observer's active scan. Archive maintenance prunes receipts by age and by count; the limits are the `ARCHIVE_*` constants in `~/.local/lib/intercom-claim-recovery.py`. Pending records are not expired by this policy. Archived or expired handles cannot bind a client or request a new handoff.
 
+Recovery callers pass `HERDR_AGENT_INTERCOM_RECOVERY_ROOT` and an opaque `HERDR_AGENT_INTERCOM_RECOVERY_INTENT`, not an intent-file path. These identify an obligation, not permission to enroll. For the two-machine update, follow the repository's [stopped-client rollout](https://github.com/Seigiard/my-mac-setup/blob/main/docs/intercom-recovery-rollout.md). Preserve and report unsupported records; an unknown legacy identity is not proof that its owner exited.
+
 Where the restart owner or durable intent cannot be established, native startup continues with a warning and no new unowned claim. Independently valid existing aliases can still be reused. The known upstream suspension identity loss remains tracked separately; it does not authorize recovery to mutate a live client.
 
 An existing alias held by unresolved recovery is not borrowed. If its previous client has exited, the launcher restores the observer, waits for confirmed cleanup and rereads the alias before enrollment. Live or uncertain prior ownership, or cleanup that remains pending, starts the native client without Intercom and emits a warning. This prevents an old observer from removing a new session's reused name during startup.

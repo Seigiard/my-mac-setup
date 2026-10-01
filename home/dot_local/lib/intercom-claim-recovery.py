@@ -166,12 +166,24 @@ class Admission(NamedTuple):
         return "\t".join(fields)
 
 
+class RecoveryRoot:
+    """The recovery store layout, separate from the Intercom broker runtime."""
+
+    def __init__(self, root):
+        self.root = os.path.realpath(root)
+        self.intents = os.path.join(self.root, "intents")
+        self.ready = os.path.join(self.root, "observer.ready")
+        self.receipt = os.path.join(self.root, "observer.pid.json")
+        self.owner_lock = os.path.join(self.root, "owner-admission")
+
+
 class RecoveryEngine:
     """Recovery operations addressed by a state root and opaque intent handles."""
 
     def __init__(self, state_root, *, host=None, sessions=None):
-        self.state_root = os.fspath(state_root)
-        self.intent_dir = os.path.join(self.state_root, "intents")
+        self.store = RecoveryRoot(state_root)
+        self.state_root = self.store.root
+        self.intent_dir = self.store.intents
         self.host = host if host is not None else HOST
         self.sessions = sessions if sessions is not None else HerdrSessions(self.host)
 
@@ -313,13 +325,6 @@ class RecoveryEngine:
         return claim_intent(self.intent_dir, agent, CLAIM_SOURCE, alias, launcher_pid,
                             socket_path=socket_path, pane_id=pane_id, host=self.host,
                             sessions=self.sessions, scope=scope, launcher_start=launcher_start)
-
-    def acquire(self, *, socket_path, pane_id, agent, alias, launcher_pid,
-                source=CLAIM_SOURCE):
-        """One claim attempt. A retryable collision has confirmed rollback."""
-        return claim_intent(self.intent_dir, agent, source, alias, launcher_pid,
-                            socket_path=socket_path, pane_id=pane_id,
-                            host=self.host, sessions=self.sessions)
 
     def bind(self, intent_id, native_executable):
         return bind_native_client(self._path(intent_id), host=self.host,
@@ -934,20 +939,19 @@ def _observe_one_locked(path, *, host=HOST, sessions=HerdrSession):
     update_intent(path, intent, Phase.SETTLED, "settled: exact owned release observed", reason_code="release_observed", host=host)
 
 
-def observer(intent_dir, pid_file, job_label=None, engine_factory=RecoveryEngine):
+def observer(root, job_label=None, engine_factory=RecoveryEngine):
+    engine = engine_factory(root)
+    store = engine.store
+    intent_dir = store.intents
     os.makedirs(intent_dir, exist_ok=True)
-    engine = engine_factory(os.path.dirname(intent_dir))
     host = engine.host
-    ready_path = os.path.join(os.path.dirname(intent_dir), "observer.ready")
     identity = host.start_identity(host.pid())
     receipt = {"pid": host.pid(), "start_identity": identity, "identity_format": IDENTITY_FORMAT,
                "started_at_ns": host.wall_time_ns(), "job_label": job_label,
-               "intent_dir": os.path.realpath(intent_dir),
+               "state_root": store.root,
                "python_version": list(sys.version_info[:3]), "engine_digest": engine_digest()}
-    atomic_write(pid_file, receipt)
-    atomic_write(ready_path, receipt)
-    # The legacy observer CLI still accepts an arbitrary intent directory.
-    engine.intent_dir = os.fspath(intent_dir)
+    atomic_write(store.receipt, receipt)
+    atomic_write(store.ready, receipt)
     next_prune = 0
     while True:
         try:
@@ -973,16 +977,6 @@ def observer(intent_dir, pid_file, job_label=None, engine_factory=RecoveryEngine
         host.sleep(POLL_SECONDS)
 
 
-def exec_without_enrollment(command, args, warning):
-    """Preserve native startup after admission fails, without inherited authority."""
-    for key in tuple(os.environ):
-        if key.startswith(("HERDR_AGENT_INTERCOM_", "AGENT_INTERCOM_", "CLAUDE_INTERCOM_")):
-            os.environ.pop(key)
-    os.environ.pop("OPENCODE_INTERCOM_NAME", None)
-    print(warning, file=sys.stderr, flush=True)
-    os.execv(command, [command, *args])
-
-
 def engine_digest():
     with open(__file__, "rb") as handle:
         return hashlib.sha256(handle.read()).hexdigest()
@@ -1005,9 +999,10 @@ def owner_receipt(root, label, job, host=HOST):
     if not job or job["pid"] is None:
         return None
     try:
-        receipt = read_json(os.path.join(root, "observer.ready"))
+        store = RecoveryRoot(root)
+        receipt = read_json(store.ready)
         if (receipt.get("job_label") == label and receipt.get("pid") == job["pid"] and
-                receipt.get("intent_dir") == os.path.realpath(os.path.join(root, "intents")) and
+                receipt.get("state_root") == store.root and
                 receipt.get("engine_digest") == engine_digest() and
                 tuple(receipt.get("python_version", [])) >= (3, 10) and
                 receipt.get("start_identity") is not None and receipt.get("identity_format") == IDENTITY_FORMAT and
@@ -1035,20 +1030,19 @@ def ensure_owner(root, label, plist, host=HOST):
     def configured_path(flag):
         value = configured_argument(flag)
         return os.path.realpath(value) if isinstance(value, str) else None
-    intent_dir = os.path.realpath(os.path.join(root, "intents"))
+    store = RecoveryRoot(root)
     if (configuration.get("Label") != label or
             configuration.get("RunAtLoad") is not True or
             not isinstance(configuration.get("KeepAlive"), dict) or
             configuration["KeepAlive"].get("SuccessfulExit") is not False or
-            configured_path("--observe") != intent_dir or
+            configured_path("--observe") != store.root or
             configured_argument("--job-label") != label or
-            configured_path("--pid-file") != os.path.join(os.path.realpath(root), "observer.pid.json") or
             len(argv) < 2 or os.path.realpath(argv[1]) != os.path.realpath(sys.argv[0]) or
             not os.access(argv[0], os.X_OK)):
         raise RecoveryError("recovery job does not match the requested engine, state root and restart policy")
-    os.makedirs(intent_dir, exist_ok=True)
+    os.makedirs(store.intents, exist_ok=True)
     domain = f"gui/{os.getuid()}"
-    with intent_lock(os.path.join(root, "owner-admission"), timeout=15, create=True, host=host):
+    with intent_lock(store.owner_lock, timeout=15, create=True, host=host):
         job = launchd_job(domain, label)
         if job and job["path"] != os.path.realpath(plist):
             raise RecoveryError("recovery label is owned by another launchd configuration")
@@ -1061,7 +1055,7 @@ def ensure_owner(root, label, plist, host=HOST):
             if result.returncode and launchd_job(domain, label) is not None:
                 raise RecoveryError(f"stale owner could not stop: {result.stderr.strip()}")
         try:
-            os.unlink(os.path.join(root, "observer.ready"))
+            os.unlink(store.ready)
         except FileNotFoundError:
             pass
         result = subprocess.run(["launchctl", "bootstrap", domain, plist], text=True,
@@ -1078,10 +1072,6 @@ def ensure_owner(root, label, plist, host=HOST):
                 return ready
             host.sleep(POLL_SECONDS)
         raise RecoveryError("launchd recovery owner did not become ready")
-
-
-def recovery_intent_path():
-    return os.environ.get("HERDR_AGENT_INTERCOM_RECOVERY_INTENT")
 
 
 def launcher_identity(launcher_pid, host):
@@ -1190,23 +1180,18 @@ def main(engine_factory=RecoveryEngine):
     if sys.platform == "darwin" and sys.version_info < (3, 10):
         raise RecoveryError("claim recovery requires Python 3.10 or later on macOS")
     parser = argparse.ArgumentParser()
-    parser.add_argument("--admit")
+    modes = parser.add_mutually_exclusive_group(required=True)
+    modes.add_argument("--admit", metavar="ROOT")
     parser.add_argument("--socket-path")
     parser.add_argument("--pane-id")
-    parser.add_argument("--observe")
-    parser.add_argument("--pid-file")
+    modes.add_argument("--observe", metavar="ROOT")
     parser.add_argument("--job-label")
-    parser.add_argument("--handoff", action="store_true")
-    parser.add_argument("--bind-exec")
+    modes.add_argument("--handoff", metavar="ROOT")
+    modes.add_argument("--bind-exec", metavar="ROOT")
+    parser.add_argument("--intent")
+    parser.add_argument("--native-leaf")
     parser.add_argument("--agent")
-    parser.add_argument("--source")
-    parser.add_argument("--alias")
     parser.add_argument("--launcher-pid", type=int)
-    parser.add_argument("--claim-intent")
-    parser.add_argument("--ensure-owner", action="store_true")
-    parser.add_argument("--owner-root")
-    parser.add_argument("--owner-label")
-    parser.add_argument("--owner-plist")
     parser.add_argument("bridge_args", nargs=argparse.REMAINDER)
     arguments = parser.parse_args()
     if arguments.admit:
@@ -1217,62 +1202,37 @@ def main(engine_factory=RecoveryEngine):
             agent=arguments.agent, launcher_pid=arguments.launcher_pid)
         print(result.tsv())
         return
-    if arguments.ensure_owner:
-        if not all((arguments.owner_root, arguments.owner_label, arguments.owner_plist)):
-            parser.error("--owner-root, --owner-label and --owner-plist are required with --ensure-owner")
-        print(json.dumps(ensure_owner(arguments.owner_root, arguments.owner_label, arguments.owner_plist)))
-        return
-    if arguments.claim_intent:
-        if not all((arguments.agent, arguments.source, arguments.alias, arguments.launcher_pid)):
-            parser.error("claim admission requires agent, source, alias and launcher identity")
-        engine = engine_factory(os.path.dirname(arguments.claim_intent))
-        engine.intent_dir = arguments.claim_intent
-        print(json.dumps(engine.acquire(socket_path=os.environ.get("HERDR_SOCKET_PATH"),
-                                        pane_id=os.environ.get("HERDR_PANE_ID"), agent=arguments.agent,
-                                        source=arguments.source, alias=arguments.alias,
-                                        launcher_pid=arguments.launcher_pid)))
-        return
     if arguments.handoff:
-        path = recovery_intent_path()
-        if path:
-            engine = engine_factory(os.path.dirname(os.path.dirname(path)))
-            engine.handoff(os.path.basename(path)[:-5])
+        if not arguments.intent:
+            parser.error("handoff requires --intent")
+        result = engine_factory(arguments.handoff).handoff(arguments.intent)
+        print(json.dumps(result._asdict()))
         return
-    if arguments.bind_exec:
+    if arguments.bind_exec is not None:
+        if not arguments.native_leaf or not arguments.intent:
+            parser.error("bind-exec requires --intent and --native-leaf")
         args = arguments.bridge_args
         if args[:1] == ["--"]:
             args = args[1:]
         # cci probes its configured bridge with --version even for MCP mode.
         # That short-lived utility is not the native interactive client.
         if args == ["--version"]:
-            os.execv(arguments.bind_exec, [arguments.bind_exec, *args])
+            os.execv(arguments.native_leaf, [arguments.native_leaf, *args])
         try:
-            path = recovery_intent_path()
-            if not path:
-                raise RecoveryError("claim binding intent is unavailable")
-            engine = engine_factory(os.path.dirname(os.path.dirname(path)))
-            bound = engine.bind(os.path.basename(path)[:-5], os.environ.get("AGENT_INTERCOM_CLAUDE_COMMAND"))
+            if not arguments.bind_exec:
+                raise RecoveryError("claim binding root is unavailable")
+            engine = engine_factory(arguments.bind_exec)
+            bound = engine.bind(arguments.intent, os.environ.get("AGENT_INTERCOM_CLAUDE_COMMAND"))
         except (OSError, ValueError, KeyError, RecoveryError) as error:
             print(f"claim binding unavailable: {error}", file=sys.stderr)
             bound = False
-        if bound:
-            os.execv(arguments.bind_exec, [arguments.bind_exec, *args])
-        # A bridge arriving after cleanup cannot resurrect the old claim. The
-        # original native argv still starts, without cci's generated enrollment.
-        command = os.environ.get("AGENT_INTERCOM_CLAUDE_COMMAND")
-        count = os.environ.get("AGENT_INTERCOM_CLAUDE_ARGC", "")
-        try:
-            if not command or not os.access(command, os.X_OK) or not count.isdecimal():
-                raise ValueError("invalid command or argument count")
-            native_args = [os.environ[f"AGENT_INTERCOM_CLAUDE_ARG_{index}"] for index in range(int(count))]
-        except (ValueError, KeyError):
-            print("herdr-agent-intercom: invalid Claude bridge environment", file=sys.stderr)
-            raise SystemExit(1)
-        exec_without_enrollment(command, native_args,
-                                "claim binding unavailable; starting native Claude without enrollment")
-    if not arguments.observe or not arguments.pid_file:
-        parser.error("--observe and --pid-file are required")
-    observer(arguments.observe, arguments.pid_file, arguments.job_label, engine_factory)
+        os.environ["HERDR_AGENT_INTERCOM_NATIVE_ONLY"] = "0" if bound else "1"
+        if not bound:
+            print("claim binding unavailable; starting native Claude without enrollment", file=sys.stderr, flush=True)
+        os.execv(arguments.native_leaf, [arguments.native_leaf, *args])
+    if not arguments.observe:
+        parser.error("observe requires a nonempty root")
+    observer(arguments.observe, arguments.job_label, engine_factory)
 
 
 def cli():

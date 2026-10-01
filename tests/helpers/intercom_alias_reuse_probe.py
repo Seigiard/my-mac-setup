@@ -21,7 +21,7 @@ def check_unsafe_reuse_fallback(probe, pane, first, directory, gate_bin, alias):
     require({"step": "reuse-native-fallback-control"}, control.returncode == 1,
             f"native invalid-option control failed unexpectedly: {control.returncode}")
     fields = ("OPENCODE_INTERCOM_NAME", "HERDR_AGENT_INTERCOM_NAME",
-              "HERDR_AGENT_INTERCOM_ACTIVE", "HERDR_AGENT_INTERCOM_RECOVERY_INTENT")
+              "HERDR_AGENT_INTERCOM_ACTIVE", "HERDR_AGENT_INTERCOM_RECOVERY_ROOT", "HERDR_AGENT_INTERCOM_RECOVERY_INTENT")
     wrapper = gate_bin / "opencode"
     wrapper.write_text(
         f"#!{sys.executable}\nimport json,os,sys\n"
@@ -81,7 +81,7 @@ def run_order(probe, request_before_detection):
             f"native={executable!r}\n"
             f"if len(sys.argv)>1 and pathlib.Path(sys.argv[1]).resolve()==pathlib.Path({str(cci)!r}):\n"
             " gate=pathlib.Path(os.environ['MMS384_GATE'])\n"
-            " keys=('HERDR_AGENT_INTERCOM_NAME','HERDR_AGENT_INTERCOM_ACTIVE','HERDR_AGENT_INTERCOM_RECOVERY_INTENT')\n"
+            " keys=('HERDR_AGENT_INTERCOM_NAME','HERDR_AGENT_INTERCOM_ACTIVE','HERDR_AGENT_INTERCOM_RECOVERY_ROOT','HERDR_AGENT_INTERCOM_RECOVERY_INTENT')\n"
             " atomic_write(str(gate.with_suffix('.checked')),{'pid':os.getpid(),'start_identity':process_start_identity(os.getpid()),'environment':{key:os.environ.get(key) for key in keys}})\n"
             " deadline=time.monotonic()+60\n"
             " while not gate.exists():\n"
@@ -137,7 +137,8 @@ def run_order(probe, request_before_detection):
         result["old_intent_at_successor_gate"] = ended
         successor_handle = second["environment"]["HERDR_AGENT_INTERCOM_RECOVERY_INTENT"]
         result["successor_route"] = "fresh_claim" if successor_handle else "independent_alias"
-        result["successor_intent_at_gate"] = read_json(successor_handle) if successor_handle else None
+        result["successor_intent_at_gate"] = read_json(Path(second["environment"]["HERDR_AGENT_INTERCOM_RECOVERY_ROOT"]) /
+                                                     "intents" / (successor_handle + ".json")) if successor_handle else None
 
         def ready():
             clients = [client for pid, _, _ in probe.descendants(second["pid"])

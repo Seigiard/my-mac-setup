@@ -938,10 +938,10 @@ export default function (pi) {
         receipt = self.scratch / f"r10-claude-{sequence}.receipt.json"
         stderr = self.scratch / f"r10-claude-{sequence}.stderr"
         before = self.intent_paths()
-        settled = self.scratch / f"r10-settled-{sequence}.json"
-        atomic_write(settled, {"phase": "settled"})
+        unavailable_handle = f"r10-pruned-{sequence}"
         exports = self.foreground_exports("r10-fallback", sequence) | {
-            "HERDR_AGENT_INTERCOM_RECOVERY_INTENT": str(settled),
+            "HERDR_AGENT_INTERCOM_RECOVERY_ROOT": self.launchd.state_root,
+            "HERDR_AGENT_INTERCOM_RECOVERY_INTENT": unavailable_handle,
             "AGENT_INTERCOM_CLAUDE_COMMAND": native_executable("claude"),
             "AGENT_INTERCOM_CLAUDE_ARGC": "1", "AGENT_INTERCOM_CLAUDE_ARG_0": "--no-chrome",
             "MMS377_DRIVER_STDERR": str(stderr),
@@ -1162,7 +1162,7 @@ export default function (pi) {
                 process_start_identity(original["pid"]) != original["start_identity"],
                 "admission trusted stale readiness or left its former observer alive")
         require({"step": "owned-runtime-observer"}, admitted["job_label"] == self.runtime_label and
-                admitted["intent_dir"] == str(pathlib.Path(self.launchd.intent_dir).resolve()),
+                admitted["state_root"] == str(pathlib.Path(self.launchd.state_root).resolve()),
                 "observer receipt does not belong to this isolated runtime")
         os.kill(admitted["pid"], signal.SIGKILL)
 
@@ -1196,7 +1196,8 @@ export default function (pi) {
             wrapper_dir.mkdir()
             fields = ("OPENCODE_INTERCOM_NAME", "HERDR_AGENT_INTERCOM_ACTIVE",
                       "HERDR_AGENT_INTERCOM_NAME", "HERDR_AGENT_INTERCOM_PANE",
-                      "HERDR_AGENT_INTERCOM_RECOVERY_INTENT", "HERDR_AGENT_INTERCOM_PI_LOAD")
+                      "HERDR_AGENT_INTERCOM_RECOVERY_ROOT", "HERDR_AGENT_INTERCOM_RECOVERY_INTENT",
+                      "HERDR_AGENT_INTERCOM_PI_LOAD")
             executable = native_executable("opencode")
             wrapper = wrapper_dir / "opencode"
             wrapper.write_text(
@@ -1216,7 +1217,8 @@ export default function (pi) {
                     "MMS377_DRIVER_STDERR": str(stderr),
                     "OPENCODE_INTERCOM_NAME": "parent-alias", "HERDR_AGENT_INTERCOM_ACTIVE": "1",
                     "HERDR_AGENT_INTERCOM_NAME": "parent-alias", "HERDR_AGENT_INTERCOM_PANE": "other-pane",
-                    "HERDR_AGENT_INTERCOM_RECOVERY_INTENT": str(inherited),
+                    "HERDR_AGENT_INTERCOM_RECOVERY_ROOT": str(self.scratch / "foreign-root"),
+                    "HERDR_AGENT_INTERCOM_RECOVERY_INTENT": inherited.stem,
                     "HERDR_AGENT_INTERCOM_PI_LOAD": "parent-load",
                 }
                 self.start_foreground_driver(pane, receipt,
@@ -1247,7 +1249,8 @@ export default function (pi) {
                             "partial acquisition did not report its pending obligation")
                 else:
                     require({"step": "partial-valid-control"}, intent["phase"] == "acquired" and
-                            environment["HERDR_AGENT_INTERCOM_RECOVERY_INTENT"] == str(path) and
+                            environment["HERDR_AGENT_INTERCOM_RECOVERY_ROOT"] == self.launchd.state_root and
+                            environment["HERDR_AGENT_INTERCOM_RECOVERY_INTENT"] == pathlib.Path(path).stem and
                             environment["OPENCODE_INTERCOM_NAME"] == self.aliases[15],
                             f"relay control did not complete real enrollment: {intent}; {environment}")
                 state = self.state(pane)
@@ -1256,8 +1259,18 @@ export default function (pi) {
                 require({"step": "partial-parent-preserved"}, inherited.read_bytes() == inherited_before,
                         "launch changed another pane's inherited obligation")
                 self.send_normal_quit("opencode", pane, receipt, None, None)
-                wait_until(lambda: self.state(pane) is None, 10,
-                           "autonomous partial-claim cleanup after native exit")
+                try:
+                    wait_until(lambda: self.state(pane) is None, 10,
+                               "autonomous partial-claim cleanup after native exit")
+                except ProbeError:
+                    diagnostic = {"drop_response": drop_response, "intent": read_json(path),
+                                  "record": self.state(pane), "observer": read_json(self.launchd.pid_file),
+                                  "driver": self.driver_details(receipt),
+                                  "stderr": stderr.read_text()}
+                    for name in ("observer.stderr.log", "observer.stdout.log"):
+                        diagnostic[name] = (pathlib.Path(self.launchd.state_root) / name).read_text()
+                    print("PARTIAL_CLEANUP_DIAGNOSTIC " + json.dumps(diagnostic), flush=True)
+                    raise
                 # An unacknowledged operation remains pending if Herdr clears
                 # the record before the observer can witness its own release.
                 after_exit = read_json(path)
@@ -2072,8 +2085,9 @@ export default function (pi) {
         trace_dir = pathlib.Path(probe_trace_dir(read_json(expected["intent"])))
         before = self.wait_claude_session(pane)
         attempts_before = list(trace_dir.glob("*.mutation_attempt.*.json"))
-        result = subprocess.run([sys.executable, str(ROOT / "tests/helpers/intercom_recovery_harness.py"), "--handoff"],
-                                cwd=ROOT, env=self.owner.env | {"HERDR_AGENT_INTERCOM_RECOVERY_INTENT": expected["intent"]},
+        result = subprocess.run([sys.executable, str(ROOT / "tests/helpers/intercom_recovery_harness.py"),
+                                 "--handoff", self.launchd.state_root, "--intent", pathlib.Path(expected["intent"]).stem],
+                                cwd=ROOT, env=self.owner.env,
                                 text=True, capture_output=True, check=False, timeout=15)
         require({"step": "handoff-non-descendant-refusal"}, result.returncode != 0 and
                 "handoff caller is not a descendant" in result.stderr,
@@ -2096,7 +2110,7 @@ export default function (pi) {
         hook.write_text(
             "import os, pathlib, sys, time\n"
             f"sys.path.insert(0, {str(ROOT / 'tests/helpers')!r})\n"
-            "from intercom_recovery_harness import atomic_write, request_handoff\n"
+            "from intercom_recovery_harness import atomic_write, ProbeEngine\n"
             "intent = os.environ['HERDR_AGENT_INTERCOM_RECOVERY_INTENT']\n"
             "socket = pathlib.Path(os.environ['HERDR_SOCKET_PATH'])\n"
             f"hidden = pathlib.Path({str(hidden)!r})\n"
@@ -2104,7 +2118,7 @@ export default function (pi) {
             f"release = pathlib.Path({str(release)!r})\n"
             "os.replace(socket, hidden)\n"
             "try:\n"
-            "    request_handoff(intent)\n"
+            "    ProbeEngine(os.environ['HERDR_AGENT_INTERCOM_RECOVERY_ROOT']).handoff(intent)\n"
             "    atomic_write(str(receipt), {'pid': os.getpid(), 'intent': intent, 'socket_hidden': str(hidden)})\n"
             "    deadline = time.monotonic() + 15\n"
             "    while not release.exists() and time.monotonic() < deadline: time.sleep(0.05)\n"
@@ -2167,7 +2181,7 @@ export default function (pi) {
             "import os, subprocess, sys\n"
             f"sys.path.insert(0, {str(ROOT / 'tests/helpers')!r})\n"
             "from intercom_recovery_harness import atomic_write\n"
-            f"result = subprocess.run([sys.executable, {str(ROOT / 'tests/helpers/intercom_recovery_harness.py')!r}, '--handoff'], text=True, capture_output=True, check=False)\n"
+            f"result = subprocess.run([sys.executable, {str(ROOT / 'tests/helpers/intercom_recovery_harness.py')!r}, '--handoff', os.environ['HERDR_AGENT_INTERCOM_RECOVERY_ROOT'], '--intent', os.environ['HERDR_AGENT_INTERCOM_RECOVERY_INTENT']], text=True, capture_output=True, check=False)\n"
             f"atomic_write({str(result_path)!r}, {{'pid': os.getpid(), 'returncode': result.returncode, 'stderr': result.stderr}})\n",
             encoding="utf-8",
         )

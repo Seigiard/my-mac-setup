@@ -34,6 +34,16 @@ observer's readiness. The live proofs render their temporary jobs from the same
 template; the engine carries no proof job of its own.
 Without a verified owner or a durable intent, the launcher takes no new claim.
 
+The external CLI has four modes: `--admit ROOT`, `--observe ROOT`,
+`--bind-exec ROOT --intent ID --native-leaf EXECUTABLE`, and
+`--handoff ROOT --intent ID`. Admission also takes the socket, pane, agent and
+launcher PID. The engine owns all derived recovery paths and observer receipts.
+The launcher exports `HERDR_AGENT_INTERCOM_RECOVERY_ROOT` and the opaque
+`HERDR_AGENT_INTERCOM_RECOVERY_INTENT` together. The bridge and release hook pass
+them without interpreting storage layout. A handle does not authorize enrollment.
+Use the [stopped-client rollout](../../intercom-recovery-rollout.md) when updating
+the two machines; transition-only CLI flags and path handles are removed.
+
 Before acquisition, a durable fsync-and-rename intent identifies the connected
 server PID/start identity, stable terminal, launch generation, source, reserved
 sequences, and process PID/start identity. `intent` means acquisition is not
@@ -84,6 +94,12 @@ exits. The bridge and native exec share a PID.
 Binding uses the same lock as cleanup. A bridge arriving after settlement
 starts the native argv without cci's generated enrollment rather than reviving
 the old claim.
+
+The native Claude leaf alone reconstructs argv, for both bound execution and
+rejected binding. It inserts generated controls before the original `--`, drops
+cci's synthetic permission selector, and keeps the caller's permission choices.
+Rejected binding discards generated enrollment and clears inherited authority.
+The version probe executes only `--version`, without restoring interactive argv.
 
 The real first-prompt hook checks native ancestry and stable terminal identity.
 It requests a source-scoped, reserved-sequence release. Admission reserves `N`

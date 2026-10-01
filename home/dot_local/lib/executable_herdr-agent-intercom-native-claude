@@ -9,6 +9,11 @@ if [[ -z "$claude_command" || ! -x "$claude_command" || ! "$arg_count" =~ ^[0-9]
   exit 1
 fi
 
+# cci's utility probe must neither restore the interactive argv nor bind it.
+if [[ $# -eq 1 && "$1" == --version ]]; then
+  exec "$claude_command" --version
+fi
+
 original_args=()
 arg_index=0
 while [[ "$arg_index" -lt "$arg_count" ]]; do
@@ -22,6 +27,15 @@ while [[ "$arg_index" -lt "$arg_count" ]]; do
   arg_index=$((arg_index + 1))
 done
 unset AGENT_INTERCOM_CLAUDE_COMMAND AGENT_INTERCOM_CLAUDE_ARGC
+
+if [[ "${HERDR_AGENT_INTERCOM_NATIVE_ONLY:-}" == 1 ]]; then
+  for key in ${!HERDR_AGENT_INTERCOM_@} ${!AGENT_INTERCOM_@} ${!CLAUDE_INTERCOM_@}; do
+    unset "$key"
+  done
+  unset OPENCODE_INTERCOM_NAME
+  set +u
+  exec "$claude_command" "${original_args[@]}"
+fi
 
 # Keep cci's generated controls before a native `--` terminator. Without this
 # split Claude reads the Intercom plugin and identity prompt as user messages.

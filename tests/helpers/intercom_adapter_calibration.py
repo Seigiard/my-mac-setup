@@ -41,14 +41,16 @@ def scenarios(factory, socket_path, first, second, move, replace, host):
 
 def session_scenarios(factory, socket_path, first, second, move, replace, host, root):
     first_id, second_id = first["pane_id"], second["pane_id"]
-    source = "mms393-calibration"
+    source = recovery.CLAIM_SOURCE
     host.wall_time = lambda: 0.0000001
     host.wall_time_ns = lambda: 100
     captured = CapturedSessions(factory)
+    host.ensure_owner = lambda root: True
+    host.alias_candidates = lambda seed: ["mms393-calibration-owner"]
     engine = recovery.RecoveryEngine(root, host=host, sessions=captured)
-    claim = engine.acquire(socket_path=socket_path, pane_id=first_id, source=source,
-                           agent="claude", alias="mms393-calibration-owner", launcher_pid=host.parent_pid())
-    if claim["claimed"] is not True:
+    claim = engine.admit(socket_path=socket_path, pane_id=first_id,
+                         agent="claude", launcher_pid=host.parent_pid())
+    if claim.launch.route != "claimed":
         raise AssertionError(claim)
     session = captured.created[-1]
     request = session.request
@@ -61,13 +63,18 @@ def session_scenarios(factory, socket_path, first, second, move, replace, host, 
     results["candidate_list_includes_occupied_alias"] = [item["name"] for item in listed
                                                         if item["pane_id"] == first_id] == ["mms393-calibration-owner"]
     results["candidate_list_excludes_empty_pane"] = all(item["pane_id"] != second_id for item in listed)
-    collision = engine.acquire(socket_path=socket_path, pane_id=second_id, source=source,
-                               agent="claude", alias="mms393-calibration-owner", launcher_pid=host.parent_pid())
-    if collision["claimed"] is not False or collision.get("retry") is not True:
-        raise AssertionError(collision)
-    results["collision"] = collision.get("error", {}).get("code")
+    host.alias_candidates = lambda seed: ["mms393-calibration-other"]
+    other_claim = engine.admit(socket_path=socket_path, pane_id=second_id,
+                               agent="claude", launcher_pid=host.parent_pid())
+    if other_claim.launch.route != "claimed":
+        raise AssertionError(other_claim)
     other = captured.created[-1]
+    collision = other.request("agent.rename", {"target": second_id, "name": "mms393-calibration-owner"})
+    results["collision"] = collision.get("error", {}).get("code")
+    other.release_with_readback(107)
     results["collision_rollback"] = other.agent_state(other.locate_terminal()).get("error", {}).get("code")
+    if results["collision_rollback"] != "agent_not_found":
+        raise AssertionError("collision control did not observe release absence")
     results["collision_owner_preserved"] = checked(request("agent.get", {"target": first_id}))["result"]["agent"]["name"] == "mms393-calibration-owner"
     checked(request("pane.report_agent", {**report, "seq": 110}))
     results["unknown_successor_after_old_release"] = session.release_with_readback(102)["result"]["agent"]["agent_status"]

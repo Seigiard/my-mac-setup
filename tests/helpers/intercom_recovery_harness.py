@@ -184,9 +184,7 @@ class ProbeEngine(recovery.RecoveryEngine):
 
 
 def engine_for(path):
-    engine = ProbeEngine(Path(path).parent.parent)
-    engine.intent_dir = str(Path(path).parent)
-    return engine
+    return ProbeEngine(Path(path).parent.parent)
 
 
 def observe_one(path):

@@ -6,7 +6,9 @@ lib="${HERDR_AGENT_INTERCOM_LIB_DIR:-$HOME/.local/lib}"
 native_bridge="$lib/herdr-agent-intercom-native-claude"
 
 if [[ -n "${HERDR_AGENT_INTERCOM_RECOVERY_INTENT:-}" ]]; then
-  exec "${HERDR_AGENT_INTERCOM_PYTHON:-python3}" "$lib/intercom-claim-recovery.py" --bind-exec "$native_bridge" -- "$@"
+  exec "${HERDR_AGENT_INTERCOM_PYTHON:-python3}" "$lib/intercom-claim-recovery.py" \
+    --bind-exec "${HERDR_AGENT_INTERCOM_RECOVERY_ROOT:-}" \
+    --intent "$HERDR_AGENT_INTERCOM_RECOVERY_INTENT" --native-leaf "$native_bridge" -- "$@"
 fi
 
 exec "$native_bridge" "$@"

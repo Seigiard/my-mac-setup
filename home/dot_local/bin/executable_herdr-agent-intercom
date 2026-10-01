@@ -27,7 +27,7 @@ fi
 
 if [[ "${HERDR_AGENT_INTERCOM_ACTIVE:-}" == "1" ]] &&
   [[ -n "${HERDR_PANE_ID:-}" && "${HERDR_AGENT_INTERCOM_PANE:-}" == "$HERDR_PANE_ID" ]]; then
-  unset HERDR_AGENT_INTERCOM_RECOVERY_INTENT
+  unset HERDR_AGENT_INTERCOM_RECOVERY_ROOT HERDR_AGENT_INTERCOM_RECOVERY_INTENT
   exec "$agent_command" "$@"
 fi
 
@@ -35,8 +35,9 @@ fi
 # its own registered alias, or start without that inherited Intercom identity.
 unset HERDR_AGENT_INTERCOM_ACTIVE HERDR_AGENT_INTERCOM_NAME HERDR_AGENT_INTERCOM_PANE
 unset OPENCODE_INTERCOM_NAME HERDR_AGENT_INTERCOM_PI_LOAD
-unset HERDR_AGENT_INTERCOM_RECOVERY_INTENT
+unset HERDR_AGENT_INTERCOM_RECOVERY_ROOT HERDR_AGENT_INTERCOM_RECOVERY_INTENT
 unset HERDR_AGENT_INTERCOM_PYTHON
+unset HERDR_AGENT_INTERCOM_NATIVE_ONLY
 for inherited in ${!AGENT_INTERCOM_@} ${!CLAUDE_INTERCOM_@}; do
   unset "$inherited"
 done
@@ -69,9 +70,8 @@ admit_intercom() {
   [[ "$alias" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ && "$alias" != - && "$reason" == ok ]] || return 1
   intercom_name="$alias"
   if [[ "$route" == claimed ]]; then
-    # Temporary path packaging for the existing bridge and hook. #394 moves
-    # these consumers to root plus the opaque ID together.
-    export HERDR_AGENT_INTERCOM_RECOVERY_INTENT="$recovery_root/intents/$intent.json"
+    export HERDR_AGENT_INTERCOM_RECOVERY_ROOT="$recovery_root"
+    export HERDR_AGENT_INTERCOM_RECOVERY_INTENT="$intent"
     export HERDR_AGENT_INTERCOM_PYTHON="$recovery_python"
   fi
 }

@@ -1088,23 +1088,25 @@ if (typeof pi.default !== "function") throw new Error("Pi adapter is unavailable
   local stub="$BATS_TEST_TMPDIR/claude" log="$BATS_TEST_TMPDIR/agent-intercom-claude.args"
   cat > "$stub" <<'SH'
 #!/usr/bin/env bash
-printf '<%s>' "$@" > "$AGENT_INTERCOM_TEST_CLAUDE_LOG"
+printf '<%s>' "$@" > "$MMS_TEST_CLAUDE_LOG"
 SH
   chmod +x "$stub"
-  cat > "$BATS_TEST_TMPDIR/herdr" <<'SH'
+  # Admission policy has its own engine and live-owner checks. This deployed
+  # caller check supplies a finished decision and runs the real installed cci.
+  local real_python
+  real_python="$(command -v python3)"
+  cat > "$BATS_TEST_TMPDIR/python3" <<'SH'
 #!/usr/bin/env bash
-[[ "$1 $2 $3" == 'agent get smoke:p1' ]] || exit 2
-printf '%s\n' '{"result":{"agent":{"name":"smoke-ibis","pane_id":"smoke:p1"}}}'
+if [[ "${2:-}" == --admit ]]; then
+  printf 'v1\tenrolled\treused\tsmoke-ibis\t-\tok\n'
+  exit 0
+fi
+exec "$MMS_TEST_REAL_PYTHON" "$@"
 SH
-  cat > "$BATS_TEST_TMPDIR/allocator" <<'SH'
-#!/usr/bin/env bash
-[[ "$1" == --alias-candidates && $# == 2 ]] || exit 2
-printf '%s\n' smoke-ibis
-SH
-  chmod +x "$BATS_TEST_TMPDIR/herdr" "$BATS_TEST_TMPDIR/allocator"
+  chmod +x "$BATS_TEST_TMPDIR/python3"
   run env HERDR_ENV=1 HERDR_CHILD_NAME=ignored HERDR_PANE_ID=smoke:p1 HOME="$HOME" \
-    HERDR_AGENT_INTERCOM_PANE= HERDR_ALIAS_ALLOCATOR="$BATS_TEST_TMPDIR/allocator" \
-    AGENT_INTERCOM_TEST_CLAUDE_LOG="$log" PATH="$BATS_TEST_TMPDIR:$PATH" \
+    HERDR_AGENT_INTERCOM_PANE= MMS_TEST_REAL_PYTHON="$real_python" \
+    MMS_TEST_CLAUDE_LOG="$log" PATH="$BATS_TEST_TMPDIR:$PATH" \
     "$HOME/.local/bin/herdr-agent-intercom" claude \
     --disallowed-tools 'Edit Write NotebookEdit AskUserQuestion'
   assert_success
@@ -1133,7 +1135,7 @@ ARGV
   assert_line --index 1 "$claude_plugin"
 
   # cci's generated permission selector is dropped by
-  # home/dot_local/bin/executable_herdr-agent-intercom-claude, and
+  # home/dot_local/lib/executable_herdr-agent-intercom-native-claude, and
   # scripts_test.sh owns that transform directly: its 'claude bridge' pair
   # feeds the bridge a generated '--permission-mode manual' beside a caller's
   # own selector and asserts the exact surviving argv. Repeating it here as a

@@ -26,7 +26,9 @@ command -v herdr >/dev/null 2>&1 || exit 0
 if [[ -n "${HERDR_AGENT_INTERCOM_RECOVERY_INTENT:-}" ]]; then
   engine="${HERDR_AGENT_INTERCOM_LIB_DIR:-$HOME/.local/lib}/intercom-claim-recovery.py"
   [[ -r "$engine" ]] || exit 0
-  "${HERDR_AGENT_INTERCOM_PYTHON:-python3}" "$engine" --handoff >/dev/null 2>&1 || true
+  "${HERDR_AGENT_INTERCOM_PYTHON:-python3}" "$engine" \
+    --handoff "${HERDR_AGENT_INTERCOM_RECOVERY_ROOT:-}" \
+    --intent "$HERDR_AGENT_INTERCOM_RECOVERY_INTENT" >/dev/null 2>&1 || true
   exit 0
 fi
 
