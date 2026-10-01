@@ -350,8 +350,9 @@ EOF
           # the claim expires here into a terminal supervision failure. The
           # waiting label survives it: the child is still blocked on a parent
           # decision, and reap must keep refusing that pane.
-          callback_owner_alive "$run_dir" || \
+          if callback_claim_abandoned "$run_dir"; then
             watcher_fail "$run_dir" "$pane" "$generation" callback-owner-lost 1
+          fi
           sleep "$POLL_INTERVAL"
           continue
           ;;

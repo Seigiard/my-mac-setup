@@ -380,6 +380,14 @@ callback_owner_alive() {
   [ "$identity_status" -ne 1 ]
 }
 
+callback_claim_abandoned() {
+  local run_dir="$1"
+  callback_owner_alive "$run_dir" && return 1
+  # The owner may have published its receipt and exited since the watcher read
+  # in-progress. Only an unresolved claim can become an owner-lost failure.
+  [ "$(state_value "$run_dir/callback.state" status)" = in-progress ]
+}
+
 preserve_callback_waiting_label() {
   local pane="$1"
   metadata_report "$pane" --source "$SOURCE_ID" --clear-state-labels \
