@@ -32,7 +32,7 @@ Before a launch takes a new claim, `ensure_owner` checks the job's label,
 restart policy and observer arguments, then bootstraps it and waits for the
 observer's readiness. The live proofs render their temporary jobs from the same
 template; the engine carries no proof job of its own.
-Without a verified owner or a durable intent, the launcher takes no new claim.
+Without a verified owner or a durable intent, admission takes no new claim.
 
 The external CLI has four modes: `--admit ROOT`, `--observe ROOT`,
 `--bind-exec ROOT --intent ID --native-leaf EXECUTABLE`, and
@@ -196,10 +196,11 @@ checked API responses, and observer-disabled control. Keep that failure visible.
 ## Engine interface and CI calibration (#393)
 
 The checkout exposes `RecoveryEngine(root, host=..., sessions=...)`. Production
-CLI modes and probe adapters call its `acquire`, `observe_one`, `bind`, and
-`handoff` operations. `acquire` performs one attempt. Its `retry` result means
-that a collision rollback was observed; candidate selection and retry remain
-the admission work in #389. Path-based CLI packaging remains for #394.
+CLI modes and probe adapters call its `admit`, `observe_one`, `bind`, and
+`handoff` operations. Admission owns candidate selection, single-attempt
+acquisition and collision retries. A retry requires observed rollback of the
+failed claim. Callers pass a recovery root and opaque intent handles through
+the CLI described above; the #389/#394 interface migration is complete.
 
 `Host.process(pid)` returns alive, exited, or unknown evidence. Alive evidence
 carries a start token. A zombie carries its start token and process state as
@@ -222,8 +223,8 @@ injected at the rename boundary rather than by constructing intent JSON.
 The live probe entry is `tests/helpers/intercom_recovery_harness.py`. It wraps
 supported engine operations and host/session adapters. The old prototype's
 execution and private-function replacement hooks are removed. Existing native
-and launcher-route probes retain their diagnostic receipts and safety checks;
-the final admission migration owns the remaining route scenarios.
+and launcher-route probes retain their diagnostic receipts and safety checks.
+Route scenarios now enter through `admit`.
 Autonomous recovery checks wait for probe-owned receipts of the observer's
 `Observation` results. Their wait loop stays passive, so the probe cannot perform
 the cleanup it is attributing to launchd.

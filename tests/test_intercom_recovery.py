@@ -155,6 +155,22 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(results, [True])
         self.assertEqual(self.observe(claim).reason_code, "client_alive")
 
+    def test_binding_without_executable_keeps_cleanup_but_cannot_handoff(self):
+        # #given an admitted launch and unrelated ambient executable configuration
+        claim = self.acquire()
+        with mock.patch.dict(recovery.os.environ, {"AGENT_INTERCOM_CLAUDE_COMMAND": "/bin/ambient"}):
+            # #when a public caller binds without a native executable
+            self.assertEqual(self.engine.bind(claim["intent_id"], None), True)
+            # #then ambient configuration cannot grant handoff authority
+            with self.assertRaisesRegex(recovery.RecoveryError, "^handoff intent has no bound native client$"):
+                self.engine.handoff(claim["intent_id"])
+        self.assertEqual(self.state()["result"]["agent"]["name"], "first")
+        self.exit()
+        self.assertEqual(self.observe(claim).reason_code, "client_alive")
+        self.host.processes.pop(11)
+        self.assertEqual(self.observe(claim).outcome, "settled")
+        self.assertEqual(self.state(), {"error": {"code": "agent_not_found"}})
+
     def test_authorized_handoff_retries_after_outage_on_monotonic_clock(self):
         claim = self.acquire()
         self.assertEqual(self.engine.bind(claim["intent_id"], "/bin/native"), True)

@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Durable recovery observer for Intercom launch claims.
+"""Intercom admission and durable recovery of launch claims.
 
-It owns only launch-claim cleanup intents. It never supervises a client.
+It owns enrollment decisions, deferred-rename notes and claim cleanup intents.
+It never supervises a client.
 """
+
+from __future__ import annotations
 
 import argparse
 from typing import NamedTuple
@@ -126,9 +129,6 @@ class Phase:
         SETTLED: frozenset((SETTLED,)),
         RETIRED: frozenset((RETIRED,)),
     }
-
-
-TERMINAL_PHASES = Phase.TERMINAL
 
 
 class Observation(NamedTuple):
@@ -321,12 +321,13 @@ class RecoveryEngine:
         return expected_alias
 
     def _acquire(self, *, socket_path, pane_id, agent, alias, launcher_pid,
-                 scope=None, launcher_start=None):
+                 scope, launcher_start):
         return claim_intent(self.intent_dir, agent, CLAIM_SOURCE, alias, launcher_pid,
                             socket_path=socket_path, pane_id=pane_id, host=self.host,
                             sessions=self.sessions, scope=scope, launcher_start=launcher_start)
 
     def bind(self, intent_id, native_executable):
+        """Bind cleanup to this PID; a missing executable leaves handoff disabled."""
         return bind_native_client(self._path(intent_id), host=self.host,
                                   native_executable=native_executable)
 
@@ -431,7 +432,7 @@ def sync_directory(directory):
 def archive_terminal_intent(path):
     """Caller holds this intent's existing lock; the archived record is immutable."""
     intent = read_json(path)
-    if intent["phase"] not in TERMINAL_PHASES:
+    if intent["phase"] not in Phase.TERMINAL:
         return False
     destination = archived_intent_path(path)
     os.makedirs(os.path.dirname(destination), exist_ok=True)
@@ -477,10 +478,6 @@ def prune_intent_archive(directory, now=None, max_age=ARCHIVE_MAX_AGE_SECONDS, m
                 pass
     if changed:
         sync_directory(archive)
-
-
-def process_start_identity(pid):
-    return HOST.start_identity(pid)
 
 
 def peer_identity(connection, host=HOST):
@@ -633,7 +630,7 @@ def reserve_sequence(directory, source, host=HOST):
         return candidate
 
 
-def bind_native_client(path, *, host=HOST, native_executable=None):
+def bind_native_client(path, *, host=HOST, native_executable):
     """Bind in the bridge's PID before exec, or refuse enrollment after cleanup."""
     try:
         return _bind_native_client(path, host=host, native_executable=native_executable)
@@ -641,7 +638,7 @@ def bind_native_client(path, *, host=HOST, native_executable=None):
         return False
 
 
-def _bind_native_client(path, *, host=HOST, native_executable=None):
+def _bind_native_client(path, *, host=HOST, native_executable):
     with intent_lock(path, timeout=5, host=host):
         intent = read_intent(path)
         if intent["phase"] not in Phase.ACTIVE or "launcher_client" in intent:
@@ -658,7 +655,7 @@ def _bind_native_client(path, *, host=HOST, native_executable=None):
             raise RecoveryError("native bridge process identity is unavailable")
         intent["launcher_client"] = launcher
         intent["client"] = {"pid": host.pid(), "start_identity": start}
-        intent["native_executable"] = native_executable or os.environ.get("AGENT_INTERCOM_CLAUDE_COMMAND")
+        intent["native_executable"] = native_executable
         atomic_write(path, intent)
         return True
 
@@ -1075,8 +1072,6 @@ def ensure_owner(root, label, plist, host=HOST):
 
 
 def launcher_identity(launcher_pid, host):
-    if launcher_pid is None:
-        raise RecoveryError("launcher PID is required")
     observed_start = host.start_identity(launcher_pid)
     if observed_start is None:
         raise RecoveryError("launcher process identity is unavailable")
@@ -1094,23 +1089,21 @@ def launcher_identity(launcher_pid, host):
     return observed_start
 
 
-def prepare_intent(intent_dir, agent, source, launcher_pid=None, *,
-                   socket_path=None, pane_id=None, host=HOST, sessions=HerdrSession,
-                   scope=None, launcher_start=None):
+def prepare_intent(intent_dir, agent, source, launcher_pid, *,
+                   socket_path, pane_id, host=HOST, sessions=HerdrSession,
+                   scope, launcher_start):
     """Persist the fenced launch obligation before acquisition."""
     observed_start = launcher_identity(launcher_pid, host)
-    if launcher_start is not None and observed_start != launcher_start:
+    if observed_start != launcher_start:
         raise RecoveryError("launcher incarnation changed during admission")
-    pane = pane_id or os.environ.get("HERDR_PANE_ID")
-    socket_path = socket_path or os.environ.get("HERDR_SOCKET_PATH")
-    if not pane or not socket_path:
+    if not pane_id or not socket_path:
         raise RecoveryError("current Herdr pane or socket is unavailable")
-    connection = scope["connection"] if scope is not None else sessions.connect(socket_path)
-    response = sessions({"connection": connection}).request("pane.get", {"pane_id": pane})
+    connection = scope["connection"]
+    response = sessions({"connection": connection}).request("pane.get", {"pane_id": pane_id})
     if "error" in response:
         raise RecoveryError(f"launch pane lookup failed: {response['error']}")
     terminal = response["result"]["pane"]
-    if scope is not None and terminal["terminal_id"] != scope["terminal"]["terminal_id"]:
+    if terminal["terminal_id"] != scope["terminal"]["terminal_id"]:
         raise RecoveryError("launch terminal changed during admission")
     sequence = reserve_sequence(os.path.join(os.path.dirname(intent_dir), "sequences"), source, host)
     intent = {
@@ -1132,8 +1125,8 @@ def prepare_intent(intent_dir, agent, source, launcher_pid=None, *,
 
 
 def claim_intent(intent_dir, agent, source, alias, launcher_pid, *,
-                 socket_path=None, pane_id=None, host=HOST, sessions=HerdrSession,
-                 scope=None, launcher_start=None):
+                 socket_path, pane_id, host=HOST, sessions=HerdrSession,
+                 scope, launcher_start):
     """Create and acknowledge one fenced claim, or retire its own failed try."""
     os.makedirs(intent_dir, exist_ok=True)
     path, intent = prepare_intent(intent_dir, agent, source, launcher_pid,

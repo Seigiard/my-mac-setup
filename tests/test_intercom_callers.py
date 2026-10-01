@@ -16,6 +16,23 @@ SOURCE = ROOT / "home/dot_local"
 
 
 class CallerTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "darwin", "requires macOS system Python 3.9")
+    def test_unsupported_system_python_reports_version_requirement(self):
+        # #given the unsupported interpreter still shipped by macOS
+        interpreter = "/usr/bin/python3"
+        version = subprocess.run([interpreter, "--version"], capture_output=True, text=True, timeout=10)
+        self.assertEqual(version.returncode, 0, version.stderr)
+        if not version.stdout.startswith("Python 3.9."):
+            self.skipTest("system Python is not 3.9")
+        # #when a caller invokes the actual engine before any recovery operation
+        result = subprocess.run([interpreter, str(SOURCE / "lib/intercom-claim-recovery.py"), "--help"],
+                                capture_output=True, text=True, timeout=10)
+        # #then rejection is the clean runtime requirement, not an import traceback
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(result.stderr,
+                         "herdr-agent-intercom recovery: claim recovery requires Python 3.10 or later on macOS\n")
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="intercom callers ")
         self.addCleanup(self.temporary.cleanup)

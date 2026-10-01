@@ -2,7 +2,8 @@
 
 Accepted design for #389, #392, #393 and #394. Ownership boundaries are accepted
 in [ADR-0022](../decisions/0022-centralize-intercom-admission-in-the-recovery-engine.md).
-The owner confirmed the complete contract on 2026-10-01. Implementation is pending.
+The owner confirmed the complete contract on 2026-10-01. Implemented under #402.
+Machine deployment follows the [stopped-client rollout](../intercom-recovery-rollout.md).
 
 ## Module design choice
 

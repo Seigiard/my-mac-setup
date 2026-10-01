@@ -9,9 +9,9 @@ supersedes: []
 
 ## Context
 
-Issues #389, #392, #393 and #394 describe a split admission decision. The
-launcher chooses an enrollment route using Herdr CLI reads, while the recovery
-engine fences its own requests to a server incarnation. Existing-alias reuse
+Issues #389, #392, #393 and #394 addressed a split admission decision. The
+launcher chose an enrollment route using Herdr CLI reads, while the recovery
+engine fenced its own requests to a server incarnation. Existing-alias reuse
 and Claude's pending-rename route also permit enrollment without a new claim.
 
 ## Considered options
@@ -38,7 +38,7 @@ control event order. Real Herdr calibrates the fake; the fake adds no stronger
 acquisition guarantee than Herdr provides.
 
 One host dependency supplies process identity, ancestry and clock operations.
-Recovery, the shell process helper and hook selfcheck will share a documented
+Recovery, the shell process helper and hook selfcheck share a documented
 start-identity format. Process observation distinguishes alive with an identity,
 confirmed exit and unknown evidence. Zombie state is separate from the start
 token. Wall time and monotonic time remain separate operations.
@@ -49,6 +49,7 @@ recovery state paths, not socket or executable paths. The recovery root remains
 distinct from the Intercom broker runtime.
 
 This decision preserves the early reservation and independent cleanup guarantees
-of ADR-0018 and ADR-0021. It records an accepted design, not a completed migration.
-The agreed interface details and remaining decisions are recorded in the
+of ADR-0018 and ADR-0021. The interface migration is implemented under #402;
+machine deployment follows the [stopped-client rollout](../intercom-recovery-rollout.md).
+The agreed interface details are recorded in the
 [interface design](../plans/2026-10-01-intercom-recovery-engine-interface.md).
