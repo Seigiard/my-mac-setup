@@ -4,6 +4,51 @@ import { join } from "node:path"
 
 let intercomPlugin: Plugin | undefined
 const intercomName = process.env.OPENCODE_INTERCOM_NAME?.trim()
+
+function withCloneableResponses(client: any): any {
+  if (!client) return client
+  const namespaces = new Set(["session", "tui"])
+
+  return new Proxy(client, {
+    get(target, property, receiver) {
+      const namespace = Reflect.get(target, property, receiver)
+      if (!namespaces.has(property as string) || !namespace) return namespace
+
+      return new Proxy(namespace, {
+        get(namespaceTarget, method, namespaceReceiver) {
+          const value = Reflect.get(namespaceTarget, method, namespaceReceiver)
+          if (typeof value !== "function") return value
+
+          return async (...args: any[]) => {
+            const result = await Reflect.apply(value, namespaceTarget, args)
+            const response = result?.response
+            if (!response?.bodyUsed) return result
+
+            // The SDK has already consumed this body. Preserve response metadata
+            // while letting optional plugin diagnostics clone an empty body.
+            const cloneableResponse = new Proxy(response, {
+              get(responseTarget, responseProperty) {
+                if (responseProperty === "clone") {
+                  return () => new Response(null, {
+                    status: responseTarget.status,
+                    statusText: responseTarget.statusText,
+                    headers: responseTarget.headers,
+                  })
+                }
+                const responseValue = Reflect.get(responseTarget, responseProperty, responseTarget)
+                return typeof responseValue === "function"
+                  ? responseValue.bind(responseTarget)
+                  : responseValue
+              },
+            })
+            return { ...result, response: cloneableResponse }
+          }
+        },
+      })
+    },
+  })
+}
+
 if (process.env.HERDR_ENV === "1" && intercomName) {
   const root = join(
     process.env.HOME ?? "",
@@ -31,7 +76,7 @@ export const AgentIntercomPlugin: Plugin = async (input) => {
 
   process.env.OPENCODE_INTERCOM_NAME = intercomName
   try {
-    return await intercomPlugin(input)
+    return await intercomPlugin({ ...input, client: withCloneableResponses(input.client) })
   } catch {
     return {}
   } finally {
