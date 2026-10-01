@@ -35,7 +35,6 @@ fi
 # its own registered alias, or start without that inherited Intercom identity.
 unset HERDR_AGENT_INTERCOM_ACTIVE HERDR_AGENT_INTERCOM_NAME HERDR_AGENT_INTERCOM_PANE
 unset OPENCODE_INTERCOM_NAME HERDR_AGENT_INTERCOM_PI_LOAD
-unset HERDR_AGENT_INTERCOM_CLAIM HERDR_AGENT_INTERCOM_CLAIM_AGENT
 unset HERDR_AGENT_INTERCOM_RECOVERY_INTENT
 
 recovery_configuration() {
@@ -294,7 +293,6 @@ fi
 # no such state, so its pane depends on screen detection, and only its release
 # gives detection back: `herdr-agent-intercom-release` performs it from the
 # `UserPromptSubmit` hook this repository deploys.
-# The durable recovery handle identifies this launch independently of legacy markers.
 if [[ -z "$intercom_name" && -n "${HERDR_PANE_ID:-}" ]] &&
   command -v herdr >/dev/null 2>&1 &&
   command -v herdr-peer-alias >/dev/null 2>&1; then
@@ -362,7 +360,7 @@ if [[ -z "$intercom_name" && -n "${HERDR_PANE_ID:-}" ]] &&
       printf 'herdr-agent-intercom: automatic claim recovery unavailable; starting %s without a new claim\n' "$agent" >&2
     fi
 
-    # Used-pane reconciliation remains separate; new claims never create legacy markers.
+    # Used-pane reconciliation remains separate from claim recovery.
     if [[ -n "$unreconciled_name" && "$agent" == claude ]]; then
       # The name is a real Intercom identity immediately, but Herdr does not
       # know it until detection creates the record, so until the first prompt

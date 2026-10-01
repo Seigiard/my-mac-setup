@@ -21,22 +21,12 @@ pane="${HERDR_PANE_ID:-}"
 [[ -n "$pane" ]] || exit 0
 command -v herdr >/dev/null 2>&1 || exit 0
 
-# New-protocol intents are fenced to the launcher's bound client and have their
-# own reserved handoff sequence. Legacy markers deliberately keep their old
-# successor path below; they cannot establish this authority.
+# Intents are fenced to the launcher's bound client and carry their own
+# reserved handoff sequence, so the engine alone decides the release.
 if [[ -n "${HERDR_AGENT_INTERCOM_RECOVERY_INTENT:-}" ]]; then
   engine="${HERDR_AGENT_INTERCOM_LIB_DIR:-$HOME/.local/lib}/intercom-claim-recovery.py"
   [[ -r "$engine" ]] || exit 0
   "${HERDR_AGENT_INTERCOM_PYTHON:-python3}" "$engine" --handoff >/dev/null 2>&1 || true
-  exit 0
-fi
-
-# An exported claim belongs to this process tree, so it must be for this pane.
-# A claim from a launcher that is gone -- a session killed before it was ever
-# prompted -- leaves only the marker, and the successor in that pane inherits
-# no variable. The marker is therefore the authority, not the variable: without
-# this the leaked claim could never be released by anything.
-if [[ -n "${HERDR_AGENT_INTERCOM_CLAIM:-}" && "$HERDR_AGENT_INTERCOM_CLAIM" != "$pane" ]]; then
   exit 0
 fi
 
@@ -47,9 +37,7 @@ pane_key="${pane//[^A-Za-z0-9]/_}"
 # the record Herdr's own detection creates is renamed to that name. Only the
 # session that enrolled under it may do so -- the name is matched against this
 # session's own identity -- so a leftover note is inert for anyone else, and the
-# launcher overwrites it on the next enrolment. Reconciling runs before the
-# claim release below because the two paths are exclusive: a session holds
-# either a claim or a pending rename, never both.
+# launcher overwrites it on the next enrolment.
 reconcile_dir="${XDG_STATE_HOME:-$HOME/.local/state}/agent-intercom/reconcile"
 reconcile_note="$reconcile_dir/$pane_key"
 
@@ -98,23 +86,3 @@ sys.stdout.write(agent.get("name") or "")
 }
 
 reconcile_pending_rename
-
-state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/agent-intercom/claims"
-marker="$state_dir/$pane_key"
-[[ -f "$marker" ]] || exit 0
-
-agent="$(head -n 1 "$marker" 2>/dev/null)" || agent=""
-[[ -n "$agent" ]] || agent="${HERDR_AGENT_INTERCOM_CLAIM_AGENT:-claude}"
-
-# `explain` names the rule that decided the state, and prints `rule: none` when
-# no rule matched -- while a claim is held, and again when the pane holds no
-# detectable client. Testing that the line exists would pass on `none` and
-# release into exactly the case the header warns about, so the rule has to be a
-# real one before authority can go back.
-explain="$(herdr agent explain "$pane" 2>/dev/null)" || exit 0
-rule="$(sed -n 's/^rule: *//p' <<<"$explain" | head -n 1)"
-[[ -n "$rule" && "$rule" != none && "$rule" != none\ * ]] || exit 0
-
-herdr pane release-agent "$pane" --source herdr-agent-intercom \
-  --agent "$agent" --seq "$(date +%s%N)" >/dev/null 2>&1 || exit 0
-rm -f "$marker"

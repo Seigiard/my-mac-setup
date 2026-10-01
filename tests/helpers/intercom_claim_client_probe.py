@@ -1183,7 +1183,6 @@ export default function (pi) {
             wrapper_dir.mkdir()
             fields = ("OPENCODE_INTERCOM_NAME", "HERDR_AGENT_INTERCOM_ACTIVE",
                       "HERDR_AGENT_INTERCOM_NAME", "HERDR_AGENT_INTERCOM_PANE",
-                      "HERDR_AGENT_INTERCOM_CLAIM", "HERDR_AGENT_INTERCOM_CLAIM_AGENT",
                       "HERDR_AGENT_INTERCOM_RECOVERY_INTENT", "HERDR_AGENT_INTERCOM_PI_LOAD")
             executable = native_executable("opencode")
             wrapper = wrapper_dir / "opencode"
@@ -1204,7 +1203,6 @@ export default function (pi) {
                     "MMS377_DRIVER_STDERR": str(stderr),
                     "OPENCODE_INTERCOM_NAME": "parent-alias", "HERDR_AGENT_INTERCOM_ACTIVE": "1",
                     "HERDR_AGENT_INTERCOM_NAME": "parent-alias", "HERDR_AGENT_INTERCOM_PANE": "other-pane",
-                    "HERDR_AGENT_INTERCOM_CLAIM": "other-pane", "HERDR_AGENT_INTERCOM_CLAIM_AGENT": "claude",
                     "HERDR_AGENT_INTERCOM_RECOVERY_INTENT": str(inherited),
                     "HERDR_AGENT_INTERCOM_PI_LOAD": "parent-load",
                 }
@@ -1872,57 +1870,6 @@ export default function (pi) {
                     except OSError:
                         pass  # Closing this private connection also removes its auditor.
 
-    def legacy_release_preserves_runtime_successor(self):
-        pane = self.client_pane()
-        sequence = self.reserve_sequence()
-        self.owner.run("pane", "report-agent", pane["pane_id"], "--source", "herdr-agent-intercom",
-                       "--agent", "claude", "--state", "unknown", "--seq", str(sequence))
-        self.owner.run("pane", "release-agent", pane["pane_id"], "--source", "herdr-agent-intercom",
-                       "--agent", "claude", "--seq", str(sequence + 1))
-        require({"step": "legacy-control-released"}, self.state(pane) is None,
-                "legacy control did not release its own claim")
-        pane, receipt, log, exit_file = self.launch("claude", ["--no-chrome"], interactive=True,
-                                                  pane=pane, trace=True)
-        native = self.wait_claude_ready(pane, receipt)["native"]
-        expected = read_json(receipt)
-        self.owner.run("pane", "send-text", pane["pane_id"], "Reply with OK only.")
-        self.owner.run("pane", "send-keys", pane["pane_id"], "enter")
-        wait_until(lambda: read_json(expected["intent"])["phase"] == "retired", 20,
-                   "runtime successor handoff before legacy cleanup")
-        before = self.state(pane)
-        require({"step": "legacy-runtime-successor"}, before is not None and
-                before.get("name") == expected["alias"], "runtime successor did not retain its alias")
-        broker_before = wait_until(lambda: self.intercom_identity(expected["alias"]), 15,
-                                   "runtime successor broker registration")
-        markers = self.runtime_state / "agent-intercom/claims"
-        markers.mkdir(parents=True, exist_ok=True)
-        marker = markers / "".join(char if char.isalnum() else "_" for char in pane["pane_id"])
-        marker.write_text("claude\n", encoding="utf-8")
-        env = self.owner.env | self.foreground_exports("legacy-check", sequence) | {
-            "HERDR_ENV": "1", "HERDR_PANE_ID": pane["pane_id"],
-            "HERDR_SOCKET_PATH": self.owner.socket_path,
-            "HERDR_AGENT_INTERCOM_RECOVERY_INTENT": "",
-        }
-        result = subprocess.run([str(self.release_entrypoint)], env=env, text=True,
-                                capture_output=True, check=False, timeout=15)
-        require({"step": "legacy-release-status"}, result.returncode == 0,
-                f"legacy release failed: {result.stderr}")
-        after = self.state(pane)
-        keys = ("name", "terminal_id", "agent", "agent_session")
-        require({"step": "legacy-successor-preserved"}, after is not None and
-                {key: before.get(key) for key in keys} == {key: after.get(key) for key in keys},
-                f"legacy cleanup changed the runtime successor: {before} -> {after}")
-        broker_after = self.intercom_identity(expected["alias"])
-        require({"step": "legacy-broker-preserved"}, broker_after == broker_before,
-                f"legacy cleanup changed broker identity: {broker_before} -> {broker_after}")
-        require({"step": "legacy-native-preserved"},
-                process_start_identity(native["pid"]) == native["start_identity"],
-                "legacy cleanup terminated the live native client")
-        status = self.send_normal_quit("claude", pane, receipt, log, exit_file)
-        return {"before": before, "after": after, "native": native, "quit_status": status,
-                "broker_before": broker_before, "broker_after": broker_after,
-                "legacy_status": result.returncode, "marker_retained": marker.exists()}
-
     def detected_successor_survives_old_release(self):
         pane = self.client_pane()
         require({"step": "fresh-successor-pane"}, self.state(pane) is None, "successor control did not start with an empty pane")
@@ -2379,8 +2326,6 @@ def run_probe(suspension_only=False):
         probe.case("Claude handoff retries after its first prompt sees an unavailable socket",
                    probe.claude_handoff_retries_after_socket_restoration)
         probe.case("delayed old release preserves a real detected successor and its Intercom identity", probe.detected_successor_survives_old_release)
-        probe.case("legacy release preserves a new runtime successor and its Intercom identity",
-                   probe.legacy_release_preserves_runtime_successor)
         probe.case("native and wrapped Claude preserve normal interactive quit status", probe.claude_normal_quit_parity)
         probe.case("native and wrapped Claude preserve interactive Ctrl-C behavior and status", probe.claude_ctrl_c_parity)
         probe.case("native and wrapped Claude preserve TERM behavior and exact cci status", probe.claude_term_parity)

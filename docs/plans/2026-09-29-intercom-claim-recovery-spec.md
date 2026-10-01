@@ -25,10 +25,10 @@ path. Used-pane reconciliation remains a separate path. A pre-existing record
 that this launch did not create is not its cleanup responsibility.
 
 This does not add Codex enrollment, remote placement support, task supervision,
-or a generic background-worker service. Existing legacy markers lack enough
-ownership information for automatic adoption: keep their current successor
-recovery path and report them separately. The new guarantee applies to claims
-created by the new protocol.
+or a generic background-worker service. Markers written by the launcher before
+this protocol lack enough ownership information for automatic adoption, so the
+observer never adopts them. Their successor-only release path was removed after
+the migration window recorded in #395.
 
 ## Observable requirements
 
@@ -180,13 +180,16 @@ and deployed behavior.
 ### Owner and admission
 
 - Use one narrow observer for each host-local recovery state root. On the proved
-  macOS host, a user `launchd` job is its restart owner: `RunAtLoad` plus
-  `KeepAlive.SuccessfulExit = false`. The actual SIGKILL/restart control passed;
-  `KeepAlive.Crashed = true` did not restart that signal on this host.
+  macOS host, a user `launchd` job is its restart owner. It must restart the
+  observer after SIGKILL. chezmoi deploys the job from
+  `home/private_Library/LaunchAgents/com.seigiard.herdr-agent-intercom-recovery.plist.tmpl`,
+  and `ensure_owner` in `home/dot_local/lib/intercom-claim-recovery.py` checks
+  its restart policy before bootstrapping it. A crash-only `KeepAlive`
+  condition did not restart that signal on this host.
 - The proof-controller PID guard belongs only to disposable test jobs. The
   deployed observer must outlive a launcher or client and read durable intents
   after restart. Its readiness must be established before a new claim is made.
-- Keep versioned recovery intents separate from legacy claim/rename markers.
+- Keep versioned recovery intents separate from used-pane rename notes.
   Failure to establish a proved restart owner or durable intent follows R10.
   Other restart hosts are not proved here; do not acquire new claims behind an
   unverified platform fallback. Independently valid existing aliases can still
@@ -208,7 +211,8 @@ and deployed behavior.
   allocation must remain monotonic across concurrent starts and clock changes.
   The candidate allocator persists its high-water mark under an inode-stable
   lock shared by launches using that source.
-- Use a new protocol source, distinct from legacy `herdr-agent-intercom` claims.
+- Use a protocol source distinct from the pre-protocol `herdr-agent-intercom`
+  source.
   Fence each RPC to its connected server peer and verify the resulting state;
   neither a successful response nor a pre-read licenses an unconditional change.
   Herdr 0.9.1's acquisition rename is also unconditional: it cannot fence
@@ -238,12 +242,13 @@ and deployed behavior.
 The owner approved keeping completed diagnostics outside the active scan.
 Pending and unresolved obligations stay active. Once a record is `settled` or
 `retired`, move it into `intents/archive` under its existing lock. The observer
-does not open archived records during its 100 ms scan.
+does not open archived records during its scan.
 
-Keep terminal receipts for at most seven days and at most 1000 records, checked
-once per minute. Their original handles remain readable while retained. A late
-bind or handoff refuses a terminal or expired obligation. Handles are never
-reused. Only the initial writer creates an intent lock; later callers open the
+Terminal receipts are pruned periodically by age and by count. The limits and
+the prune interval are the `ARCHIVE_*` constants in
+`home/dot_local/lib/intercom-claim-recovery.py`. Their original handles remain
+readable while retained. A late bind or handoff refuses a terminal or expired
+obligation. Handles are never reused. Only the initial writer creates an intent lock; later callers open the
 existing inode. After durable archival the sidecar can be removed: queued
 callers retain the old inode and observe terminal state, while new callers
 cannot create a replacement lock. Sequence and owner-admission locks remain
@@ -253,9 +258,11 @@ persistent and are outside this retention policy.
 
 The healthy-state target is verified recovery within **10 seconds** of confirmed
 client exit, with the observer available, successful local identity/Herdr reads,
-and known ownership. Poll at **100 ms**; retry an uncertain acknowledged release
-no more often than every **2 seconds**. A missed healthy budget fails acceptance;
-an unavailable observation stays pending rather than being called success.
+and known ownership. This is an acceptance requirement, not an engine constant;
+`ten_claims_meet_healthy_budget` in `tests/helpers/intercom_claim_ownership_probe.py`
+checks it. The observer polls at `POLL_SECONDS` and retries an uncertain acknowledged release no more
+often than `PENDING_RETRY_SECONDS`. A missed healthy budget fails acceptance; an
+unavailable observation stays pending rather than being called success.
 
 The registered ten-claim burst control measures verified absence after exit
 observations. The evidence note below is the single index of current artifacts
@@ -297,8 +304,8 @@ conformance probes are implemented together; acceptance requires both layers.
 - Implemented in draft PR #387: the shared recovery engine, launcher and Claude
   bridge, launchd owner, durable intents, takeover and archival. The #378 fresh
   and used-pane paths remain distinct.
-- The agent-read contract and ADR-0018 describe the runtime, legacy boundary and
-  pending diagnostics. The evidence note records behavioral and live checks.
+- The agent-read contract and ADR-0018 describe the runtime and pending
+  diagnostics. The evidence note records behavioral and live checks.
 - #384 owns the reproduced old-claim/new-Claude alias race and its regression
   fix. An unresolved recovery claim is not an independently reusable alias.
 - #385 owns the remaining first-review repairs and their verification.
