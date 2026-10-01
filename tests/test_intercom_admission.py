@@ -149,6 +149,53 @@ class AdmissionTests(unittest.TestCase):
         (Path(self.root.name) / "reconcile").write_text("not a directory")
         self.assertEqual(self.admit().launch.kind, "native")
 
+    def test_ignored_report_on_a_used_pane_is_reported_as_undeclarable(self):
+        # given the measured 0.9.3 used pane with no visible agent_session
+        self.server.undeclarable.add("term-1")
+        # when admission owns the attempted declaration and its rollback
+        result = self.admit()
+        # then Claude enrolls with a durable deferred name and no pending claim
+        self.assertEqual(result, recovery.Admission(recovery.Launch("enrolled", "deferred_rename", "ochre-okapi")))
+        self.assertEqual((Path(self.root.name) / "reconcile/w1_p1").read_text(), "ochre-okapi\n")
+        self.assertEqual([method for method, _ in self.server.events if method in
+                          {"pane.report_agent", "agent.rename", "pane.release_agent"}],
+                         ["pane.report_agent", "agent.rename", "pane.release_agent"])
+        for agent in ("opencode", "pi"):
+            self.assertEqual(self.admit(agent=agent), recovery.Admission(recovery.Launch("native", reason_code="used_pane")))
+
+    def test_unconfirmed_cleanup_stays_pending_and_is_not_undeclarable(self):
+        # given an ignored declaration followed by a newer record before rollback
+        self.server.undeclarable.add("term-1")
+        def successor(method, params):
+            self.server.undeclarable.clear()
+            self.server.apply("pane.report_agent", {**params, "seq": params["seq"] + 1, "state": "unknown"})
+            self.server.apply("agent.rename", {"target": "w1:p1", "name": "someone-else"})
+        self.server.schedule("pane.release_agent", successor)
+        # when the successful release leaves that newer record visible
+        diagnostics = io.StringIO()
+        with contextlib.redirect_stderr(diagnostics):
+            result = self.admit()
+        # then no deferred enrollment is authorized and the obligation survives
+        self.assertEqual(result.launch.kind, "native")
+        self.assertEqual(self.engine.observe_one(result.intent_id).phase, "intent")
+        self.assertEqual(diagnostics.getvalue(), "admission unavailable: partial claim remains pending for recovery\n")
+        self.assertFalse((Path(self.root.name) / "reconcile/w1_p1").exists())
+        self.assertEqual(self.server.request("agent.get", {"target": "w1:p1"})["result"]["agent"]["name"], "someone-else")
+
+    def test_other_clean_rejection_neither_defers_nor_claims_pending_cleanup(self):
+        # given a rename rejection unrelated to a used pane or collision
+        apply = self.server.apply
+        self.server.apply = lambda method, params: (
+            {"error": {"code": "invalid_name"}} if method == "agent.rename" else apply(method, params))
+        # when rollback confirms that nothing remains
+        diagnostics = io.StringIO()
+        with contextlib.redirect_stderr(diagnostics):
+            result = self.admit()
+        # then native startup has no outstanding claim or pending warning
+        self.assertEqual(result, recovery.Admission(recovery.Launch("native", reason_code="acquisition_unconfirmed")))
+        self.assertEqual(diagnostics.getvalue(), "admission unavailable: the rejected claim was rolled back\n")
+        self.assertFalse((Path(self.root.name) / "reconcile/w1_p1").exists())
+
     def test_unavailable_owner_and_replaced_server_acquire_nothing(self):
         def unavailable(root):
             raise recovery.RecoveryError("owner absent")

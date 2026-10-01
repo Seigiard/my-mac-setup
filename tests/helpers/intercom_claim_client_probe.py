@@ -1151,7 +1151,7 @@ export default function (pi) {
                 "protected_before": protected, "protected_after": after, "status": status}
 
     def claude_relaunch_in_used_pane_reconciles(self):
-        # tests/test_intercom_claim_admission.py models how a used pane answers a
+        # tests/test_intercom_admission.py models how a used pane answers a
         # declared claim. This case asks the real Herdr the same question: launch,
         # exit, relaunch in the same pane, then reconcile at the first prompt.
         pane, receipt, log, exit_file = self.launch("claude", ["--no-chrome"], interactive=True, alias_index=17)
