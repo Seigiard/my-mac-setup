@@ -252,9 +252,16 @@ class RecoveryEngine:
                 intent_id = claim["intent_id"] if claim.get("pending", claim["claimed"]) else None
                 if claim["claimed"]:
                     return Admission(Launch("enrolled", "claimed", alias), intent_id)
+                if claim.get("undeclarable"):
+                    if agent != "claude":
+                        return Admission(Launch("native", reason_code="used_pane"))
+                    self._defer_rename(pane["pane_id"], alias)
+                    return Admission(Launch("enrolled", "deferred_rename", alias))
                 if not claim.get("retry"):
                     if intent_id:
                         print("admission unavailable: partial claim remains pending for recovery", file=sys.stderr)
+                    else:
+                        print("admission unavailable: the rejected claim was rolled back", file=sys.stderr)
                     return Admission(Launch("native", reason_code="acquisition_unconfirmed"), intent_id)
             return Admission(Launch("native", reason_code="alias_exhausted"))
         except (OSError, ValueError, KeyError, TypeError, RecoveryError, subprocess.TimeoutExpired) as error:
@@ -1154,8 +1161,13 @@ def claim_intent(intent_dir, agent, source, alias, launcher_pid, *,
                     raise RecoveryError("rejected alias cleanup was not observed")
                 update_intent(path, intent, Phase.SETTLED, "settled: alias acquisition rejected",
                               reason_code="alias_rejected", host=host)
+                code = response["error"].get("code")
+                # Herdr 0.9.3 clears agent_session after exit but still ignores
+                # declarations in used panes. Only confirmed rollback makes
+                # this rename failure safe for the deferred-rename route.
                 return {"claimed": False, "error": response["error"], "intent": path, "intent_id": handle,
-                        "retry": response["error"].get("code") == "agent_name_taken", "pending": False}
+                        "retry": code == "agent_name_taken",
+                        "undeclarable": code == "agent_not_found", "pending": False}
             visible = session.request("agent.get", {"target": intent["terminal"]["pane_id"]})
             record = visible.get("result", {}).get("agent", {})
             if ("error" in visible or record.get("name") != alias or record.get("agent") != agent or

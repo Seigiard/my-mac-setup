@@ -128,6 +128,11 @@ class ProbeHost(recovery.Host):
 
 
 class ProbeSession(recovery.HerdrSession):
+    def release_with_readback(self, sequence):
+        response = super().release_with_readback(sequence)
+        trace_event(self.intent, "release_readback", unique=True, response=response)
+        return response
+
     def request(self, method, params):
         intent = self.intent
         if "launch_id" in intent and os.environ.get(TRACE_ENV):
@@ -144,6 +149,8 @@ class ProbeSession(recovery.HerdrSession):
             trace_event(intent, "mutation_attempt", unique=True, method=method, params=params)
         if release:
             trace_event(intent, "release_result", response=response)
+        if method == "agent.rename":
+            trace_event(intent, "rename_result", unique=True, params=params, response=response)
         return response
 
 

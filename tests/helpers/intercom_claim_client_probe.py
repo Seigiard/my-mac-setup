@@ -1150,6 +1150,89 @@ export default function (pi) {
         return {"attempts": attempts, "candidate_calls": calls.read_text(), "successor": state,
                 "protected_before": protected, "protected_after": after, "status": status}
 
+    def claude_relaunch_in_used_pane_reconciles(self):
+        # tests/test_intercom_claim_admission.py models how a used pane answers a
+        # declared claim. This case asks the real Herdr the same question: launch,
+        # exit, relaunch in the same pane, then reconcile at the first prompt.
+        pane, receipt, log, exit_file = self.launch("claude", ["--no-chrome"], interactive=True, alias_index=17)
+        self.wait_claude_ready(pane, receipt)
+        self.send_normal_quit("claude", pane, receipt, log, exit_file)
+        first = self.wait_completed(receipt, pane)
+        used = self.stable_terminal(pane)
+        require({"step": "relaunch-used-pane-shape"}, "agent_session" not in used,
+                f"pane get still carries the exited client's identity, so the relaunch skips admission: {used}")
+
+        before = self.intent_paths()
+        alias = self.aliases[18 % len(self.aliases)]
+        stderr = self.scratch / f"relaunch-{time.time_ns()}.stderr"
+        _, receipt, log, exit_file = self.launch(
+            "claude", ["--no-chrome"], interactive=True, alias_index=18, pane=pane, trace=True,
+            claim_required=False, extra_env={"MMS377_DRIVER_STDERR": str(stderr)})
+        driver = self.wait_driver(receipt, "running")
+
+        def rejected():
+            paths = self.intent_paths() - before
+            if len(paths) != 1:
+                return None
+            value = read_json(next(iter(paths)))
+            return value if value.get("phase") == "settled" else None
+        intent = wait_until(rejected, 12, "relaunch admission settlement")
+        require({"step": "relaunch-claim-rejected"}, intent.get("diagnostic") == "settled: alias acquisition rejected",
+                f"relaunch admission did not settle as a rejected claim: {intent}")
+        renames = [read_json(path) for path in pathlib.Path(probe_trace_dir(intent)).glob("*.rename_result.*.json")]
+        require({"step": "relaunch-rename-not-found"}, [(item["params"]["name"], item["response"].get("error", {}).get("code"))
+                                                         for item in renames] == [(alias, "agent_not_found")],
+                f"a used pane did not answer the declared rename with agent_not_found: {renames}")
+        readbacks = [read_json(path)["response"] for path in
+                     pathlib.Path(probe_trace_dir(intent)).glob("*.release_readback.*.json")]
+        require({"step": "relaunch-rollback-absent"}, len(readbacks) == 1 and
+                readbacks[0].get("error", {}).get("code") == "agent_not_found",
+                f"used-pane rollback did not confirm record absence: {readbacks}")
+
+        def native_ready():
+            # A fallback launch execs native Claude as the driver's own client.
+            candidates = [driver["client_pid"], *(pid for pid, _, _ in self.descendants(driver["client_pid"]))]
+            for pid in candidates:
+                client = self.native_process(pid, "claude")
+                if client and self.native_input_ready(pid):
+                    return client
+            return None
+        client = wait_until(native_ready, 20, "relaunched native Claude input")
+        try:
+            warnings = stderr.read_text(encoding="utf-8") if stderr.exists() else ""
+            require({"step": "relaunch-no-fallback-warning"}, "herdr-agent-intercom:" not in warnings,
+                    f"relaunch fell back instead of enrolling: {warnings}")
+            pane_key = "".join(character if character.isalnum() else "_" for character in pane["pane_id"])
+            note = self.runtime_state / "agent-intercom/reconcile" / pane_key
+            require({"step": "relaunch-reconcile-note"}, note.exists() and note.read_text(encoding="utf-8") == alias + "\n",
+                    f"relaunch did not record its pending rename to {alias}")
+            identity = wait_until(lambda: self.intercom_identity(alias), 15, "relaunched Claude Intercom registration")
+            # The hook leaves the rename to a later prompt while no record exists,
+            # so prompt only after Claude's own session report created one.
+            detected = self.wait_claude_session(pane)
+            require({"step": "relaunch-detected-record-unnamed"}, not detected.get("name"),
+                    f"the relaunched record already carries a name before reconciliation: {detected}")
+
+            self.owner.run("pane", "send-text", pane["pane_id"], "Reply with OK only.")
+            self.owner.run("pane", "send-keys", pane["pane_id"], "enter")
+            try:
+                reconciled = wait_until(
+                    lambda: state if (state := self.state(pane)) and state.get("name") == alias else None,
+                    20, "first-prompt rename of the relaunched Claude record",
+                )
+            except ProbeError as error:
+                raise ProbeError(
+                    f"{error}; state={self.state(pane)}; note={note.read_text(encoding='utf-8') if note.exists() else None}; "
+                    f"pane_get={self.stable_terminal(pane)}; screen={self.pane_visible(pane)[-3000:]}"
+                ) from error
+            wait_until(lambda: not note.exists(), 5, "reconcile note removal after the rename")
+            return {"first": first["intent"]["phase"], "used_pane": used, "intent": intent, "renames": renames,
+                    "rollback": readbacks[0], "identity": identity, "detected": detected, "reconciled": reconciled}
+        finally:
+            if process_start_identity(client["pid"]) == client["start_identity"]:
+                os.kill(client["pid"], signal.SIGTERM)
+            self.wait_exit(log, exit_file, receipt, timeout=15)
+
     def runtime_owner_recovers_stale_readiness_and_crash(self):
         ready_path = self.runtime_root / "observer.ready"
         original = read_json(ready_path)
@@ -2340,6 +2423,8 @@ def run_probe(suspension_only=False):
                    probe.runtime_owner_recovers_stale_readiness_and_crash)
         probe.case("fresh alias collision rolls back and retries without disturbing its owner",
                    probe.alias_collision_rolls_back_and_retries)
+        probe.case("Claude relaunch in a used pane enrolls and reconciles its alias at the first prompt",
+                   probe.claude_relaunch_in_used_pane_reconciles)
         probe.case("old cleanup settles before successor startup and late observations preserve identity",
                    probe.alias_reuse_preserves_successor_identity)
         probe.case("alias reuse refreshes stale lookup and preserves an independent identity",

@@ -131,6 +131,38 @@ def main():
         observed = scenarios(recovery.HerdrSessions(host), owner.socket_path, first, second, live_move, live_replace, host)
         if observed != modeled:
             raise AssertionError({"fake": modeled, "real": observed})
+        # A real client exit is required to establish the 0.9.3 used-pane state.
+        # Reuse the native probe's isolated lifecycle, not an invented RPC reset.
+        from intercom_claim_client_probe import ClientProbe
+        client = ClientProbe()
+        try:
+            client.start()
+            relaunched = client.claude_relaunch_in_used_pane_reconciles()
+            fake = FakeHerdr()
+            fake.undeclarable.add("term-1")
+            host = FakeHost()
+            host.ensure_owner = lambda root: True
+            host.alias_candidates = lambda seed: ["ochre-okapi"]
+            with tempfile.TemporaryDirectory(prefix="intercom-used-calibration-") as root:
+                admission = recovery.RecoveryEngine(os.path.join(root, "recovery/v1"), host=host, sessions=fake).admit(
+                    socket_path="fake.sock", pane_id="w1:p1", agent="claude", launcher_pid=10)
+            modeled_used = {
+                "session_absent": "agent_session" not in fake.panes["w1:p1"],
+                "rename_error": fake.request("agent.rename", {"target": "w1:p1", "name": "ochre-okapi"})["error"]["code"],
+                "record_absent": fake.request("agent.get", {"target": "w1:p1"}).get("error", {}).get("code"),
+                "deferred": admission.launch.route == "deferred_rename" and admission.intent_id is None,
+            }
+            observed_used = {
+                "session_absent": "agent_session" not in relaunched["used_pane"],
+                "rename_error": relaunched["renames"][0]["response"]["error"]["code"],
+                "record_absent": relaunched["rollback"].get("error", {}).get("code"),
+                "deferred": relaunched["reconciled"]["name"] == relaunched["identity"]["name"],
+            }
+            if modeled_used != observed_used:
+                raise AssertionError({"fake_used": modeled_used, "real_used": observed_used})
+            observed["used_pane_after_client_exit"] = observed_used
+        finally:
+            client.close()
         print(json.dumps({"version": version, "scenarios": observed, "verdict": "PASS"}, sort_keys=True), flush=True)
     finally:
         owner.close()

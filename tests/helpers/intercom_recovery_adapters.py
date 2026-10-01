@@ -72,6 +72,7 @@ class FakeHerdr:
         self.schedules = []
         self.delayed = []
         self.available = True
+        self.undeclarable = set()
 
     def connect(self, socket_path):
         if not self.available:
@@ -163,6 +164,8 @@ class FakeHerdr:
                 return ok
             self.highwater[key] = sequence
             if method == "pane.report_agent":
+                if terminal in self.undeclarable:
+                    return ok
                 self.authority[terminal] = source
                 self.records[terminal] = {**pane, "agent": params["agent"],
                                           "agent_status": params["state"],

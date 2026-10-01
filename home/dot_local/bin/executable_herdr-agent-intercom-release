@@ -50,6 +50,9 @@ reconcile_pending_rename() {
   pending="$(head -n 1 "$reconcile_note" 2>/dev/null)" || pending=""
   [[ "$pending" == "$HERDR_AGENT_INTERCOM_NAME" ]] || return 0
 
+  # No record yet means detection has not run, so a later prompt gets the turn.
+  # A record without a name still needs the rename: herdr 0.9.3 creates the
+  # relaunched client's record unnamed on a pane whose earlier client exited.
   current="$(herdr agent get "$pane" 2>/dev/null | python3 -c '
 import json
 import sys
@@ -61,9 +64,7 @@ try:
 except (KeyError, TypeError, json.JSONDecodeError):
     raise SystemExit(1)
 sys.stdout.write(agent.get("name") or "")
-' "$pane")" || current=""
-  # No record yet means detection has not run, so a later prompt gets the turn.
-  [[ -n "$current" ]] || return 0
+' "$pane")" || return 0
   if [[ "$current" == "$pending" ]]; then
     rm -f "$reconcile_note"
     return 0
@@ -82,7 +83,7 @@ sys.stdout.write(agent.get("name") or "")
     rm -f "$reconcile_note"
   elif [[ "$rename_result" == *agent_name_taken* ]]; then
     printf 'herdr-agent-intercom: %s is taken, so this session answers to it in Intercom while Herdr shows %s\n' \
-      "$pending" "$current"
+      "$pending" "${current:-no alias}"
     rm -f "$reconcile_note"
   fi
 }

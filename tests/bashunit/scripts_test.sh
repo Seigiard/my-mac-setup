@@ -358,6 +358,48 @@ function test_scripts_1348_agent_intercom_enrolls_a_pane_that_refuses_a_declared
   assert_output "cci name=<> args= active=<1> pi_load=<><--tui><--transport><mcp><--name><ochre-okapi><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
   mkdir -p "${note%/*}"
 
+  # PR401's ignored-report, durable-note, collision and pending-rollback
+  # assertions now run through admit in test_intercom_claim_admission.py.
+  # Here the launcher consumes the finished decision exactly once.
+  : > "$log"; rm -f "$note"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 ADMISSION_LOG="$log" \
+    ADMISSION_RESULT=$'v1\tnative\t-\t-\t-\tused_pane' \
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" opencode
+
+  # #then it starts without Intercom and records no pending rename
+  assert_success
+  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting opencode without Intercom
+opencode name=<> args= active=<> pi_load=<>'
+  assert_equal "$(cat "$log")" admit
+  assert_file_not_exists "$note"
+
+  # #when the engine cannot confirm that its attempt left nothing behind
+  : > "$log"; rm -f "$note"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 ADMISSION_LOG="$log" \
+    ADMISSION_RESULT=$'v1\tnative\t-\t-\tretained-handle\tacquisition_unconfirmed' \
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" claude
+
+  # #then Claude starts bare and the partial claim stays with recovery
+  assert_success
+  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting claude without Intercom
+claude name=<> args= active=<> pi_load=<>'
+  assert_equal "$(cat "$log")" admit
+  assert_file_not_exists "$note"
+
+  # #when the engine rolled back a rejection that is neither a collision nor an
+  # ignored report
+  : > "$log"; rm -f "$note"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 ADMISSION_LOG="$log" \
+    ADMISSION_RESULT=$'v1\tnative\t-\t-\t-\tacquisition_unconfirmed' \
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" claude
+
+  # #then Claude starts bare, and the warning does not claim anything is pending
+  assert_success
+  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting claude without Intercom
+claude name=<> args= active=<> pi_load=<>'
+  assert_equal "$(cat "$log")" admit
+  assert_file_not_exists "$note"
+
   # #given the record Herdr's own detection created, under its own alias
   cat > "$stub/herdr" <<'SH'
 #!/usr/bin/env bash
@@ -367,6 +409,10 @@ case "$1 $2" in
     [[ -z "${NO_RECORD:-}" ]] || {
       printf '{"error":{"code":"agent_not_found","message":"agent target %s not found"},"id":"cli:agent:get"}\n' "$3" >&2
       exit 1
+    }
+    [[ -z "${UNNAMED_RECORD:-}" ]] || {
+      printf '{"id":"cli:agent:get","result":{"agent":{"agent":"claude","agent_session":{"source":"herdr:claude","value":"relaunch"},"pane_id":"%s"}}}\n' "$3"
+      exit 0
     }
     printf '{"id":"cli:agent:get","result":{"agent":{"agent":"claude","name":"%s","pane_id":"%s"}}}\n' \
       "${RECORD_NAME:-plum-dingo}" "$3"
@@ -394,6 +440,18 @@ SH
     HOME="$home" PATH="$stub:$PATH" bash "$release"
 
   # #then the Herdr record takes the name Intercom already answers to
+  assert_success
+  assert_file_contains "$log" 'agent rename w1:p2 ochre-okapi'
+  assert_file_not_exists "$note"
+
+  # #given the record herdr 0.9.3 creates for a client relaunched in a used
+  # pane: Claude's own hook reports its session, but the record carries no
+  # name. Measured live in intercom_claim_client_probe.py's relaunch case.
+  printf 'ochre-okapi\n' > "$note"; : > "$log"
+  # #when the release command runs
+  run env HERDR_PANE_ID=w1:p2 HERDR_AGENT_INTERCOM_NAME=ochre-okapi UNNAMED_RECORD=1 \
+    CLAIM_LOG="$log" HOME="$home" PATH="$stub:$PATH" bash "$release"
+  # #then the unnamed record takes the name Intercom already answers to
   assert_success
   assert_file_contains "$log" 'agent rename w1:p2 ochre-okapi'
   assert_file_not_exists "$note"
