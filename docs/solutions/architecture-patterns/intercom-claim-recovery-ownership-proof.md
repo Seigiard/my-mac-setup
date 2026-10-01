@@ -31,8 +31,11 @@ acceptance. Historical proof results below remain unchanged.
 ### Runtime verification checkpoint
 
 Artifacts live under `~/.claude/artifacts/377/`. The runtime uses the shared
-engine at `home/dot_local/lib/intercom-claim-recovery.py`; the former prototype
-module is a test shim that loads this same engine.
+engine at `home/dot_local/lib/intercom-claim-recovery.py`. The former prototype
+module, `tests/helpers/intercom_claim_recovery_prototype.py`, is now the probe
+engine entry. It executes this same engine and attaches the proofs' barriers,
+trace events and abandonment guard from outside. Each runtime home stages it as
+that home's engine. The deployed engine reads no barrier or trace field.
 
 ### Review confirmation and verification repair
 
@@ -321,9 +324,12 @@ prototype does not attempt an unsafe read-then-rename repair.
 
 The owner probe runs installed Herdr 0.9.1 in an isolated named session. A
 temporary macOS `launchd` job in `gui/<uid>` restarts the observer with
-`RunAtLoad` and restart-on-failure `KeepAlive`. A proof-controller PID/start guard
-unregisters the temporary job when that controller exits. This is a harness
-abandonment guard, not the eventual deployed service lifetime. Each job has its
+`RunAtLoad` and restart-on-failure `KeepAlive`. Both probes render that job from
+the deployed plist template, so every job key has one source; a proof changes
+only the label, the runtime home and the probe environment. The production
+ensure-owner path starts it. A proof-controller PID/start guard in the probe
+engine entry unregisters the temporary job when that controller exits. This is
+a harness abandonment guard, not the deployed service lifetime. Each job has its
 own plist, logs and PID receipt. Teardown
 boots it out and confirms process exit before deleting its files. Cleanup
 failures preserve available scratch state for diagnosis; removal errors fail
@@ -342,7 +348,9 @@ An inode-stable sidecar lock serializes acknowledgement, native binding,
 handoff and observation for one intent. JSON rename alone is not that lock.
 Observer lock attempts are nonblocking, so a busy intent does not stop the
 observer from checking others. Test barriers have deadlines and failure-path
-release guards; they are not part of the proposed deployed protocol.
+release guards. They live in the probe engine entry and attach by launch ID
+through a probe-owned control directory; they are not part of the deployed
+protocol, and intent JSON carries no test control field.
 
 Every RPC verifies the kernel peer PID/start identity on the descriptor used
 for that request. Herdr closes the connection after a response. A path or inode
@@ -459,8 +467,8 @@ and Claude also witness the observer examining a pending intent while stopped.
 Pi's intent has retired after lifecycle takeover, so its row proves suspension
 attribution for that retired state, not pending-claim cleanup behavior.
 The trace checks reject recovery mutations before quit. Append-only mutation
-attempts are recorded on the fenced descriptor before sending the RPC, so a lost
-response cannot hide a write. A native baseline that retains identity cannot
+attempts are recorded before the engine's peer fence and RPC, so neither a lost
+response nor a fenced-off request can hide an attempted write. A native baseline that retains identity cannot
 excuse wrapped loss. A fully retained wrapped identity is PASS, not a permanent
 exception based only on a version string.
 

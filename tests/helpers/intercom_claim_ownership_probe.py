@@ -5,6 +5,7 @@ import argparse
 import json
 import fcntl
 import os
+import plistlib
 import pty
 import shutil
 import signal
@@ -22,17 +23,24 @@ from unittest.mock import patch
 import intercom_claim_recovery_prototype as recovery_prototype
 
 from intercom_claim_recovery_prototype import (
-    LaunchdOwner,
-    acknowledge_acquisition,
+    CONTROL_ENV,
+    OWNER_ENV,
+    RecoveryError,
     atomic_write,
     capture_server_identity,
+    intent_lock,
+    launchd_job,
     process_start_identity,
+    read_json,
+    register_control,
     socket_identity,
     write_intent,
 )
 
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+PLIST_TEMPLATE = os.path.join(ROOT, "home/private_Library/LaunchAgents/com.seigiard.herdr-agent-intercom-recovery.plist.tmpl")
+PROBE_ENGINE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "intercom_claim_recovery_prototype.py")
 OPT_IN = "MMS_LIVE_HERDR_OWNERSHIP_PROBE"
 EVIDENCE_DIR = "MMS_LIVE_HERDR_OWNERSHIP_EVIDENCE_DIR"
 OLD_SOURCE = "mms-377-old-launch"
@@ -252,6 +260,106 @@ class OwnedHerdr:
             raise ProbeError("; ".join(errors))
 
 
+class RecoveryJob:
+    """An owned launchd recovery job rendered from the deployed plist template.
+
+    The template supplies every job key. A proof changes only the label, the
+    runtime home it renders for, and the probe environment. Its engine path is
+    the probe entry, so the deployed engine runs with the proofs' hooks attached.
+    """
+
+    def __init__(self, home, label, owner=None, intent_dir=None):
+        self.home = str(home)
+        self.label = label
+        self.domain = f"gui/{os.getuid()}"
+        state_home = os.path.join(self.home, ".local/state")
+        self.state_root = os.path.join(state_home, "agent-intercom/recovery/v1")
+        self.intent_dir = os.path.join(self.state_root, "intents")
+        self.pid_file = os.path.join(self.state_root, "observer.pid.json")
+        self.engine = os.path.join(self.home, ".local/lib/intercom-claim-recovery.py")
+        self.plist = os.path.join(self.home, f"{label}.plist")
+        os.makedirs(os.path.dirname(self.engine), exist_ok=True)
+        if not os.path.lexists(self.engine):
+            os.symlink(PROBE_ENGINE, self.engine)
+        os.makedirs(self.state_root, exist_ok=True)
+        if intent_dir:
+            # A second observer of the same obligations keeps its own receipts.
+            os.symlink(intent_dir, self.intent_dir)
+        else:
+            os.makedirs(self.intent_dir, exist_ok=True)
+        configuration = os.path.join(self.home, "chezmoi.json")
+        with open(configuration, "w", encoding="utf-8") as handle:
+            json.dump({"sourceDir": os.path.join(ROOT, "home")}, handle)
+        rendered = subprocess.run(
+            ["chezmoi", "--config", configuration, "--persistent-state", os.path.join(self.home, "chezmoi-state.db"),
+             "--cache", os.path.join(self.home, "cache"), "execute-template", "--file", PLIST_TEMPLATE],
+            env=os.environ | {"HOME": self.home, "XDG_STATE_HOME": state_home},
+            text=True, capture_output=True, check=False, timeout=20,
+        )
+        if rendered.returncode:
+            raise ProbeError(f"real plist template did not render: {rendered.stderr.strip()}")
+        payload = plistlib.loads(rendered.stdout.encode())
+        payload["Label"] = label
+        arguments = payload["ProgramArguments"]
+        arguments[arguments.index("--job-label") + 1] = label
+        environment = {name: os.environ[name] for name in (CONTROL_ENV,) if os.environ.get(name)}
+        if owner:
+            environment[OWNER_ENV] = json.dumps(owner)
+        if environment:
+            payload["EnvironmentVariables"] = environment
+        with open(self.plist, "wb") as handle:
+            plistlib.dump(payload, handle)
+        self.payload = payload
+
+    def start(self):
+        # The production ensure-owner path is the readiness authority; it
+        # validates the rendered plist, the engine path and the receipt.
+        result = subprocess.run(
+            [sys.executable, self.engine, "--ensure-owner", "--owner-root", self.state_root,
+             "--owner-label", self.label, "--owner-plist", self.plist],
+            text=True, capture_output=True, check=False, timeout=20,
+        )
+        if result.returncode:
+            raise ProbeError(f"recovery owner failed: {result.stderr.strip()}")
+        ready = json.loads(result.stdout)
+        if ready.get("job_label") != self.label or ready.get("intent_dir") != os.path.realpath(self.intent_dir):
+            raise ProbeError(f"recovery readiness is not this owner: {ready}")
+        return ready
+
+    def wait_for_pid(self, previous, timeout=10):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                current = read_json(self.pid_file)
+            except (OSError, ValueError):
+                time.sleep(0.1)
+                continue
+            if current.get("pid") != previous and process_start_identity(current.get("pid")) == current.get("start_identity"):
+                return current
+            time.sleep(0.1)
+        raise ProbeError("launchd observer did not become live")
+
+    def kill_observer(self):
+        previous = read_json(self.pid_file)
+        os.kill(previous["pid"], signal.SIGKILL)
+        return self.wait_for_pid(previous["pid"])
+
+    def close(self):
+        try:
+            observed = read_json(self.pid_file)
+        except FileNotFoundError:
+            observed = None
+        subprocess.run(["launchctl", "bootout", f"{self.domain}/{self.label}"],
+                       text=True, capture_output=True, check=False, timeout=10)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            process_gone = observed is None or process_start_identity(observed["pid"]) != observed["start_identity"]
+            if process_gone and launchd_job(self.domain, self.label) is None:
+                return
+            time.sleep(0.1)
+        raise ProbeError("launchd job or observer still present after bootout")
+
+
 def require(observed, condition, message):
     if not condition:
         raise ProbeError(f"{observed['step']}: {message}")
@@ -300,6 +408,7 @@ def start_client(seconds=30):
 
 def durable_intent(owner, intent_dir, pane, sequence, client, start_identity, barrier=None,
                    entry_barrier=None, trace_dir=None):
+    """Write a launch obligation; probe barriers and trace attach by its launch ID."""
     launch_id = f"launch-{client.pid}-{sequence}-{uuid.uuid4().hex}"
     intent = {
         "launch_id": launch_id,
@@ -317,12 +426,9 @@ def durable_intent(owner, intent_dir, pane, sequence, client, start_identity, ba
         "client": {"pid": client.pid, "start_identity": start_identity},
         "created_at_ns": time.time_ns(),
     }
-    if barrier:
-        intent["barrier"] = barrier
-    if entry_barrier:
-        intent["entry_barrier"] = entry_barrier
-    if trace_dir:
-        intent["trace_dir"] = trace_dir
+    for kind, value in (("barrier", barrier), ("entry_barrier", entry_barrier), ("trace", trace_dir)):
+        if value:
+            register_control(launch_id, kind, value)
     path = write_intent(intent_dir, intent)
     return path
 
@@ -377,6 +483,16 @@ def claim_and_confirm(owner, pane, source, sequence, step):
     return claimed
 
 
+def acknowledge_acquisition(intent_path):
+    with intent_lock(intent_path, timeout=5):
+        intent = read_json(intent_path)
+        if intent["phase"] != "intent":
+            raise RecoveryError(f"cannot acknowledge phase {intent['phase']!r}")
+        intent["phase"] = "acquired"
+        intent["acquired_at_ns"] = time.time_ns()
+        atomic_write(intent_path, intent)
+
+
 def claim_and_acknowledge(owner, intent, pane, source, sequence, step):
     claimed = claim_and_confirm(owner, pane, source, sequence, step)
     acknowledge_acquisition(intent)
@@ -407,6 +523,8 @@ def main():
         return 2
 
     owner = OwnedHerdr()
+    os.environ[CONTROL_ENV] = os.path.join(owner.root, "probe-control")
+    probe_owner = {"pid": os.getpid(), "start_identity": process_start_identity(os.getpid())}
     verdicts = []
     launchd = None
     artifact_root = os.environ.get(EVIDENCE_DIR, os.path.join(tempfile.gettempdir(), "mms377-proof"))
@@ -415,7 +533,11 @@ def main():
     outcome = 1
     try:
         root = owner.start()
-        launchd = LaunchdOwner(owner.root)
+        def recovery_job(name, owner_identity=probe_owner, intent_dir=None):
+            label = f"dev.seigiard.mms377.recovery.{os.getpid()}.{uuid.uuid4().hex[:8]}"
+            return RecoveryJob(os.path.join(owner.root, name), label, owner_identity, intent_dir)
+
+        launchd = recovery_job("recovery-home")
         OWNED_OBSERVERS.append(launchd)
         launchd.start()
 
@@ -452,10 +574,7 @@ def main():
                                          process_start_identity(launcher.pid), trace_dir=trace_dir)
             binder = None
             try:
-                with recovery_prototype.intent_lock(intent_path, timeout=5):
-                    intent = recovery_prototype.read_json(intent_path)
-                    intent["bind_barrier"] = barrier
-                    atomic_write(intent_path, intent)
+                register_control(recovery_prototype.read_json(intent_path)["launch_id"], "bind_barrier", barrier)
                 claim_and_acknowledge(owner, intent_path, pane, OLD_SOURCE, sequence, "native-binding-claimed")
                 atomic_write(gate, {"intent": intent_path, "result": result_path})
                 wait_for_file(barrier + ".checked", "binding after live-parent check")
@@ -528,7 +647,7 @@ def main():
 
         def probe_owner_exit_unregisters_observer():
             controller, start = start_client()
-            temporary = LaunchdOwner(owner.root, {"pid": controller.pid, "start_identity": start})
+            temporary = recovery_job("abandoned-home", {"pid": controller.pid, "start_identity": start})
             OWNED_OBSERVERS.append(temporary)
             try:
                 observed = temporary.start()
@@ -536,9 +655,7 @@ def main():
                 controller.wait(timeout=5)
                 deadline = time.monotonic() + 10
                 while time.monotonic() < deadline:
-                    job = subprocess.run(["launchctl", "print", f"{temporary.domain}/{temporary.label}"],
-                                         text=True, capture_output=True, check=False, timeout=5)
-                    absent = job.returncode != 0 and "Could not find service" in job.stderr
+                    absent = launchd_job(temporary.domain, temporary.label) is None
                     exited = process_start_identity(observed["pid"]) != observed["start_identity"]
                     if absent and exited:
                         break
@@ -882,7 +999,7 @@ def main():
                                    entry_barrier=entry_barrier, trace_dir=trace_dir)
             claim_and_acknowledge(owner, intent, pane, OLD_SOURCE, sequence, "concurrent-claimed")
             before_retirement = recovery_prototype.read_intent(intent)
-            second_owner = LaunchdOwner(owner.root)
+            second_owner = recovery_job("second-home", intent_dir=launchd.intent_dir)
             OWNED_OBSERVERS.append(second_owner)
             try:
                 second_owner.start()
