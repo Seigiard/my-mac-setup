@@ -56,6 +56,15 @@ One supported placement and transport combination for Agent intercom, such as ho
 ### Agent communication identity
 The Herdr-assigned globally unique agent alias by which a person or agent addresses an Agent intercom participant. Every supported launcher passes that alias into the communication adapter, including `nono` and container profiles. Agent Intercom's session ID remains an internal transport detail. Adapter policy may restrict both discovery and exact-name delivery; unrestricted exact-alias routing is deferred.
 
+### Intercom admission
+The decision about how a starting client may enroll in Agent intercom. It includes whether a new launch claim is safe or an existing communication identity may be reused. Uncertain recovery ownership permits native client startup without enrollment; admission is not permission to run the client or a task-supervision decision.
+
+### Recovery intent
+A durable record of the obligation to resolve a particular Intercom launch claim. It exists before acquisition and may remain unresolved when acquisition was not acknowledged. Possessing its handle does not authorize enrollment or prove that the claim was acquired.
+
+### Recovery settlement and retirement
+Two ways to end a recovery obligation on confirmed evidence. Settlement completes the owned cleanup obligation. Retirement ends the old responsibility without cleaning up a successor or replacement owner. An unresolved obligation remains pending while preserving whether acquisition was acknowledged; a successful release response alone proves neither outcome.
+
 ### Agent confinement backend
 The inner boundary that restricts one agent principal and its subprocesses, such as `nono` or SRT. It controls which host resources that principal can reach but does not define where the development workspace or operating system runs.
 
