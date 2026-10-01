@@ -7,6 +7,11 @@ supersedes: []
 
 # ADR-0018: Use a shared intercom for location-independent agent communication
 
+Accepted follow-up: [ADR-0021](0021-recover-intercom-launch-claims-without-a-successor.md)
+adds recovery of new launch claims without a successor session. The launcher
+uses its reviewed durable protocol and a macOS launchd owner; unsupported owner
+environments preserve native startup without acquiring a new claim.
+
 ## Context
 
 The child-agent contract currently carries decisions through `herdr-child
@@ -277,42 +282,37 @@ than a state it cannot observe, so the window is honest instead of false. Who
 ends the claim differs, because declaring the record claims the pane's lifecycle
 authority and suppresses Herdr's own screen detection while it is held.
 
-OpenCode and Pi end it themselves. Measured against herdr 0.9.1 on 2026-09-29:
+OpenCode and Pi take lifecycle authority themselves. Measured against herdr 0.9.1 on 2026-09-29:
 their Herdr integrations report `pane.report_agent` under a `herdr:<client>`
 source and take the authority back over a held claim — OpenCode at its first
 prompt, Pi already at session start — keeping the alias the claim allocated.
 The pane then reads `full_lifecycle_hook_authority`, exactly as it does for a
 session that never took a claim, so the claim leaves no residue, and a release
 fired afterward is inert against a record its source no longer owns. They
-therefore take no claim marker and need no release caller.
+therefore need no first-prompt release caller. All newly acquired claims now have
+a versioned recovery intent, separate from the legacy Claude-only marker.
 
-The take-back is what the client's own integration performs, so it happens only
-when that integration runs. A session closed before OpenCode's first prompt, and
-a launch whose plugins never load, leave the declared `unknown` in place with no
-marker behind it; the launcher passes the second case through rather than
-claiming for it. The first leaves a stale window that only an OpenCode or Pi
-successor in that pane closes, by reporting under its own source. A Claude
-successor cannot: it publishes no state, and the marker its release looks for
-was suppressed for the client that took the claim, so the pane keeps reading
-`unknown`. Reachability is unaffected either way. Closing that window needs the
-marker and a release caller for both clients, which is deferred with them.
-Pi's integration binds only on an interactive run, so its headless modes pass
-through on the same reasoning. Which those are is decided by `--mode`'s value
-rather than its presence: pi treats `rpc` and `json` as headless and everything
-else, `text` included, as interactive. One of its headless modes is not in the
-arguments at all — pi resolves a run whose stdin or stdout is not a terminal to
-print mode — so a piped or redirected launch in a fresh pane leaves the same
-stale window as a session closed before its first prompt. Guarding it would mean
-a terminal test the test suite cannot exercise, since it runs without one, so it
-is recorded rather than guarded and resolves with the same deferred work.
+Takeover occurs only when the client's integration runs. New claims no longer
+depend on it for failed-launch cleanup: the observer follows the actual exec
+PID/start identity and releases its reserved operation after confirmed exit.
+Unavailable observations or uncertain ownership stay pending. A newer record or
+verified takeover is preserved rather than assigned an idle label.
+
+Known utilities and disabled integrations still bypass acquisition. Pi's
+`rpc` and `json` modes are headless; `text` is interactive. Non-TTY Pi also
+passes through unchanged. PTY-based controls cover interactive enrollment,
+while separate non-TTY controls prove this bypass. A missed classification is
+recoverable through process lifetime rather than another argv table entry.
 
 Claude publishes no state of its own, so its pane depends on screen detection
 and only a release gives detection back. `herdr-agent-intercom-release` performs
 it from the client's first prompt, once detection can take over. Release is
 deferred that far because against a pane with no detectable client it destroys
-the record and the alias with it. A Claude session that dies before its release
-leaves the pane reading `unknown`: stale, and distinguishable from a healthy
-idle pane.
+the record and the alias with it. The new protocol binds the native bridge PID
+before exec, excludes cci's version probe, and persists handoff authorization
+before RPC. Its observer retries a failed handoff without another prompt. If
+the native client exits first, reserved cleanup settles its claim instead.
+Legacy markers retain the previous successor-only release path.
 
 The pending-rename route for a used pane stays Claude-only for the same reason.
 It enrolls under a name Herdr does not carry until a first prompt renames the
@@ -323,16 +323,15 @@ to close the gap.
 The launcher runs interactive Claude sessions through live MCP `cci`, exports OpenCode's
 adapter name, and passes Pi's normal session name. Utility launches of all
 three clients, and nested launches in the already-enrolled pane, pass through
-unchanged. A utility command exits before a client exists, so a claim taken
-for one would leave its record and its pool alias on the pane for the pane's
-whole life.
+unchanged. Known utility modes avoid spending a pane alias; an unexpected
+early exit is still covered by the new claim's recovery obligation.
 A new child pane resolves its own alias even when it inherits its parent's
 enrollment environment. The Claude bridge removes `cci`'s synthetic permission
 selector;
 the caller's native flag, or otherwise Claude's project and user settings,
 continues to decide the permission mode. OpenCode's subcommand list errs toward
-passthrough: sending an interactive launch there costs it only Intercom, while
-letting a utility one claim leaves a record nothing can clear. OpenCode loads
+passthrough: sending an interactive launch there costs it Intercom, while
+an unrecognized utility now gets bounded cleanup after exit. OpenCode loads
 only its server plugin. Codex is deferred
 because its tested wakeable worker and proactive MCP surface register separate
 Intercom identities.

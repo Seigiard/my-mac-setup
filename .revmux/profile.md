@@ -28,6 +28,9 @@ inherited file descriptor, an unbounded wait loop, a teardown racing a surviving
 green-looking runner that never returns. Generic instinct rates this a medium tidiness
 issue; here it is high, because the failure mode is not a red test, it is *no verdict at
 all*, and it surfaces under `--jobs` or in Docker after passing focused on a workstation.
+For a test harness, failure inputs within its supported command interface count
+as reachable. Today's clean fixtures do not discount a reproduced hang on such
+an input: the harness must return a failure when the code under test regresses.
 `docs/solutions/design-patterns/outliving-processes-hang-the-suite.md` carries
 `severity: high` for exactly this class; read its `applies_when` before rating anything that
 spawns, polls, or cleans up.
@@ -41,6 +44,9 @@ the test-oracle gate in
 whether a permanent test is warranted at all — zero new tests is a legitimate outcome — and
 it requires the test to have been proven red against the regression. `CLAUDE.md` makes this
 gate mandatory. A PR that adds a permanent test without it has skipped a required step.
+Do not discount loss of calibrated adapter regressions as upstream-grammar
+duplication. A known upstream flag can be input to a local behavioral oracle;
+retiring that coverage still needs a real replacement or an approved change.
 
 **An edit that looks live but is not.** chezmoi splits every managed file into three copies:
 this checkout (`home/…`), chezmoi's own separate clone (`~/.local/share/chezmoi/home/…`),
@@ -113,6 +119,10 @@ false positive:
 
 A finding must be material, not merely true. One maintainer reads every round; noise is what
 makes rounds stop being read, so a false positive costs more here than a missed nit.
+
+For restart and timing findings, establish that the failing path is reachable
+through its lifecycle and identity guards. A stale persisted value alone carries
+no defect weight when the operation that reads it cannot survive that restart.
 
 Do not report: style and formatting preference; a restatement of what the diff already
 shows; "add a test" where the test-oracle gate says zero new tests is the right answer;

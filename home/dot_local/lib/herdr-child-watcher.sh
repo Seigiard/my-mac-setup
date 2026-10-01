@@ -302,11 +302,22 @@ watch_child() {
         *) watcher_fail "$run_dir" "$pane" "$generation" malformed-state ;;
       esac
 
+      # Revalidate disappearance before exhausting a failed agent-read budget,
+      # including when the caller configured a single allowed failure.
+      [ "$pane_read_failures" -lt "$MAX_DELIVERY_RETRIES" ] || \
+        watcher_fail "$run_dir" "$pane" "$generation" wait-error
       set +e
       snapshot_json="$(herdr agent get "$pane" 2>/dev/null)"
       get_status=$?
       set -e
-      [ "$get_status" -eq 0 ] || watcher_fail "$run_dir" "$pane" "$generation" wait-error
+      if [ "$get_status" -ne 0 ]; then
+        # The child may disappear after the successful pane read. Revalidate
+        # the pane on the next pass so that disappearance gets its own event.
+        pane_read_failures=$((pane_read_failures + 1))
+        pane_read_retry_pending=1
+        sleep "$POLL_INTERVAL"
+        continue
+      fi
       set +e
       snapshot="$(printf '%s' "$snapshot_json" | json_agent_snapshot)"
       snapshot_status=$?
