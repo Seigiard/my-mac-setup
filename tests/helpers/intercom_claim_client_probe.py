@@ -37,7 +37,7 @@ from intercom_claim_ownership_probe import (
     release,
     OLD_SOURCE,
 )
-from intercom_claim_recovery_prototype import (
+from intercom_recovery_harness import (
     CONTROL_ENV,
     TRACE_ENV,
     atomic_write,
@@ -46,7 +46,7 @@ from intercom_claim_recovery_prototype import (
     process_start_identity,
     read_intent as read_json,
     intent_handles,
-    reserve_sequence,
+    probe_sequence,
     observe_one,
     trace_dir as probe_trace_dir,
 )
@@ -416,7 +416,7 @@ export default function (pi) {
         return exports
 
     def reserve_sequence(self):
-        return reserve_sequence(str(self.scratch / "sequences"), SOURCE)
+        return probe_sequence()
 
     def launch(self, agent, args, *, interactive=False, alias_index=0, hold_group=False, offline=True, pane=None,
                claude_settings=None, trace=False, claim_required=True, extra_env=None):
@@ -1193,7 +1193,7 @@ export default function (pi) {
                 f"os.execv({executable!r}, [{executable!r}, *sys.argv[1:]])\n", encoding="utf-8")
             wrapper.chmod(0o700)
             inherited = self.scratch / f"parent-{sequence}.json"
-            atomic_write(inherited, {"phase": "settled", "sentinel": "another-pane"})
+            atomic_write(inherited, "foreign-pane sentinel")
             inherited_before = inherited.read_bytes()
             before = self.intent_paths()
             with HerdrResponseRelay(self.scratch / f"relay-{sequence}.sock",
@@ -1881,7 +1881,7 @@ export default function (pi) {
             trace = self.scratch / ("old-release-trace-" + uuid.uuid4().hex)
             trace.mkdir()
             old_path = durable_intent(self.owner, str(self.scratch / "manual-intents"), pane,
-                                      sequence, old, start, trace_dir=str(trace))
+                                      sequence, old, start, trace_dir=str(trace), acquisition="lost")
             report(self.owner, pane["pane_id"], OLD_SOURCE, "unknown", sequence)
             require({"step": "old-claim"}, self.state(pane)["agent_status"] == "unknown", "old claim did not publish")
             report(self.owner, pane["pane_id"], "foreign-takeover", "working", sequence + 10)
@@ -1912,9 +1912,9 @@ export default function (pi) {
             response = read_json(attempts[0])["response"]
             require({"step": "old-release-status"}, "error" not in response and response.get("result", {}).get("type") == "ok",
                     f"old release was rejected: {response}")
-            old_intent = read_json(old_path)
-            repeated = bound_request(old_intent, "pane.release_agent", {"pane_id": pane["pane_id"],
-                "source": OLD_SOURCE, "agent": "claude", "seq": old_intent["claim"]["release_seq"]})
+            repeated = self.owner.raw("pane.release_agent", {"pane_id": pane["pane_id"],
+                "source": OLD_SOURCE, "agent": "claude",
+                "seq": read_json(next(trace.glob("*.release_attempt.*.json")))["seq"]})
             require({"step": "repeated-release-status"}, "error" not in repeated and repeated.get("result", {}).get("type") == "ok",
                     f"repeated old release was rejected: {repeated}")
             after = self.state(pane)
@@ -2059,7 +2059,7 @@ export default function (pi) {
         trace_dir = pathlib.Path(probe_trace_dir(read_json(expected["intent"])))
         before = self.wait_claude_session(pane)
         attempts_before = list(trace_dir.glob("*.mutation_attempt.*.json"))
-        result = subprocess.run([sys.executable, str(ROOT / "tests/helpers/intercom_claim_recovery_prototype.py"), "--handoff"],
+        result = subprocess.run([sys.executable, str(ROOT / "tests/helpers/intercom_recovery_harness.py"), "--handoff"],
                                 cwd=ROOT, env=self.owner.env | {"HERDR_AGENT_INTERCOM_RECOVERY_INTENT": expected["intent"]},
                                 text=True, capture_output=True, check=False, timeout=15)
         require({"step": "handoff-non-descendant-refusal"}, result.returncode != 0 and
@@ -2083,7 +2083,7 @@ export default function (pi) {
         hook.write_text(
             "import os, pathlib, sys, time\n"
             f"sys.path.insert(0, {str(ROOT / 'tests/helpers')!r})\n"
-            "from intercom_claim_recovery_prototype import atomic_write, request_handoff\n"
+            "from intercom_recovery_harness import atomic_write, request_handoff\n"
             "intent = os.environ['HERDR_AGENT_INTERCOM_RECOVERY_INTENT']\n"
             "socket = pathlib.Path(os.environ['HERDR_SOCKET_PATH'])\n"
             f"hidden = pathlib.Path({str(hidden)!r})\n"
@@ -2153,8 +2153,8 @@ export default function (pi) {
         inner_hook.write_text(
             "import os, subprocess, sys\n"
             f"sys.path.insert(0, {str(ROOT / 'tests/helpers')!r})\n"
-            "from intercom_claim_recovery_prototype import atomic_write\n"
-            f"result = subprocess.run([sys.executable, {str(ROOT / 'tests/helpers/intercom_claim_recovery_prototype.py')!r}, '--handoff'], text=True, capture_output=True, check=False)\n"
+            "from intercom_recovery_harness import atomic_write\n"
+            f"result = subprocess.run([sys.executable, {str(ROOT / 'tests/helpers/intercom_recovery_harness.py')!r}, '--handoff'], text=True, capture_output=True, check=False)\n"
             f"atomic_write({str(result_path)!r}, {{'pid': os.getpid(), 'returncode': result.returncode, 'stderr': result.stderr}})\n",
             encoding="utf-8",
         )

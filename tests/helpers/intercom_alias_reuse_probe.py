@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 from intercom_claim_client_probe import ROOT, ProbeError, native_executable, read_json, require, wait_until
-from intercom_claim_recovery_prototype import observe_one, process_start_identity
+from intercom_recovery_harness import observe_one, process_start_identity
 
 
 def check_unsafe_reuse_fallback(probe, pane, first, directory, gate_bin, alias):
@@ -77,7 +77,7 @@ def run_order(probe, request_before_detection):
         command.write_text(
             f"#!{sys.executable}\nimport json,os,pathlib,sys,time\n"
             f"sys.path.insert(0, {str(ROOT / 'tests/helpers')!r})\n"
-            "from intercom_claim_recovery_prototype import atomic_write, process_start_identity\n"
+            "from intercom_recovery_harness import atomic_write, process_start_identity\n"
             f"native={executable!r}\n"
             f"if len(sys.argv)>1 and pathlib.Path(sys.argv[1]).resolve()==pathlib.Path({str(cci)!r}):\n"
             " gate=pathlib.Path(os.environ['MMS384_GATE'])\n"

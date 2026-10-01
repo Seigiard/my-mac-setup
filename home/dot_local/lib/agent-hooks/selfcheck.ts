@@ -53,6 +53,7 @@ export type Marker = {
   hash: string;
   loadedAt: string;
   processStartedAt?: string | null;
+  identityFormat?: string;
 };
 
 type ProcessProbe = {
@@ -69,7 +70,7 @@ export function processStartTime(pid: number): string | null {
       env: { ...process.env, LC_ALL: "C", TZ: "UTC" },
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 1000,
-    }).trim() || null;
+    }).trim().replace(/\s+/g, " ") || null;
   } catch {
     // A missing process, unavailable ps, or failed probe is not identity evidence.
     return null;
@@ -77,6 +78,7 @@ export function processStartTime(pid: number): string | null {
 }
 
 function matchesProcessStart(marker: Marker, getStart: (pid: number) => string | null): boolean | null {
+  if (marker.identityFormat !== "ps-lstart-c-utc-v1") return null;
   if (typeof marker.processStartedAt !== "string" || marker.processStartedAt.length === 0) return null;
   const current = getStart(marker.pid);
   return current ? current === marker.processStartedAt : null;
@@ -105,6 +107,7 @@ export function writeMarker(
     hash: options.hash ?? coreHash(),
     loadedAt: new Date().toISOString(),
     processStartedAt: getStart(pid),
+    identityFormat: "ps-lstart-c-utc-v1",
   };
   const path = markerPath(stateDir, marker.client, marker.pid, marker.processStartedAt ?? null);
   mkdirSync(stateDir, { recursive: true });

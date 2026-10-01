@@ -200,6 +200,7 @@ persist_callback_state() {
     atomic_write "$run_dir/callback.state" "status=$status
 event=$event
 owner_pid=$$
+identity_format=ps-lstart-c-utc-v1
 owner_start=$owner_start"
     return
   fi

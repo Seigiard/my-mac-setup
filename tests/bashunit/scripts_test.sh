@@ -1030,16 +1030,16 @@ teardown() {
 # herdr-worktree-identity state library
 # ===========================================
 
-function test_scripts_1209_shared_process_identity_is_stable_and_accepts_legacy_markers() {
-  _bats_test_init 1209 'shared process identity is stable and accepts legacy persisted markers'
+function test_scripts_1209_shared_process_identity_is_stable_and_preserves_unknown_legacy_markers() {
+  _bats_test_init 1209 'shared process identity is stable and preserves unknown legacy markers'
   local process_library="$SOURCE_ROOT/dot_local/lib/herdr-process.sh"
   local stub="$BATS_TEST_TMPDIR/process-identity-bin" log="$BATS_TEST_TMPDIR/process-identity-locales.log"
   mkdir -p "$stub"
   cat > "$stub/ps" <<'SH'
 #!/usr/bin/env bash
-printf '%s\n' "${LC_ALL-<unset>}" >> "$PROCESS_IDENTITY_LOCALE_LOG"
-if [ "${LC_ALL-}" = C ]; then
-  printf '  Sat Sep 12 06:18:05 2026    \n'
+printf '%s %s\n' "${LC_ALL-<unset>}" "${TZ-<unset>}" >> "$PROCESS_IDENTITY_LOCALE_LOG"
+if [ "${LC_ALL-}" = C ] && [ "${TZ-}" = UTC ]; then
+  printf '  Thu Oct  1 06:18:05 2026    \n'
 else
   printf 'sam 12 sep 2026 06:18:05 UTC\n'
 fi
@@ -1052,21 +1052,24 @@ SH
       source "$1"
       process_start_marker 42
       printf "\n"
-      process_start_matches 42 "  Sat Sep 12 06:18:05 2026    "
-      process_start_matches 42 "sam 12 sep 2026 06:18:05 UTC"
+      process_start_matches 42 "Thu Oct 1 06:18:05 2026" ps-lstart-c-utc-v1
     ' _ "$process_library"
 
   assert_success
-  assert_output 'Sat Sep 12 06:18:05 2026'
-  assert_file_contains "$log" '^C$'
-  assert_file_contains "$log" '^<unset>$'
+  assert_output 'Thu Oct 1 06:18:05 2026'
+  assert_file_contains "$log" '^C UTC$'
+
+  run env PATH="$stub:$PATH" PROCESS_IDENTITY_LOCALE_LOG="$log" bash -c \
+    'source "$1"; process_start_matches 42 "sam 12 sep 2026 06:18:05 UTC"' _ "$process_library"
+  assert_failure 2
+  assert_output ''
 
   # Each rejection needs its own exit status. `! cmd` under `set -e` is exempt
   # from errexit, so a negative folded into the script above would report the
   # status of the last line only and accept a wrong identity silently.
   run env -u LC_ALL -u LC_CTYPE -u LANG PATH="$stub:$PATH" \
     PROCESS_IDENTITY_LOCALE_LOG="$log" bash -c \
-    'source "$1"; process_start_matches 42 "wrong process start"' _ "$process_library"
+    'source "$1"; process_start_matches 42 "wrong process start" ps-lstart-c-utc-v1' _ "$process_library"
   assert_failure 1
   assert_output ''
 
@@ -1105,6 +1108,29 @@ function test_scripts_1210_worktree_identity_state_library_claims_live_owners_an
   acquire_claim "$lock" 3 || fail 'dead owner claim was not recovered'
   owner="$claim_owner_id"
   release_claim "$lock" "$owner"
+  assert_file_not_exists "$lock"
+}
+
+function test_scripts_12101_worktree_identity_recovers_a_reused_pid_from_a_versioned_claim() {
+  _bats_test_init 12101 'worktree identity recovers a reused PID from a versioned claim'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  local stub="$HWI_WORK/process-bin" lock="$HWI_STATE/versioned.claim"
+  mkdir -p "$stub"
+  printf '%s\n' '#!/bin/sh' "printf 'Thu Oct  1 12:00:00 2026\\n'" > "$stub/ps"
+  chmod +x "$stub/ps"
+  # given a record produced by the real writer for a live process
+  PATH="$stub:$PATH" acquire_claim "$lock" 1 || fail 'could not create the valid claim'
+  run env PATH="$stub:$PATH" bash -c 'source "$1"; recover_claim "$2" 1' _ "$HWI_STATE_LIBRARY" "$lock"
+  assert_failure 1
+  assert_file_exists "$lock"
+
+  # when the host reports a later incarnation of that same PID
+  printf '%s\n' '#!/bin/sh' "printf 'Thu Oct  1 13:00:00 2026\\n'" > "$stub/ps"
+  run env PATH="$stub:$PATH" bash -c 'source "$1"; recover_claim "$2" 1' _ "$HWI_STATE_LIBRARY" "$lock"
+  # then the old claim is released without treating the new process as its owner
+  assert_success
+  assert_output ''
   assert_file_not_exists "$lock"
 }
 
