@@ -310,20 +310,20 @@ if [[ -z "$intercom_name" && -n "${HERDR_PANE_ID:-}" ]] &&
     reserved=()
     attempt=1
 
-    # A pane keeps the agent-session identity of the first client that ever ran
-    # in it, and `pane get` still reports it long after that client is gone --
-    # the only place it stays visible, because `agent get` has no record left to
-    # carry it. Measured on herdr 0.9.1: that field is write-once per pane.
-    # Nothing clears it, a fresh identity from the same source does not replace
-    # it, and while it is set the pane ignores every `pane report-agent` while
-    # still reporting success -- whatever agent kind that report names, not only
-    # the kind the identity carries. A pane whose first client was OpenCode or Pi
-    # is as undeclarable as one that hosted Claude, so this tests for the field
-    # and deliberately not for its `agent` value: narrowing it to `claude` would
-    # send every pi- or opencode-used pane back to the route that cannot work.
-    # So this one read decides the route before a single pool name is spent, and
-    # the pane's own record is the evidence rather than the wording of a
-    # rejection.
+    # A used pane ignores every `pane report-agent` while still reporting
+    # success -- whatever agent kind that report names, not only the kind of the
+    # client that ran there.
+    #
+    # Measured on herdr 0.9.1, `pane get` kept the old client's `agent_session`
+    # long after it exited, so this one read decided the route before a pool name
+    # was spent. A pane whose first client was OpenCode or Pi is as undeclarable
+    # as one that hosted Claude, so this tests for the field and deliberately not
+    # for its `agent` value: narrowing it to `claude` would send every pi- or
+    # opencode-used pane back to the route that cannot work.
+    #
+    # Measured on herdr 0.9.3, the field is cleared when the client exits, but
+    # the pane still ignores the report. That pane reaches admission, and the
+    # engine reports it as `undeclarable` (below).
     pane_probe="$(herdr pane get "$HERDR_PANE_ID" 2>/dev/null)" || pane_probe=""
     if [[ "$pane_probe" == *'"agent_session"'* ]]; then
       candidate="$(herdr-peer-alias "$claim_seed" 2>/dev/null)" || candidate=""
@@ -350,7 +350,17 @@ if [[ -z "$intercom_name" && -n "${HERDR_PANE_ID:-}" ]] &&
         # Retry only a collision whose reserved rollback was verified by the engine.
         retry_result="$(printf '%s' "$recovery_result" | "$recovery_python" -c 'import json,sys; print(json.load(sys.stdin).get("retry") is True)' 2>/dev/null)" || retry_result=False
         if [[ "$retry_result" != True ]]; then
-          printf 'herdr-agent-intercom: enrollment unavailable; any partial claim remains pending for recovery\n' >&2
+          undeclarable_result="$(printf '%s' "$recovery_result" | "$recovery_python" -c 'import json,sys; print(json.load(sys.stdin).get("undeclarable") is True)' 2>/dev/null)" || undeclarable_result=False
+          pending_result="$(printf '%s' "$recovery_result" | "$recovery_python" -c 'import json,sys; print(json.load(sys.stdin).get("pending") is not False)' 2>/dev/null)" || pending_result=True
+          if [[ "$undeclarable_result" == True ]]; then
+            # The pane ignored the declaration and the engine confirmed it left
+            # nothing behind: a used pane the `pane get` read above missed.
+            unreconciled_name="$candidate"
+          elif [[ "$pending_result" == True ]]; then
+            printf 'herdr-agent-intercom: enrollment unavailable; any partial claim remains pending for recovery\n' >&2
+          else
+            printf 'herdr-agent-intercom: enrollment unavailable; the rejected claim was rolled back\n' >&2
+          fi
           break
         fi
         reserved+=("$candidate")

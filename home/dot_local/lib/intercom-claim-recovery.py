@@ -773,8 +773,14 @@ def claim_intent(intent_dir, agent, source, alias, launcher_pid, launcher_start)
                 if state.get("error", {}).get("code") != "agent_not_found":
                     raise RecoveryError("rejected alias cleanup was not observed")
                 update_intent(path, intent, "settled", "settled: alias acquisition rejected")
+                code = response["error"].get("code")
+                # A rename that finds no record right after an accepted report
+                # means the pane ignored the report. Herdr 0.9.3 does this after a
+                # client exits in the pane, while `pane get` no longer shows the
+                # old agent_session, so only this outcome reveals the used pane.
                 return {"claimed": False, "error": response["error"], "intent": path,
-                        "retry": response["error"].get("code") == "agent_name_taken", "pending": False}
+                        "retry": code == "agent_name_taken",
+                        "undeclarable": code == "agent_not_found", "pending": False}
             visible = bound_request(intent, "agent.get", {"target": intent["terminal"]["pane_id"]})
             record = visible.get("result", {}).get("agent", {})
             if ("error" in visible or record.get("name") != alias or record.get("agent") != agent or

@@ -246,29 +246,37 @@ Declaring works once per pane, and the fallback below is why a relaunch still
 enrolls. A pane that has hosted an agent session keeps the agent-session identity
 that client's own integration hook reported — Claude Code's `SessionStart` hook is
 the one this launcher meets, and OpenCode's and Pi's integrations report the same
-field. That identity is write-once per pane: nothing clears it, a later identity
-from the same source does not replace it, and `pane release-agent` does not touch
-it — it only withdraws the lifecycle record its own source owns. From then on the
-pane ignores every `pane report-agent`, whatever agent kind that report names, and
-reports success while creating nothing, so the rename has no record to act on.
+field. On herdr 0.9.1 that identity is write-once per pane: nothing clears it, a
+later identity from the same source does not replace it, and `pane release-agent`
+does not touch it — it only withdraws the lifecycle record its own source owns. On
+herdr 0.9.3 the identity is cleared when the client exits, but the pane behaves the
+same way. From then on the pane ignores every `pane report-agent`, whatever agent
+kind that report names, and reports success while creating nothing, so the rename
+has no record to act on.
 A pane whose previous occupant was OpenCode or Pi is therefore just as undeclarable
-as one that hosted Claude, which is why the route is chosen from the field's
-presence and never from its `agent` value. Clearing the identity when a
-session ends would be the fix that keeps one path for every launch, and it is not
-available. `pane release-agent` withdraws a record and leaves the identity.
-`pane.clear_agent_authority`, which the socket API carries and the CLI does not
-expose, answers `ok` and changes nothing, with or without the owning source.
-Upstream has the measurements on herdrdev/herdr#4463.
+as one that hosted Claude. On herdr 0.9.1 that is why the route is chosen from the
+field's presence and never from its `agent` value. On herdr 0.9.1 clearing the
+identity when a session ends looked like the fix that keeps one path for every
+launch, and it was not available. `pane release-agent` withdraws a record and
+leaves the identity. `pane.clear_agent_authority`, which the socket API carries
+and the CLI does not expose, answers `ok` and changes nothing, with or without the
+owning source. Upstream has the measurements on herdrdev/herdr#4463. Herdr 0.9.3
+shows that clearing alone is not that fix: the identity is gone after the client
+exits, and the pane still refuses a declaration. There the route comes from the
+`undeclarable` admission result described below.
 
 The launcher therefore reads which case it is in before it spends anything.
-`herdr agent get` has no record to report on such a pane, but `herdr pane get`
-still carries the identity — the only place it stays readable — so one read
-separates a pane that has hosted a client from one that never has. On a pane that
-carries an identity the launcher declares nothing, keeps the alias it allocated,
-and enrolls under a name Herdr does not yet know. A rejection's wording decides
-nothing on this route; it remains a backstop for a refusal this launcher does not
-model, where keeping the name is right for the same reason. It records the pending rename, and the first-prompt hook renames the
-record Herdr's own detection created. This gives up the property the paragraph
+`herdr agent get` has no record to report on such a pane, but on herdr 0.9.1
+`herdr pane get` still carries the identity — the only place it stays readable —
+so one read separates a pane that has hosted a client from one that never has. On
+a pane that carries an identity the launcher declares nothing, keeps the alias it
+allocated, and enrolls under a name Herdr does not yet know. On herdr 0.9.3 that
+read misses a pane whose client has exited, so the launcher declares and spends
+one candidate. The rename then answers `agent_not_found`, and once the rollback is
+confirmed to leave no record, admission reports the pane as `undeclarable` and the
+launcher takes the same route. No other rejection code is read as a used pane.
+On either version the launcher records the pending rename, and the first-prompt
+hook renames the record Herdr's own detection created. This gives up the property the paragraph
 above relies on: for that one case the collision boundary moves after the
 client starts, and the Herdr alias and the Intercom name differ until the first
 prompt. Accepted because the alternative is no Intercom at all on every
