@@ -98,6 +98,8 @@ def bound_request(intent, method, params):
         _pending_mutation = None
     if exact_release:
         trace_event(intent, "release_result", response=response)
+    if method == "agent.rename":
+        trace_event(intent, "rename_result", unique=True, params=params, response=response)
     return response
 
 

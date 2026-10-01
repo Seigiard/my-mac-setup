@@ -498,6 +498,90 @@ claude name=<> args= active=<> pi_load=<>'
   assert_equal "$(grep -c 'agent rename' "$log" || true)" 0
   assert_file_not_exists "$note"
 
+  # #given a pane whose earlier client exited under herdr 0.9.3: `pane get` no
+  # longer shows its agent_session, so the launcher reaches admission, and the
+  # pane ignores the claim. Measured live on 0.9.3: the report succeeds, the
+  # rename answers agent_not_found, and the rollback leaves no record. The engine
+  # turns that into `undeclarable`; its own test owns that mapping. This stub
+  # stands in for the engine and the launchd owner the launcher cannot reach here.
+  cat > "$home/.local/lib/intercom-claim-recovery.py" <<'PY'
+#!/usr/bin/env python3
+import os
+import sys
+if "--ensure-owner" in sys.argv:
+    sys.exit(0)
+if "--claim-intent" not in sys.argv:
+    sys.exit(2)
+with open(os.environ["CLAIM_LOG"], "a", encoding="utf-8") as log:
+    log.write(f"claim-intent {sys.argv[sys.argv.index('--alias') + 1]}\n")
+print(os.environ["ENGINE_RESULT"])
+PY
+  cat > "$stub/uname" <<'SH'
+#!/usr/bin/env bash
+printf 'Darwin\n'
+SH
+  cat > "$stub/herdr-peer-alias" <<'SH'
+#!/usr/bin/env bash
+printf 'ochre-okapi\n'
+SH
+  chmod +x "$stub/uname" "$stub/herdr-peer-alias"
+  local undeclarable='{"claimed":false,"intent":"/intent","retry":false,"undeclarable":true,"pending":false}'
+
+  # #when Claude starts again in that pane
+  : > "$log"; rm -f "$note"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 HERDR_SOCKET_PATH=/socket CLAIM_LOG="$log" \
+    ENGINE_RESULT="$undeclarable" HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" claude
+
+  # #then it enrolls under the allocated name and leaves the rename for the
+  # first prompt, exactly like a pane whose old identity is still visible
+  assert_success
+  assert_output "cci name=<> args= active=<1> pi_load=<><--tui><--transport><mcp><--name><ochre-okapi><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
+  assert_equal "$(grep -c 'claim-intent ochre-okapi' "$log")" 1
+  assert_equal "$(cat "$note")" 'ochre-okapi'
+
+  # #when OpenCode starts in the same pane, where no hook would ever rename
+  : > "$log"; rm -f "$note"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 HERDR_SOCKET_PATH=/socket CLAIM_LOG="$log" \
+    ENGINE_RESULT="$undeclarable" HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+    HOME="$home" PATH="$stub:$PATH" bash "$launcher" opencode
+
+  # #then it starts without Intercom and records no pending rename
+  assert_success
+  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting opencode without Intercom
+opencode name=<> args= active=<> pi_load=<>'
+  assert_equal "$(grep -c 'claim-intent ochre-okapi' "$log")" 1
+  assert_file_not_exists "$note"
+
+  # #when the engine cannot confirm that its attempt left nothing behind
+  : > "$log"; rm -f "$note"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 HERDR_SOCKET_PATH=/socket CLAIM_LOG="$log" \
+    ENGINE_RESULT='{"claimed":false,"intent":"/intent","retry":false,"pending":true}' \
+    HERDR_ALIAS_ALLOCATOR="$stub/allocator" HOME="$home" PATH="$stub:$PATH" bash "$launcher" claude
+
+  # #then Claude starts bare and the partial claim stays with recovery
+  assert_success
+  assert_output 'herdr-agent-intercom: enrollment unavailable; any partial claim remains pending for recovery
+herdr-agent-intercom: canonical pane alias unavailable; starting claude without Intercom
+claude name=<> args= active=<> pi_load=<>'
+  assert_equal "$(grep -c 'claim-intent ochre-okapi' "$log")" 1
+  assert_file_not_exists "$note"
+
+  # #when the engine rolled back a rejection that is neither a collision nor an
+  # ignored report
+  : > "$log"; rm -f "$note"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 HERDR_SOCKET_PATH=/socket CLAIM_LOG="$log" \
+    ENGINE_RESULT='{"claimed":false,"intent":"/intent","retry":false,"undeclarable":false,"pending":false}' \
+    HERDR_ALIAS_ALLOCATOR="$stub/allocator" HOME="$home" PATH="$stub:$PATH" bash "$launcher" claude
+
+  # #then Claude starts bare, and the warning does not claim anything is pending
+  assert_success
+  assert_output 'herdr-agent-intercom: enrollment unavailable; the rejected claim was rolled back
+herdr-agent-intercom: canonical pane alias unavailable; starting claude without Intercom
+claude name=<> args= active=<> pi_load=<>'
+  assert_file_not_exists "$note"
+  rm -f "$home/.local/lib/intercom-claim-recovery.py" "$stub/uname"
+
   # #given the record Herdr's own detection created, under its own alias
   cat > "$stub/herdr" <<'SH'
 #!/usr/bin/env bash
@@ -507,6 +591,10 @@ case "$1 $2" in
     [[ -z "${NO_RECORD:-}" ]] || {
       printf '{"error":{"code":"agent_not_found","message":"agent target %s not found"},"id":"cli:agent:get"}\n' "$3" >&2
       exit 1
+    }
+    [[ -z "${UNNAMED_RECORD:-}" ]] || {
+      printf '{"id":"cli:agent:get","result":{"agent":{"agent":"claude","agent_session":{"source":"herdr:claude","value":"relaunch"},"pane_id":"%s"}}}\n' "$3"
+      exit 0
     }
     printf '{"id":"cli:agent:get","result":{"agent":{"agent":"claude","name":"%s","pane_id":"%s"}}}\n' \
       "${RECORD_NAME:-plum-dingo}" "$3"
@@ -534,6 +622,18 @@ SH
     HOME="$home" PATH="$stub:$PATH" bash "$release"
 
   # #then the Herdr record takes the name Intercom already answers to
+  assert_success
+  assert_file_contains "$log" 'agent rename w1:p2 ochre-okapi'
+  assert_file_not_exists "$note"
+
+  # #given the record herdr 0.9.3 creates for a client relaunched in a used
+  # pane: Claude's own hook reports its session, but the record carries no
+  # name. Measured live in intercom_claim_client_probe.py's relaunch case.
+  printf 'ochre-okapi\n' > "$note"; : > "$log"
+  # #when the release command runs
+  run env HERDR_PANE_ID=w1:p2 HERDR_AGENT_INTERCOM_NAME=ochre-okapi UNNAMED_RECORD=1 \
+    CLAIM_LOG="$log" HOME="$home" PATH="$stub:$PATH" bash "$release"
+  # #then the unnamed record takes the name Intercom already answers to
   assert_success
   assert_file_contains "$log" 'agent rename w1:p2 ochre-okapi'
   assert_file_not_exists "$note"
