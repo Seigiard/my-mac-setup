@@ -138,6 +138,8 @@ class FakeHerdr:
         pane = self.panes.get(pane_id)
         if method == "session.snapshot":
             return {"result": {"snapshot": {"panes": list(self.panes.values())}}}
+        if method == "agent.list":
+            return {"result": {"agents": list(self.records.values())}}
         if pane is None:
             return {"error": {"code": "pane_not_found"}}
         terminal = pane["terminal_id"]

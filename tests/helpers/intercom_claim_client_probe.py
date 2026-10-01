@@ -62,10 +62,11 @@ CLIENTS = ("opencode", "pi", "claude")
 class HerdrResponseRelay:
     """Forward real RPCs, optionally losing the first acknowledged rename reply."""
 
-    def __init__(self, path, upstream, drop_rename=False):
+    def __init__(self, path, upstream, drop_rename=False, after_list=None):
         self.path = path
         self.upstream = upstream
         self.drop_rename = drop_rename
+        self.after_list = after_list
         self.dropped = []
         relay = self
 
@@ -81,6 +82,9 @@ class HerdrResponseRelay:
                     connection.sendall(line)
                     with connection.makefile("rb") as stream:
                         response = stream.readline(1024 * 1024)
+                if request["method"] == "agent.list" and relay.after_list is not None:
+                    callback, relay.after_list = relay.after_list, None
+                    callback()
                 if relay.drop_rename and request["method"] == "agent.rename" and not relay.dropped:
                     relay.dropped.append({"request": request, "response": json.loads(response)})
                     return
@@ -296,6 +300,9 @@ export default function (pi) {
     def close(self):
         self.restore_control()
         errors = []
+        if getattr(self, "collision_relay", None) is not None:
+            self.collision_relay.__exit__()
+            self.collision_relay = None
         launchd_stopped = True
         for pid, client in self.foreground_groups.items():
             try:
@@ -376,7 +383,7 @@ export default function (pi) {
         driver_receipt = self.scratch / f"{label}.driver.json"
         driver_script = self.scratch / f"{label}.driver.sh"
         exports = exports | {"HERDR_ENV": "1", "HERDR_PANE_ID": pane["pane_id"],
-                             "HERDR_SOCKET_PATH": self.owner.socket_path}
+                             "HERDR_SOCKET_PATH": exports.get("HERDR_SOCKET_PATH", self.owner.socket_path)}
         lines = ["#!/bin/sh", "set -eu"]
         lines.extend(f"export {key}={shlex.quote(value)}" for key, value in exports.items())
         driver = [sys.executable, str(pathlib.Path(__file__).resolve()), "--terminal-driver",
@@ -1044,14 +1051,15 @@ export default function (pi) {
         pane = self.client_pane()
         alias = self.aliases[0]
         command = [sys.executable, str(self.runtime_lib / "intercom-claim-recovery.py"),
-                   "--reuse-alias", str(self.runtime_root), "--alias", alias,
-                   "--owner-label", self.runtime_label, "--owner-plist", str(self.runtime_plist)]
-        env = self.owner.env | {"HERDR_PANE_ID": pane["pane_id"], "HERDR_SOCKET_PATH": self.owner.socket_path}
+                   "--admit", str(self.runtime_root), "--agent", "claude", "--launcher-pid", str(os.getpid()),
+                   "--pane-id", pane["pane_id"], "--socket-path", self.owner.socket_path]
+        env = self.owner.env | {"HERDR_ALIAS_ALLOCATOR": str(self.scratch / "aliases"), "MMS377_ALIAS": alias,
+                               "HERDR_AGENT_INTERCOM_RECOVERY_PLIST": str(self.scratch / "absent.plist")}
         try:
             require({"step": "reuse-absent-control"}, self.state(pane) is None, "control pane already has a record")
             absent = subprocess.run(command, env=env, text=True, capture_output=True, timeout=15)
             require({"step": "reuse-refresh-status"}, absent.returncode == 0, f"alias revalidation failed: {absent.stderr}")
-            require({"step": "reuse-refresh-absence"}, json.loads(absent.stdout) == {"alias": ""},
+            require({"step": "reuse-refresh-absence"}, absent.stdout.strip() == "v1\tnative\t-\t-\t-\tadmission_unavailable",
                     f"empty recovery directory licensed a stale alias: {absent.stdout}")
             self.owner.run("pane", "report-agent", pane["pane_id"], "--source", "reuse-control",
                            "--agent", "claude", "--state", "working", "--seq", str(self.reserve_sequence()))
@@ -1059,9 +1067,9 @@ export default function (pi) {
             present = subprocess.run(command, env=env, text=True, capture_output=True, timeout=15)
             require({"step": "reuse-independent-status"}, present.returncode == 0,
                     f"independent identity was rejected: {present.stderr}")
-            require({"step": "reuse-independent-alias"}, json.loads(present.stdout) == {"alias": alias},
+            require({"step": "reuse-independent-alias"}, present.stdout.strip() == f"v1\tenrolled\treused\t{alias}\t-\tok",
                     "independent existing alias was not preserved")
-            return {"absent": json.loads(absent.stdout), "present": json.loads(present.stdout)}
+            return {"absent": absent.stdout.strip(), "present": present.stdout.strip()}
         finally:
             self.owner.run("pane", "close", pane["pane_id"])
 
@@ -1082,28 +1090,31 @@ export default function (pi) {
         occupied = self.client_pane()
         first, second = self.aliases[:2]
         sequence = self.reserve_sequence()
-        self.owner.run("pane", "report-agent", occupied["pane_id"], "--source", "collision-control",
-                       "--agent", "claude", "--state", "working", "--seq", str(sequence))
-        self.owner.run("agent", "rename", occupied["pane_id"], first)
-        protected = self.state(occupied)
-        require({"step": "collision-occupied-control"}, protected is not None and protected.get("name") == first,
-                "collision control did not establish the first alias owner")
+        protected = {}
+        def occupy_after_list():
+            self.owner.run("pane", "report-agent", occupied["pane_id"], "--source", "collision-control",
+                           "--agent", "claude", "--state", "working", "--seq", str(sequence))
+            self.owner.run("agent", "rename", occupied["pane_id"], first)
+            protected.update(self.state(occupied))
+            require({"step": "collision-occupied-control"}, protected.get("name") == first,
+                    "collision control did not establish the first alias owner")
         stub = self.scratch / f"collision-{sequence}.bin"
         stub.mkdir()
         calls = self.scratch / f"collision-{sequence}.calls"
-        peer = stub / "herdr-peer-alias"
+        peer = stub / "allocator"
         peer.write_text(
-            "#!/bin/sh\nshift\n"
-            f"printf '%s\\n' \"$*\" >> {shlex.quote(str(calls))}\n"
-            "for taken in \"$@\"; do\n"
-            f"  [ \"$taken\" != {shlex.quote(first)} ] || {{ printf '%s\\n' {shlex.quote(second)}; exit 0; }}\n"
-            "done\n"
-            f"printf '%s\\n' {shlex.quote(first)}\n", encoding="utf-8")
+            "#!/bin/sh\n"
+            f"printf 'pool-read\\n' >> {shlex.quote(str(calls))}\n"
+            f"printf '%s\\n' {shlex.quote(first)} {shlex.quote(second)}\n", encoding="utf-8")
         peer.chmod(0o700)
         before = self.intent_paths()
+        relay_path = self.scratch / "collision.sock"
+        relay = HerdrResponseRelay(relay_path, self.owner.socket_path, after_list=occupy_after_list)
+        relay.__enter__()
+        self.collision_relay = relay
         pane, receipt, log, exit_file = self.launch(
             "claude", ["--no-chrome"], interactive=True, alias_index=1, trace=True,
-            extra_env={"PATH": str(stub) + os.pathsep + os.environ["PATH"]})
+            extra_env={"HERDR_ALIAS_ALLOCATOR": str(peer), "HERDR_SOCKET_PATH": str(relay_path)})
         self.wait_claude_ready(pane, receipt)
         paths = self.intent_paths() - before
         require({"step": "collision-attempt-count"}, len(paths) == 2,
@@ -1121,8 +1132,8 @@ export default function (pi) {
         require({"step": "collision-reserved-release"}, len(releases) == 1 and releases[0]["params"] == {
             "pane_id": pane["pane_id"], "source": rejected["claim"]["source"], "agent": "claude",
             "seq": rejected["claim"]["release_seq"]}, "rollback did not use its reserved release")
-        require({"step": "collision-excludes-first-candidate"}, calls.read_text() == f"\n{first}\n",
-                f"retry did not exclude the rejected candidate: {calls.read_text()!r}")
+        require({"step": "collision-single-pool-read"}, calls.read_text() == "pool-read\n",
+                f"admission did not own its candidate list: {calls.read_text()!r}")
         state = self.state(pane)
         require({"step": "collision-second-alias"}, state is not None and state.get("name") == second,
                 f"client did not enroll under the second alias: {state}")
@@ -1134,6 +1145,8 @@ export default function (pi) {
         status = self.send_normal_quit("claude", pane, receipt, log, exit_file)
         self.wait_settled(receipt, pane)
         self.owner.run("pane", "close", occupied["pane_id"])
+        relay.__exit__()
+        self.collision_relay = None
         return {"attempts": attempts, "candidate_calls": calls.read_text(), "successor": state,
                 "protected_before": protected, "protected_after": after, "status": status}
 

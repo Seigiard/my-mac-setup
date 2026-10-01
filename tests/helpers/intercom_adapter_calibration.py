@@ -56,6 +56,11 @@ def session_scenarios(factory, socket_path, first, second, move, replace, host, 
     agent = checked(request("agent.get", {"target": first_id}))["result"]["agent"]
     results = {"unknown_record": agent["agent_status"],
                "ownership_fields_absent": all(key not in agent for key in ("source", "seq"))}
+    listed = checked(request("agent.list", {}))["result"]["agents"]
+    results["candidate_list_has_pane_ids"] = isinstance(listed, list) and all("pane_id" in item for item in listed)
+    results["candidate_list_includes_occupied_alias"] = [item["name"] for item in listed
+                                                        if item["pane_id"] == first_id] == ["mms393-calibration-owner"]
+    results["candidate_list_excludes_empty_pane"] = all(item["pane_id"] != second_id for item in listed)
     collision = engine.acquire(socket_path=socket_path, pane_id=second_id, source=source,
                                agent="claude", alias="mms393-calibration-owner", launcher_pid=host.parent_pid())
     if collision["claimed"] is not False or collision.get("retry") is not True:

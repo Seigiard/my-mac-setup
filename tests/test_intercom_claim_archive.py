@@ -21,11 +21,12 @@ class IntentArchiveTests(unittest.TestCase):
 
     def record(self, phase):
         host, server = FakeHost(), FakeHerdr()
+        host.ensure_owner = lambda root: True
+        host.alias_candidates = lambda seed: ["archive-control"]
         engine = recovery.RecoveryEngine(self.temporary.name, host=host, sessions=server)
         if phase == "intent":
             server.lose_response("pane.report_agent", delayed=True)
-        claim = engine.acquire(socket_path="fake.sock", pane_id="w1:p1", agent="claude",
-                               alias="archive-control", launcher_pid=10)
+        claim = engine.admit(socket_path="fake.sock", pane_id="w1:p1", agent="claude", launcher_pid=10)
         if phase in ("settled", "retired"):
             if phase == "settled":
                 host.processes.pop(10)
@@ -40,8 +41,8 @@ class IntentArchiveTests(unittest.TestCase):
                     raise OSError("interrupted archive rename")
                 return replace(source, destination)
             with mock.patch.object(os, "replace", interrupted_archive):
-                self.assertEqual(engine.observe_one(claim["intent_id"]).outcome, "unavailable")
-        return claim["intent"]
+                self.assertEqual(engine.observe_one(claim.intent_id).outcome, "unavailable")
+        return str(self.directory / (claim.intent_id + ".json"))
 
     def test_observation_returns_repeatable_terminal_results_and_unavailable_after_pruning(self):
         # given completed receipts in the engine's real local storage
@@ -66,17 +67,18 @@ class IntentArchiveTests(unittest.TestCase):
     def test_legacy_identity_is_preserved_until_its_format_is_known(self):
         # given a real engine-produced record persisted with an unsupported format
         host, server = FakeHost(), FakeHerdr()
+        host.ensure_owner = lambda root: True
+        host.alias_candidates = lambda seed: ["legacy-control"]
         engine = recovery.RecoveryEngine(self.temporary.name, host=host, sessions=server)
-        claim = engine.acquire(socket_path="fake.sock", pane_id="w1:p1", agent="claude",
-                               alias="legacy-control", launcher_pid=10)
-        path = Path(claim["intent"])
+        claim = engine.admit(socket_path="fake.sock", pane_id="w1:p1", agent="claude", launcher_pid=10)
+        path = self.directory / (claim.intent_id + ".json")
         original = path.read_bytes()
         legacy = json.loads(original)
         legacy.pop("identity_format")
         path.write_text(json.dumps(legacy))
         host.processes.pop(10)
         # when a later observer cannot interpret that recorded process identity
-        result = engine.observe_one(claim["intent_id"])
+        result = engine.observe_one(claim.intent_id)
         # then absence of format evidence cannot authorize cleanup
         self.assertEqual((result.phase, result.outcome, result.reason_code),
                          ("acquired", "waiting", "identity_format_unknown"))
@@ -84,7 +86,7 @@ class IntentArchiveTests(unittest.TestCase):
                          "legacy-control")
         # Nearby valid control: the original versioned record can prove exit.
         path.write_bytes(original)
-        self.assertEqual(engine.observe_one(claim["intent_id"]).outcome, "settled")
+        self.assertEqual(engine.observe_one(claim.intent_id).outcome, "settled")
         self.assertEqual(server.request("agent.get", {"target": "w1:p1"}),
                          {"error": {"code": "agent_not_found"}})
 

@@ -14,12 +14,14 @@ class RecoveryTests(unittest.TestCase):
         self.root = tempfile.TemporaryDirectory()
         self.addCleanup(self.root.cleanup)
         self.host = FakeHost()
+        self.host.ensure_owner = lambda root: True
         self.server = FakeHerdr()
         self.engine = recovery.RecoveryEngine(self.root.name, host=self.host, sessions=self.server)
 
     def acquire(self, pane="w1:p1", alias="first"):
-        return self.engine.acquire(socket_path="fake.sock", pane_id=pane, agent="claude",
-                                   alias=alias, launcher_pid=10)
+        self.host.alias_candidates = lambda seed: [alias]
+        result = self.engine.admit(socket_path="fake.sock", pane_id=pane, agent="claude", launcher_pid=10)
+        return {"claimed": result.launch.kind == "enrolled", "intent_id": result.intent_id}
 
     def observe(self, claim):
         return self.engine.observe_one(claim["intent_id"])
@@ -73,28 +75,12 @@ class RecoveryTests(unittest.TestCase):
     def test_lost_response_and_delayed_application_keep_responsibility(self):
         self.server.lose_response("pane.report_agent", delayed=True)
         claim = self.acquire()
-        self.assertEqual((claim["claimed"], claim["pending"], claim["retry"]), (False, True, False))
+        self.assertEqual(claim["claimed"], False)
         self.exit()
         self.assertEqual(self.observe(claim).reason_code, "acquisition_unknown")
         self.server.deliver()
         self.assertEqual(self.observe(claim).outcome, "settled")
         self.assertEqual(self.state(), {"error": {"code": "agent_not_found"}})
-
-    def test_collision_attempt_confirms_rollback_and_preserves_other_owner(self):
-        first = self.acquire()
-        rejected = self.acquire("w1:p2", "first")
-        self.assertEqual((rejected["claimed"], rejected["retry"], rejected["pending"]), (False, True, False))
-        self.assertEqual(self.observe(rejected).outcome, "settled")
-        self.assertEqual(self.state("w1:p2"), {"error": {"code": "agent_not_found"}})
-        self.assertEqual(self.observe(first).reason_code, "client_alive")
-        self.assertEqual(self.state()["result"]["agent"]["name"], "first")
-
-    def test_collision_uncertain_rollback_refuses_retry(self):
-        self.acquire()
-        self.server.lose_response("pane.release_agent")
-        rejected = self.acquire("w1:p2", "first")
-        self.assertEqual((rejected["claimed"], rejected["retry"], rejected["pending"]), (False, False, True))
-        self.assertEqual(self.observe(rejected).phase, "intent")
 
     def test_restart_after_release_before_readback(self):
         claim = self.acquire()
@@ -209,7 +195,6 @@ class RecoveryTests(unittest.TestCase):
         claim = self.acquire()
         # then it retains responsibility without authorizing enrollment
         self.assertEqual(claim["claimed"], False)
-        self.assertEqual((claim["pending"], claim["retry"]), (True, False))
         self.assertEqual(self.observe(claim).phase, "intent")
         self.assertEqual(self.acquire("w1:p2", "control")["claimed"], True)
 
@@ -229,8 +214,15 @@ class RecoveryTests(unittest.TestCase):
         # given a first allocator paused after reading the previous high-water mark
         first_read, release_first, second_attempt = threading.Event(), threading.Event(), threading.Event()
         host = FakeHost()
+        host.ensure_owner = lambda root: True
+        host.alias_candidates = lambda seed: ["first"]
         clock = host.wall_time_ns
+        clock_reads = 0
         def first_clock():
+            nonlocal clock_reads
+            clock_reads += 1
+            if clock_reads == 1:
+                return clock()  # Admission's alias seed precedes reservation.
             first_read.set()
             if not release_first.wait(3):
                 raise AssertionError("first reservation did not resume")
@@ -245,8 +237,8 @@ class RecoveryTests(unittest.TestCase):
                 second_attempt.set()
                 raise
         with mock.patch.object(recovery.fcntl, "flock", observed_flock), ThreadPoolExecutor(2) as workers:
-            first = workers.submit(first_engine.acquire, socket_path="fake.sock", pane_id="w1:p1",
-                                   agent="claude", alias="first", launcher_pid=10)
+            first = workers.submit(first_engine.admit, socket_path="fake.sock", pane_id="w1:p1",
+                                   agent="claude", launcher_pid=10)
             try:
                 self.assertTrue(first_read.wait(3), "first acquisition did not reach sequence reservation")
                 second = workers.submit(self.acquire, "w1:p2", "second")
@@ -258,8 +250,9 @@ class RecoveryTests(unittest.TestCase):
                 release_first.set()
             results = [first.result(timeout=4), second.result(timeout=4)]
         # then distinct launch obligations never reserve the same operation number
-        self.assertEqual([result["claimed"] for result in results], [True, True])
-        numbers = [result[key] for result in results for key in ("claim_seq", "handoff_seq", "release_seq")]
+        self.assertEqual((results[0].launch.route, results[1]["claimed"]), ("claimed", True))
+        claims = [params["seq"] for method, params in self.server.events if method == "pane.report_agent"]
+        numbers = [number + offset for number in claims for offset in (0, 1, 2)]
         self.assertEqual(len(set(numbers)), 6)
 
 

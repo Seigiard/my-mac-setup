@@ -13,6 +13,7 @@ import json
 import os
 import plistlib
 import re
+import shutil
 import socket
 import struct
 import subprocess
@@ -46,6 +47,26 @@ class Host:
     sleep = staticmethod(time.sleep)
     pid = staticmethod(os.getpid)
     parent_pid = staticmethod(os.getppid)
+
+    def alias_candidates(self, seed):
+        allocator = os.environ.get("HERDR_ALIAS_ALLOCATOR", "herdr-pane-labels")
+        if allocator == "herdr-pane-labels" and not shutil.which(allocator):
+            allocator = os.path.expanduser("~/.local/bin/herdr-pane-labels")
+        result = subprocess.run([allocator, "--alias-candidates", seed], text=True,
+                                capture_output=True, timeout=10, check=False)
+        candidates = result.stdout.splitlines()
+        if result.returncode or not candidates or any(
+                not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", name) or
+                name.startswith("unnamed-") for name in candidates):
+            raise RecoveryError("alias allocator unavailable")
+        return list(dict.fromkeys(candidates))
+
+    def ensure_owner(self, root):
+        label = os.environ.get("HERDR_AGENT_INTERCOM_RECOVERY_LABEL",
+                               "com.seigiard.herdr-agent-intercom-recovery")
+        plist = os.environ.get("HERDR_AGENT_INTERCOM_RECOVERY_PLIST",
+                               os.path.expanduser(f"~/Library/LaunchAgents/{label}.plist"))
+        return ensure_owner(root, label, plist, host=self)
 
     def process(self, pid):
         if not isinstance(pid, int) or pid <= 0:
@@ -118,6 +139,33 @@ class Observation(NamedTuple):
     deadline_clock: str | None = None
 
 
+class Launch(NamedTuple):
+    kind: str
+    route: str | None = None
+    alias: str | None = None
+    reason_code: str = "ok"
+
+
+class Admission(NamedTuple):
+    launch: Launch
+    intent_id: str | None = None
+
+    def tsv(self):
+        launch = self.launch
+        if launch.kind == "enrolled":
+            if (launch.route not in {"claimed", "reused", "deferred_rename"} or
+                    not launch.alias or (launch.route == "claimed") != bool(self.intent_id) or
+                    launch.reason_code != "ok"):
+                raise RecoveryError("invalid enrolled result")
+        elif launch.kind != "native" or launch.route is not None or launch.alias is not None:
+            raise RecoveryError("invalid native result")
+        fields = ("v1", launch.kind, launch.route or "-", launch.alias or "-",
+                  self.intent_id or "-", launch.reason_code)
+        if any(not re.fullmatch(r"[A-Za-z0-9_-]+", field) for field in fields):
+            raise RecoveryError("invalid admission field")
+        return "\t".join(fields)
+
+
 class RecoveryEngine:
     """Recovery operations addressed by a state root and opaque intent handles."""
 
@@ -131,6 +179,140 @@ class RecoveryEngine:
         if not isinstance(intent_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", intent_id):
             raise RecoveryError("invalid intent ID")
         return os.path.join(self.intent_dir, intent_id + ".json")
+
+    def admit(self, *, socket_path, pane_id, agent, launcher_pid):
+        """Return a finished launch decision, independently of recovery ownership."""
+        if agent not in {"claude", "opencode", "pi"} or not isinstance(launcher_pid, int) or launcher_pid <= 0:
+            raise RecoveryError("invalid admission request")
+        intent_id = None
+        try:
+            start = launcher_identity(launcher_pid, self.host)
+            if not socket_path or not pane_id:
+                raise RecoveryError("current Herdr pane or socket is unavailable")
+            connection = self.sessions.connect(socket_path)
+            scope = {"connection": connection}
+            session = self.sessions(scope)
+            response = session.request("pane.get", {"pane_id": pane_id})
+            pane = response["result"]["pane"]
+            if pane["pane_id"] != pane_id or not pane["terminal_id"]:
+                raise RecoveryError("launch terminal identity is unavailable")
+            scope["terminal"] = {"pane_id": pane_id, "terminal_id": pane["terminal_id"]}
+            seed = f"{socket_path}|{pane_id}|{agent}|{launcher_pid}|{self.host.wall_time_ns()}"
+            candidates = self.host.alias_candidates(seed)
+            state = session.agent_state(pane)
+            if "error" not in state:
+                record = state["result"]["agent"]
+                name = record.get("name")
+                if (record.get("pane_id") != pane_id or record.get("terminal_id") != pane["terminal_id"] or
+                        name not in candidates):
+                    return Admission(Launch("native", reason_code="alias_unavailable"))
+                name = self._reuse_alias(session, name)
+                if name:
+                    return Admission(Launch("enrolled", "reused", name))
+                pane = session.locate_terminal()
+                if pane is None:
+                    raise RecoveryError("launch terminal disappeared")
+            elif state["error"].get("code") != "agent_not_found":
+                raise RecoveryError("agent lookup failed")
+
+            # Used panes cannot accept a declaration. Only Claude can reconcile
+            # its deferred name through the existing first-prompt hook.
+            if pane.get("agent_session") is not None:
+                if agent != "claude":
+                    return Admission(Launch("native", reason_code="used_pane"))
+            else:
+                self.host.ensure_owner(self.state_root)
+
+            occupied = session.request("agent.list", {})["result"]["agents"]
+            if not isinstance(occupied, list) or any(not isinstance(item, dict) or "pane_id" not in item
+                                                     for item in occupied):
+                raise RecoveryError("malformed agent list")
+            taken = {item.get("name") for item in occupied}
+            candidates = [name for name in candidates if name not in taken]
+            for alias in candidates[:3]:
+                if self.host.start_identity(launcher_pid) != start:
+                    raise RecoveryError("launcher incarnation changed during admission")
+                if pane.get("agent_session") is not None:
+                    self._defer_rename(pane["pane_id"], alias)
+                    return Admission(Launch("enrolled", "deferred_rename", alias))
+                claim = self._acquire(socket_path=socket_path, pane_id=pane["pane_id"], agent=agent,
+                                      alias=alias, launcher_pid=launcher_pid, scope=scope, launcher_start=start)
+                intent_id = claim["intent_id"] if claim.get("pending", claim["claimed"]) else None
+                if claim["claimed"]:
+                    return Admission(Launch("enrolled", "claimed", alias), intent_id)
+                if not claim.get("retry"):
+                    if intent_id:
+                        print("admission unavailable: partial claim remains pending for recovery", file=sys.stderr)
+                    return Admission(Launch("native", reason_code="acquisition_unconfirmed"), intent_id)
+            return Admission(Launch("native", reason_code="alias_exhausted"))
+        except (OSError, ValueError, KeyError, TypeError, RecoveryError, subprocess.TimeoutExpired) as error:
+            print(f"admission unavailable: {error}", file=sys.stderr)
+            return Admission(Launch("native", reason_code="admission_unavailable"), intent_id)
+
+    def _defer_rename(self, pane_id, alias):
+        directory = os.path.join(os.path.dirname(os.path.dirname(self.state_root)), "reconcile")
+        os.makedirs(directory, exist_ok=True)
+        path = os.path.join(directory, re.sub(r"[^A-Za-z0-9]", "_", pane_id))
+        temporary = path + "." + uuid.uuid4().hex + ".tmp"
+        try:
+            with open(temporary, "x", encoding="utf-8") as handle:
+                handle.write(alias + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+            sync_directory(directory)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+
+    def _reuse_alias(self, session, expected_alias):
+        scope = session.intent
+
+        def pending():
+            try:
+                paths = active_intent_paths(self.intent_dir)
+            except FileNotFoundError:
+                return []
+            obligations = []
+            for path in paths:
+                try:
+                    intent = read_json(path)
+                except FileNotFoundError:
+                    continue
+                if (intent["phase"] not in Phase.TERMINAL and
+                        intent["connection"]["server_identity"] == scope["connection"]["server_identity"] and
+                        intent["terminal"]["terminal_id"] == scope["terminal"]["terminal_id"]):
+                    obligations.append(intent)
+            return obligations
+
+        obligations = pending()
+        if obligations:
+            for intent in obligations:
+                if (intent.get("identity_format") != IDENTITY_FORMAT or
+                        self.host.start_identity(intent["client"]["pid"]) == intent["client"]["start_identity"]):
+                    raise RecoveryError("existing alias ownership is live or unverified")
+            self.host.ensure_owner(self.state_root)
+            deadline = self.host.monotonic() + 10
+            while pending():
+                if self.host.monotonic() >= deadline:
+                    raise RecoveryError("existing alias cleanup remains pending")
+                self.host.sleep(POLL_SECONDS)
+        pane = session.locate_terminal()
+        if pane is None:
+            raise RecoveryError("existing alias terminal disappeared")
+        response = session.agent_state(pane)
+        if response.get("error", {}).get("code") == "agent_not_found":
+            return None
+        record = response["result"]["agent"]
+        if record.get("terminal_id") != pane["terminal_id"] or record.get("name") != expected_alias:
+            raise RecoveryError("existing alias changed during recovery")
+        return expected_alias
+
+    def _acquire(self, *, socket_path, pane_id, agent, alias, launcher_pid,
+                 scope=None, launcher_start=None):
+        return claim_intent(self.intent_dir, agent, CLAIM_SOURCE, alias, launcher_pid,
+                            socket_path=socket_path, pane_id=pane_id, host=self.host,
+                            sessions=self.sessions, scope=scope, launcher_start=launcher_start)
 
     def acquire(self, *, socket_path, pane_id, agent, alias, launcher_pid,
                 source=CLAIM_SOURCE):
@@ -819,7 +1001,7 @@ def launchd_job(domain, label):
             "path": os.path.realpath(path.group(1).strip()) if path else None}
 
 
-def owner_receipt(root, label, job):
+def owner_receipt(root, label, job, host=HOST):
     if not job or job["pid"] is None:
         return None
     try:
@@ -829,14 +1011,14 @@ def owner_receipt(root, label, job):
                 receipt.get("engine_digest") == engine_digest() and
                 tuple(receipt.get("python_version", [])) >= (3, 10) and
                 receipt.get("start_identity") is not None and receipt.get("identity_format") == IDENTITY_FORMAT and
-                process_start_identity(job["pid"]) == receipt["start_identity"]):
+                host.start_identity(job["pid"]) == receipt["start_identity"]):
             return receipt
     except (OSError, ValueError, TypeError, RecoveryError):
         pass
     return None
 
 
-def ensure_owner(root, label, plist):
+def ensure_owner(root, label, plist, host=HOST):
     """Start the installed owner and accept readiness only from its live PID."""
     if sys.platform != "darwin":
         raise RecoveryError("automatic claim recovery is unsupported on this host")
@@ -866,11 +1048,11 @@ def ensure_owner(root, label, plist):
         raise RecoveryError("recovery job does not match the requested engine, state root and restart policy")
     os.makedirs(intent_dir, exist_ok=True)
     domain = f"gui/{os.getuid()}"
-    with intent_lock(os.path.join(root, "owner-admission"), timeout=15, create=True):
+    with intent_lock(os.path.join(root, "owner-admission"), timeout=15, create=True, host=host):
         job = launchd_job(domain, label)
         if job and job["path"] != os.path.realpath(plist):
             raise RecoveryError("recovery label is owned by another launchd configuration")
-        ready = owner_receipt(root, label, job)
+        ready = owner_receipt(root, label, job, host)
         if ready:
             return ready
         if job:
@@ -886,15 +1068,15 @@ def ensure_owner(root, label, plist):
                                 capture_output=True, check=False, timeout=10)
         if result.returncode:
             raise RecoveryError(f"launchd bootstrap failed: {result.stderr.strip()}")
-        deadline = HOST.monotonic() + 8
-        while HOST.monotonic() < deadline:
+        deadline = host.monotonic() + 8
+        while host.monotonic() < deadline:
             job = launchd_job(domain, label)
             if job and job["path"] != os.path.realpath(plist):
                 raise RecoveryError("launchd owner configuration changed during startup")
-            ready = owner_receipt(root, label, job)
+            ready = owner_receipt(root, label, job, host)
             if ready:
                 return ready
-            HOST.sleep(POLL_SECONDS)
+            host.sleep(POLL_SECONDS)
         raise RecoveryError("launchd recovery owner did not become ready")
 
 
@@ -902,9 +1084,7 @@ def recovery_intent_path():
     return os.environ.get("HERDR_AGENT_INTERCOM_RECOVERY_INTENT")
 
 
-def prepare_intent(intent_dir, agent, source, launcher_pid=None, *,
-                   socket_path=None, pane_id=None, host=HOST, sessions=HerdrSession):
-    """Persist the fenced launch obligation before the shell claims a pane."""
+def launcher_identity(launcher_pid, host):
     if launcher_pid is None:
         raise RecoveryError("launcher PID is required")
     observed_start = host.start_identity(launcher_pid)
@@ -921,15 +1101,27 @@ def prepare_intent(intent_dir, agent, source, launcher_pid=None, *,
         raise RecoveryError("launcher ancestry exceeds the supported depth")
     if host.start_identity(launcher_pid) != observed_start:
         raise RecoveryError("launcher incarnation changed during admission")
+    return observed_start
+
+
+def prepare_intent(intent_dir, agent, source, launcher_pid=None, *,
+                   socket_path=None, pane_id=None, host=HOST, sessions=HerdrSession,
+                   scope=None, launcher_start=None):
+    """Persist the fenced launch obligation before acquisition."""
+    observed_start = launcher_identity(launcher_pid, host)
+    if launcher_start is not None and observed_start != launcher_start:
+        raise RecoveryError("launcher incarnation changed during admission")
     pane = pane_id or os.environ.get("HERDR_PANE_ID")
     socket_path = socket_path or os.environ.get("HERDR_SOCKET_PATH")
     if not pane or not socket_path:
         raise RecoveryError("current Herdr pane or socket is unavailable")
-    connection = sessions.connect(socket_path)
+    connection = scope["connection"] if scope is not None else sessions.connect(socket_path)
     response = sessions({"connection": connection}).request("pane.get", {"pane_id": pane})
     if "error" in response:
         raise RecoveryError(f"launch pane lookup failed: {response['error']}")
     terminal = response["result"]["pane"]
+    if scope is not None and terminal["terminal_id"] != scope["terminal"]["terminal_id"]:
+        raise RecoveryError("launch terminal changed during admission")
     sequence = reserve_sequence(os.path.join(os.path.dirname(intent_dir), "sequences"), source, host)
     intent = {
         "launch_id": f"launch-{agent}-{launcher_pid}-{host.wall_time_ns()}",
@@ -950,11 +1142,13 @@ def prepare_intent(intent_dir, agent, source, launcher_pid=None, *,
 
 
 def claim_intent(intent_dir, agent, source, alias, launcher_pid, *,
-                 socket_path=None, pane_id=None, host=HOST, sessions=HerdrSession):
+                 socket_path=None, pane_id=None, host=HOST, sessions=HerdrSession,
+                 scope=None, launcher_start=None):
     """Create and acknowledge one fenced claim, or retire its own failed try."""
     os.makedirs(intent_dir, exist_ok=True)
     path, intent = prepare_intent(intent_dir, agent, source, launcher_pid,
-                                  socket_path=socket_path, pane_id=pane_id, host=host, sessions=sessions)
+                                  socket_path=socket_path, pane_id=pane_id, host=host, sessions=sessions,
+                                  scope=scope, launcher_start=launcher_start)
     handle = os.path.basename(path)[:-5]
     try:
         with intent_lock(path, timeout=5, host=host):
@@ -992,61 +1186,13 @@ def claim_intent(intent_dir, agent, source, alias, launcher_pid, *,
         return {"claimed": False, "intent": path, "intent_id": handle, "error": str(error), "retry": False, "pending": True}
 
 
-def resolve_existing_alias(root, label, plist, expected_alias):
-    """A pending launch claim is not an independently reusable pane identity."""
-    directory = os.path.join(root, "intents")
-    socket_path = os.environ.get("HERDR_SOCKET_PATH")
-    pane_id = os.environ.get("HERDR_PANE_ID")
-    if not socket_path or not pane_id:
-        raise RecoveryError("existing alias server identity is unavailable")
-    connection = {"socket_path": socket_path, "server_identity": capture_server_identity(socket_path)}
-    scope = {"connection": connection}
-    response = HerdrSession(scope).request("pane.get", {"pane_id": pane_id})
-    if "error" in response:
-        raise RecoveryError("existing alias terminal identity is unavailable")
-    terminal = response["result"]["pane"]
-
-    def pending():
-        obligations = []
-        for path in active_intent_paths(directory):
-            try:
-                intent = read_json(path)
-            except FileNotFoundError:
-                continue  # A completed record moved into the archive.
-            if (intent["phase"] not in TERMINAL_PHASES and
-                    intent["connection"]["server_identity"] == connection["server_identity"] and
-                    intent["terminal"]["terminal_id"] == terminal["terminal_id"]):
-                obligations.append(intent)
-        return obligations
-
-    obligations = pending()
-    if obligations:
-        for intent in obligations:
-            if process_start_identity(intent["client"]["pid"]) == intent["client"]["start_identity"]:
-                raise RecoveryError("existing alias belongs to a live unresolved launch")
-        # Only the established observer mutates old claims. Waiting happens
-        # before cci/native startup, so cleanup cannot strand this caller's name.
-        ensure_owner(root, label, plist)
-        deadline = HOST.monotonic() + 10
-        while pending():
-            if HOST.monotonic() >= deadline:
-                raise RecoveryError("existing alias cleanup remains pending")
-            HOST.sleep(POLL_SECONDS)
-    response = HerdrSession(scope).request("agent.get", {"target": terminal["pane_id"]})
-    if response.get("error", {}).get("code") == "agent_not_found":
-        return ""  # Re-enter fresh admission instead of borrowing the old alias.
-    if "error" in response:
-        raise RecoveryError("existing alias readback failed")
-    agent = response["result"]["agent"]
-    if agent.get("terminal_id") != terminal["terminal_id"] or agent.get("name") != expected_alias:
-        raise RecoveryError("existing alias changed during recovery")
-    return expected_alias
-
-
 def main(engine_factory=RecoveryEngine):
     if sys.platform == "darwin" and sys.version_info < (3, 10):
         raise RecoveryError("claim recovery requires Python 3.10 or later on macOS")
     parser = argparse.ArgumentParser()
+    parser.add_argument("--admit")
+    parser.add_argument("--socket-path")
+    parser.add_argument("--pane-id")
     parser.add_argument("--observe")
     parser.add_argument("--pid-file")
     parser.add_argument("--job-label")
@@ -1058,17 +1204,18 @@ def main(engine_factory=RecoveryEngine):
     parser.add_argument("--launcher-pid", type=int)
     parser.add_argument("--claim-intent")
     parser.add_argument("--ensure-owner", action="store_true")
-    parser.add_argument("--reuse-alias")
     parser.add_argument("--owner-root")
     parser.add_argument("--owner-label")
     parser.add_argument("--owner-plist")
     parser.add_argument("bridge_args", nargs=argparse.REMAINDER)
     arguments = parser.parse_args()
-    if arguments.reuse_alias:
-        if not all((arguments.alias, arguments.owner_label, arguments.owner_plist)):
-            parser.error("alias reuse requires --alias, --owner-label and --owner-plist")
-        print(json.dumps({"alias": resolve_existing_alias(arguments.reuse_alias, arguments.owner_label,
-                                                        arguments.owner_plist, arguments.alias)}))
+    if arguments.admit:
+        if not all((arguments.agent, arguments.launcher_pid)):
+            parser.error("admission requires --agent and --launcher-pid")
+        result = engine_factory(arguments.admit).admit(
+            socket_path=arguments.socket_path, pane_id=arguments.pane_id,
+            agent=arguments.agent, launcher_pid=arguments.launcher_pid)
+        print(result.tsv())
         return
     if arguments.ensure_owner:
         if not all((arguments.owner_root, arguments.owner_label, arguments.owner_plist)):
