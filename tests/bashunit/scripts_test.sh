@@ -4011,6 +4011,14 @@ case "${1:-} ${2:-}" in
     state_file=baseline-state
     [ "$count" -eq 1 ] || state_file=child-state
     read -r child_status child_seq < "$CHILD_STUB/$state_file"
+    if [ -f "$CHILD_STUB/prompt-state-sequence" ] && [ "$count" -gt 1 ]; then
+      case "$count" in
+        2) child_status=idle; child_seq=11 ;;
+        3) child_status=working; child_seq=12 ;;
+        4) child_status=idle; child_seq=13 ;;
+        *) printf 'prompt exhausted its state sequence\n' >&2; exit 1 ;;
+      esac
+    fi
     if [ "$count" -gt 1 ] && [ -f "$CHILD_STUB/block-agent-get" ]; then
       : > "$CHILD_STUB/agent-get.ready"
       attempt=0
@@ -5803,9 +5811,22 @@ function test_scripts_049_herdr_child_callback_intent_suppresses_blocked_w() {
   _bats_test_init 49 'herdr-child callback intent suppresses blocked wake until confirmed receipt'
   child_lifecycle_stub_herdr
   export HERDR_CHILD_TEST_CALLBACK_RECEIPT_BARRIER="$CHILD_STUB/callback-receipt"
+  # The wrapper owns the watcher and reports its actual exit, after cleanup.
+  # A process failure must fail this test rather than look like slow cleanup.
+  mkfifo "$CHILD_STUB/watcher-exit"
+  cat > "$CHILD_STUB/nohup" <<'SH'
+#!/usr/bin/env bash
+trap '' HUP
+printf '%s\n' "$$" > "$CHILD_STUB/watcher-wrapper.pid"
+"$@"
+status=$?
+printf '%s\n' "$status" > "$CHILD_STUB/watcher-exit"
+rm -f "$CHILD_STUB/watcher-wrapper.pid"
+SH
+  chmod +x "$CHILD_STUB/nohup"
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
-  local generation run_dir ask_pid watcher_pid attempt=0
+  local generation run_dir ask_pid watcher_pid watcher_status
   generation="$(cat "$CHILD_STUB/generation")"
   run_dir="$CHILD_STUB/state/runs/$generation"
   watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
@@ -5828,23 +5849,68 @@ function test_scripts_049_herdr_child_callback_intent_suppresses_blocked_w() {
 
   : > "$CHILD_STUB/callback-receipt.release"
   wait "$ask_pid"
-  while kill -0 "$watcher_pid" 2>/dev/null && [ "$attempt" -lt 500 ]; do
-    attempt=$((attempt + 1))
-    sleep 0.01
-  done
-  # Same discrimination as 047: only the retired run directory tells the
-  # intended suppression apart from a crash or an identity mismatch.
-  [ "$attempt" -lt 500 ] || fail 'watcher never retired after the confirmed receipt'
-  # The watcher's exit is not ordered after its own remove_supervision_run, so
-  # wait for the directory rather than reading it the instant the pid goes.
-  while [ -d "$run_dir" ] && [ "$attempt" -lt 1000 ]; do
-    attempt=$((attempt + 1))
-    sleep 0.01
-  done
-  [ "$attempt" -lt 1000 ] || fail 'run directory outlived the retired watcher'
+  # Open both ends so the FIFO open itself cannot block. The timeout is a hang
+  # guard, not a settlement oracle: only the wrapper's exit status proves exit.
+  if ! read -r -t 120 watcher_status 3<> "$CHILD_STUB/watcher-exit" <&3; then
+    [ ! -f "$run_dir/failed.state" ] || cat "$run_dir/failed.state" >&2
+    fail 'watcher completion signal missing after the 120-second hang guard'
+  fi
+  assert_equal 0 "$watcher_status"
   assert_dir_not_exists "$run_dir"
   run grep -q 'event=blocked-11' "$CHILD_STUB/calls.log"
   assert_failure
+}
+
+function test_scripts_0491_herdr_child_callback_confirmation_wins_owner_exit_race() {
+  _bats_test_init 491 'herdr-child callback confirmation wins a concurrent owner exit'
+  # #given a real callback claim owned by this process
+  local run_dir="$BATS_TEST_TMPDIR/callback"
+  mkdir -p "$run_dir"
+  run bash -c '
+    set -euo pipefail
+    source "$1/herdr-process.sh"
+    source "$1/herdr-child-runtime.sh"
+    source "$1/herdr-child-supervision.sh"
+    source "$1/herdr-child-continuation.sh"
+    run_dir="$2"
+    persist_callback_state "$run_dir" in-progress callback-test
+    # #when the owner confirms after the watcher read in-progress, but before
+    # its identity check finishes. Replace only the OS identity observation.
+    process_start_matches() {
+      persist_callback_state "$run_dir" confirmed callback-test
+      return 1
+    }
+    # #then the completed claim is not abandoned
+    if callback_claim_abandoned "$run_dir"; then exit 1; fi
+  ' -- "$SOURCE_ROOT/dot_local/lib" "$run_dir"
+  assert_success
+}
+
+function test_scripts_0492_herdr_child_callback_claim_tracks_owner_liveness() {
+  _bats_test_init 492 'herdr-child distinguishes live callback owners from abandoned claims'
+  local run_dir="$BATS_TEST_TMPDIR/callback"
+  mkdir -p "$run_dir"
+  run bash -c '
+    set -euo pipefail
+    source "$1/herdr-process.sh"
+    source "$1/herdr-child-runtime.sh"
+    source "$1/herdr-child-supervision.sh"
+    source "$1/herdr-child-continuation.sh"
+    run_dir="$2"
+    # #given an in-progress claim whose owner is still alive
+    persist_callback_state "$run_dir" in-progress callback-test
+    if callback_claim_abandoned "$run_dir"; then exit 1; fi
+    # #when a real owner exits without confirming its claim
+    bash -c '\''
+      source "$1/herdr-process.sh"
+      source "$1/herdr-child-runtime.sh"
+      source "$1/herdr-child-continuation.sh"
+      persist_callback_state "$2" in-progress callback-test
+    '\'' -- "$1" "$run_dir"
+    # #then the unresolved claim is abandoned
+    callback_claim_abandoned "$run_dir"
+  ' -- "$SOURCE_ROOT/dot_local/lib" "$run_dir"
+  assert_success
 }
 
 function test_scripts_050_herdr_child_callback_delivery_exhaustion_keeps_d() {
@@ -5972,20 +6038,22 @@ function test_scripts_054_herdr_child_attached_prompt_wait_rejects_the_fir() {
   printf 'orange-panda' > "$CHILD_STUB/started-name"
   printf 'working 10\n' > "$CHILD_STUB/baseline-state"
   printf 'idle 11\n' > "$CHILD_STUB/child-state"
+  : > "$CHILD_STUB/prompt-state-sequence"
 
-  env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+  # Each real poll gets the next state. Fixed time separates the sequence
+  # contract from timeout behavior, without a background writer or a deadline.
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_POLL_INTERVAL=0.01 \
-    bash "$HERDR_CHILD" prompt --to orange-panda --pane wT:p9 --wait --timeout 5000 \
-    "sequence-sensitive task" >"$CHILD_STUB/prompt.out" 2>"$CHILD_STUB/prompt.err" &
-  local prompt_pid=$!
-  child_wait_for_get_count 3
-  kill -0 "$prompt_pid"
-
-  printf 'working 12\n' > "$CHILD_STUB/child-state"
-  child_wait_for_file "$CHILD_STUB/fresh-working-observed"
-  printf 'idle 13\n' > "$CHILD_STUB/child-state"
-  wait "$prompt_pid"
-  assert_file_contains "$CHILD_STUB/prompt.out" 'Prompt completed for orange-panda in wT:p9.'
+    bash -c '
+      source "$1" --help >/dev/null 2>&1
+      now_ms() { printf "0\n"; }
+      prompt_child --to orange-panda --pane wT:p9 --wait --timeout 5000 "sequence-sensitive task"
+    ' -- "$HERDR_CHILD"
+  assert_success
+  assert_output 'Prompt completed for orange-panda in wT:p9.'
+  run cat "$CHILD_STUB/get-count"
+  assert_success
+  assert_output 4
 }
 
 function test_scripts_055_herdr_child_managed_detached_prompt_advances_gen() {
