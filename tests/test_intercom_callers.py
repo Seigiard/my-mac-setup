@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import tempfile
@@ -72,14 +73,29 @@ class CallerTests(unittest.TestCase):
                    HERDR_AGENT_INTERCOM_ACTIVE="1", AGENT_INTERCOM_CLAUDE_COMMAND=str(self.native),
                    AGENT_INTERCOM_CLAUDE_ARGC=str(len(original)))
         env.update({f"AGENT_INTERCOM_CLAUDE_ARG_{index}": value for index, value in enumerate(original)})
-        with subprocess.Popen(["bash", str(SOURCE / "bin/executable_herdr-agent-intercom-claude"), *generated],
-                              env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as process:
+        process = subprocess.Popen(["bash", str(SOURCE / "bin/executable_herdr-agent-intercom-claude"), *generated],
+                                   env=env, text=True, stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+        try:
             stdout, stderr = process.communicate(timeout=10)
-            self.assertEqual(process.returncode, status, stderr)
-            result = json.loads(stdout)
-            self.assertEqual(result["pid"], process.pid)
-            self.assertEqual(result["enrolled"], enrolled)
-            return result
+        finally:
+            try:
+                # A descendant can hold the pipes after the bridge exits.
+                # Kill the owned group even when the direct child has finished.
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait(timeout=5)
+            finally:
+                # Do not wait for pipe EOF again on the timeout path.
+                process.stdout.close()
+                process.stderr.close()
+        self.assertEqual(process.returncode, status, stderr)
+        result = json.loads(stdout)
+        self.assertEqual(result["pid"], process.pid)
+        self.assertEqual(result["enrolled"], enrolled)
+        return result
 
     def test_bound_execution_preserves_permissions_empty_values_and_terminator(self):
         # #given an admitted launch with native options cci cannot reconstruct
