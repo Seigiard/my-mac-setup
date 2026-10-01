@@ -25,6 +25,7 @@ exec(compile(ENGINE.read_bytes(), str(ENGINE), "exec"), globals())
 __name__ = _entry_name
 
 _engine_bound_request = bound_request
+_engine_peer_identity = peer_identity
 _engine_observe_one = observe_one
 _engine_observe_one_locked = _observe_one_locked
 _engine_bind_native_client = _bind_native_client
@@ -32,6 +33,7 @@ _engine_atomic_write = atomic_write
 _engine_write_intent = write_intent
 _engine_observer = observer
 _role = None
+_pending_mutation = None
 
 
 def control_path(launch_id, kind):
@@ -88,13 +90,26 @@ def bound_request(intent, method, params):
             probe_barrier(barrier, barrier + ".checked")
         trace_event(intent, "release_attempt", unique=True, target=params["pane_id"],
                     source=params["source"], seq=params["seq"])
-    if method in MUTATIONS:
-        # Recorded before the engine's peer fence, so a fenced-off request still counts.
-        trace_event(intent, "mutation_attempt", unique=True, method=method, params=params)
-    response = _engine_bound_request(intent, method, params)
+    global _pending_mutation
+    _pending_mutation = (intent, method, params) if method in MUTATIONS else None
+    try:
+        response = _engine_bound_request(intent, method, params)
+    finally:
+        _pending_mutation = None
     if exact_release:
         trace_event(intent, "release_result", response=response)
     return response
+
+
+def peer_identity(connection):
+    global _pending_mutation
+    identity = _engine_peer_identity(connection)
+    # Record a mutation once the engine's peer fence will pass, before it sends.
+    if _pending_mutation and identity == _pending_mutation[0]["connection"]["server_identity"]:
+        intent, method, params = _pending_mutation
+        _pending_mutation = None
+        trace_event(intent, "mutation_attempt", unique=True, method=method, params=params)
+    return identity
 
 
 def observe_one(path):
@@ -167,8 +182,14 @@ def _watch_probe_owner(owner, intent_dir, job_label):
             print(f"probe owner observation pending: {error}", file=sys.stderr, flush=True)
         time.sleep(POLL_SECONDS)
     if job_label:
-        subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/{job_label}"],
-                       text=True, capture_output=True, check=False, timeout=10)
+        try:
+            result = subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/{job_label}"],
+                                    text=True, capture_output=True, check=False, timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            result = None
+        if result is None or result.returncode:
+            # A failed exit makes launchd restart the observer, which retries the bootout.
+            os._exit(1)
     os._exit(0)
 
 

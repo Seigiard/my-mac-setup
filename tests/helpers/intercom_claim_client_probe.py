@@ -172,7 +172,6 @@ class ClientProbe:
         # probe takes it over until its close() hands it back.
         self.control = str(self.scratch / "probe-control")
         self.previous_control = os.environ.get(CONTROL_ENV)
-        os.environ[CONTROL_ENV] = self.control
         self.owner = OwnedHerdr()
         self.launchd = None
         self.root_pane = None
@@ -181,12 +180,14 @@ class ClientProbe:
         self.driver_receipts = {}
         self.quit_steps = {}
         self.foreground_groups = {}
+        os.environ[CONTROL_ENV] = self.control
         try:
             self.aliases = self.pool_aliases()
             self.launcher = self.scratch / "herdr-agent-intercom"
             self.stage()
         except Exception:
             # No server or client has started while staging these owned files.
+            self.restore_control()
             shutil.rmtree(self.scratch)
             shutil.rmtree(self.owner.root)
             raise
@@ -286,11 +287,14 @@ export default function (pi) {
     def intent_paths(self):
         return {pathlib.Path(path) for path in intent_handles(self.launchd.intent_dir)}
 
-    def close(self):
+    def restore_control(self):
         if self.previous_control is None:
             os.environ.pop(CONTROL_ENV, None)
         else:
             os.environ[CONTROL_ENV] = self.previous_control
+
+    def close(self):
+        self.restore_control()
         errors = []
         launchd_stopped = True
         for pid, client in self.foreground_groups.items():

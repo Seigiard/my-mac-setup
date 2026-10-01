@@ -467,8 +467,8 @@ and Claude also witness the observer examining a pending intent while stopped.
 Pi's intent has retired after lifecycle takeover, so its row proves suspension
 attribution for that retired state, not pending-claim cleanup behavior.
 The trace checks reject recovery mutations before quit. Append-only mutation
-attempts are recorded before the engine's peer fence and RPC, so neither a lost
-response nor a fenced-off request can hide an attempted write. A native baseline that retains identity cannot
+attempts are recorded on the fenced descriptor before sending the RPC, so a lost
+response cannot hide a write. A native baseline that retains identity cannot
 excuse wrapped loss. A fully retained wrapped identity is PASS, not a permanent
 exception based only on a version string.
 
