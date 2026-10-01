@@ -26,10 +26,12 @@ and runtime checkpoints from #377 and PR #381 as they were recorded.
 ## Current protocol
 
 One observer serves each host-local recovery state root. On macOS a user
-`launchd` job is its restart owner: `LaunchdOwner` writes the job and
-`ensure_owner` verifies it before a launch takes a new claim. The deployed
-template is
+`launchd` job is its restart owner. chezmoi deploys it from
 `home/private_Library/LaunchAgents/com.seigiard.herdr-agent-intercom-recovery.plist.tmpl`.
+Before a launch takes a new claim, `ensure_owner` checks the job's label,
+restart policy and observer arguments, then bootstraps it and waits for the
+observer's readiness. The engine's `LaunchdOwner` class is the proof harness's
+temporary job, not the deployed one.
 Without a verified owner or a durable intent, the launcher takes no new claim.
 
 Before acquisition, a durable fsync-and-rename intent identifies the connected
@@ -476,7 +478,7 @@ The current registered owner cases are:
 | Pending managed successor | A real `herdr agent start` reaches its pre-exec barrier. Old release preserves the reserved alias and terminal. The pane is closed before the unused native launch begins. |
 | Concurrent and repeated cleanup | Both observers reach an entry barrier and attempt the same intent; cleanup converges on a settled obligation. Repeated release and closed-terminal replay also settle safely. Lock sensitivity belongs to the separate binding case. |
 | Server restart | The old record is confirmed absent after restart, and a new server's unrelated named record remains unchanged. |
-| Healthy recovery budget | Ten live claims are first confirmed present, then their real processes exit. Batched Herdr agent-list observations confirm each claim absent within the healthy budget (`resolve_existing_alias`'s deadline in the engine). |
+| Healthy recovery budget | Ten live claims are first confirmed present, then their real processes exit. Batched Herdr agent-list observations confirm each claim absent within the healthy budget that `ten_claims_meet_healthy_budget` in the ownership probe checks. |
 | Sequence allocation | A backward clock step cannot let old release remove a later claim. Separate processes retain ordering and reserve non-overlapping triples concurrently. |
 
 Calibration found and closed a false-green timing window in the new binding
@@ -540,8 +542,9 @@ handled explicitly. Cleanup failure makes the saved gate verdict fail.
 The ten-claim burst in `owner-budget-5c20d93e2bb94ce5aafc142bb7815f53.json`
 verified all claims absent within a conservative 5.019-second maximum. The
 proposed addendum set the healthy target, the observation cadence and the
-retry spacing for uncertain acknowledged release; the engine now holds them as
-`resolve_existing_alias`'s deadline, `POLL_SECONDS` and `PENDING_RETRY_SECONDS`.
+retry spacing for uncertain acknowledged release. The ownership probe now
+checks the target, and the engine holds the other two as `POLL_SECONDS` and
+`PENDING_RETRY_SECONDS`.
 The runtime implementation had to repeat that measurement. No runtime had been
 deployed at that checkpoint.
 

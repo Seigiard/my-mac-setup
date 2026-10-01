@@ -312,7 +312,6 @@ the record and the alias with it. The new protocol binds the native bridge PID
 before exec, excludes cci's version probe, and persists handoff authorization
 before RPC. Its observer retries a failed handoff without another prompt. If
 the native client exits first, reserved cleanup settles its claim instead.
-Legacy markers retain the previous successor-only release path.
 
 The pending-rename route for a used pane stays Claude-only for the same reason.
 It enrolls under a name Herdr does not carry until a first prompt renames the

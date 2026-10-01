@@ -181,11 +181,11 @@ and deployed behavior.
 
 - Use one narrow observer for each host-local recovery state root. On the proved
   macOS host, a user `launchd` job is its restart owner. It must restart the
-  observer after SIGKILL; the actual SIGKILL/restart control passed with the
-  configuration that `LaunchdOwner` writes and `ensure_owner` verifies in
-  `home/dot_local/lib/intercom-claim-recovery.py`. The deployed template is
-  `home/private_Library/LaunchAgents/com.seigiard.herdr-agent-intercom-recovery.plist.tmpl`.
-  A crash-only `KeepAlive` condition did not restart that signal on this host.
+  observer after SIGKILL. chezmoi deploys the job from
+  `home/private_Library/LaunchAgents/com.seigiard.herdr-agent-intercom-recovery.plist.tmpl`,
+  and `ensure_owner` in `home/dot_local/lib/intercom-claim-recovery.py` checks
+  its restart policy before bootstrapping it. A crash-only `KeepAlive`
+  condition did not restart that signal on this host.
 - The proof-controller PID guard belongs only to disposable test jobs. The
   deployed observer must outlive a launcher or client and read durable intents
   after restart. Its readiness must be established before a new claim is made.
@@ -256,11 +256,11 @@ persistent and are outside this retention policy.
 
 ### Recovery budget and evidence
 
-The healthy-state target is verified recovery within a fixed budget after
-confirmed client exit, with the observer available, successful local
-identity/Herdr reads, and known ownership. The budget is the deadline that
-`resolve_existing_alias` in `home/dot_local/lib/intercom-claim-recovery.py`
-waits for pending cleanup. The observer polls at `POLL_SECONDS` and retries an uncertain acknowledged release no more
+The healthy-state target is verified recovery within **10 seconds** of confirmed
+client exit, with the observer available, successful local identity/Herdr reads,
+and known ownership. This is an acceptance requirement, not an engine constant;
+`ten_claims_meet_healthy_budget` in `tests/helpers/intercom_claim_ownership_probe.py`
+checks it. The observer polls at `POLL_SECONDS` and retries an uncertain acknowledged release no more
 often than `PENDING_RETRY_SECONDS`. A missed healthy budget fails acceptance; an
 unavailable observation stays pending rather than being called success.
 
