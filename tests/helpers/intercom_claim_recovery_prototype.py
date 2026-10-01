@@ -117,13 +117,13 @@ def observe_one(path):
     try:
         preview = read_json(path)
     except FileNotFoundError:
-        return
+        return _engine_observe_one(path)
     entry_barrier = control_value(preview, "entry_barrier")
     if entry_barrier:
         probe_barrier(entry_barrier, entry_barrier + f".checked.{os.getpid()}")
     trace_event(preview, "lock_attempt")
     try:
-        _engine_observe_one(path)
+        return _engine_observe_one(path)
     finally:
         trace_event(preview, "attempt_complete", started_monotonic_ns=started_monotonic_ns)
 

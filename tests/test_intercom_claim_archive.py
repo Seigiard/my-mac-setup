@@ -24,6 +24,37 @@ class IntentArchiveTests(unittest.TestCase):
     def record(self, phase):
         return recovery.write_intent(str(self.directory), {"launch_id": "launch-control", "phase": phase})
 
+    def test_observation_returns_repeatable_terminal_results_and_unavailable_after_pruning(self):
+        # given completed receipts in the engine's real local storage
+        engine = recovery.RecoveryEngine(self.temporary.name)
+        for phase in ("settled", "retired"):
+            path = self.record(phase)
+            handle = Path(path).stem
+            # when observation archives a receipt and reads it again
+            first = engine.observe_one(handle)
+            again = engine.observe_one(handle)
+            # then completion is repeatable until retention removes the receipt
+            self.assertEqual((first.phase, first.outcome), (phase, phase))
+            self.assertEqual(again, first)
+            recovery.prune_intent_archive(str(self.directory), max_records=0)
+            missing = engine.observe_one(handle)
+            self.assertEqual((missing.phase, missing.outcome, missing.reason_code,
+                              missing.next_attempt_deadline),
+                             (None, "unavailable", "intent_unavailable", None))
+            self.assertFalse(Path(path).exists())
+            self.assertFalse(Path(path + ".lock").exists())
+
+    def test_busy_observation_does_not_read_phase_or_wait_for_lock(self):
+        # given an intent locked by another operation
+        engine = recovery.RecoveryEngine(self.temporary.name)
+        path = self.record("acquired")
+        with recovery.intent_lock(path):
+            # when the supported observation step attempts this handle
+            result = engine.observe_one(Path(path).stem)
+        # then no unread phase or deadline is invented
+        self.assertEqual((result.phase, result.outcome, result.reason_code,
+                          result.next_attempt_deadline), (None, "busy", "intent_busy", None))
+
     def test_terminal_records_leave_the_active_scan_and_late_calls_refuse(self):
         # given terminal receipts beside an unresolved obligation
         pending = self.record("intent")
