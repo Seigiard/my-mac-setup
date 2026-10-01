@@ -4,6 +4,33 @@ Accepted design for #389, #392, #393 and #394. Ownership boundaries are accepted
 in [ADR-0022](../decisions/0022-centralize-intercom-admission-in-the-recovery-engine.md).
 The owner confirmed the complete contract on 2026-10-01. Implementation is pending.
 
+## Module design choice
+
+After comparing three designs, the owner selected A: a recovery module whose
+interface returns complete decisions. The seam sits before each recovery
+operation. Separate named operations expose the work honestly; a generic
+`execute(Command)` would not reduce the semantic interface.
+
+The module hides owner readiness, route selection, collision retries, ownership
+evidence, transitions and persistence. This gives callers leverage and keeps
+recovery changes local. The launcher applies the admission result through
+environment export and exec; it makes no further recovery decision.
+
+The alternatives were:
+
+- B: a public effects/evidence protocol with an interpreter. It makes execution
+  schedules explicit, but adds an interface whose ordering and durability rules
+  every interpreter must preserve. Correct reducer decisions alone do not prove
+  correct execution. Controlled scheduling belongs in test adapters instead.
+- C: an execution-scoped launch module that owns admission through client exec.
+  It gives the launcher more depth, but moves client-specific execution into the
+  module and would require changing ADR-0022. The accepted design keeps that
+  responsibility in the launcher.
+
+Tests exercise complete operations through the same interface as production
+callers. Local recovery decisions gain CI coverage; real adapter calibration and
+the live obligations below remain independent evidence.
+
 ## Admission result
 
 The request contains `state_root`, `socket_path`, `pane_id`, `agent_kind` and
