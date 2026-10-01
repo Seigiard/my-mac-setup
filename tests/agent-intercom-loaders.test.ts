@@ -147,6 +147,36 @@ describe("OpenCode Agent Intercom loader", () => {
     expect(process.env.OPENCODE_INTERCOM_NAME).toBeUndefined();
   });
 
+  test("keeps consumed OpenCode responses from disabling the server plugin", async () => {
+    // #given
+    const home = temporaryDir("agent-intercom-opencode-consumed-response-");
+    const packageDir = join(packageRoot(home), "@dataforxyz", "agent-intercom-opencode");
+    mkdirSync(join(packageDir, "dist"), { recursive: true });
+    await Bun.write(
+      join(packageDir, "dist", "plugin.mjs"),
+      [
+        "export default async ({ client }) => {",
+        "  const result = await client.session.list();",
+        "  await result.response.clone().text();",
+        "  return { transport: 'server' };",
+        "};",
+        "",
+      ].join("\n"),
+    );
+    const response = new Response("already consumed");
+    await response.text();
+    const client = { session: { list: async () => ({ data: [], response }) } };
+    const module = await loadFromHome(OPENCODE_LOADER, home, true, {
+      OPENCODE_INTERCOM_NAME: "ochre-okapi",
+    });
+
+    // #when
+    const hooks = await module.AgentIntercomPlugin({ client });
+
+    // #then
+    expect(hooks).toEqual({ transport: "server" });
+  });
+
   test("is a no-op outside Herdr without importing the package", async () => {
     const home = temporaryDir("agent-intercom-opencode-missing-");
     const marker = await plantImportMarker(home, "agent-intercom-opencode", "dist/plugin.mjs");
