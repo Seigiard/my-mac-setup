@@ -37,7 +37,7 @@ from intercom_claim_ownership_probe import (
     release,
     OLD_SOURCE,
 )
-from intercom_claim_recovery_prototype import (
+from intercom_recovery_harness import (
     CONTROL_ENV,
     TRACE_ENV,
     atomic_write,
@@ -46,7 +46,7 @@ from intercom_claim_recovery_prototype import (
     process_start_identity,
     read_intent as read_json,
     intent_handles,
-    reserve_sequence,
+    probe_sequence,
     observe_one,
     trace_dir as probe_trace_dir,
 )
@@ -62,10 +62,11 @@ CLIENTS = ("opencode", "pi", "claude")
 class HerdrResponseRelay:
     """Forward real RPCs, optionally losing the first acknowledged rename reply."""
 
-    def __init__(self, path, upstream, drop_rename=False):
+    def __init__(self, path, upstream, drop_rename=False, after_list=None):
         self.path = path
         self.upstream = upstream
         self.drop_rename = drop_rename
+        self.after_list = after_list
         self.dropped = []
         relay = self
 
@@ -81,6 +82,9 @@ class HerdrResponseRelay:
                     connection.sendall(line)
                     with connection.makefile("rb") as stream:
                         response = stream.readline(1024 * 1024)
+                if request["method"] == "agent.list" and relay.after_list is not None:
+                    callback, relay.after_list = relay.after_list, None
+                    callback()
                 if relay.drop_rename and request["method"] == "agent.rename" and not relay.dropped:
                     relay.dropped.append({"request": request, "response": json.loads(response)})
                     return
@@ -296,6 +300,9 @@ export default function (pi) {
     def close(self):
         self.restore_control()
         errors = []
+        if getattr(self, "collision_relay", None) is not None:
+            self.collision_relay.__exit__()
+            self.collision_relay = None
         launchd_stopped = True
         for pid, client in self.foreground_groups.items():
             try:
@@ -376,7 +383,7 @@ export default function (pi) {
         driver_receipt = self.scratch / f"{label}.driver.json"
         driver_script = self.scratch / f"{label}.driver.sh"
         exports = exports | {"HERDR_ENV": "1", "HERDR_PANE_ID": pane["pane_id"],
-                             "HERDR_SOCKET_PATH": self.owner.socket_path}
+                             "HERDR_SOCKET_PATH": exports.get("HERDR_SOCKET_PATH", self.owner.socket_path)}
         lines = ["#!/bin/sh", "set -eu"]
         lines.extend(f"export {key}={shlex.quote(value)}" for key, value in exports.items())
         driver = [sys.executable, str(pathlib.Path(__file__).resolve()), "--terminal-driver",
@@ -416,7 +423,7 @@ export default function (pi) {
         return exports
 
     def reserve_sequence(self):
-        return reserve_sequence(str(self.scratch / "sequences"), SOURCE)
+        return probe_sequence()
 
     def launch(self, agent, args, *, interactive=False, alias_index=0, hold_group=False, offline=True, pane=None,
                claude_settings=None, trace=False, claim_required=True, extra_env=None):
@@ -931,10 +938,10 @@ export default function (pi) {
         receipt = self.scratch / f"r10-claude-{sequence}.receipt.json"
         stderr = self.scratch / f"r10-claude-{sequence}.stderr"
         before = self.intent_paths()
-        settled = self.scratch / f"r10-settled-{sequence}.json"
-        atomic_write(settled, {"phase": "settled"})
+        unavailable_handle = f"r10-pruned-{sequence}"
         exports = self.foreground_exports("r10-fallback", sequence) | {
-            "HERDR_AGENT_INTERCOM_RECOVERY_INTENT": str(settled),
+            "HERDR_AGENT_INTERCOM_RECOVERY_ROOT": self.launchd.state_root,
+            "HERDR_AGENT_INTERCOM_RECOVERY_INTENT": unavailable_handle,
             "AGENT_INTERCOM_CLAUDE_COMMAND": native_executable("claude"),
             "AGENT_INTERCOM_CLAUDE_ARGC": "1", "AGENT_INTERCOM_CLAUDE_ARG_0": "--no-chrome",
             "MMS377_DRIVER_STDERR": str(stderr),
@@ -1044,14 +1051,15 @@ export default function (pi) {
         pane = self.client_pane()
         alias = self.aliases[0]
         command = [sys.executable, str(self.runtime_lib / "intercom-claim-recovery.py"),
-                   "--reuse-alias", str(self.runtime_root), "--alias", alias,
-                   "--owner-label", self.runtime_label, "--owner-plist", str(self.runtime_plist)]
-        env = self.owner.env | {"HERDR_PANE_ID": pane["pane_id"], "HERDR_SOCKET_PATH": self.owner.socket_path}
+                   "--admit", str(self.runtime_root), "--agent", "claude", "--launcher-pid", str(os.getpid()),
+                   "--pane-id", pane["pane_id"], "--socket-path", self.owner.socket_path]
+        env = self.owner.env | {"HERDR_ALIAS_ALLOCATOR": str(self.scratch / "aliases"), "MMS377_ALIAS": alias,
+                               "HERDR_AGENT_INTERCOM_RECOVERY_PLIST": str(self.scratch / "absent.plist")}
         try:
             require({"step": "reuse-absent-control"}, self.state(pane) is None, "control pane already has a record")
             absent = subprocess.run(command, env=env, text=True, capture_output=True, timeout=15)
             require({"step": "reuse-refresh-status"}, absent.returncode == 0, f"alias revalidation failed: {absent.stderr}")
-            require({"step": "reuse-refresh-absence"}, json.loads(absent.stdout) == {"alias": ""},
+            require({"step": "reuse-refresh-absence"}, absent.stdout.strip() == "v1\tnative\t-\t-\t-\tadmission_unavailable",
                     f"empty recovery directory licensed a stale alias: {absent.stdout}")
             self.owner.run("pane", "report-agent", pane["pane_id"], "--source", "reuse-control",
                            "--agent", "claude", "--state", "working", "--seq", str(self.reserve_sequence()))
@@ -1059,9 +1067,9 @@ export default function (pi) {
             present = subprocess.run(command, env=env, text=True, capture_output=True, timeout=15)
             require({"step": "reuse-independent-status"}, present.returncode == 0,
                     f"independent identity was rejected: {present.stderr}")
-            require({"step": "reuse-independent-alias"}, json.loads(present.stdout) == {"alias": alias},
+            require({"step": "reuse-independent-alias"}, present.stdout.strip() == f"v1\tenrolled\treused\t{alias}\t-\tok",
                     "independent existing alias was not preserved")
-            return {"absent": json.loads(absent.stdout), "present": json.loads(present.stdout)}
+            return {"absent": absent.stdout.strip(), "present": present.stdout.strip()}
         finally:
             self.owner.run("pane", "close", pane["pane_id"])
 
@@ -1082,28 +1090,31 @@ export default function (pi) {
         occupied = self.client_pane()
         first, second = self.aliases[:2]
         sequence = self.reserve_sequence()
-        self.owner.run("pane", "report-agent", occupied["pane_id"], "--source", "collision-control",
-                       "--agent", "claude", "--state", "working", "--seq", str(sequence))
-        self.owner.run("agent", "rename", occupied["pane_id"], first)
-        protected = self.state(occupied)
-        require({"step": "collision-occupied-control"}, protected is not None and protected.get("name") == first,
-                "collision control did not establish the first alias owner")
+        protected = {}
+        def occupy_after_list():
+            self.owner.run("pane", "report-agent", occupied["pane_id"], "--source", "collision-control",
+                           "--agent", "claude", "--state", "working", "--seq", str(sequence))
+            self.owner.run("agent", "rename", occupied["pane_id"], first)
+            protected.update(self.state(occupied))
+            require({"step": "collision-occupied-control"}, protected.get("name") == first,
+                    "collision control did not establish the first alias owner")
         stub = self.scratch / f"collision-{sequence}.bin"
         stub.mkdir()
         calls = self.scratch / f"collision-{sequence}.calls"
-        peer = stub / "herdr-peer-alias"
+        peer = stub / "allocator"
         peer.write_text(
-            "#!/bin/sh\nshift\n"
-            f"printf '%s\\n' \"$*\" >> {shlex.quote(str(calls))}\n"
-            "for taken in \"$@\"; do\n"
-            f"  [ \"$taken\" != {shlex.quote(first)} ] || {{ printf '%s\\n' {shlex.quote(second)}; exit 0; }}\n"
-            "done\n"
-            f"printf '%s\\n' {shlex.quote(first)}\n", encoding="utf-8")
+            "#!/bin/sh\n"
+            f"printf 'pool-read\\n' >> {shlex.quote(str(calls))}\n"
+            f"printf '%s\\n' {shlex.quote(first)} {shlex.quote(second)}\n", encoding="utf-8")
         peer.chmod(0o700)
         before = self.intent_paths()
+        relay_path = self.scratch / "collision.sock"
+        relay = HerdrResponseRelay(relay_path, self.owner.socket_path, after_list=occupy_after_list)
+        relay.__enter__()
+        self.collision_relay = relay
         pane, receipt, log, exit_file = self.launch(
             "claude", ["--no-chrome"], interactive=True, alias_index=1, trace=True,
-            extra_env={"PATH": str(stub) + os.pathsep + os.environ["PATH"]})
+            extra_env={"HERDR_ALIAS_ALLOCATOR": str(peer), "HERDR_SOCKET_PATH": str(relay_path)})
         self.wait_claude_ready(pane, receipt)
         paths = self.intent_paths() - before
         require({"step": "collision-attempt-count"}, len(paths) == 2,
@@ -1121,8 +1132,8 @@ export default function (pi) {
         require({"step": "collision-reserved-release"}, len(releases) == 1 and releases[0]["params"] == {
             "pane_id": pane["pane_id"], "source": rejected["claim"]["source"], "agent": "claude",
             "seq": rejected["claim"]["release_seq"]}, "rollback did not use its reserved release")
-        require({"step": "collision-excludes-first-candidate"}, calls.read_text() == f"\n{first}\n",
-                f"retry did not exclude the rejected candidate: {calls.read_text()!r}")
+        require({"step": "collision-single-pool-read"}, calls.read_text() == "pool-read\n",
+                f"admission did not own its candidate list: {calls.read_text()!r}")
         state = self.state(pane)
         require({"step": "collision-second-alias"}, state is not None and state.get("name") == second,
                 f"client did not enroll under the second alias: {state}")
@@ -1134,11 +1145,13 @@ export default function (pi) {
         status = self.send_normal_quit("claude", pane, receipt, log, exit_file)
         self.wait_settled(receipt, pane)
         self.owner.run("pane", "close", occupied["pane_id"])
+        relay.__exit__()
+        self.collision_relay = None
         return {"attempts": attempts, "candidate_calls": calls.read_text(), "successor": state,
                 "protected_before": protected, "protected_after": after, "status": status}
 
     def claude_relaunch_in_used_pane_reconciles(self):
-        # tests/test_intercom_claim_admission.py models how a used pane answers a
+        # tests/test_intercom_admission.py models how a used pane answers a
         # declared claim. This case asks the real Herdr the same question: launch,
         # exit, relaunch in the same pane, then reconcile at the first prompt.
         pane, receipt, log, exit_file = self.launch("claude", ["--no-chrome"], interactive=True, alias_index=17)
@@ -1170,6 +1183,11 @@ export default function (pi) {
         require({"step": "relaunch-rename-not-found"}, [(item["params"]["name"], item["response"].get("error", {}).get("code"))
                                                          for item in renames] == [(alias, "agent_not_found")],
                 f"a used pane did not answer the declared rename with agent_not_found: {renames}")
+        readbacks = [read_json(path)["response"] for path in
+                     pathlib.Path(probe_trace_dir(intent)).glob("*.release_readback.*.json")]
+        require({"step": "relaunch-rollback-absent"}, len(readbacks) == 1 and
+                readbacks[0].get("error", {}).get("code") == "agent_not_found",
+                f"used-pane rollback did not confirm record absence: {readbacks}")
 
         def native_ready():
             # A fallback launch execs native Claude as the driver's own client.
@@ -1209,7 +1227,7 @@ export default function (pi) {
                 ) from error
             wait_until(lambda: not note.exists(), 5, "reconcile note removal after the rename")
             return {"first": first["intent"]["phase"], "used_pane": used, "intent": intent, "renames": renames,
-                    "identity": identity, "detected": detected, "reconciled": reconciled}
+                    "rollback": readbacks[0], "identity": identity, "detected": detected, "reconciled": reconciled}
         finally:
             if process_start_identity(client["pid"]) == client["start_identity"]:
                 os.kill(client["pid"], signal.SIGTERM)
@@ -1227,7 +1245,7 @@ export default function (pi) {
                 process_start_identity(original["pid"]) != original["start_identity"],
                 "admission trusted stale readiness or left its former observer alive")
         require({"step": "owned-runtime-observer"}, admitted["job_label"] == self.runtime_label and
-                admitted["intent_dir"] == str(pathlib.Path(self.launchd.intent_dir).resolve()),
+                admitted["state_root"] == str(pathlib.Path(self.launchd.state_root).resolve()),
                 "observer receipt does not belong to this isolated runtime")
         os.kill(admitted["pid"], signal.SIGKILL)
 
@@ -1261,7 +1279,8 @@ export default function (pi) {
             wrapper_dir.mkdir()
             fields = ("OPENCODE_INTERCOM_NAME", "HERDR_AGENT_INTERCOM_ACTIVE",
                       "HERDR_AGENT_INTERCOM_NAME", "HERDR_AGENT_INTERCOM_PANE",
-                      "HERDR_AGENT_INTERCOM_RECOVERY_INTENT", "HERDR_AGENT_INTERCOM_PI_LOAD")
+                      "HERDR_AGENT_INTERCOM_RECOVERY_ROOT", "HERDR_AGENT_INTERCOM_RECOVERY_INTENT",
+                      "HERDR_AGENT_INTERCOM_PI_LOAD")
             executable = native_executable("opencode")
             wrapper = wrapper_dir / "opencode"
             wrapper.write_text(
@@ -1271,7 +1290,7 @@ export default function (pi) {
                 f"os.execv({executable!r}, [{executable!r}, *sys.argv[1:]])\n", encoding="utf-8")
             wrapper.chmod(0o700)
             inherited = self.scratch / f"parent-{sequence}.json"
-            atomic_write(inherited, {"phase": "settled", "sentinel": "another-pane"})
+            atomic_write(inherited, "foreign-pane sentinel")
             inherited_before = inherited.read_bytes()
             before = self.intent_paths()
             with HerdrResponseRelay(self.scratch / f"relay-{sequence}.sock",
@@ -1281,7 +1300,8 @@ export default function (pi) {
                     "MMS377_DRIVER_STDERR": str(stderr),
                     "OPENCODE_INTERCOM_NAME": "parent-alias", "HERDR_AGENT_INTERCOM_ACTIVE": "1",
                     "HERDR_AGENT_INTERCOM_NAME": "parent-alias", "HERDR_AGENT_INTERCOM_PANE": "other-pane",
-                    "HERDR_AGENT_INTERCOM_RECOVERY_INTENT": str(inherited),
+                    "HERDR_AGENT_INTERCOM_RECOVERY_ROOT": str(self.scratch / "foreign-root"),
+                    "HERDR_AGENT_INTERCOM_RECOVERY_INTENT": inherited.stem,
                     "HERDR_AGENT_INTERCOM_PI_LOAD": "parent-load",
                 }
                 self.start_foreground_driver(pane, receipt,
@@ -1312,7 +1332,8 @@ export default function (pi) {
                             "partial acquisition did not report its pending obligation")
                 else:
                     require({"step": "partial-valid-control"}, intent["phase"] == "acquired" and
-                            environment["HERDR_AGENT_INTERCOM_RECOVERY_INTENT"] == str(path) and
+                            environment["HERDR_AGENT_INTERCOM_RECOVERY_ROOT"] == self.launchd.state_root and
+                            environment["HERDR_AGENT_INTERCOM_RECOVERY_INTENT"] == pathlib.Path(path).stem and
                             environment["OPENCODE_INTERCOM_NAME"] == self.aliases[15],
                             f"relay control did not complete real enrollment: {intent}; {environment}")
                 state = self.state(pane)
@@ -1321,8 +1342,18 @@ export default function (pi) {
                 require({"step": "partial-parent-preserved"}, inherited.read_bytes() == inherited_before,
                         "launch changed another pane's inherited obligation")
                 self.send_normal_quit("opencode", pane, receipt, None, None)
-                wait_until(lambda: self.state(pane) is None, 10,
-                           "autonomous partial-claim cleanup after native exit")
+                try:
+                    wait_until(lambda: self.state(pane) is None, 10,
+                               "autonomous partial-claim cleanup after native exit")
+                except ProbeError:
+                    diagnostic = {"drop_response": drop_response, "intent": read_json(path),
+                                  "record": self.state(pane), "observer": read_json(self.launchd.pid_file),
+                                  "driver": self.driver_details(receipt),
+                                  "stderr": stderr.read_text()}
+                    for name in ("observer.stderr.log", "observer.stdout.log"):
+                        diagnostic[name] = (pathlib.Path(self.launchd.state_root) / name).read_text()
+                    print("PARTIAL_CLEANUP_DIAGNOSTIC " + json.dumps(diagnostic), flush=True)
+                    raise
                 # An unacknowledged operation remains pending if Herdr clears
                 # the record before the observer can witness its own release.
                 after_exit = read_json(path)
@@ -1959,7 +1990,7 @@ export default function (pi) {
             trace = self.scratch / ("old-release-trace-" + uuid.uuid4().hex)
             trace.mkdir()
             old_path = durable_intent(self.owner, str(self.scratch / "manual-intents"), pane,
-                                      sequence, old, start, trace_dir=str(trace))
+                                      sequence, old, start, trace_dir=str(trace), acquisition="lost")
             report(self.owner, pane["pane_id"], OLD_SOURCE, "unknown", sequence)
             require({"step": "old-claim"}, self.state(pane)["agent_status"] == "unknown", "old claim did not publish")
             report(self.owner, pane["pane_id"], "foreign-takeover", "working", sequence + 10)
@@ -1990,9 +2021,9 @@ export default function (pi) {
             response = read_json(attempts[0])["response"]
             require({"step": "old-release-status"}, "error" not in response and response.get("result", {}).get("type") == "ok",
                     f"old release was rejected: {response}")
-            old_intent = read_json(old_path)
-            repeated = bound_request(old_intent, "pane.release_agent", {"pane_id": pane["pane_id"],
-                "source": OLD_SOURCE, "agent": "claude", "seq": old_intent["claim"]["release_seq"]})
+            repeated = self.owner.raw("pane.release_agent", {"pane_id": pane["pane_id"],
+                "source": OLD_SOURCE, "agent": "claude",
+                "seq": read_json(next(trace.glob("*.release_attempt.*.json")))["seq"]})
             require({"step": "repeated-release-status"}, "error" not in repeated and repeated.get("result", {}).get("type") == "ok",
                     f"repeated old release was rejected: {repeated}")
             after = self.state(pane)
@@ -2137,8 +2168,9 @@ export default function (pi) {
         trace_dir = pathlib.Path(probe_trace_dir(read_json(expected["intent"])))
         before = self.wait_claude_session(pane)
         attempts_before = list(trace_dir.glob("*.mutation_attempt.*.json"))
-        result = subprocess.run([sys.executable, str(ROOT / "tests/helpers/intercom_claim_recovery_prototype.py"), "--handoff"],
-                                cwd=ROOT, env=self.owner.env | {"HERDR_AGENT_INTERCOM_RECOVERY_INTENT": expected["intent"]},
+        result = subprocess.run([sys.executable, str(ROOT / "tests/helpers/intercom_recovery_harness.py"),
+                                 "--handoff", self.launchd.state_root, "--intent", pathlib.Path(expected["intent"]).stem],
+                                cwd=ROOT, env=self.owner.env,
                                 text=True, capture_output=True, check=False, timeout=15)
         require({"step": "handoff-non-descendant-refusal"}, result.returncode != 0 and
                 "handoff caller is not a descendant" in result.stderr,
@@ -2161,7 +2193,7 @@ export default function (pi) {
         hook.write_text(
             "import os, pathlib, sys, time\n"
             f"sys.path.insert(0, {str(ROOT / 'tests/helpers')!r})\n"
-            "from intercom_claim_recovery_prototype import atomic_write, request_handoff\n"
+            "from intercom_recovery_harness import atomic_write, ProbeEngine\n"
             "intent = os.environ['HERDR_AGENT_INTERCOM_RECOVERY_INTENT']\n"
             "socket = pathlib.Path(os.environ['HERDR_SOCKET_PATH'])\n"
             f"hidden = pathlib.Path({str(hidden)!r})\n"
@@ -2169,7 +2201,7 @@ export default function (pi) {
             f"release = pathlib.Path({str(release)!r})\n"
             "os.replace(socket, hidden)\n"
             "try:\n"
-            "    request_handoff(intent)\n"
+            "    ProbeEngine(os.environ['HERDR_AGENT_INTERCOM_RECOVERY_ROOT']).handoff(intent)\n"
             "    atomic_write(str(receipt), {'pid': os.getpid(), 'intent': intent, 'socket_hidden': str(hidden)})\n"
             "    deadline = time.monotonic() + 15\n"
             "    while not release.exists() and time.monotonic() < deadline: time.sleep(0.05)\n"
@@ -2231,8 +2263,8 @@ export default function (pi) {
         inner_hook.write_text(
             "import os, subprocess, sys\n"
             f"sys.path.insert(0, {str(ROOT / 'tests/helpers')!r})\n"
-            "from intercom_claim_recovery_prototype import atomic_write\n"
-            f"result = subprocess.run([sys.executable, {str(ROOT / 'tests/helpers/intercom_claim_recovery_prototype.py')!r}, '--handoff'], text=True, capture_output=True, check=False)\n"
+            "from intercom_recovery_harness import atomic_write\n"
+            f"result = subprocess.run([sys.executable, {str(ROOT / 'tests/helpers/intercom_recovery_harness.py')!r}, '--handoff', os.environ['HERDR_AGENT_INTERCOM_RECOVERY_ROOT'], '--intent', os.environ['HERDR_AGENT_INTERCOM_RECOVERY_INTENT']], text=True, capture_output=True, check=False)\n"
             f"atomic_write({str(result_path)!r}, {{'pid': os.getpid(), 'returncode': result.returncode, 'stderr': result.stderr}})\n",
             encoding="utf-8",
         )

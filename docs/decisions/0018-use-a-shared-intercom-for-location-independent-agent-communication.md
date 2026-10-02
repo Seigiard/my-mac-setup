@@ -265,17 +265,18 @@ shows that clearing alone is not that fix: the identity is gone after the client
 exits, and the pane still refuses a declaration. There the route comes from the
 `undeclarable` admission result described below.
 
-The launcher therefore reads which case it is in before it spends anything.
+Engine admission reads which case it is in before spending a candidate.
 `herdr agent get` has no record to report on such a pane, but on herdr 0.9.1
 `herdr pane get` still carries the identity — the only place it stays readable —
 so one read separates a pane that has hosted a client from one that never has. On
-a pane that carries an identity the launcher declares nothing, keeps the alias it
+a pane that carries an identity admission declares nothing, keeps the alias it
 allocated, and enrolls under a name Herdr does not yet know. On herdr 0.9.3 that
-read misses a pane whose client has exited, so the launcher declares and spends
+read misses a pane whose client has exited, so admission declares and spends
 one candidate. The rename then answers `agent_not_found`, and once the rollback is
-confirmed to leave no record, admission reports the pane as `undeclarable` and the
-launcher takes the same route. No other rejection code is read as a used pane.
-On either version the launcher records the pending rename, and the first-prompt
+confirmed to leave no record, the internal claim result marks the pane as
+`undeclarable` and admission selects `deferred_rename` for Claude. No other
+rejection code is read as a used pane. OpenCode and Pi receive native fallback.
+On either version admission records the pending rename, and the first-prompt
 hook renames the record Herdr's own detection created. This gives up the property the paragraph
 above relies on: for that one case the collision boundary moves after the
 client starts, and the Herdr alias and the Intercom name differ until the first

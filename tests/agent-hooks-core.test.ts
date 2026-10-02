@@ -603,6 +603,7 @@ describe("selfcheck loaded-identity markers (KTD5)", () => {
     writeFileSync(join(stateDir, `opencode-${process.ppid}.json`), JSON.stringify({
       client: "opencode", pid: process.ppid, hash: OLD,
       processStartedAt: "Mon Jan  1 00:00:00 2001",
+      identityFormat: "ps-lstart-c-utc-v1",
     }));
 
     // #when a new session starts
@@ -617,6 +618,7 @@ describe("selfcheck loaded-identity markers (KTD5)", () => {
     const stateDir = temporaryDir("agent-hooks-state-");
     writeFileSync(join(stateDir, "opencode-4242.json"), JSON.stringify({
       client: "opencode", pid: 4242, hash: OLD, processStartedAt: "old-start",
+      identityFormat: "ps-lstart-c-utc-v1",
     }));
     const getProcessStart = (pid: number) => {
       if (pid === 4242) {
@@ -653,12 +655,13 @@ describe("selfcheck loaded-identity markers (KTD5)", () => {
     expect(selfcheck.readMarkers(stateDir).map((marker: any) => marker.pid)).toEqual([process.pid]);
   });
 
-  for (const unavailable of ["legacy", "unreadable"] as const) {
+  for (const unavailable of ["legacy", "legacy-format", "unreadable"] as const) {
     test(`${unavailable} start identity is unknown and is not grounds for deletion`, () => {
       // #given a live marker without verifiable start evidence
       const stateDir = temporaryDir("agent-hooks-state-");
       const marker = selfcheck.writeMarker("opencode", { stateDir, hash: DEPLOYED });
       if (unavailable === "legacy") delete marker.processStartedAt;
+      if (unavailable === "legacy-format") delete marker.identityFormat;
       writeFileSync(join(stateDir, readdirSync(stateDir)[0]), JSON.stringify(marker));
       const options = unavailable === "unreadable" ? { getProcessStart: () => null } : {};
 
@@ -740,6 +743,7 @@ describe("selfcheck loaded-identity markers (KTD5)", () => {
     ] as const) {
       writeFileSync(join(stateDir, name), JSON.stringify({
         client, pid, hash: OLD, processStartedAt: selfcheck.processStartTime(pid),
+        identityFormat: "ps-lstart-c-utc-v1",
       }));
     }
     writeFileSync(join(stateDir, "opencode-not-a-pid.json"), "foreign data");
@@ -892,6 +896,7 @@ describe("selfcheck report", () => {
       const stateDir = temporaryDir("agent-hooks-state-");
       writeFileSync(join(stateDir, "opencode-4242.json"), JSON.stringify({
         client: "opencode", pid: 4242, hash: "old-core", processStartedAt,
+        identityFormat: "ps-lstart-c-utc-v1",
       }));
 
       // #when JSON and human-readable reports are built
@@ -921,6 +926,7 @@ describe("selfcheck report", () => {
     }));
     writeFileSync(join(stateDir, "opencode-4243.json"), JSON.stringify({
       client: "opencode", pid: 4243, hash: "confirmed-old-core", processStartedAt: "known-start",
+      identityFormat: "ps-lstart-c-utc-v1",
     }));
 
     // #when both kinds of evidence are rendered

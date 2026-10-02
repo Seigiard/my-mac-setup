@@ -43,7 +43,7 @@ setup() {
   # Recovery admission reads the connected server identity. Fixtures use their
   # own CLI stub and must never inherit this runner's live Herdr socket.
   unset HERDR_SOCKET_PATH
-  unset HERDR_AGENT_INTERCOM_RECOVERY_INTENT
+  unset HERDR_AGENT_INTERCOM_RECOVERY_ROOT HERDR_AGENT_INTERCOM_RECOVERY_INTENT HERDR_AGENT_INTERCOM_NATIVE_ONLY
   unset HERDR_AGENT_INTERCOM_PYTHON
   unset HERDR_AGENT_INTERCOM_BIN_DIR
   unset HERDR_AGENT_INTERCOM_LIB_DIR
@@ -130,6 +130,22 @@ SH
     "$home/.local/lib/herdr-agent-intercom-native-claude"
   chmod +x "$home/.local/bin/herdr-agent-intercom-claude" \
     "$home/.local/lib/herdr-agent-intercom-native-claude"
+  cat > "$home/.local/lib/intercom-claim-recovery.py" <<'PY'
+import os
+import sys
+args = sys.argv[1:]
+if os.environ.get('ADMISSION_LOG'):
+    with open(os.environ['ADMISSION_LOG'], 'a') as log:
+        log.write('admit\n')
+assert args[0] == '--admit'
+assert set(args[2::2]) == {'--socket-path', '--pane-id', '--agent', '--launcher-pid'}
+pane = args[args.index('--pane-id') + 1]
+names = {'w1:p2': 'ochre-okapi', 'w1:p3': 'violet-tern'}
+default = ('v1\tenrolled\treused\t' + names[pane] + '\t-\tok' if pane in names
+           else 'v1\tnative\t-\t-\t-\talias_unavailable')
+print(os.environ.get('ADMISSION_RESULT', default))
+sys.exit(int(os.environ.get('ADMISSION_STATUS', '0')))
+PY
   printf '%s\n' "$stub"
 }
 
@@ -241,30 +257,25 @@ function test_scripts_1332_agent_intercom_launcher_resolves_the_current_pane_ali
   local launcher="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom"
   local stub
   stub="$(agent_intercom_stub_bin)"
-  cat > "$stub/herdr" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' '{"id":"cli:agent:get","result":{"agent":{"name":"silver-ibis","pane_id":"w1:p2"}}}'
-SH
-  chmod +x "$stub/herdr"
-
   run env HERDR_ENV=1 HERDR_CHILD_NAME=caller-supplied HERDR_PANE_ID=w1:p2 \
-    HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+    ADMISSION_RESULT=$'v1\tenrolled\treused\tsilver-ibis\t-\tok' \
     HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" bash "$launcher" opencode
 
   assert_success
   assert_output 'opencode name=<silver-ibis> args= active=<1> pi_load=<>'
 
-  # A provisional name can look like an alias without belonging to the pool.
-  cat > "$stub/herdr" <<'SH'
-#!/usr/bin/env bash
-printf '{"result":{"agent":{"name":"%s","pane_id":"%s","launch_pending":true}}}\n' \
-  "$PROBE_NAME" "${PROBE_PANE:-w1:p2}"
-exit "${PROBE_STATUS:-0}"
-SH
-  local provisional
-  for provisional in caller-supplied unnamed-alpha; do
+  # Malformed decisions must not leak the parent's enrollment. Engine route
+  # decisions themselves are owned by test_intercom_admission.py.
+  local decision
+  for decision in $'v1\tnative\t-\t-\tretained-handle\tacquisition_unconfirmed' \
+    $'v2\tenrolled\treused\tsilver-ibis\t-\tok' \
+    $'v1\tenrolled\tclaimed\tsilver-ibis\t-\tok' \
+    $'v1\tenrolled\treused\tsilver-ibis\tunexpected\tok' \
+    $'v1\tenrolled\treused\tsilver-ibis\t-\tok\textra' \
+    $'v1\tenrolled\treused\tsilver-ibis\t-\tok\nextra' \
+    $'v1\tenrolled\treused\tsilver-ibis\t\tok'; do
     run env HERDR_ENV=1 HERDR_CHILD_NAME=silver-ibis HERDR_PANE_ID=w1:p2 \
-      PROBE_NAME="$provisional" HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+      ADMISSION_RESULT="$decision" \
       HERDR_AGENT_INTERCOM_ACTIVE=1 HERDR_AGENT_INTERCOM_PANE=w1:p1 \
       HERDR_AGENT_INTERCOM_NAME=parent-alias OPENCODE_INTERCOM_NAME=parent-alias \
       HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" bash "$launcher" opencode
@@ -273,23 +284,24 @@ SH
 opencode name=<> args= active=<> pi_load=<>'
   done
 
-  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 PROBE_NAME=silver-ibis PROBE_PANE=w1:p9 \
-    HERDR_ALIAS_ALLOCATOR="$stub/allocator" PATH="$stub:$PATH" bash "$launcher" opencode
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 ADMISSION_STATUS=1 \
+    HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" bash "$launcher" opencode
   assert_success
   assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting opencode without Intercom
 opencode name=<> args= active=<> pi_load=<>'
 
-  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 PROBE_NAME=silver-ibis PROBE_STATUS=1 \
-    HERDR_ALIAS_ALLOCATOR="$stub/allocator" PATH="$stub:$PATH" bash "$launcher" opencode
+  # A valid fresh claim transports a root and opaque handle to the client.
+  cat > "$stub/opencode" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "${HERDR_AGENT_INTERCOM_RECOVERY_ROOT-}" "${HERDR_AGENT_INTERCOM_RECOVERY_INTENT-}" "${OPENCODE_INTERCOM_NAME-}"
+SH
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 \
+    ADMISSION_RESULT=$'v1\tenrolled\tclaimed\tsilver-ibis\tlaunch-123\tok' \
+    HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" bash "$launcher" opencode
   assert_success
-  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting opencode without Intercom
-opencode name=<> args= active=<> pi_load=<>'
-
-  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 PROBE_NAME=silver-ibis \
-    HERDR_ALIAS_ALLOCATOR=/nonexistent/allocator PATH="$stub:$PATH" bash "$launcher" opencode
-  assert_success
-  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting opencode without Intercom
-opencode name=<> args= active=<> pi_load=<>'
+  assert_output "$BATS_TEST_TMPDIR/agent-intercom-home/.local/state/agent-intercom/recovery/v1
+launch-123
+silver-ibis"
 }
 
 function test_scripts_1346_agent_intercom_launcher_rejects_fresh_claims_without_a_restart_owner() {
@@ -297,36 +309,30 @@ function test_scripts_1346_agent_intercom_launcher_rejects_fresh_claims_without_
   local launcher="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom"
   local stub home log
   stub="$(agent_intercom_stub_bin)"
-  cp "$SOURCE_ROOT/dot_local/bin/executable_herdr-peer-alias" "$stub/herdr-peer-alias"
-  chmod +x "$stub/herdr-peer-alias"
   home="$BATS_TEST_TMPDIR/agent-intercom-home"
   log="$BATS_TEST_TMPDIR/claim-calls"
-  cat > "$stub/herdr" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >> "$CLAIM_LOG"
-case "$1 $2" in
-  'agent get')
-    printf '{"error":{"code":"agent_not_found"}}\n' >&2
-    exit 1
-    ;;
-  'pane get') printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "$3" ;;
-  *) exit 2 ;;
-esac
-SH
-  chmod +x "$stub/herdr"
-
-  # #when a fresh pane has no socket or restart owner (R10)
+  # The engine suite owns the missing-owner decision. This caller applies it
+  # without changing the native argv or claiming an inherited identity.
   : > "$log"
-  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" HOME="$home" \
-    PATH="$stub:$PATH" bash "$launcher" claude
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 ADMISSION_LOG="$log" HOME="$home" \
+    ADMISSION_RESULT=$'v1\tnative\t-\t-\t-\tadmission_unavailable' \
+    PATH="$stub:$PATH" bash "$launcher" claude --model sonnet
 
   # #then no fake claim is taken and the native client receives its original argv
   assert_success
-  assert_output 'herdr-agent-intercom: automatic claim recovery unavailable; starting claude without a new claim
-herdr-agent-intercom: canonical pane alias unavailable; starting claude without Intercom
-claude name=<> args= active=<> pi_load=<>'
-  assert_equal "$(grep -c 'pane report-agent' "$log" || true)" 0
-  assert_equal "$(grep -c 'agent rename' "$log" || true)" 0
+  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting claude without Intercom
+claude name=<> args= active=<> pi_load=<><--model><sonnet>'
+  assert_equal "$(cat "$log")" admit
+
+  # Missing enrollment components must bypass admission altogether.
+  rm "$home/.local/share/agent-intercom/node_modules/.bin/cci"
+  : > "$log"
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 ADMISSION_LOG="$log" HOME="$home" \
+    PATH="$stub:$PATH" bash "$launcher" claude --model sonnet
+  assert_success
+  assert_output 'herdr-agent-intercom: enrollment components unavailable; starting claude without Intercom
+claude name=<> args= active=<> pi_load=<><--model><sonnet>'
+  assert_equal "$(cat "$log")" ''
 
   # The historical 1346 collision control now runs through real admission in
   # intercom_claim_client_probe.py: alias_collision_rolls_back_and_retries.
@@ -342,245 +348,15 @@ function test_scripts_1348_agent_intercom_enrolls_a_pane_that_refuses_a_declared
   log="$BATS_TEST_TMPDIR/refused-calls"
   note="$home/.local/state/agent-intercom/reconcile/w1_p2"
 
-  # #given a pane Herdr will not let this source declare: it carries a claude
-  # agent-session identity from an earlier session in the same pane. `agent get`
-  # has no record to report, while `pane get` still carries that identity -- the
-  # only place it stays readable. Every shape here was measured against herdr
-  # v0.9.1 rather than taken from the launcher: the `agent get` error arrives on
-  # stderr with exit 1, and `pane get` answers with the identity's source and
-  # value. The rename arm refuses, so a launcher that declares anyway is caught
-  # by the call counts below instead of passing on a silent no-op.
-  cat > "$stub/herdr" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >> "$CLAIM_LOG"
-case "$1 $2" in
-  'agent get')
-    printf '{"error":{"code":"agent_not_found","message":"agent target %s not found"},"id":"cli:agent:get"}\n' "$3" >&2
-    exit 1
-    ;;
-  'pane get')
-    printf '{"id":"cli:pane:get","result":{"pane":{"agent_session":{"agent":"%s","kind":"id","source":"herdr:%s","value":"%s"},"pane_id":"%s"},"type":"pane_info"}}\n' \
-      "${PANE_SESSION_AGENT:-claude}" "${PANE_SESSION_AGENT:-claude}" \
-      "${PANE_SESSION:-3f21c0de-earlier-session}" "$3"
-    exit 0
-    ;;
-  'pane report-agent'|'pane release-agent') exit 0 ;;
-  'agent rename')
-    printf '{"error":{"code":"agent_not_found","message":"agent target %s not found"},"id":"cli:agent:rename"}\n' "$3" >&2
-    exit 1
-    ;;
-esac
-exit 2
-SH
-  cat > "$stub/herdr-peer-alias" <<'SH'
-#!/usr/bin/env bash
-printf 'ochre-okapi\n'
-SH
-  chmod +x "$stub/herdr" "$stub/herdr-peer-alias"
-
-  # #when Claude starts by hand in that pane
-  : > "$log"; rm -f "$note"
-  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
-    HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
+  # Admission route selection and durable note creation now live in
+  # test_intercom_admission.py. This case owns consumption by the launcher and
+  # the existing first-prompt reconciliation hook.
+  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 \
+    ADMISSION_RESULT=$'v1\tenrolled\tdeferred_rename\tochre-okapi\t-\tok' \
     HOME="$home" PATH="$stub:$PATH" bash "$launcher" claude
-
-  # #then it enrolls under the allocated name instead of warning
   assert_success
   assert_output "cci name=<> args= active=<1> pi_load=<><--tui><--transport><mcp><--name><ochre-okapi><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
-
-  # #then the pane's own record decides the route, so nothing is declared and no
-  # candidate is spent on a refusal no name could have survived
-  assert_file_contains "$log" 'pane get w1:p2'
-  assert_equal "$(grep -c 'agent rename' "$log" || true)" 0
-  assert_equal "$(grep -c 'pane report-agent' "$log" || true)" 0
-  assert_equal "$(grep -c 'pane release-agent' "$log" || true)" 0
-
-  # #then it leaves the rename for the first prompt
-  assert_equal "$(cat "$note")" 'ochre-okapi'
-
-  # #given the identity left by a client of another kind. Herdr refuses a
-  # declaration on such a pane exactly as it does after Claude -- measured on
-  # herdr 0.9.1, where `--agent opencode` and `--agent codex` are answered
-  # without error and create nothing -- so this pane takes the same route. It is
-  # the case that fails if the read is ever narrowed to the claude identity.
-  : > "$log"; rm -f "$note"
-  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
-    PANE_SESSION_AGENT=opencode HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
-    HOME="$home" PATH="$stub:$PATH" bash "$launcher" claude
-
-  # #then Claude still enrolls without declaring anything
-  assert_success
-  assert_output "cci name=<> args= active=<1> pi_load=<><--tui><--transport><mcp><--name><ochre-okapi><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
-  # The pane read is the gate for the two zeroes below: the allocated name comes
-  # from `herdr-peer-alias`, so the output alone would look the same if `herdr`
-  # were never reached and nothing could have been declared anyway.
-  assert_file_contains "$log" 'pane get w1:p2'
-  assert_equal "$(grep -c 'pane report-agent' "$log" || true)" 0
-  assert_equal "$(grep -c 'agent rename' "$log" || true)" 0
-  assert_equal "$(cat "$note")" 'ochre-okapi'
-
-  # #when OpenCode or Pi launches into that same undeclarable pane. This route
-  # enrolls under a name Herdr does not carry until a first prompt renames its
-  # record, and the only caller of that rename is Claude's `UserPromptSubmit`
-  # hook. Taking the route for them would publish an Intercom name while the
-  # sidebar kept another, with nothing able to close the gap.
-  local client
-  for client in opencode pi; do
-    : > "$log"; rm -f "$note"
-    if [[ "$client" == pi ]]; then
-      run agent_intercom_run_with_pty env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
-        HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
-        HOME="$home" PATH="$stub:$PATH" bash "$launcher" "$client"
-    else
-      run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
-        HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
-        HOME="$home" PATH="$stub:$PATH" bash "$launcher" "$client"
-    fi
-
-    # #then it keeps the fallback rather than a name no prompt will reconcile
-    assert_success
-    assert_output "herdr-agent-intercom: canonical pane alias unavailable; starting $client without Intercom
-$client name=<> args= active=<> pi_load=<>"
-    assert_file_contains "$log" 'pane get w1:p2'
-    assert_equal "$(grep -c 'pane report-agent' "$log" || true)" 0
-    assert_equal "$(grep -c 'agent rename' "$log" || true)" 0
-    assert_file_not_exists "$note"
-  done
-
-  # #when the same launch finds no Intercom runtime to start
-  rm -f "$home/.local/share/agent-intercom/node_modules/.bin/cci"
-  : > "$log"
-  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
-    HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
-    HOME="$home" PATH="$stub:$PATH" bash "$launcher" claude
-
-  # #then it drops the pending rename, so no first prompt publishes an alias
-  # this session cannot answer to
-  assert_success
-  assert_output 'herdr-agent-intercom: enrollment components unavailable; starting claude without Intercom
-claude name=<> args= active=<> pi_load=<>'
-  assert_file_not_exists "$note"
-  ln -sf "$stub/cci" "$home/.local/share/agent-intercom/node_modules/.bin/cci"
-
-  # #given the same launcher on a pane that has never hosted a client: `pane get`
-  # answers with no agent-session identity. The valid control is the used-pane
-  # reconciliation above; a fresh pane now requires a real restart owner.
-  cat > "$stub/herdr" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >> "$CLAIM_LOG"
-case "$1 $2" in
-  'agent get')
-    printf '{"error":{"code":"agent_not_found","message":"agent target %s not found"},"id":"cli:agent:get"}\n' "$3" >&2
-    exit 1
-    ;;
-  'pane get')
-    printf '{"id":"cli:pane:get","result":{"pane":{"pane_id":"%s","revision":0},"type":"pane_info"}}\n' "$3"
-    exit 0
-    ;;
-  'pane report-agent'|'pane release-agent'|'agent rename') exit 0 ;;
-esac
-exit 2
-SH
-  chmod +x "$stub/herdr"
-
-  # #when Claude starts without a socket or owner (R10)
-  : > "$log"; rm -f "$note"
-  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 CLAIM_LOG="$log" \
-    HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
-    HOME="$home" PATH="$stub:$PATH" bash "$launcher" claude
-
-  # #then it starts bare without inventing a test-only claim owner
-  assert_success
-  assert_output 'herdr-agent-intercom: automatic claim recovery unavailable; starting claude without a new claim
-herdr-agent-intercom: canonical pane alias unavailable; starting claude without Intercom
-claude name=<> args= active=<> pi_load=<>'
-  assert_equal "$(grep -c 'pane report-agent' "$log" || true)" 0
-  assert_equal "$(grep -c 'agent rename' "$log" || true)" 0
-  assert_file_not_exists "$note"
-
-  # #given a pane whose earlier client exited under herdr 0.9.3: `pane get` no
-  # longer shows its agent_session, so the launcher reaches admission, and the
-  # pane ignores the claim. Measured live on 0.9.3: the report succeeds, the
-  # rename answers agent_not_found, and the rollback leaves no record. The engine
-  # turns that into `undeclarable`; its own test owns that mapping. This stub
-  # stands in for the engine and the launchd owner the launcher cannot reach here.
-  cat > "$home/.local/lib/intercom-claim-recovery.py" <<'PY'
-#!/usr/bin/env python3
-import os
-import sys
-if "--ensure-owner" in sys.argv:
-    sys.exit(0)
-if "--claim-intent" not in sys.argv:
-    sys.exit(2)
-with open(os.environ["CLAIM_LOG"], "a", encoding="utf-8") as log:
-    log.write(f"claim-intent {sys.argv[sys.argv.index('--alias') + 1]}\n")
-print(os.environ["ENGINE_RESULT"])
-PY
-  cat > "$stub/uname" <<'SH'
-#!/usr/bin/env bash
-printf 'Darwin\n'
-SH
-  cat > "$stub/herdr-peer-alias" <<'SH'
-#!/usr/bin/env bash
-printf 'ochre-okapi\n'
-SH
-  chmod +x "$stub/uname" "$stub/herdr-peer-alias"
-  local undeclarable='{"claimed":false,"intent":"/intent","retry":false,"undeclarable":true,"pending":false}'
-
-  # #when Claude starts again in that pane
-  : > "$log"; rm -f "$note"
-  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 HERDR_SOCKET_PATH=/socket CLAIM_LOG="$log" \
-    ENGINE_RESULT="$undeclarable" HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
-    HOME="$home" PATH="$stub:$PATH" bash "$launcher" claude
-
-  # #then it enrolls under the allocated name and leaves the rename for the
-  # first prompt, exactly like a pane whose old identity is still visible
-  assert_success
-  assert_output "cci name=<> args= active=<1> pi_load=<><--tui><--transport><mcp><--name><ochre-okapi><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
-  assert_equal "$(grep -c 'claim-intent ochre-okapi' "$log")" 1
-  assert_equal "$(cat "$note")" 'ochre-okapi'
-
-  # #when OpenCode starts in the same pane, where no hook would ever rename
-  : > "$log"; rm -f "$note"
-  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 HERDR_SOCKET_PATH=/socket CLAIM_LOG="$log" \
-    ENGINE_RESULT="$undeclarable" HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
-    HOME="$home" PATH="$stub:$PATH" bash "$launcher" opencode
-
-  # #then it starts without Intercom and records no pending rename
-  assert_success
-  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting opencode without Intercom
-opencode name=<> args= active=<> pi_load=<>'
-  assert_equal "$(grep -c 'claim-intent ochre-okapi' "$log")" 1
-  assert_file_not_exists "$note"
-
-  # #when the engine cannot confirm that its attempt left nothing behind
-  : > "$log"; rm -f "$note"
-  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 HERDR_SOCKET_PATH=/socket CLAIM_LOG="$log" \
-    ENGINE_RESULT='{"claimed":false,"intent":"/intent","retry":false,"pending":true}' \
-    HERDR_ALIAS_ALLOCATOR="$stub/allocator" HOME="$home" PATH="$stub:$PATH" bash "$launcher" claude
-
-  # #then Claude starts bare and the partial claim stays with recovery
-  assert_success
-  assert_output 'herdr-agent-intercom: enrollment unavailable; any partial claim remains pending for recovery
-herdr-agent-intercom: canonical pane alias unavailable; starting claude without Intercom
-claude name=<> args= active=<> pi_load=<>'
-  assert_equal "$(grep -c 'claim-intent ochre-okapi' "$log")" 1
-  assert_file_not_exists "$note"
-
-  # #when the engine rolled back a rejection that is neither a collision nor an
-  # ignored report
-  : > "$log"; rm -f "$note"
-  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 HERDR_SOCKET_PATH=/socket CLAIM_LOG="$log" \
-    ENGINE_RESULT='{"claimed":false,"intent":"/intent","retry":false,"undeclarable":false,"pending":false}' \
-    HERDR_ALIAS_ALLOCATOR="$stub/allocator" HOME="$home" PATH="$stub:$PATH" bash "$launcher" claude
-
-  # #then Claude starts bare, and the warning does not claim anything is pending
-  assert_success
-  assert_output 'herdr-agent-intercom: enrollment unavailable; the rejected claim was rolled back
-herdr-agent-intercom: canonical pane alias unavailable; starting claude without Intercom
-claude name=<> args= active=<> pi_load=<>'
-  assert_file_not_exists "$note"
-  rm -f "$home/.local/lib/intercom-claim-recovery.py" "$stub/uname"
+  mkdir -p "${note%/*}"
 
   # #given the record Herdr's own detection created, under its own alias
   cat > "$stub/herdr" <<'SH'
@@ -713,7 +489,7 @@ SH
 
   # Recovery handles and helper overrides are manually listed isolation inputs.
   # The real existing-alias launches above do not emit fresh-claim controls.
-  printf '%s\n' HERDR_SOCKET_PATH HERDR_AGENT_INTERCOM_RECOVERY_INTENT \
+  printf '%s\n' HERDR_SOCKET_PATH HERDR_AGENT_INTERCOM_RECOVERY_ROOT HERDR_AGENT_INTERCOM_RECOVERY_INTENT \
     HERDR_AGENT_INTERCOM_PYTHON HERDR_AGENT_INTERCOM_BIN_DIR \
     HERDR_AGENT_INTERCOM_LIB_DIR HERDR_AGENT_INTERCOM_RECOVERY_LABEL \
     HERDR_AGENT_INTERCOM_RECOVERY_PLIST >> "$dump"
@@ -756,12 +532,8 @@ function test_scripts_1333_agent_intercom_launcher_passes_through_an_unidentifie
   assert_success
   assert_output 'pi name=<> args= active=<> pi_load=<>'
 
-  cat > "$stub/herdr" <<'SH'
-#!/usr/bin/env bash
-exit 1
-SH
-  chmod +x "$stub/herdr"
   run env HERDR_ENV=1 HERDR_CHILD_NAME= HERDR_PANE_ID=w1:p2 \
+    ADMISSION_RESULT=$'v1\tnative\t-\t-\t-\tadmission_unavailable' \
     HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" bash "$launcher" claude
   assert_success
   assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting claude without Intercom
@@ -1130,16 +902,16 @@ teardown() {
 # herdr-worktree-identity state library
 # ===========================================
 
-function test_scripts_1209_shared_process_identity_is_stable_and_accepts_legacy_markers() {
-  _bats_test_init 1209 'shared process identity is stable and accepts legacy persisted markers'
+function test_scripts_1209_shared_process_identity_is_stable_and_preserves_unknown_legacy_markers() {
+  _bats_test_init 1209 'shared process identity is stable and preserves unknown legacy markers'
   local process_library="$SOURCE_ROOT/dot_local/lib/herdr-process.sh"
   local stub="$BATS_TEST_TMPDIR/process-identity-bin" log="$BATS_TEST_TMPDIR/process-identity-locales.log"
   mkdir -p "$stub"
   cat > "$stub/ps" <<'SH'
 #!/usr/bin/env bash
-printf '%s\n' "${LC_ALL-<unset>}" >> "$PROCESS_IDENTITY_LOCALE_LOG"
-if [ "${LC_ALL-}" = C ]; then
-  printf '  Sat Sep 12 06:18:05 2026    \n'
+printf '%s %s\n' "${LC_ALL-<unset>}" "${TZ-<unset>}" >> "$PROCESS_IDENTITY_LOCALE_LOG"
+if [ "${LC_ALL-}" = C ] && [ "${TZ-}" = UTC ]; then
+  printf '  Thu Oct  1 06:18:05 2026    \n'
 else
   printf 'sam 12 sep 2026 06:18:05 UTC\n'
 fi
@@ -1152,21 +924,24 @@ SH
       source "$1"
       process_start_marker 42
       printf "\n"
-      process_start_matches 42 "  Sat Sep 12 06:18:05 2026    "
-      process_start_matches 42 "sam 12 sep 2026 06:18:05 UTC"
+      process_start_matches 42 "Thu Oct 1 06:18:05 2026" ps-lstart-c-utc-v1
     ' _ "$process_library"
 
   assert_success
-  assert_output 'Sat Sep 12 06:18:05 2026'
-  assert_file_contains "$log" '^C$'
-  assert_file_contains "$log" '^<unset>$'
+  assert_output 'Thu Oct 1 06:18:05 2026'
+  assert_file_contains "$log" '^C UTC$'
+
+  run env PATH="$stub:$PATH" PROCESS_IDENTITY_LOCALE_LOG="$log" bash -c \
+    'source "$1"; process_start_matches 42 "sam 12 sep 2026 06:18:05 UTC"' _ "$process_library"
+  assert_failure 2
+  assert_output ''
 
   # Each rejection needs its own exit status. `! cmd` under `set -e` is exempt
   # from errexit, so a negative folded into the script above would report the
   # status of the last line only and accept a wrong identity silently.
   run env -u LC_ALL -u LC_CTYPE -u LANG PATH="$stub:$PATH" \
     PROCESS_IDENTITY_LOCALE_LOG="$log" bash -c \
-    'source "$1"; process_start_matches 42 "wrong process start"' _ "$process_library"
+    'source "$1"; process_start_matches 42 "wrong process start" ps-lstart-c-utc-v1' _ "$process_library"
   assert_failure 1
   assert_output ''
 
@@ -1205,6 +980,29 @@ function test_scripts_1210_worktree_identity_state_library_claims_live_owners_an
   acquire_claim "$lock" 3 || fail 'dead owner claim was not recovered'
   owner="$claim_owner_id"
   release_claim "$lock" "$owner"
+  assert_file_not_exists "$lock"
+}
+
+function test_scripts_12101_worktree_identity_recovers_a_reused_pid_from_a_versioned_claim() {
+  _bats_test_init 12101 'worktree identity recovers a reused PID from a versioned claim'
+  hwi_setup
+  source "$HWI_STATE_LIBRARY"
+  local stub="$HWI_WORK/process-bin" lock="$HWI_STATE/versioned.claim"
+  mkdir -p "$stub"
+  printf '%s\n' '#!/bin/sh' "printf 'Thu Oct  1 12:00:00 2026\\n'" > "$stub/ps"
+  chmod +x "$stub/ps"
+  # given a record produced by the real writer for a live process
+  PATH="$stub:$PATH" acquire_claim "$lock" 1 || fail 'could not create the valid claim'
+  run env PATH="$stub:$PATH" bash -c 'source "$1"; recover_claim "$2" 1' _ "$HWI_STATE_LIBRARY" "$lock"
+  assert_failure 1
+  assert_file_exists "$lock"
+
+  # when the host reports a later incarnation of that same PID
+  printf '%s\n' '#!/bin/sh' "printf 'Thu Oct  1 13:00:00 2026\\n'" > "$stub/ps"
+  run env PATH="$stub:$PATH" bash -c 'source "$1"; recover_claim "$2" 1' _ "$HWI_STATE_LIBRARY" "$lock"
+  # then the old claim is released without treating the new process as its owner
+  assert_success
+  assert_output ''
   assert_file_not_exists "$lock"
 }
 

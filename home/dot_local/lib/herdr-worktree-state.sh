@@ -205,7 +205,7 @@ recover_claim() {
   pid="$(record_number "$lock" pid)"
   start="$(read_state_field "$lock" process_start)"
   if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-    process_start_matches "$pid" "$start"
+    process_start_matches "$pid" "$start" "$(read_state_field "$lock" identity_format)"
     identity_status=$?
     [ "$identity_status" -eq 1 ] || return 1
   fi
@@ -250,6 +250,7 @@ acquire_claim() {
     start="$(process_start_marker "$$")" || return 1
     owner_record="owner_id=$(encode_value "$owner")
 pid=$$
+identity_format=$(encode_value ps-lstart-c-utc-v1)
 process_start=$(encode_value "$start")"
     candidate="$dir/.claim.$$.$RANDOM"
     if ! (umask 077; printf '%s\n' "$owner_record" > "$candidate") 2>/dev/null; then

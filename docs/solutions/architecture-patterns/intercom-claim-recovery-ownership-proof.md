@@ -32,7 +32,17 @@ Before a launch takes a new claim, `ensure_owner` checks the job's label,
 restart policy and observer arguments, then bootstraps it and waits for the
 observer's readiness. The live proofs render their temporary jobs from the same
 template; the engine carries no proof job of its own.
-Without a verified owner or a durable intent, the launcher takes no new claim.
+Without a verified owner or a durable intent, admission takes no new claim.
+
+The external CLI has four modes: `--admit ROOT`, `--observe ROOT`,
+`--bind-exec ROOT --intent ID --native-leaf EXECUTABLE`, and
+`--handoff ROOT --intent ID`. Admission also takes the socket, pane, agent and
+launcher PID. The engine owns all derived recovery paths and observer receipts.
+The launcher exports `HERDR_AGENT_INTERCOM_RECOVERY_ROOT` and the opaque
+`HERDR_AGENT_INTERCOM_RECOVERY_INTENT` together. The bridge and release hook pass
+them without interpreting storage layout. A handle does not authorize enrollment.
+Use the [stopped-client rollout](../../intercom-recovery-rollout.md) when updating
+the two machines; transition-only CLI flags and path handles are removed.
 
 Before acquisition, a durable fsync-and-rename intent identifies the connected
 server PID/start identity, stable terminal, launch generation, source, reserved
@@ -84,6 +94,12 @@ exits. The bridge and native exec share a PID.
 Binding uses the same lock as cleanup. A bridge arriving after settlement
 starts the native argv without cci's generated enrollment rather than reviving
 the old claim.
+
+The native Claude leaf alone reconstructs argv, for both bound execution and
+rejected binding. It inserts generated controls before the original `--`, drops
+cci's synthetic permission selector, and keeps the caller's permission choices.
+Rejected binding discards generated enrollment and clears inherited authority.
+The version probe executes only `--version`, without restoring interactive argv.
 
 The real first-prompt hook checks native ancestry and stable terminal identity.
 It requests a source-scoped, reserved-sequence release. Admission reserves `N`
@@ -177,6 +193,59 @@ The suspension-only command intentionally returns `1` on the observed Herdr
 limitation. Its JSON includes the live stopped PID/start identity, alias loss,
 checked API responses, and observer-disabled control. Keep that failure visible.
 
+## Engine interface and CI calibration (#393)
+
+The checkout exposes `RecoveryEngine(root, host=..., sessions=...)`. Production
+CLI modes and probe adapters call its `admit`, `observe_one`, `bind`, and
+`handoff` operations. Admission owns candidate selection, single-attempt
+acquisition and collision retries. A retry requires observed rollback of the
+failed claim. Callers pass a recovery root and opaque intent handles through
+the CLI described above; the #389/#394 interface migration is complete.
+
+`Host.process(pid)` returns alive, exited, or unknown evidence. Alive evidence
+carries a start token. A zombie carries its start token and process state as
+separate fields, and counts as exited. `Host` also owns ancestry, wall time,
+monotonic time, and waiting. The session adapter obtains peer identity on the
+connected descriptor for every real RPC.
+
+Recovery, `herdr-process.sh`, and hook selfcheck use PID plus whitespace-normalized
+`ps lstart`, obtained with `LC_ALL=C` and `TZ=UTC`. New records carry
+`ps-lstart-c-utc-v1` as their identity format. This retains the one-second
+precision of `ps`; it is not a kernel generation counter. Unknown legacy formats
+remain unverified. The rollout closes clients and drains old obligations before
+updating both machines, as specified by #402.
+
+`make test-python` exercises the engine with real temporary files and locks.
+Test-owned adapters control process evidence, clocks, and causal Herdr events.
+Archive fixtures also enter through acquisition; filesystem interruption is
+injected at the rename boundary rather than by constructing intent JSON.
+
+The live probe entry is `tests/helpers/intercom_recovery_harness.py`. It wraps
+supported engine operations and host/session adapters. The old prototype's
+execution and private-function replacement hooks are removed. Existing native
+and launcher-route probes retain their diagnostic receipts and safety checks.
+Route scenarios now enter through `admit`.
+Autonomous recovery checks wait for probe-owned receipts of the observer's
+`Observation` results. Their wait loop stays passive, so the probe cannot perform
+the cleanup it is attributing to launchd.
+
+Run the consolidated adapter oracle from an owned Herdr pane:
+
+```sh
+MMS_LIVE_HERDR_CALIBRATION=1 python3 tests/helpers/intercom_adapter_calibration.py
+```
+
+It compares fake and real evidence in one isolated server run, records the
+installed version and scenario verdicts, and verifies the actual descriptor
+fence across server replacement. Missing Herdr or missing opt-in is
+skipped/unverified (exit 3). Delayed delivery and lost responses are causal
+transport schedules; they do not add source or sequence fields to `agent.get`.
+The fake's retained-record replacement schedule tests conservative uncertainty,
+not a promise that Herdr restores that record after restart.
+
+Calibration does not replace the independent launchd and native-client gates.
+Recalibrate after changing the fake or the real adapter's consumed wire contract.
+
 ## History
 
 These sections record what was measured at each checkpoint. Where their wording
@@ -194,12 +263,10 @@ acceptance. Historical proof results below remain unchanged.
 
 #### Runtime verification checkpoint
 
-Artifacts live under `~/.claude/artifacts/377/`. The runtime uses the shared
-engine at `home/dot_local/lib/intercom-claim-recovery.py`. The former prototype
-module, `tests/helpers/intercom_claim_recovery_prototype.py`, is now the probe
-engine entry. It executes this same engine and attaches the proofs' barriers,
-trace events and abandonment guard from outside. Each runtime home stages it as
-that home's engine. The deployed engine reads no barrier or trace field.
+Artifacts live under `~/.claude/artifacts/377/`. At this checkpoint the runtime
+used the shared engine through a prototype entry that attached barriers, trace
+events and an abandonment guard. #393 replaces that entry with the adapters
+described above. The deployed engine reads no barrier or trace field.
 
 #### Review confirmation and verification repair
 

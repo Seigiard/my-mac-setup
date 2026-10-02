@@ -20,33 +20,32 @@ import time
 import uuid
 from unittest.mock import patch
 
-import intercom_claim_recovery_prototype as recovery_prototype
+import intercom_recovery_harness as recovery_prototype
 
-from intercom_claim_recovery_prototype import (
+from intercom_recovery_harness import (
     CONTROL_ENV,
     OWNER_ENV,
     RecoveryError,
     atomic_write,
     capture_server_identity,
-    intent_lock,
     launchd_job,
     process_start_identity,
     read_json,
     register_control,
-    socket_identity,
-    write_intent,
 )
 
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 PLIST_TEMPLATE = os.path.join(ROOT, "home/private_Library/LaunchAgents/com.seigiard.herdr-agent-intercom-recovery.plist.tmpl")
-PROBE_ENGINE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "intercom_claim_recovery_prototype.py")
+PROBE_ENGINE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "intercom_recovery_harness.py")
 OPT_IN = "MMS_LIVE_HERDR_OWNERSHIP_PROBE"
 EVIDENCE_DIR = "MMS_LIVE_HERDR_OWNERSHIP_EVIDENCE_DIR"
-OLD_SOURCE = "mms-377-old-launch"
+OLD_SOURCE = "herdr-agent-intercom-recovery-v1"
 AGENT = "claude"
 OWNED_CLIENTS = []
 OWNED_OBSERVERS = []
+ACQUISITIONS = {}
+CONTROL_KEYS = {}
 
 
 class ProbeError(Exception):
@@ -315,14 +314,20 @@ class RecoveryJob:
         # The production ensure-owner path is the readiness authority; it
         # validates the rendered plist, the engine path and the receipt.
         result = subprocess.run(
-            [sys.executable, self.engine, "--ensure-owner", "--owner-root", self.state_root,
-             "--owner-label", self.label, "--owner-plist", self.plist],
+            [sys.executable, "-c",
+             "import json,sys; sys.path.insert(0,sys.argv[1]); "
+             "from intercom_recovery_harness import recovery; "
+             "sys.argv[0]=sys.argv[2]; "
+             "print(json.dumps(recovery.Host().ensure_owner(sys.argv[3])))",
+             os.path.dirname(__file__), self.engine, self.state_root],
+            env=os.environ | {"HERDR_AGENT_INTERCOM_RECOVERY_LABEL": self.label,
+                              "HERDR_AGENT_INTERCOM_RECOVERY_PLIST": self.plist},
             text=True, capture_output=True, check=False, timeout=20,
         )
         if result.returncode:
             raise ProbeError(f"recovery owner failed: {result.stderr.strip()}")
         ready = json.loads(result.stdout)
-        if ready.get("job_label") != self.label or ready.get("intent_dir") != os.path.realpath(self.intent_dir):
+        if ready.get("job_label") != self.label or ready.get("state_root") != os.path.realpath(self.state_root):
             raise ProbeError(f"recovery readiness is not this owner: {ready}")
         return ready
 
@@ -406,41 +411,68 @@ def start_client(seconds=30):
     return client, start
 
 
-def durable_intent(owner, intent_dir, pane, sequence, client, start_identity, barrier=None,
-                   entry_barrier=None, trace_dir=None):
-    """Write a launch obligation; probe barriers and trace attach by its launch ID."""
-    launch_id = f"launch-{client.pid}-{sequence}-{uuid.uuid4().hex}"
-    intent = {
-        "launch_id": launch_id,
-        "phase": "intent",
-        "connection": {
-            "session": owner.session,
-            "socket_path": owner.socket_path,
-            "socket_identity": socket_identity(owner.socket_path),
-            "server_identity": capture_server_identity(owner.socket_path),
-        },
-        "terminal": {"pane_id": pane["pane_id"], "terminal_id": pane["terminal_id"]},
-        "agent_kind": AGENT,
-        "claim": {"source": OLD_SOURCE, "claim_seq": sequence,
-                  "handoff_seq": sequence + 1, "release_seq": sequence + 2},
-        "client": {"pid": client.pid, "start_identity": start_identity},
-        "created_at_ns": time.time_ns(),
-    }
-    for kind, value in (("barrier", barrier), ("entry_barrier", entry_barrier), ("trace", trace_dir)):
-        if value:
-            register_control(launch_id, kind, value)
-    path = write_intent(intent_dir, intent)
+def durable_intent(owner, state_root, pane, sequence, client, start_identity, barrier=None,
+                   entry_barrier=None, trace_dir=None, acquisition="acknowledged"):
+    """Acquire through the engine; model only the probe caller and transport."""
+    engine_module = recovery_prototype.recovery
+    requests = []
+    control_key = None
+    class Host(recovery_prototype.ProbeHost):
+        def ensure_owner(self, root):
+            return True  # RecoveryJob independently starts and verifies the observer.
+        def alias_candidates(self, seed):
+            return [f"proof-{uuid.uuid4().hex[:20]}"]
+        def parent_pid(self):
+            # The probe owns this child, rather than being its native bridge.
+            return client.pid
+        def wall_time_ns(self):
+            return sequence
+    class Session(recovery_prototype.ProbeSession):
+        def request(self, method, params):
+            nonlocal control_key
+            if method == "pane.report_agent":
+                requests.append(dict(params))
+                control_key = self.intent["launch_id"]
+                for kind, value in (("barrier", barrier), ("entry_barrier", entry_barrier), ("trace", trace_dir)):
+                    if value:
+                        register_control(control_key, kind, value)
+                if acquisition == "delayed":
+                    raise OSError("probe holds acquisition before application")
+                if acquisition == "lost":
+                    super().request(method, params)
+                    raise OSError("probe lost acquisition response")
+            return super().request(method, params)
+    engine = engine_module.RecoveryEngine(state_root, host=Host(), sessions=Session)
+    admission = engine.admit(socket_path=owner.socket_path, pane_id=pane["pane_id"],
+                             agent=AGENT, launcher_pid=client.pid)
+    if (admission.launch.route == "claimed") != (acquisition == "acknowledged") or not admission.intent_id:
+        raise ProbeError(f"engine acquisition failed: {admission}")
+    path = os.path.join(state_root, "intents", admission.intent_id + ".json")
+    result = {"claimed": admission.launch.route == "claimed", "intent": path}
+    if result["claimed"] != (acquisition == "acknowledged"):
+        raise ProbeError(f"engine acquisition failed: {result}")
+    ACQUISITIONS[path] = result
+    CONTROL_KEYS[path] = control_key
+    if requests[0]["seq"] != sequence:
+        raise ProbeError("probe sequence schedule overlapped an earlier reservation")
     return path
 
 
 def wait_for(path, phase, timeout=10):
     deadline = time.monotonic() + timeout
+    result = None
     while time.monotonic() < deadline:
-        intent = recovery_prototype.read_intent(path)
-        if intent.get("phase") == phase:
-            return intent
+        # Passive evidence from the independent observer's supported operation.
+        # Driving an observation here would falsely prove autonomous recovery.
+        try:
+            receipt = read_json(recovery_prototype.observation_receipt(os.path.basename(path)[:-5]))
+            result = recovery_prototype.recovery.Observation(**receipt["observation"])
+            if result.phase == phase:
+                return result
+        except FileNotFoundError:
+            pass
         time.sleep(0.05)
-    raise ProbeError(f"intent did not reach {phase}: {path}; last={intent}")
+    raise ProbeError(f"intent did not reach {phase}: {path}; last={result}")
 
 
 def wait_for_file(path, description, timeout=10):
@@ -483,19 +515,10 @@ def claim_and_confirm(owner, pane, source, sequence, step):
     return claimed
 
 
-def acknowledge_acquisition(intent_path):
-    with intent_lock(intent_path, timeout=5):
-        intent = read_json(intent_path)
-        if intent["phase"] != "intent":
-            raise RecoveryError(f"cannot acknowledge phase {intent['phase']!r}")
-        intent["phase"] = "acquired"
-        intent["acquired_at_ns"] = time.time_ns()
-        atomic_write(intent_path, intent)
-
-
 def claim_and_acknowledge(owner, intent, pane, source, sequence, step):
-    claimed = claim_and_confirm(owner, pane, source, sequence, step)
-    acknowledge_acquisition(intent)
+    claimed = owner.state(pane["pane_id"], step)
+    require_agent(claimed, status="unknown", terminal=pane["terminal_id"])
+    require({"step": step}, ACQUISITIONS[intent]["claimed"] is True, "engine did not acknowledge acquisition")
     return claimed
 
 
@@ -513,7 +536,6 @@ def case(owner, name, action, verdicts):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--case", choices=("all", "allocator-controls"), default="all")
-    parser.add_argument("--allocator-implementation", choices=("shared", "legacy"), default="shared")
     arguments = parser.parse_args()
     if os.environ.get(OPT_IN) != "1":
         print(f"REFUSED: set {OPT_IN}=1 to create an isolated owned Herdr server.")
@@ -550,7 +572,7 @@ def main():
             binder_code = (
                 "import os,sys,time; "
                 f"sys.path.insert(0,{os.path.dirname(__file__)!r}); "
-                "import intercom_claim_recovery_prototype as p; "
+                "import intercom_recovery_harness as p; "
                 "bound=p.bind_native_client(sys.argv[1]); "
                 "p.atomic_write(sys.argv[2],{'bound':bound,'pid':os.getpid(),"
                 "'start_identity':p.process_start_identity(os.getpid())}); "
@@ -570,11 +592,11 @@ def main():
                                         env={**os.environ, "AGENT_INTERCOM_CLAUDE_COMMAND": sys.executable})
             OWNED_CLIENTS.append(launcher)
             sequence = time.time_ns()
-            intent_path = durable_intent(owner, launchd.intent_dir, pane, sequence, launcher,
+            intent_path = durable_intent(owner, launchd.state_root, pane, sequence, launcher,
                                          process_start_identity(launcher.pid), trace_dir=trace_dir)
             binder = None
             try:
-                register_control(recovery_prototype.read_json(intent_path)["launch_id"], "bind_barrier", barrier)
+                register_control(CONTROL_KEYS[intent_path], "bind_barrier", barrier)
                 claim_and_acknowledge(owner, intent_path, pane, OLD_SOURCE, sequence, "native-binding-claimed")
                 atomic_write(gate, {"intent": intent_path, "result": result_path})
                 wait_for_file(barrier + ".checked", "binding after live-parent check")
@@ -598,8 +620,8 @@ def main():
                 wait_for_file(result_path, "native binding result")
                 result = recovery_prototype.read_json(result_path)
                 require({"step": "native-binding-result"}, result["bound"] is True, "binding lost the live native process")
-                saved = recovery_prototype.read_json(intent_path)
-                require({"step": "native-binding-owner"}, saved["client"] == binder, "binding did not replace the launcher identity")
+                observed = recovery_prototype.observe_one(intent_path)
+                require({"step": "native-binding-owner"}, observed.reason_code == "client_alive", "binding did not retain the native process")
                 require({"step": "native-binding-live"}, process_start_identity(binder_pid) == binder["start_identity"],
                         "native process did not survive launcher exit")
                 recovery_prototype.observe_one(intent_path)
@@ -629,7 +651,7 @@ def main():
             code = (
                 "import json,sys; "
                 f"sys.path.insert(0,{os.path.dirname(__file__)!r}); "
-                "import intercom_claim_recovery_prototype as p; "
+                "import intercom_recovery_harness as p; "
                 "print(json.dumps({'bound':p.bind_native_client(sys.argv[1])}))"
             )
             for phase in ("acquired", "settled"):
@@ -690,8 +712,7 @@ def main():
                     recovery_prototype.observe_one(intent)
                 uncertain = owner.state(pane["pane_id"], "failed-lookup-live-process")
                 require_agent(uncertain, status="unknown", terminal=pane["terminal_id"])
-                record = recovery_prototype.read_intent(intent)
-                require({"step": "failed-lookup-intent"}, record["phase"] == "acquired", "failed lookup settled a live claim")
+                require({"step": "failed-lookup-intent"}, recovery_prototype.observe_one(intent).phase == "acquired", "failed lookup settled a live claim")
                 client.terminate()
                 client.wait(timeout=5)
                 recovery_prototype.observe_one(intent)
@@ -706,7 +727,7 @@ def main():
             pane = create_pane(owner, root)
             sequence = time.time_ns()
             client, start_identity = start_client()
-            intent = durable_intent(owner, launchd.intent_dir, pane, sequence, client, start_identity)
+            intent = durable_intent(owner, launchd.state_root, pane, sequence, client, start_identity)
             claim_and_acknowledge(owner, intent, pane, OLD_SOURCE, sequence, "restart-claimed")
             alias = f"mms377-owner-{os.getpid()}"
             owner.run("agent", "rename", pane["pane_id"], alias)
@@ -744,7 +765,7 @@ def main():
             pane = create_pane(owner, root)
             sequence = time.time_ns()
             client, start_identity = start_client()
-            intent = durable_intent(owner, launchd.intent_dir, pane, sequence, client, start_identity)
+            intent = durable_intent(owner, launchd.state_root, pane, sequence, client, start_identity)
             claim_and_acknowledge(owner, intent, pane, OLD_SOURCE, sequence, "takeover-claimed")
             alias = f"mms377-takeover-{client.pid}"
             owner.run("agent", "rename", pane["pane_id"], alias)
@@ -761,7 +782,7 @@ def main():
             pane = create_pane(owner, root)
             sequence = time.time_ns()
             client, start_identity = start_client()
-            intent = durable_intent(owner, launchd.intent_dir, pane, sequence, client, start_identity)
+            intent = durable_intent(owner, launchd.state_root, pane, sequence, client, start_identity)
             claim_and_acknowledge(owner, intent, pane, OLD_SOURCE, sequence, "move-claimed")
             move = owner.run("pane", "move", pane["pane_id"], "--new-workspace", "--no-focus")
             moved = json.loads(move.stdout)["result"]["move_result"]["pane"]
@@ -769,7 +790,7 @@ def main():
             client.terminate()
             client.wait(timeout=5)
             receipt = wait_for(intent, "settled")
-            require({"step": "moved-receipt"}, receipt["terminal"]["pane_id"] == moved["pane_id"], "observer retired the stale coordinate instead of following its terminal")
+            require({"step": "moved-receipt"}, receipt.reason_code == "release_observed", "observer retired the stale coordinate instead of following its terminal")
             settled = owner.state(moved["pane_id"], "moved-terminal-cleanup")
             require(settled, settled["agent"] is None, "moved terminal retained its abandoned claim")
 
@@ -780,7 +801,7 @@ def main():
             barrier = os.path.join(owner.root, f"fence-{client.pid}")
             trace_dir = os.path.join(owner.root, f"fence-trace-{uuid.uuid4().hex}")
             os.mkdir(trace_dir)
-            intent = durable_intent(owner, launchd.intent_dir, pane, sequence, client, start_identity, barrier, trace_dir=trace_dir)
+            intent = durable_intent(owner, launchd.state_root, pane, sequence, client, start_identity, barrier, trace_dir=trace_dir)
             claim_and_acknowledge(owner, intent, pane, OLD_SOURCE, sequence, "fence-claimed")
             try:
                 client.terminate()
@@ -807,7 +828,7 @@ def main():
             sequence = time.time_ns()
             client, start_identity = start_client()
             barrier = os.path.join(owner.root, f"unknown-successor-{client.pid}")
-            intent = durable_intent(owner, launchd.intent_dir, pane, sequence, client, start_identity, barrier)
+            intent = durable_intent(owner, launchd.state_root, pane, sequence, client, start_identity, barrier)
             claim_and_acknowledge(owner, intent, pane, OLD_SOURCE, sequence, "unknown-successor-claimed")
             try:
                 client.terminate()
@@ -819,12 +840,12 @@ def main():
                 open(barrier + ".continue", "w").close()
                 deadline = time.monotonic() + 5
                 while time.monotonic() < deadline:
-                    pending = recovery_prototype.read_intent(intent)
-                    if pending.get("diagnostic") == "pending: release acknowledged but claim still published":
+                    pending = recovery_prototype.passive_observation(intent)
+                    if pending and pending.reason_code == "release_still_published":
                         break
                     time.sleep(0.05)
-                require({"step": "unknown-newer-claim"}, pending.get("phase") == "acquired", "unknown newer claim was retired without an ownership witness")
-                require({"step": "unknown-newer-claim"}, pending.get("diagnostic") == "pending: release acknowledged but claim still published", "unknown newer claim did not retain explicit uncertainty")
+                require({"step": "unknown-newer-claim"}, pending is not None and pending.phase == "acquired", "unknown newer claim was retired without an ownership witness")
+                require({"step": "unknown-newer-claim"}, pending.reason_code == "release_still_published", "unknown newer claim did not retain explicit uncertainty")
                 preserved = owner.state(pane["pane_id"], "unknown-newer-claim-preserved")
                 require_agent(preserved, status="unknown", terminal=pane["terminal_id"])
             finally:
@@ -835,7 +856,7 @@ def main():
             pane = create_pane(owner, root)
             sequence = time.time_ns()
             client, start_identity = start_client()
-            intent = durable_intent(owner, launchd.intent_dir, pane, sequence, client, start_identity)
+            intent = durable_intent(owner, launchd.state_root, pane, sequence, client, start_identity)
             claim_and_acknowledge(owner, intent, pane, OLD_SOURCE, sequence, "socket-claimed")
             hidden = owner.socket_path + ".unavailable"
             os.rename(owner.socket_path, hidden)
@@ -845,11 +866,11 @@ def main():
                 deadline = time.monotonic() + 5
                 pending = {}
                 while time.monotonic() < deadline:
-                    pending = recovery_prototype.read_intent(intent)
-                    if "socket unavailable" in pending.get("diagnostic", ""):
+                    pending = recovery_prototype.passive_observation(intent)
+                    if pending and pending.reason_code == "connection_unavailable":
                         break
                     time.sleep(0.05)
-                require({"step": "socket-unavailable"}, pending.get("phase") == "acquired" and "socket unavailable" in pending.get("diagnostic", ""), f"socket outage was not retained: {pending}")
+                require({"step": "socket-unavailable"}, pending is not None and pending.phase == "acquired" and pending.reason_code == "connection_unavailable", f"socket outage was not retained: {pending}")
             finally:
                 os.rename(hidden, owner.socket_path)
                 if client.poll() is None:
@@ -869,15 +890,13 @@ def main():
                                             other_sequence, replacement, saved_start)
             claim_and_acknowledge(owner, old_incarnation, replacement_pane, OLD_SOURCE, other_sequence, "old-incarnation-claimed")
             try:
-                native_process_reader = recovery_prototype.process_start_identity
-
-                def modeled_process_reader(pid):
-                    if pid == replacement.pid:
-                        return modeled_replacement_start
-                    return native_process_reader(pid)
-
-                with patch.object(recovery_prototype, "process_start_identity", modeled_process_reader):
-                    recovery_prototype.observe_one(old_incarnation)
+                class ReusedPidHost(recovery_prototype.ProbeHost):
+                    def process(self, pid):
+                        observed = super().process(pid)
+                        return observed._replace(identity=modeled_replacement_start) if pid == replacement.pid else observed
+                engine = recovery_prototype.engine_for(old_incarnation)
+                engine.host = ReusedPidHost()
+                engine.observe_one(os.path.basename(old_incarnation)[:-5])
                 require({"step": "real-process-identity"}, recovery_prototype.process_start_identity(replacement.pid) == saved_start,
                         "the incarnation seam changed the real process")
                 gone = owner.state(replacement_pane["pane_id"], "old-incarnation-settled")
@@ -892,17 +911,18 @@ def main():
             sequence = time.time_ns()
             client, start_identity = start_client()
             delayed_barrier = os.path.join(owner.root, f"delayed-acquisition-{uuid.uuid4().hex}")
-            before = durable_intent(owner, launchd.intent_dir, pane, sequence, client, start_identity, delayed_barrier)
+            before = durable_intent(owner, launchd.state_root, pane, sequence, client, start_identity, delayed_barrier,
+                                    acquisition="delayed")
             client.terminate()
             client.wait(timeout=5)
             deadline = time.monotonic() + 5
             pending = {}
             while time.monotonic() < deadline:
-                pending = recovery_prototype.read_intent(before)
-                if pending.get("diagnostic") == "pending: acquisition outcome unknown":
+                pending = recovery_prototype.passive_observation(before)
+                if pending and pending.reason_code == "acquisition_unknown":
                     break
                 time.sleep(0.05)
-            require({"step": "unacknowledged-acquisition"}, pending.get("phase") == "intent" and pending.get("diagnostic") == "pending: acquisition outcome unknown", "an unacknowledged acquisition was discarded")
+            require({"step": "unacknowledged-acquisition"}, pending is not None and pending.phase == "intent" and pending.reason_code == "acquisition_unknown", "an unacknowledged acquisition was discarded")
             absent = owner.state(pane["pane_id"], "crash-before-claim")
             require(absent, absent["agent"] is None, "intent before claim created a Herdr record")
             # The original request reaches the server after the exit was seen.
@@ -918,7 +938,8 @@ def main():
             delayed = owner.state(pane["pane_id"], "late-acquisition-recovered")
             require(delayed, delayed["agent"] is None, "a late acquisition escaped cleanup")
             client, start_identity = start_client()
-            after_claim = durable_intent(owner, launchd.intent_dir, pane, sequence + 20, client, start_identity)
+            after_claim = durable_intent(owner, launchd.state_root, pane, sequence + 20, client, start_identity,
+                                         acquisition="lost")
             claim_and_confirm(owner, pane, OLD_SOURCE, sequence + 20, "crash-after-claim-before-acknowledgment")
             client.terminate()
             client.wait(timeout=5)
@@ -926,7 +947,7 @@ def main():
             released = owner.state(pane["pane_id"], "crash-after-claim-before-acknowledgment")
             require(released, released["agent"] is None, "unacknowledged acquired claim survived")
             client, start_identity = start_client()
-            renamed = durable_intent(owner, launchd.intent_dir, pane, sequence + 40, client, start_identity)
+            renamed = durable_intent(owner, launchd.state_root, pane, sequence + 40, client, start_identity)
             claim_and_acknowledge(owner, renamed, pane, OLD_SOURCE, sequence + 40, "crash-after-rename-claimed")
             owner.run("agent", "rename", pane["pane_id"], f"mms377-win-{sequence % 1_000_000_000}")
             client.terminate()
@@ -995,10 +1016,9 @@ def main():
             entry_barrier = os.path.join(owner.root, f"concurrent-entry-{uuid.uuid4().hex}")
             trace_dir = os.path.join(owner.root, f"concurrent-trace-{uuid.uuid4().hex}")
             os.mkdir(trace_dir)
-            intent = durable_intent(owner, launchd.intent_dir, pane, sequence, client, start_identity,
+            intent = durable_intent(owner, launchd.state_root, pane, sequence, client, start_identity,
                                    entry_barrier=entry_barrier, trace_dir=trace_dir)
             claim_and_acknowledge(owner, intent, pane, OLD_SOURCE, sequence, "concurrent-claimed")
-            before_retirement = recovery_prototype.read_intent(intent)
             second_owner = recovery_job("second-home", intent_dir=launchd.intent_dir)
             OWNED_OBSERVERS.append(second_owner)
             try:
@@ -1020,15 +1040,31 @@ def main():
                 OWNED_OBSERVERS.remove(second_owner)
             settled = owner.state(pane["pane_id"], "repeated-clear")
             require(settled, settled["agent"] is None, "repeated clear recreated a claim")
-            # Simulate a crash after Herdr accepted the release and before local retirement.
-            # Replay the persisted pre-retirement image through the real writer.
-            # Archived handles are immutable and their removed locks cannot be recreated.
-            intent = write_intent(launchd.intent_dir, before_retirement)
-            wait_for(intent, "settled")
+            # Lose the actual release response, then restart the engine over its
+            # own durable obligation. Do not recreate a terminal handle.
+            client, start = start_client()
+            intent = durable_intent(owner, os.path.join(owner.root, "replay-checks"), pane,
+                                    time.time_ns(), client, start)
+            client.terminate()
+            client.wait(timeout=5)
+            class LostRelease(recovery_prototype.ProbeSession):
+                def request(self, method, params):
+                    response = super().request(method, params)
+                    if method == "pane.release_agent":
+                        raise OSError("probe lost release response")
+                    return response
+            engine = recovery_prototype.engine_for(intent)
+            engine.sessions = LostRelease
+            require({"step": "release-before-restart"}, engine.observe_one(os.path.basename(intent)[:-5]).outcome == "waiting",
+                    "lost release response invented settlement")
+            require({"step": "release-after-restart"}, recovery_prototype.observe_one(intent).outcome == "settled",
+                    "restart did not finish release readback")
+            client, start = start_client()
+            intent = durable_intent(owner, os.path.join(owner.root, "replay-checks"), pane,
+                                    time.time_ns(), client, start)
             owner.run("pane", "close", pane["pane_id"])
-            intent = write_intent(launchd.intent_dir, before_retirement)
-            closed = wait_for(intent, "settled")
-            require({"step": "closed-terminal"}, closed.get("diagnostic") == "settled: terminal resource gone", "closed terminal was not verified before retirement")
+            closed = recovery_prototype.observe_one(intent)
+            require({"step": "closed-terminal"}, closed.reason_code == "terminal_gone", "closed terminal was not verified before retirement")
 
         def real_server_restart_settles_only_gone_terminal():
             nonlocal root
@@ -1036,7 +1072,7 @@ def main():
             sequence = time.time_ns()
             client, start_identity = start_client()
             barrier = os.path.join(owner.root, f"server-restart-{client.pid}")
-            intent = durable_intent(owner, launchd.intent_dir, pane, sequence, client, start_identity, barrier)
+            intent = durable_intent(owner, launchd.state_root, pane, sequence, client, start_identity, barrier)
             claim_and_acknowledge(owner, intent, pane, OLD_SOURCE, sequence, "server-restart-claimed")
             try:
                 client.terminate()
@@ -1056,7 +1092,7 @@ def main():
                 owner.run("agent", "rename", new_pane["pane_id"], new_alias)
                 open(barrier + ".continue", "w").close()
                 diagnostic = wait_for(intent, "retired")
-                require({"step": "real-server-restart"}, diagnostic.get("diagnostic", "").startswith("retired:"), f"new server was not fenced: {diagnostic}")
+                require({"step": "real-server-restart"}, diagnostic.outcome == "retired", f"new server was not fenced: {diagnostic}")
                 untouched = owner.state(new_pane["pane_id"], "new-server-owner-preserved")
                 require_agent(untouched, status="working", terminal=new_pane["terminal_id"], alias=new_alias)
                 owner.events.append({"server_before": old_server, "server_after": new_server, "retained_intent": diagnostic})
@@ -1069,7 +1105,7 @@ def main():
                 pane = create_pane(owner, root)
                 client, start = start_client(seconds=90)
                 sequence = time.time_ns()
-                path = durable_intent(owner, launchd.intent_dir, pane, sequence, client, start)
+                path = durable_intent(owner, launchd.state_root, pane, sequence, client, start)
                 claim_and_acknowledge(owner, path, pane, OLD_SOURCE, sequence, f"burst-{index}-claimed")
                 cohort.append({"pane": pane, "client": client, "intent": path})
             published = json.loads(owner.run("agent", "list").stdout)["result"]["agents"]
@@ -1100,60 +1136,45 @@ def main():
                                  "verified_absence_seconds": latencies})
 
         def allocator_controls():
-            source = f"mms-377-allocator-{uuid.uuid4().hex}"
-            sequence_dir = os.path.join(owner.root, "allocator-sequences")
-            def reserve(wall_clock):
-                with patch.object(recovery_prototype.time, "time_ns", return_value=wall_clock):
-                    if arguments.allocator_implementation == "legacy":
-                        # The former algorithm used the wall clock without a counter.
-                        return time.time_ns()
-                    return recovery_prototype.reserve_sequence(sequence_dir, source)
-
-            old_sequence = reserve(9_000)
-            later_sequence = reserve(1_000)
-            owner.events.append({"allocator_reservations": {
-                "implementation": arguments.allocator_implementation,
-                "old_sequence": old_sequence,
-                "later_sequence": later_sequence,
-            }})
+            source = OLD_SOURCE
+            state_root = os.path.join(owner.root, "allocator-engine")
             pane = create_pane(owner, root)
-            report(owner, pane["pane_id"], source, "unknown", old_sequence)
-            report(owner, pane["pane_id"], source, "working", later_sequence)
-            release(owner, pane["pane_id"], source, old_sequence + 2)
-            survivor = owner.state(pane["pane_id"], "allocator-old-release-after-later-claim")
-            require_agent(survivor, status="working", terminal=pane["terminal_id"])
+            reservation_code = (
+                "import json,os,sys; "
+                "sys.path.insert(0,sys.argv[1]); "
+                "from intercom_recovery_harness import recovery; "
+                "host=recovery.Host(); host.wall_time_ns=lambda:int(sys.argv[6]); "
+                "host.ensure_owner=lambda root:True; host.alias_candidates=lambda seed:[sys.argv[7]]; "
+                "engine=recovery.RecoveryEngine(sys.argv[2],host=host); "
+                "result=engine.admit(socket_path=sys.argv[3],pane_id=sys.argv[4],"
+                "agent='claude',launcher_pid=os.getppid()); "
+                "assert result.launch.route=='claimed', result; "
+                "intent=json.load(open(os.path.join(sys.argv[2],'intents',result.intent_id+'.json'))); "
+                "print(json.dumps(intent['claim']))"
+            )
+            def command(target, wall_clock):
+                return [sys.executable, "-c", reservation_code, os.path.dirname(__file__),
+                        state_root, owner.socket_path, target, source, str(wall_clock),
+                        "allocator-" + uuid.uuid4().hex[:20]]
+            def acquire(target, clock):
+                completed = subprocess.run(command(target, clock), text=True, capture_output=True, timeout=10)
+                require({"step": "allocator-acquisition"}, completed.returncode == 0,
+                        f"engine acquisition failed: {completed.stdout} {completed.stderr}")
+                return json.loads(completed.stdout)
+            first = acquire(pane["pane_id"], 9000)
+            second_pane = create_pane(owner, root)
+            second = acquire(second_pane["pane_id"], 1000)
+            require({"step": "allocator-restart-persistence"}, second["claim_seq"] > first["release_seq"],
+                    "clock rollback reused an old cleanup reservation")
+            release(owner, second_pane["pane_id"], source, first["release_seq"])
+            require_agent(owner.state(second_pane["pane_id"], "allocator-old-release-after-later-claim"),
+                          status="unknown", terminal=second_pane["terminal_id"])
             try:
-                reservation_code = (
-                    "import sys; "
-                    "sys.path.insert(0, sys.argv[1]); "
-                    "import intercom_claim_recovery_prototype as p; "
-                    "p.time.time_ns = lambda: int(sys.argv[4]); "
-                    "print(p.reserve_sequence(sys.argv[2], sys.argv[3]))"
-                )
-
-                def reserve_in_process(directory, reservation_source, wall_clock):
-                    completed = subprocess.run(
-                        [sys.executable, "-c", reservation_code, os.path.dirname(__file__),
-                         directory, reservation_source, str(wall_clock)],
-                        text=True, capture_output=True, timeout=10, check=False,
-                    )
-                    require({"step": "allocator-process-status"}, completed.returncode == 0,
-                            f"reservation process failed: {completed.stderr.strip()}")
-                    return int(completed.stdout.strip())
-
-                restart_source = source + "-restart"
-                restarted = [
-                    reserve_in_process(sequence_dir, restart_source, 500),
-                    reserve_in_process(sequence_dir, restart_source, 100),
-                ]
-                require({"step": "allocator-restart-persistence"}, restarted[1] > restarted[0] + 2,
-                         f"process restart lost high-water state: {restarted}")
-                concurrent_source = source + "-concurrent"
                 processes = []
                 for _ in range(4):
+                    target = create_pane(owner, root)["pane_id"]
                     process = subprocess.Popen(
-                        [sys.executable, "-c", reservation_code, os.path.dirname(__file__),
-                         sequence_dir, concurrent_source, "200"],
+                        command(target, 200),
                         text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                     )
                     processes.append(process)
@@ -1163,19 +1184,18 @@ def main():
                     stdout, stderr = process.communicate(timeout=10)
                     require({"step": "allocator-concurrent-status"}, process.returncode == 0,
                             f"concurrent reservation failed: {stderr.strip()}")
-                    concurrent.append(int(stdout.strip()))
+                    concurrent.append(json.loads(stdout)["claim_seq"])
                 reserved = {sequence + offset for sequence in concurrent for offset in (0, 1, 2)}
                 require({"step": "allocator-concurrent-reservations"}, len(reserved) == 12,
                          f"four concurrent three-operation reservations overlapped: {concurrent}")
                 owner.events.append({"allocator": {
-                    "implementation": arguments.allocator_implementation,
-                    "old_sequence": old_sequence,
-                    "later_sequence": later_sequence,
-                    "restart_reservations": restarted,
+                    "implementation": "engine.acquire",
+                    "old_sequence": first["claim_seq"],
+                    "later_sequence": second["claim_seq"],
                     "concurrent_reservations": sorted(concurrent),
                 }})
             finally:
-                release(owner, pane["pane_id"], source, later_sequence + 2)
+                release(owner, pane["pane_id"], source, second["release_seq"])
 
         cases = [
             ("native binding serializes with cleanup after launcher death", native_binding_serializes_with_cleanup),

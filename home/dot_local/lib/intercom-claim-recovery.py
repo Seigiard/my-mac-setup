@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""Durable recovery observer for Intercom launch claims.
+"""Intercom admission and durable recovery of launch claims.
 
-It owns only launch-claim cleanup intents. It never supervises a client.
+It owns enrollment decisions, deferred-rename notes and claim cleanup intents.
+It never supervises a client.
 """
 
+from __future__ import annotations
+
 import argparse
+from typing import NamedTuple
 from contextlib import contextmanager
 import fcntl
 import hashlib
@@ -12,6 +16,7 @@ import json
 import os
 import plistlib
 import re
+import shutil
 import socket
 import struct
 import subprocess
@@ -25,7 +30,322 @@ PENDING_RETRY_SECONDS = 2.0
 ARCHIVE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 ARCHIVE_MAX_RECORDS = 1000
 ARCHIVE_PRUNE_SECONDS = 60
-TERMINAL_PHASES = {"settled", "retired"}
+IDENTITY_FORMAT = "ps-lstart-c-utc-v1"
+CLAIM_SOURCE = "herdr-agent-intercom-recovery-v1"
+
+
+class ProcessObservation(NamedTuple):
+    outcome: str
+    identity: str | None = None
+    reason: str | None = None
+    state: str | None = None
+
+
+class Host:
+    """OS evidence. Start tokens retain ps lstart's one-second precision."""
+
+    wall_time = staticmethod(time.time)
+    wall_time_ns = staticmethod(time.time_ns)
+    monotonic = staticmethod(time.monotonic)
+    sleep = staticmethod(time.sleep)
+    pid = staticmethod(os.getpid)
+    parent_pid = staticmethod(os.getppid)
+
+    def alias_candidates(self, seed):
+        allocator = os.environ.get("HERDR_ALIAS_ALLOCATOR", "herdr-pane-labels")
+        if allocator == "herdr-pane-labels" and not shutil.which(allocator):
+            allocator = os.path.expanduser("~/.local/bin/herdr-pane-labels")
+        result = subprocess.run([allocator, "--alias-candidates", seed], text=True,
+                                capture_output=True, timeout=10, check=False)
+        candidates = result.stdout.splitlines()
+        if result.returncode or not candidates or any(
+                not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", name) or
+                name.startswith("unnamed-") for name in candidates):
+            raise RecoveryError("alias allocator unavailable")
+        return list(dict.fromkeys(candidates))
+
+    def ensure_owner(self, root):
+        label = os.environ.get("HERDR_AGENT_INTERCOM_RECOVERY_LABEL",
+                               "com.seigiard.herdr-agent-intercom-recovery")
+        plist = os.environ.get("HERDR_AGENT_INTERCOM_RECOVERY_PLIST",
+                               os.path.expanduser(f"~/Library/LaunchAgents/{label}.plist"))
+        return ensure_owner(root, label, plist, host=self)
+
+    def process(self, pid):
+        if not isinstance(pid, int) or pid <= 0:
+            return ProcessObservation("unknown", reason="invalid_pid")
+        try:
+            result = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "lstart=", "-o", "stat="],
+                text=True, capture_output=True, check=False, timeout=2,
+                env={**os.environ, "LC_ALL": "C", "TZ": "UTC"},
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return ProcessObservation("unknown", reason=f"process_lookup_unavailable: {error}")
+        fields = result.stdout.split()
+        if result.returncode == 0 and len(fields) == 6:
+            token, state = " ".join(fields[:-1]), fields[-1]
+            return ProcessObservation("exited" if state.startswith("Z") else "alive", token, state=state)
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return ProcessObservation("exited", reason="process_absent")
+        except OSError as error:
+            return ProcessObservation("unknown", reason=f"process_liveness_unknown: {error}")
+        return ProcessObservation("unknown", reason="process_lookup_failed")
+
+    def start_identity(self, pid):
+        observed = self.process(pid)
+        if observed.outcome == "unknown":
+            raise RecoveryError(observed.reason)
+        return observed.identity if observed.outcome == "alive" else None
+
+    def parent(self, pid):
+        try:
+            result = subprocess.run(["ps", "-p", str(pid), "-o", "ppid=,comm="],
+                                    text=True, capture_output=True, check=False, timeout=2,
+                                    env={**os.environ, "LC_ALL": "C", "TZ": "UTC"})
+            if not result.returncode:
+                parent, command = result.stdout.strip().split(None, 1)
+                return int(parent), command
+        except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+            raise RecoveryError(f"process ancestry unavailable: {error}") from error
+        raise RecoveryError("process ancestry unavailable")
+
+
+HOST = Host()
+
+
+class Phase:
+    INTENT = "intent"
+    ACQUIRED = "acquired"
+    SETTLED = "settled"
+    RETIRED = "retired"
+    ACTIVE = frozenset((INTENT, ACQUIRED))
+    TERMINAL = frozenset((SETTLED, RETIRED))
+    ALLOWED = {
+        INTENT: frozenset((INTENT, ACQUIRED, SETTLED, RETIRED)),
+        ACQUIRED: frozenset((ACQUIRED, SETTLED, RETIRED)),
+        SETTLED: frozenset((SETTLED,)),
+        RETIRED: frozenset((RETIRED,)),
+    }
+
+
+class Observation(NamedTuple):
+    phase: str | None
+    outcome: str
+    reason_code: str
+    next_attempt_deadline: float | None = None
+    deadline_clock: str | None = None
+
+
+class Launch(NamedTuple):
+    kind: str
+    route: str | None = None
+    alias: str | None = None
+    reason_code: str = "ok"
+
+
+class Admission(NamedTuple):
+    launch: Launch
+    intent_id: str | None = None
+
+    def tsv(self):
+        launch = self.launch
+        if launch.kind == "enrolled":
+            if (launch.route not in {"claimed", "reused", "deferred_rename"} or
+                    not launch.alias or (launch.route == "claimed") != bool(self.intent_id) or
+                    launch.reason_code != "ok"):
+                raise RecoveryError("invalid enrolled result")
+        elif launch.kind != "native" or launch.route is not None or launch.alias is not None:
+            raise RecoveryError("invalid native result")
+        fields = ("v1", launch.kind, launch.route or "-", launch.alias or "-",
+                  self.intent_id or "-", launch.reason_code)
+        if any(not re.fullmatch(r"[A-Za-z0-9_-]+", field) for field in fields):
+            raise RecoveryError("invalid admission field")
+        return "\t".join(fields)
+
+
+class RecoveryRoot:
+    """The recovery store layout, separate from the Intercom broker runtime."""
+
+    def __init__(self, root):
+        self.root = os.path.realpath(root)
+        self.intents = os.path.join(self.root, "intents")
+        self.ready = os.path.join(self.root, "observer.ready")
+        self.receipt = os.path.join(self.root, "observer.pid.json")
+        self.owner_lock = os.path.join(self.root, "owner-admission")
+
+
+class RecoveryEngine:
+    """Recovery operations addressed by a state root and opaque intent handles."""
+
+    def __init__(self, state_root, *, host=None, sessions=None):
+        self.store = RecoveryRoot(state_root)
+        self.state_root = self.store.root
+        self.intent_dir = self.store.intents
+        self.host = host if host is not None else HOST
+        self.sessions = sessions if sessions is not None else HerdrSessions(self.host)
+
+    def _path(self, intent_id):
+        if not isinstance(intent_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", intent_id):
+            raise RecoveryError("invalid intent ID")
+        return os.path.join(self.intent_dir, intent_id + ".json")
+
+    def admit(self, *, socket_path, pane_id, agent, launcher_pid):
+        """Return a finished launch decision, independently of recovery ownership."""
+        if agent not in {"claude", "opencode", "pi"} or not isinstance(launcher_pid, int) or launcher_pid <= 0:
+            raise RecoveryError("invalid admission request")
+        intent_id = None
+        try:
+            start = launcher_identity(launcher_pid, self.host)
+            if not socket_path or not pane_id:
+                raise RecoveryError("current Herdr pane or socket is unavailable")
+            connection = self.sessions.connect(socket_path)
+            scope = {"connection": connection}
+            session = self.sessions(scope)
+            response = session.request("pane.get", {"pane_id": pane_id})
+            pane = response["result"]["pane"]
+            if pane["pane_id"] != pane_id or not pane["terminal_id"]:
+                raise RecoveryError("launch terminal identity is unavailable")
+            scope["terminal"] = {"pane_id": pane_id, "terminal_id": pane["terminal_id"]}
+            seed = f"{socket_path}|{pane_id}|{agent}|{launcher_pid}|{self.host.wall_time_ns()}"
+            candidates = self.host.alias_candidates(seed)
+            state = session.agent_state(pane)
+            if "error" not in state:
+                record = state["result"]["agent"]
+                name = record.get("name")
+                if (record.get("pane_id") != pane_id or record.get("terminal_id") != pane["terminal_id"] or
+                        name not in candidates):
+                    return Admission(Launch("native", reason_code="alias_unavailable"))
+                name = self._reuse_alias(session, name)
+                if name:
+                    return Admission(Launch("enrolled", "reused", name))
+                pane = session.locate_terminal()
+                if pane is None:
+                    raise RecoveryError("launch terminal disappeared")
+            elif state["error"].get("code") != "agent_not_found":
+                raise RecoveryError("agent lookup failed")
+
+            # Used panes cannot accept a declaration. Only Claude can reconcile
+            # its deferred name through the existing first-prompt hook.
+            if pane.get("agent_session") is not None:
+                if agent != "claude":
+                    return Admission(Launch("native", reason_code="used_pane"))
+            else:
+                self.host.ensure_owner(self.state_root)
+
+            occupied = session.request("agent.list", {})["result"]["agents"]
+            if not isinstance(occupied, list) or any(not isinstance(item, dict) or "pane_id" not in item
+                                                     for item in occupied):
+                raise RecoveryError("malformed agent list")
+            taken = {item.get("name") for item in occupied}
+            candidates = [name for name in candidates if name not in taken]
+            for alias in candidates[:3]:
+                if self.host.start_identity(launcher_pid) != start:
+                    raise RecoveryError("launcher incarnation changed during admission")
+                if pane.get("agent_session") is not None:
+                    self._defer_rename(pane["pane_id"], alias)
+                    return Admission(Launch("enrolled", "deferred_rename", alias))
+                claim = self._acquire(socket_path=socket_path, pane_id=pane["pane_id"], agent=agent,
+                                      alias=alias, launcher_pid=launcher_pid, scope=scope, launcher_start=start)
+                intent_id = claim["intent_id"] if claim.get("pending", claim["claimed"]) else None
+                if claim["claimed"]:
+                    return Admission(Launch("enrolled", "claimed", alias), intent_id)
+                if claim.get("undeclarable"):
+                    if agent != "claude":
+                        return Admission(Launch("native", reason_code="used_pane"))
+                    self._defer_rename(pane["pane_id"], alias)
+                    return Admission(Launch("enrolled", "deferred_rename", alias))
+                if not claim.get("retry"):
+                    if intent_id:
+                        print("admission unavailable: partial claim remains pending for recovery", file=sys.stderr)
+                    else:
+                        print("admission unavailable: the rejected claim was rolled back", file=sys.stderr)
+                    return Admission(Launch("native", reason_code="acquisition_unconfirmed"), intent_id)
+            return Admission(Launch("native", reason_code="alias_exhausted"))
+        except (OSError, ValueError, KeyError, TypeError, RecoveryError, subprocess.TimeoutExpired) as error:
+            print(f"admission unavailable: {error}", file=sys.stderr)
+            return Admission(Launch("native", reason_code="admission_unavailable"), intent_id)
+
+    def _defer_rename(self, pane_id, alias):
+        directory = os.path.join(os.path.dirname(os.path.dirname(self.state_root)), "reconcile")
+        os.makedirs(directory, exist_ok=True)
+        path = os.path.join(directory, re.sub(r"[^A-Za-z0-9]", "_", pane_id))
+        temporary = path + "." + uuid.uuid4().hex + ".tmp"
+        try:
+            with open(temporary, "x", encoding="utf-8") as handle:
+                handle.write(alias + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+            sync_directory(directory)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+
+    def _reuse_alias(self, session, expected_alias):
+        scope = session.intent
+
+        def pending():
+            try:
+                paths = active_intent_paths(self.intent_dir)
+            except FileNotFoundError:
+                return []
+            obligations = []
+            for path in paths:
+                try:
+                    intent = read_json(path)
+                except FileNotFoundError:
+                    continue
+                if (intent["phase"] not in Phase.TERMINAL and
+                        intent["connection"]["server_identity"] == scope["connection"]["server_identity"] and
+                        intent["terminal"]["terminal_id"] == scope["terminal"]["terminal_id"]):
+                    obligations.append(intent)
+            return obligations
+
+        obligations = pending()
+        if obligations:
+            for intent in obligations:
+                if (intent.get("identity_format") != IDENTITY_FORMAT or
+                        self.host.start_identity(intent["client"]["pid"]) == intent["client"]["start_identity"]):
+                    raise RecoveryError("existing alias ownership is live or unverified")
+            self.host.ensure_owner(self.state_root)
+            deadline = self.host.monotonic() + 10
+            while pending():
+                if self.host.monotonic() >= deadline:
+                    raise RecoveryError("existing alias cleanup remains pending")
+                self.host.sleep(POLL_SECONDS)
+        pane = session.locate_terminal()
+        if pane is None:
+            raise RecoveryError("existing alias terminal disappeared")
+        response = session.agent_state(pane)
+        if response.get("error", {}).get("code") == "agent_not_found":
+            return None
+        record = response["result"]["agent"]
+        if record.get("terminal_id") != pane["terminal_id"] or record.get("name") != expected_alias:
+            raise RecoveryError("existing alias changed during recovery")
+        return expected_alias
+
+    def _acquire(self, *, socket_path, pane_id, agent, alias, launcher_pid,
+                 scope, launcher_start):
+        return claim_intent(self.intent_dir, agent, CLAIM_SOURCE, alias, launcher_pid,
+                            socket_path=socket_path, pane_id=pane_id, host=self.host,
+                            sessions=self.sessions, scope=scope, launcher_start=launcher_start)
+
+    def bind(self, intent_id, native_executable):
+        """Bind cleanup to this PID; a missing executable leaves handoff disabled."""
+        return bind_native_client(self._path(intent_id), host=self.host,
+                                  native_executable=native_executable)
+
+    def handoff(self, intent_id):
+        request_handoff(self._path(intent_id), host=self.host, sessions=self.sessions)
+        return self.observe_one(intent_id)
+
+    def observe_one(self, intent_id):
+        if not isinstance(intent_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", intent_id):
+            return Observation(None, "unavailable", "invalid_intent_id")
+        return observe_one(self._path(intent_id), host=self.host, sessions=self.sessions)
 
 
 class RecoveryError(Exception):
@@ -41,18 +361,18 @@ class IntentBusy(RecoveryError):
 
 
 @contextmanager
-def intent_lock(path, timeout=0, create=False):
+def intent_lock(path, timeout=0, create=False, host=HOST):
     """Late intent callers never recreate a removed sidecar at a new inode."""
     with open(str(path) + ".lock", "a" if create else "r+", encoding="utf-8") as handle:
-        deadline = time.monotonic() + timeout
+        deadline = host.monotonic() + timeout
         while True:
             try:
                 fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 break
             except BlockingIOError as error:
-                if time.monotonic() >= deadline:
+                if host.monotonic() >= deadline:
                     raise IntentBusy("intent update is in progress") from error
-                time.sleep(POLL_SECONDS)
+                host.sleep(POLL_SECONDS)
         try:
             yield
         finally:
@@ -119,7 +439,7 @@ def sync_directory(directory):
 def archive_terminal_intent(path):
     """Caller holds this intent's existing lock; the archived record is immutable."""
     intent = read_json(path)
-    if intent["phase"] not in TERMINAL_PHASES:
+    if intent["phase"] not in Phase.TERMINAL:
         return False
     destination = archived_intent_path(path)
     os.makedirs(os.path.dirname(destination), exist_ok=True)
@@ -154,7 +474,7 @@ def prune_intent_archive(directory, now=None, max_age=ARCHIVE_MAX_AGE_SECONDS, m
                     pass
         except FileNotFoundError:
             continue
-    cutoff = (time.time() if now is None else now) - max_age
+    cutoff = (HOST.wall_time() if now is None else now) - max_age
     changed = False
     for index, (modified, entry) in enumerate(sorted(records, reverse=True)):
         if modified < cutoff or index >= max_records:
@@ -167,31 +487,7 @@ def prune_intent_archive(directory, now=None, max_age=ARCHIVE_MAX_AGE_SECONDS, m
         sync_directory(archive)
 
 
-def process_start_identity(pid):
-    if not isinstance(pid, int) or pid <= 0:
-        raise RecoveryError("invalid process identity")
-    try:
-        result = subprocess.run(
-            ["ps", "-p", str(pid), "-o", "lstart=", "-o", "stat="],
-            text=True, capture_output=True, check=False, timeout=2,
-            env={**os.environ, "LC_ALL": "C", "TZ": "UTC"},
-        )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise RecoveryError(f"process lookup unavailable: {error}") from error
-    row = result.stdout.strip()
-    if result.returncode == 0 and row:
-        identity, status = row.rsplit(None, 1)
-        return None if status.startswith("Z") else identity
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return None
-    except OSError as error:
-        raise RecoveryError(f"process liveness unknown: {error}") from error
-    raise RecoveryError("process lookup failed for a live process")
-
-
-def peer_identity(connection):
+def peer_identity(connection, host=HOST):
     if sys.platform == "darwin":
         # LOCAL_PEERPID identifies the server attached to this connected descriptor.
         pid = struct.unpack("i", connection.getsockopt(0, 2, 4))[0]
@@ -199,26 +495,26 @@ def peer_identity(connection):
         pid, _, _ = struct.unpack("3i", connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
     else:
         raise RecoveryError("connected-server identity is unavailable on this platform")
-    start = process_start_identity(pid)
+    start = host.start_identity(pid)
     if start is None:
         raise RecoveryError("connected server exited")
     return {"pid": pid, "start_identity": start}
 
 
-def capture_server_identity(path):
+def capture_server_identity(path, host=HOST):
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
         connection.settimeout(5)
         connection.connect(path)
-        return peer_identity(connection)
+        return peer_identity(connection, host)
 
 
-def bound_request(intent, method, params):
+def bound_request(intent, method, params, host=HOST):
     # Herdr closes each connection after one response. Validate the actual peer
     # on the descriptor used for the mutation; never reconnect after this check.
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
         connection.settimeout(5)
         connection.connect(intent["connection"]["socket_path"])
-        if peer_identity(connection) != intent["connection"]["server_identity"]:
+        if peer_identity(connection, host) != intent["connection"]["server_identity"]:
             raise ServerInstanceChanged("server instance changed")
         request = {"id": uuid.uuid4().hex, "method": method, "params": params}
         connection.sendall((json.dumps(request) + "\n").encode())
@@ -235,6 +531,77 @@ def bound_request(intent, method, params):
 def socket_identity(path):
     stat = os.stat(path)
     return {"device": stat.st_dev, "inode": stat.st_ino}
+
+
+class HerdrSession:
+    """Fenced transport and observed facts, without lifecycle decisions."""
+
+    def __init__(self, intent, host=HOST):
+        self.intent = intent
+        self.host = host
+
+    @staticmethod
+    def connect(socket_path, host=HOST):
+        return {"socket_path": socket_path,
+                "server_identity": capture_server_identity(socket_path, host),
+                "socket_identity": socket_identity(socket_path)}
+
+    def request(self, method, params):
+        return bound_request(self.intent, method, params, self.host)
+
+    def locate_terminal(self):
+        terminal = self.intent["terminal"]
+        pane = self.request("pane.get", {"pane_id": terminal["pane_id"]})
+        if "error" in pane and pane["error"].get("code") != "pane_not_found":
+            raise RecoveryError(f"pane lookup failed: {pane['error']}")
+        observed = pane.get("result", {}).get("pane", {})
+        if observed.get("terminal_id") == terminal["terminal_id"]:
+            return observed
+        snapshot = self.request("session.snapshot", {})
+        if "error" in snapshot:
+            raise RecoveryError(f"terminal lookup failed: {snapshot['error']}")
+        matches = [item for item in snapshot["result"]["snapshot"]["panes"]
+                   if item.get("terminal_id") == terminal["terminal_id"]]
+        if len(matches) > 1:
+            raise RecoveryError("ambiguous terminal identity")
+        return matches[0] if matches else None
+
+    def agent_state(self, pane):
+        return self.request("agent.get", {"target": pane["pane_id"]})
+
+    def release_with_readback(self, sequence):
+        # Resolve again immediately before mutation, including after a move.
+        pane = self.locate_terminal()
+        if pane is None:
+            return None
+        response = self.request("pane.release_agent", {
+            "pane_id": pane["pane_id"], "source": self.intent["claim"]["source"],
+            "agent": self.intent["agent_kind"], "seq": sequence,
+        })
+        if "error" in response:
+            raise RecoveryError(f"release failed: {response['error']}")
+        # A success response can be an ignored old sequence. Resolve the stable
+        # terminal again so readback never mistakes the old location for absence.
+        pane = self.locate_terminal()
+        return self.agent_state(pane) if pane is not None else None
+
+    def replacement(self):
+        connection = self.intent["connection"]
+        return HerdrSession({**self.intent, "connection": {**connection,
+            "server_identity": capture_server_identity(connection["socket_path"], self.host)}}, self.host)
+
+
+class HerdrSessions:
+    """Session factory sharing the engine's host evidence reader."""
+
+    def __init__(self, host):
+        self.host = host
+
+    def connect(self, socket_path):
+        return HerdrSession.connect(socket_path, self.host)
+
+    def __call__(self, intent):
+        return HerdrSession(intent, self.host)
 
 
 def write_intent(intent_dir, intent):
@@ -256,65 +623,64 @@ def write_intent(intent_dir, intent):
     return path
 
 
-def reserve_sequence(directory, source):
+def reserve_sequence(directory, source, host=HOST):
     """Persistently reserve claim, handoff and release sequence numbers per source."""
     os.makedirs(directory, exist_ok=True)
     path = os.path.join(directory, f"{source}.sequence.json")
-    with intent_lock(path, timeout=5, create=True):
+    with intent_lock(path, timeout=5, create=True, host=host):
         try:
             previous = read_json(path)["last"]
         except FileNotFoundError:
             previous = -1
-        candidate = max(time.time_ns(), previous + 3)
-        atomic_write(path, {"last": candidate + 2, "reserved_at_ns": time.time_ns()})
+        candidate = max(host.wall_time_ns(), previous + 3)
+        atomic_write(path, {"last": candidate + 2, "reserved_at_ns": host.wall_time_ns()})
         return candidate
 
 
-def bind_native_client(path):
+def bind_native_client(path, *, host=HOST, native_executable):
     """Bind in the bridge's PID before exec, or refuse enrollment after cleanup."""
     try:
-        return _bind_native_client(path)
+        return _bind_native_client(path, host=host, native_executable=native_executable)
     except FileNotFoundError:
         return False
 
 
-def _bind_native_client(path):
-    with intent_lock(path, timeout=5):
+def _bind_native_client(path, *, host=HOST, native_executable):
+    with intent_lock(path, timeout=5, host=host):
         intent = read_intent(path)
-        if intent["phase"] not in {"intent", "acquired"} or "launcher_client" in intent:
+        if intent["phase"] not in Phase.ACTIVE or "launcher_client" in intent:
             return False
         launcher = intent["client"]
-        if os.getppid() != launcher["pid"]:
+        if intent.get("identity_format") != IDENTITY_FORMAT:
             return False
-        if process_start_identity(launcher["pid"]) != launcher["start_identity"]:
+        if host.parent_pid() != launcher["pid"]:
             return False
-        start = process_start_identity(os.getpid())
+        if host.start_identity(launcher["pid"]) != launcher["start_identity"]:
+            return False
+        start = host.start_identity(host.pid())
         if start is None:
             raise RecoveryError("native bridge process identity is unavailable")
         intent["launcher_client"] = launcher
-        intent["client"] = {"pid": os.getpid(), "start_identity": start}
-        intent["native_executable"] = os.environ.get("AGENT_INTERCOM_CLAUDE_COMMAND")
+        intent["client"] = {"pid": host.pid(), "start_identity": start}
+        intent["native_executable"] = native_executable
         atomic_write(path, intent)
         return True
 
 
-def require_client_ancestor(intent):
+def require_client_ancestor(intent, host=HOST):
     """A first-prompt hook must descend from this native client, not a nested one."""
     expected = intent["client"]
     image = intent.get("native_executable")
     if not image:
         raise RecoveryError("handoff intent has no bound native client")
-    if process_start_identity(expected["pid"]) != expected["start_identity"]:
+    if (intent.get("identity_format") != IDENTITY_FORMAT or
+            host.start_identity(expected["pid"]) != expected["start_identity"]):
         raise RecoveryError("handoff native process identity is unavailable")
-    pid = os.getpid()
+    pid = host.pid()
     for _ in range(64):
         if pid == expected["pid"]:
             return
-        result = subprocess.run(["ps", "-p", str(pid), "-o", "ppid=,comm="],
-                                text=True, capture_output=True, check=False, timeout=2)
-        if result.returncode or not result.stdout.strip():
-            break
-        parent, command = result.stdout.strip().split(None, 1)
+        parent, command = host.parent(pid)
         if os.path.basename(command) == os.path.basename(image):
             raise RecoveryError("nested native client cannot hand off another launch")
         pid = int(parent)
@@ -323,277 +689,296 @@ def require_client_ancestor(intent):
     raise RecoveryError("handoff caller is not a descendant of the bound native client")
 
 
-def request_handoff(path):
+def request_handoff(path, *, host=HOST, sessions=HerdrSession):
     try:
-        _request_handoff(path)
+        _request_handoff(path, host=host, sessions=sessions)
     except FileNotFoundError:
         return  # Archived or expired obligations no longer authorize a handoff.
 
 
-def _request_handoff(path):
-    with intent_lock(path, timeout=5):
+def _request_handoff(path, *, host=HOST, sessions=HerdrSession):
+    with intent_lock(path, timeout=5, host=host):
         intent = read_intent(path)
-        if intent["phase"] in {"settled", "retired"}:
+        if intent["phase"] in Phase.TERMINAL:
             return
-        require_client_ancestor(intent)
+        require_client_ancestor(intent, host)
         sequence = intent["claim"]["handoff_seq"]
         if not intent["claim"]["claim_seq"] < sequence < intent["claim"]["release_seq"]:
             raise RecoveryError("handoff sequence was not reserved before acquisition")
         # Authorization must survive a failed first RPC and the hook's exit.
         intent["handoff_client"] = dict(intent["client"])
-        intent.setdefault("handoff_requested_at_ns", time.time_ns())
+        intent.setdefault("handoff_requested_at_ns", host.wall_time_ns())
         atomic_write(path, intent)
-        attempt_handoff(path, intent)
+        attempt_handoff(path, intent, host=host, sessions=sessions)
 
 
-def attempt_handoff(path, intent):
+def attempt_handoff(path, intent, *, host=HOST, sessions=HerdrSession):
     """Retry an authorized request while holding its per-intent lock."""
     # Callers require the same live client incarnation. A reboot ends it;
     # ordinary observer restarts share this boot's monotonic clock with the hook.
     if intent.get("handoff_acknowledged"):
         return
-    if time.monotonic() < intent.get("handoff_retry_after_monotonic", 0):
+    if host.monotonic() < intent.get("handoff_retry_after_monotonic", 0):
         return
-    intent["handoff_retry_after_monotonic"] = time.monotonic() + PENDING_RETRY_SECONDS
-    atomic_write(path, intent)
+    update_intent(path, intent, intent["phase"], reason_code="handoff_retry",
+                  next_attempt_deadline=host.monotonic() + PENDING_RETRY_SECONDS,
+                  deadline_clock="monotonic", host=host)
     try:
         expected = intent["handoff_client"]
-        if expected != intent["client"] or process_start_identity(expected["pid"]) != expected["start_identity"]:
-            update_intent(path, intent, intent["phase"], "pending: authorized handoff client changed or exited")
+        if expected != intent["client"] or host.start_identity(expected["pid"]) != expected["start_identity"]:
+            update_intent(path, intent, intent["phase"], "pending: authorized handoff client changed or exited",
+                          reason_code="handoff_client_changed", host=host)
             return
-        snapshot = bound_request(intent, "session.snapshot", {})
-        if "error" in snapshot:
-            raise RecoveryError("handoff terminal lookup failed")
-        panes = [pane for pane in snapshot["result"]["snapshot"]["panes"]
-                 if pane.get("terminal_id") == intent["terminal"]["terminal_id"]]
-        if len(panes) != 1:
+        session = sessions(intent)
+        pane = session.locate_terminal()
+        if pane is None:
             raise RecoveryError("handoff terminal identity is unavailable")
         sequence = intent["claim"]["handoff_seq"]
         if not intent["claim"]["claim_seq"] < sequence < intent["claim"]["release_seq"]:
             raise RecoveryError("handoff sequence was not reserved before acquisition")
-        intent["terminal"]["pane_id"] = panes[0]["pane_id"]
-        intent["handoff_intended_at_ns"] = time.time_ns()
+        intent["terminal"]["pane_id"] = pane["pane_id"]
+        intent["handoff_intended_at_ns"] = host.wall_time_ns()
         atomic_write(path, intent)
-        response = bound_request(intent, "pane.release_agent", {
-            "pane_id": panes[0]["pane_id"], "source": intent["claim"]["source"],
-            "agent": intent["agent_kind"], "seq": sequence,
-        })
-        if "error" in response:
-            raise RecoveryError(f"handoff failed: {response['error']}")
+        state = session.release_with_readback(sequence)
         intent["handoff_acknowledged"] = True
-        atomic_write(path, intent)
+        if state is None:
+            update_intent(path, intent, Phase.SETTLED, "settled: terminal resource gone",
+                          reason_code="terminal_gone", host=host)
+            return
         # An ignored release also succeeds. Only the observer's later concrete
         # state read retires this obligation; the hook does not rename anything.
-        update_intent(path, intent, intent["phase"], "pending: handoff awaiting published state")
+        update_intent(path, intent, intent["phase"], "pending: handoff awaiting published state",
+                      reason_code="handoff_awaiting_state", host=host)
     except (OSError, RecoveryError) as error:
-        record_connection_failure(path, intent, error)
+        record_connection_failure(path, intent, error, host=host, sessions=sessions)
 
 
-def update_intent(intent_path, intent, phase, diagnostic=None):
-    if intent["phase"] == phase and diagnostic == intent.get("diagnostic"):
+def update_intent(intent_path, intent, phase, diagnostic=None, *, reason_code=None,
+                  next_attempt_deadline=None, deadline_clock=None, host=HOST):
+    """The lifecycle owner. Caller holds the inode-stable intent lock."""
+    previous = intent["phase"]
+    if phase not in Phase.ALLOWED.get(previous, ()):
+        raise RecoveryError(f"invalid intent transition: {previous} -> {phase}")
+    if previous in Phase.TERMINAL:
+        if os.path.exists(intent_path):
+            archive_terminal_intent(intent_path)
+        return
+    reason_code = reason_code or phase
+    pending = {"reason_code": reason_code, "next_attempt_deadline": next_attempt_deadline,
+               "deadline_clock": deadline_clock}
+    if (phase == previous and intent.get("reason_code") == reason_code and
+            intent.get("waiting") == pending and
+            (diagnostic is None or diagnostic == intent.get("diagnostic"))):
         return
     intent["phase"] = phase
-    intent["updated_at_ns"] = time.time_ns()
+    intent["updated_at_ns"] = host.wall_time_ns()
+    if phase == Phase.ACQUIRED and previous != phase:
+        intent["acquired_at_ns"] = host.wall_time_ns()
+    intent["reason_code"] = reason_code
+    intent.pop("retry_after", None)
+    intent.pop("handoff_retry_after_monotonic", None)
+    if phase in Phase.TERMINAL:
+        intent.pop("waiting", None)
+    else:
+        intent["waiting"] = pending
+        if next_attempt_deadline is not None:
+            key = "handoff_retry_after_monotonic" if deadline_clock == "monotonic" else "retry_after"
+            intent[key] = next_attempt_deadline
     if diagnostic:
         intent["diagnostic"] = diagnostic
     atomic_write(intent_path, intent)
+    if phase in Phase.TERMINAL:
+        archive_terminal_intent(intent_path)
 
 
-def record_connection_failure(path, intent, error):
+def waiting(path, intent, reason_code, diagnostic=None, *, retry=False, host=HOST):
+    handoff_deadline = intent.get("handoff_retry_after_monotonic")
+    if handoff_deadline is not None and not intent.get("handoff_acknowledged"):
+        update_intent(path, intent, intent["phase"], diagnostic, reason_code=reason_code,
+                      next_attempt_deadline=handoff_deadline, deadline_clock="monotonic", host=host)
+        return
+    update_intent(path, intent, intent["phase"], diagnostic, reason_code=reason_code,
+                  next_attempt_deadline=host.wall_time() + PENDING_RETRY_SECONDS if retry else None,
+                  deadline_clock="wall" if retry else None, host=host)
+
+
+def record_connection_failure(path, intent, error, *, host=HOST, sessions=HerdrSession):
     if isinstance(error, ServerInstanceChanged):
         previous = intent["connection"]["server_identity"]
         try:
-            old_start = process_start_identity(previous["pid"])
+            old_start = host.start_identity(previous["pid"])
         except RecoveryError:
             old_start = previous["start_identity"]
         if old_start != previous["start_identity"]:
             # A new server may restore terminal records. Read it through a new
             # peer fence, but never mutate it using the previous server's claim.
             try:
-                replacement = {**intent, "connection": {**intent["connection"],
-                    "server_identity": capture_server_identity(intent["connection"]["socket_path"])}}
-                snapshot = bound_request(replacement, "session.snapshot", {})
-                if "error" in snapshot:
-                    raise RecoveryError("replacement server snapshot unavailable")
-                matches = [pane for pane in snapshot["result"]["snapshot"]["panes"]
-                           if pane.get("terminal_id") == intent["terminal"]["terminal_id"]]
-                if not matches:
-                    update_intent(path, intent, "retired", "retired: original terminal absent on replacement server")
+                replacement = sessions(intent).replacement()
+                pane = replacement.locate_terminal()
+                if pane is None:
+                    update_intent(path, intent, Phase.RETIRED, "retired: original terminal absent on replacement server",
+                                  reason_code="replacement_terminal_absent", host=host)
                     return
-                if len(matches) != 1:
-                    raise RecoveryError("replacement terminal identity is ambiguous")
-                state = bound_request(replacement, "agent.get", {"target": matches[0]["pane_id"]})
+                state = replacement.agent_state(pane)
                 if state.get("error", {}).get("code") == "agent_not_found":
-                    update_intent(path, intent, "retired", "retired: original claim absent on replacement server")
+                    update_intent(path, intent, Phase.RETIRED, "retired: original claim absent on replacement server",
+                                  reason_code="replacement_claim_absent", host=host)
                     return
                 raise RecoveryError("replacement server retains a record; old ownership cannot be established")
             except (OSError, RecoveryError) as replacement_error:
-                update_intent(path, intent, intent["phase"], f"pending: {replacement_error}")
+                waiting(path, intent, "replacement_ownership_unknown", f"pending: {replacement_error}", host=host)
             return
-    update_intent(path, intent, intent["phase"], f"pending: {error}")
+    waiting(path, intent, "connection_unavailable", f"pending: {error}", host=host)
 
 
-def observe_one(path):
+def observe_one(path, *, host=HOST, sessions=HerdrSession):
     try:
-        with intent_lock(path):
-            _observe_one_locked(path)
-            archive_terminal_intent(path)
-    except (IntentBusy, FileNotFoundError):
-        return
+        with intent_lock(path, host=host):
+            _observe_one_locked(path, host=host, sessions=sessions)
+            return observation(read_intent(path))
+    except IntentBusy:
+        return Observation(None, "busy", "intent_busy")
+    except FileNotFoundError:
+        # Terminal receipts are immutable and need no newly created lock.
+        try:
+            intent = read_json(archived_intent_path(path))
+            if intent["phase"] in Phase.TERMINAL:
+                return observation(intent)
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        return Observation(None, "unavailable", "intent_unavailable")
+    except (OSError, ValueError, KeyError, TypeError, RecoveryError):
+        return Observation(None, "unavailable", "intent_unreadable")
 
 
-def _observe_one_locked(path):
+def observation(intent):
+    phase = intent["phase"]
+    if phase not in Phase.ALLOWED:
+        return Observation(None, "unavailable", "unsupported_phase")
+    pending = intent.get("waiting", {})
+    return Observation(phase, phase if phase in Phase.TERMINAL else "waiting",
+                       intent.get("reason_code", phase),
+                       pending.get("next_attempt_deadline"), pending.get("deadline_clock"))
+
+
+def _observe_one_locked(path, *, host=HOST, sessions=HerdrSession):
     intent = read_intent(path)
-    if intent["phase"] in {"settled", "retired"}:
+    if intent["phase"] in Phase.TERMINAL:
+        update_intent(path, intent, intent["phase"], host=host)
+        return
+    if intent["phase"] not in Phase.ACTIVE:
+        raise RecoveryError("unsupported intent phase")
+    if intent.get("identity_format") != IDENTITY_FORMAT:
+        waiting(path, intent, "identity_format_unknown", "pending: unsupported process identity format", host=host)
         return
     pid = intent["client"]["pid"]
     expected_start = intent["client"]["start_identity"]
     try:
-        actual_start = process_start_identity(pid)
+        actual_start = host.start_identity(pid)
     except RecoveryError as error:
-        update_intent(path, intent, intent["phase"], f"pending: {error}")
+        waiting(path, intent, "client_identity_unknown", f"pending: {error}", host=host)
         return
     client_alive = actual_start == expected_start
+    session = sessions(intent)
     try:
-        # Availability only. The connected peer, not this path's inode, fences RPCs.
-        os.stat(intent["connection"]["socket_path"])
-    except OSError as error:
-        update_intent(path, intent, intent["phase"], f"pending: socket unavailable: {error.strerror}")
-        return
-    pane_id = intent["terminal"]["pane_id"]
-    try:
-        pane = bound_request(intent, "pane.get", {"pane_id": pane_id})
+        pane = session.locate_terminal()
     except (OSError, RecoveryError) as error:
-        record_connection_failure(path, intent, error)
+        record_connection_failure(path, intent, error, host=host, sessions=sessions)
         return
-    if "error" in pane and pane["error"].get("code") != "pane_not_found":
-        update_intent(path, intent, intent["phase"], f"pending: pane lookup failed: {pane['error']}")
+    if pane is None:
+        update_intent(path, intent, Phase.SETTLED, "settled: terminal resource gone", reason_code="terminal_gone", host=host)
         return
-    observed_terminal = pane.get("result", {}).get("pane", {}).get("terminal_id")
-    if observed_terminal != intent["terminal"]["terminal_id"]:
-        try:
-            snapshot = bound_request(intent, "session.snapshot", {})
-        except (OSError, RecoveryError) as error:
-            record_connection_failure(path, intent, error)
-            return
-        if "error" in snapshot:
-            update_intent(path, intent, intent["phase"], f"pending: terminal lookup failed: {snapshot['error']}")
-            return
-        matches = [item for item in snapshot["result"]["snapshot"]["panes"]
-                   if item.get("terminal_id") == intent["terminal"]["terminal_id"]]
-        if not matches:
-            update_intent(path, intent, "settled", "settled: terminal resource gone")
-            return
-        if len(matches) != 1:
-            update_intent(path, intent, intent["phase"], "pending: ambiguous terminal identity")
-            return
-        pane_id = matches[0]["pane_id"]
-        intent["terminal"]["pane_id"] = pane_id
+    if intent["terminal"]["pane_id"] != pane["pane_id"]:
+        intent["terminal"]["pane_id"] = pane["pane_id"]
         atomic_write(path, intent)
-    else:
-        resolved_id = pane["result"]["pane"]["pane_id"]
-        if resolved_id != pane_id:
-            # Herdr can resolve an old qualified ID to the moved terminal.
-            pane_id = resolved_id
-            intent["terminal"]["pane_id"] = resolved_id
-            atomic_write(path, intent)
     try:
-        acquisition = bound_request(intent, "agent.get", {"target": pane_id})
+        acquisition = session.agent_state(pane)
     except (OSError, RecoveryError) as error:
-        record_connection_failure(path, intent, error)
+        record_connection_failure(path, intent, error, host=host, sessions=sessions)
         return
-    if intent["phase"] == "acquired" and "error" not in acquisition:
+    if intent["phase"] == Phase.ACQUIRED and "error" not in acquisition:
         state = acquisition["result"]["agent"].get("agent_status")
         # This launch declared only unknown. A newer same-source report or a
         # client report can publish a concrete state; neither belongs to us.
         if acquisition["result"]["agent"].get("agent") and state in {"working", "idle", "done", "blocked"}:
-            update_intent(path, intent, "retired", "retired: concrete successor state observed")
+            update_intent(path, intent, Phase.RETIRED, "retired: concrete successor state observed",
+                          reason_code="concrete_successor", host=host)
             return
     if client_alive:
         if intent.get("handoff_requested_at_ns") and intent.get("handoff_client") == intent["client"]:
-            attempt_handoff(path, intent)
+            attempt_handoff(path, intent, host=host, sessions=sessions)
+        else:
+            update_intent(path, intent, intent["phase"], reason_code="client_alive", host=host)
         return
-    if intent["phase"] == "intent":
+    if intent.get("handoff_retry_after_monotonic") is not None:
+        # A handoff deadline belongs only to the live authorized incarnation.
+        update_intent(path, intent, intent["phase"], reason_code="client_exited", host=host)
+    if intent["phase"] == Phase.INTENT:
         if acquisition.get("error", {}).get("code") == "agent_not_found":
             # The acquisition request may still arrive. Absence now cannot
             # settle an unacknowledged operation on a live server and pane.
-            update_intent(path, intent, "intent", "pending: acquisition outcome unknown")
+            waiting(path, intent, "acquisition_unknown", "pending: acquisition outcome unknown", host=host)
             return
         if "error" in acquisition:
-            update_intent(path, intent, "intent", f"pending: acquisition lookup failed: {acquisition['error']}")
+            waiting(path, intent, "acquisition_lookup_failed", f"pending: acquisition lookup failed: {acquisition['error']}", host=host)
             return
-    if time.time() < intent.get("retry_after", 0):
+    if host.wall_time() < intent.get("retry_after", 0):
         return
     try:
-        release = bound_request(intent, "pane.release_agent", {
-            "pane_id": pane_id, "source": intent["claim"]["source"],
-            "agent": intent["agent_kind"], "seq": intent["claim"]["release_seq"],
-        })
+        state = session.release_with_readback(intent["claim"]["release_seq"])
     except (OSError, RecoveryError) as error:
-        record_connection_failure(path, intent, error)
+        record_connection_failure(path, intent, error, host=host, sessions=sessions)
         return
-    if "error" in release:
-        update_intent(path, intent, intent["phase"], f"pending: release failed: {release['error']}")
-        return
-    try:
-        state = bound_request(intent, "agent.get", {"target": pane_id})
-    except (OSError, RecoveryError) as error:
-        record_connection_failure(path, intent, error)
+    if state is None:
+        update_intent(path, intent, Phase.SETTLED, "settled: terminal resource gone", reason_code="terminal_gone", host=host)
         return
     if "error" not in state:
         # agent.get exposes no claim source/sequence. Unknown may belong to a
         # newer launch; successful RPC status cannot prove that distinction.
-        intent["retry_after"] = time.time() + PENDING_RETRY_SECONDS
-        intent["updated_at_ns"] = time.time_ns()
-        atomic_write(path, intent)
-        update_intent(path, intent, intent["phase"], "pending: release acknowledged but claim still published")
+        waiting(path, intent, "release_still_published", "pending: release acknowledged but claim still published", retry=True, host=host)
         return
     if state["error"].get("code") != "agent_not_found":
-        update_intent(path, intent, intent["phase"], f"pending: state check failed: {state['error']}")
+        waiting(path, intent, "release_readback_failed", f"pending: state check failed: {state['error']}", host=host)
         return
-    update_intent(path, intent, "settled", "settled: exact owned release observed")
+    update_intent(path, intent, Phase.SETTLED, "settled: exact owned release observed", reason_code="release_observed", host=host)
 
 
-def observer(intent_dir, pid_file, job_label=None):
+def observer(root, job_label=None, engine_factory=RecoveryEngine):
+    engine = engine_factory(root)
+    store = engine.store
+    intent_dir = store.intents
     os.makedirs(intent_dir, exist_ok=True)
-    ready_path = os.path.join(os.path.dirname(intent_dir), "observer.ready")
-    identity = process_start_identity(os.getpid())
-    receipt = {"pid": os.getpid(), "start_identity": identity,
-               "started_at_ns": time.time_ns(), "job_label": job_label,
-               "intent_dir": os.path.realpath(intent_dir),
+    host = engine.host
+    identity = host.start_identity(host.pid())
+    receipt = {"pid": host.pid(), "start_identity": identity, "identity_format": IDENTITY_FORMAT,
+               "started_at_ns": host.wall_time_ns(), "job_label": job_label,
+               "state_root": store.root,
                "python_version": list(sys.version_info[:3]), "engine_digest": engine_digest()}
-    atomic_write(pid_file, receipt)
-    atomic_write(ready_path, receipt)
+    atomic_write(store.receipt, receipt)
+    atomic_write(store.ready, receipt)
     next_prune = 0
     while True:
         try:
             paths = active_intent_paths(intent_dir)
         except FileNotFoundError:
             print("recovery pending: intent directory is unavailable", file=sys.stderr, flush=True)
-            time.sleep(PENDING_RETRY_SECONDS)
+            host.sleep(PENDING_RETRY_SECONDS)
             continue
         for path in paths:
             try:
-                observe_one(path)
+                result = engine.observe_one(os.path.basename(path)[:-5])
+                if result.outcome == "unavailable":
+                    print(f"observer unavailable {os.path.basename(path)}: {result.reason_code}",
+                          file=sys.stderr, flush=True)
             except (OSError, ValueError, KeyError, RecoveryError) as error:
                 print(f"observer pending {os.path.basename(path)}: {error}", file=sys.stderr, flush=True)
-        if time.monotonic() >= next_prune:
+        if host.monotonic() >= next_prune:
             try:
-                prune_intent_archive(intent_dir)
+                prune_intent_archive(intent_dir, now=host.wall_time())
             except OSError as error:
                 print(f"archive maintenance pending: {error}", file=sys.stderr, flush=True)
-            next_prune = time.monotonic() + ARCHIVE_PRUNE_SECONDS
-        time.sleep(POLL_SECONDS)
-
-
-def exec_without_enrollment(command, args, warning):
-    """Preserve native startup after admission fails, without inherited authority."""
-    for key in tuple(os.environ):
-        if key.startswith(("HERDR_AGENT_INTERCOM_", "AGENT_INTERCOM_", "CLAUDE_INTERCOM_")):
-            os.environ.pop(key)
-    os.environ.pop("OPENCODE_INTERCOM_NAME", None)
-    print(warning, file=sys.stderr, flush=True)
-    os.execv(command, [command, *args])
+            next_prune = host.monotonic() + ARCHIVE_PRUNE_SECONDS
+        host.sleep(POLL_SECONDS)
 
 
 def engine_digest():
@@ -614,24 +999,25 @@ def launchd_job(domain, label):
             "path": os.path.realpath(path.group(1).strip()) if path else None}
 
 
-def owner_receipt(root, label, job):
+def owner_receipt(root, label, job, host=HOST):
     if not job or job["pid"] is None:
         return None
     try:
-        receipt = read_json(os.path.join(root, "observer.ready"))
+        store = RecoveryRoot(root)
+        receipt = read_json(store.ready)
         if (receipt.get("job_label") == label and receipt.get("pid") == job["pid"] and
-                receipt.get("intent_dir") == os.path.realpath(os.path.join(root, "intents")) and
+                receipt.get("state_root") == store.root and
                 receipt.get("engine_digest") == engine_digest() and
                 tuple(receipt.get("python_version", [])) >= (3, 10) and
-                receipt.get("start_identity") is not None and
-                process_start_identity(job["pid"]) == receipt["start_identity"]):
+                receipt.get("start_identity") is not None and receipt.get("identity_format") == IDENTITY_FORMAT and
+                host.start_identity(job["pid"]) == receipt["start_identity"]):
             return receipt
     except (OSError, ValueError, TypeError, RecoveryError):
         pass
     return None
 
 
-def ensure_owner(root, label, plist):
+def ensure_owner(root, label, plist, host=HOST):
     """Start the installed owner and accept readiness only from its live PID."""
     if sys.platform != "darwin":
         raise RecoveryError("automatic claim recovery is unsupported on this host")
@@ -648,24 +1034,23 @@ def ensure_owner(root, label, plist):
     def configured_path(flag):
         value = configured_argument(flag)
         return os.path.realpath(value) if isinstance(value, str) else None
-    intent_dir = os.path.realpath(os.path.join(root, "intents"))
+    store = RecoveryRoot(root)
     if (configuration.get("Label") != label or
             configuration.get("RunAtLoad") is not True or
             not isinstance(configuration.get("KeepAlive"), dict) or
             configuration["KeepAlive"].get("SuccessfulExit") is not False or
-            configured_path("--observe") != intent_dir or
+            configured_path("--observe") != store.root or
             configured_argument("--job-label") != label or
-            configured_path("--pid-file") != os.path.join(os.path.realpath(root), "observer.pid.json") or
-            len(argv) < 2 or os.path.realpath(argv[1]) != os.path.realpath(__file__) or
+            len(argv) < 2 or os.path.realpath(argv[1]) != os.path.realpath(sys.argv[0]) or
             not os.access(argv[0], os.X_OK)):
         raise RecoveryError("recovery job does not match the requested engine, state root and restart policy")
-    os.makedirs(intent_dir, exist_ok=True)
+    os.makedirs(store.intents, exist_ok=True)
     domain = f"gui/{os.getuid()}"
-    with intent_lock(os.path.join(root, "owner-admission"), timeout=15, create=True):
+    with intent_lock(store.owner_lock, timeout=15, create=True, host=host):
         job = launchd_job(domain, label)
         if job and job["path"] != os.path.realpath(plist):
             raise RecoveryError("recovery label is owned by another launchd configuration")
-        ready = owner_receipt(root, label, job)
+        ready = owner_receipt(root, label, job, host)
         if ready:
             return ready
         if job:
@@ -674,258 +1059,185 @@ def ensure_owner(root, label, plist):
             if result.returncode and launchd_job(domain, label) is not None:
                 raise RecoveryError(f"stale owner could not stop: {result.stderr.strip()}")
         try:
-            os.unlink(os.path.join(root, "observer.ready"))
+            os.unlink(store.ready)
         except FileNotFoundError:
             pass
         result = subprocess.run(["launchctl", "bootstrap", domain, plist], text=True,
                                 capture_output=True, check=False, timeout=10)
         if result.returncode:
             raise RecoveryError(f"launchd bootstrap failed: {result.stderr.strip()}")
-        deadline = time.monotonic() + 8
-        while time.monotonic() < deadline:
+        deadline = host.monotonic() + 8
+        while host.monotonic() < deadline:
             job = launchd_job(domain, label)
             if job and job["path"] != os.path.realpath(plist):
                 raise RecoveryError("launchd owner configuration changed during startup")
-            ready = owner_receipt(root, label, job)
+            ready = owner_receipt(root, label, job, host)
             if ready:
                 return ready
-            time.sleep(POLL_SECONDS)
+            host.sleep(POLL_SECONDS)
         raise RecoveryError("launchd recovery owner did not become ready")
 
 
-def recovery_intent_path():
-    return os.environ.get("HERDR_AGENT_INTERCOM_RECOVERY_INTENT")
-
-
-def prepare_intent(intent_dir, agent, source, launcher_pid=None, launcher_start=None):
-    """Persist the fenced launch obligation before the shell claims a pane."""
-    if launcher_pid is None:
-        raise RecoveryError("launcher PID is required")
-    observed_start = process_start_identity(launcher_pid)
-    if observed_start is None or (launcher_start is not None and observed_start != launcher_start):
+def launcher_identity(launcher_pid, host):
+    observed_start = host.start_identity(launcher_pid)
+    if observed_start is None:
         raise RecoveryError("launcher process identity is unavailable")
-    parent = os.getppid()
+    parent = host.parent_pid()
     for _ in range(64):
         if parent == launcher_pid:
             break
         if parent <= 1:
             raise RecoveryError("admission caller is not a descendant of the launcher")
-        result = subprocess.run(["ps", "-p", str(parent), "-o", "ppid="],
-                                text=True, capture_output=True, check=False, timeout=2)
-        if result.returncode or not result.stdout.strip().isdigit():
-            raise RecoveryError("launcher ancestry is unavailable")
-        parent = int(result.stdout.strip())
+        parent, _ = host.parent(parent)
     else:
         raise RecoveryError("launcher ancestry exceeds the supported depth")
-    if process_start_identity(launcher_pid) != observed_start:
+    if host.start_identity(launcher_pid) != observed_start:
         raise RecoveryError("launcher incarnation changed during admission")
-    pane = os.environ.get("HERDR_PANE_ID")
-    socket_path = os.environ.get("HERDR_SOCKET_PATH")
-    if not pane or not socket_path:
+    return observed_start
+
+
+def prepare_intent(intent_dir, agent, source, launcher_pid, *,
+                   socket_path, pane_id, host=HOST, sessions=HerdrSession,
+                   scope, launcher_start):
+    """Persist the fenced launch obligation before acquisition."""
+    observed_start = launcher_identity(launcher_pid, host)
+    if observed_start != launcher_start:
+        raise RecoveryError("launcher incarnation changed during admission")
+    if not pane_id or not socket_path:
         raise RecoveryError("current Herdr pane or socket is unavailable")
-    connection = {"socket_path": socket_path,
-                  "server_identity": capture_server_identity(socket_path),
-                  "socket_identity": socket_identity(socket_path)}
-    response = bound_request({"connection": connection}, "pane.get", {"pane_id": pane})
+    connection = scope["connection"]
+    response = sessions({"connection": connection}).request("pane.get", {"pane_id": pane_id})
     if "error" in response:
         raise RecoveryError(f"launch pane lookup failed: {response['error']}")
     terminal = response["result"]["pane"]
-    sequence = reserve_sequence(os.path.join(os.path.dirname(intent_dir), "sequences"), source)
+    if terminal["terminal_id"] != scope["terminal"]["terminal_id"]:
+        raise RecoveryError("launch terminal changed during admission")
+    sequence = reserve_sequence(os.path.join(os.path.dirname(intent_dir), "sequences"), source, host)
     intent = {
-        "launch_id": f"launch-{agent}-{launcher_pid}-{time.time_ns()}",
-        "phase": "intent",
+        "launch_id": f"launch-{agent}-{launcher_pid}-{host.wall_time_ns()}",
+        "identity_format": IDENTITY_FORMAT,
+        "phase": Phase.INTENT,
+        "reason_code": "acquisition_unknown",
+        "waiting": {"reason_code": "acquisition_unknown", "next_attempt_deadline": None,
+                    "deadline_clock": None},
         "connection": connection,
         "terminal": {"pane_id": terminal["pane_id"], "terminal_id": terminal["terminal_id"]},
         "agent_kind": agent,
         "claim": {"source": source, "claim_seq": sequence,
                   "handoff_seq": sequence + 1, "release_seq": sequence + 2},
         "client": {"pid": launcher_pid, "start_identity": observed_start},
-        "created_at_ns": time.time_ns(),
+        "created_at_ns": host.wall_time_ns(),
     }
     return write_intent(intent_dir, intent), intent
 
 
-def claim_intent(intent_dir, agent, source, alias, launcher_pid, launcher_start):
+def claim_intent(intent_dir, agent, source, alias, launcher_pid, *,
+                 socket_path, pane_id, host=HOST, sessions=HerdrSession,
+                 scope, launcher_start):
     """Create and acknowledge one fenced claim, or retire its own failed try."""
-    path, intent = prepare_intent(intent_dir, agent, source, launcher_pid, launcher_start)
+    os.makedirs(intent_dir, exist_ok=True)
+    path, intent = prepare_intent(intent_dir, agent, source, launcher_pid,
+                                  socket_path=socket_path, pane_id=pane_id, host=host, sessions=sessions,
+                                  scope=scope, launcher_start=launcher_start)
+    handle = os.path.basename(path)[:-5]
     try:
-        with intent_lock(path, timeout=5):
+        with intent_lock(path, timeout=5, host=host):
             intent = read_json(path)
-            if intent["phase"] != "intent" or process_start_identity(launcher_pid) != intent["client"]["start_identity"]:
+            if intent["phase"] != Phase.INTENT or host.start_identity(launcher_pid) != intent["client"]["start_identity"]:
                 raise RecoveryError("launch obligation is no longer eligible for acquisition")
-            response = bound_request(intent, "pane.report_agent", {
+            session = sessions(intent)
+            response = session.request("pane.report_agent", {
                 "pane_id": intent["terminal"]["pane_id"], "source": source,
                 "agent": agent, "state": "unknown", "seq": intent["claim"]["claim_seq"],
             })
             if "error" in response:
                 raise RecoveryError(f"claim rejected: {response['error']}")
-            response = bound_request(intent, "agent.rename", {
+            response = session.request("agent.rename", {
                 "target": intent["terminal"]["pane_id"], "name": alias,
             })
             if "error" in response:
-                release = bound_request(intent, "pane.release_agent", {
-                    "pane_id": intent["terminal"]["pane_id"], "source": source,
-                    "agent": agent, "seq": intent["claim"]["release_seq"],
-                })
-                if "error" in release:
-                    raise RecoveryError(f"rejected alias cleanup failed: {release['error']}")
-                state = bound_request(intent, "agent.get", {"target": intent["terminal"]["pane_id"]})
-                if state.get("error", {}).get("code") != "agent_not_found":
+                state = session.release_with_readback(intent["claim"]["release_seq"])
+                if state is not None and state.get("error", {}).get("code") != "agent_not_found":
                     raise RecoveryError("rejected alias cleanup was not observed")
-                update_intent(path, intent, "settled", "settled: alias acquisition rejected")
+                update_intent(path, intent, Phase.SETTLED, "settled: alias acquisition rejected",
+                              reason_code="alias_rejected", host=host)
                 code = response["error"].get("code")
-                # A rename that finds no record right after an accepted report
-                # means the pane ignored the report. Herdr 0.9.3 does this after a
-                # client exits in the pane, while `pane get` no longer shows the
-                # old agent_session, so only this outcome reveals the used pane.
-                return {"claimed": False, "error": response["error"], "intent": path,
+                # Herdr 0.9.3 clears agent_session after exit but still ignores
+                # declarations in used panes. Only confirmed rollback makes
+                # this rename failure safe for the deferred-rename route.
+                return {"claimed": False, "error": response["error"], "intent": path, "intent_id": handle,
                         "retry": code == "agent_name_taken",
                         "undeclarable": code == "agent_not_found", "pending": False}
-            visible = bound_request(intent, "agent.get", {"target": intent["terminal"]["pane_id"]})
+            visible = session.request("agent.get", {"target": intent["terminal"]["pane_id"]})
             record = visible.get("result", {}).get("agent", {})
             if ("error" in visible or record.get("name") != alias or record.get("agent") != agent or
                     record.get("terminal_id") != intent["terminal"]["terminal_id"] or
                     record.get("agent_status") != "unknown"):
                 raise RecoveryError("claim readback did not match this launch")
-            intent["phase"] = "acquired"
-            intent["acquired_at_ns"] = time.time_ns()
-            atomic_write(path, intent)
-            return {"claimed": True, "intent": path, "claim_seq": intent["claim"]["claim_seq"],
+            update_intent(path, intent, Phase.ACQUIRED, reason_code="client_alive", host=host)
+            return {"claimed": True, "intent": path, "intent_id": handle, "claim_seq": intent["claim"]["claim_seq"],
                     "handoff_seq": intent["claim"]["handoff_seq"], "release_seq": intent["claim"]["release_seq"]}
     except (OSError, ValueError, KeyError, RecoveryError) as error:
-        return {"claimed": False, "intent": path, "error": str(error), "retry": False, "pending": True}
+        return {"claimed": False, "intent": path, "intent_id": handle, "error": str(error), "retry": False, "pending": True}
 
 
-def resolve_existing_alias(root, label, plist, expected_alias):
-    """A pending launch claim is not an independently reusable pane identity."""
-    directory = os.path.join(root, "intents")
-    socket_path = os.environ.get("HERDR_SOCKET_PATH")
-    pane_id = os.environ.get("HERDR_PANE_ID")
-    if not socket_path or not pane_id:
-        raise RecoveryError("existing alias server identity is unavailable")
-    connection = {"socket_path": socket_path, "server_identity": capture_server_identity(socket_path)}
-    scope = {"connection": connection}
-    response = bound_request(scope, "pane.get", {"pane_id": pane_id})
-    if "error" in response:
-        raise RecoveryError("existing alias terminal identity is unavailable")
-    terminal = response["result"]["pane"]
-
-    def pending():
-        obligations = []
-        for path in active_intent_paths(directory):
-            try:
-                intent = read_json(path)
-            except FileNotFoundError:
-                continue  # A completed record moved into the archive.
-            if (intent["phase"] not in TERMINAL_PHASES and
-                    intent["connection"]["server_identity"] == connection["server_identity"] and
-                    intent["terminal"]["terminal_id"] == terminal["terminal_id"]):
-                obligations.append(intent)
-        return obligations
-
-    obligations = pending()
-    if obligations:
-        for intent in obligations:
-            if process_start_identity(intent["client"]["pid"]) == intent["client"]["start_identity"]:
-                raise RecoveryError("existing alias belongs to a live unresolved launch")
-        # Only the established observer mutates old claims. Waiting happens
-        # before cci/native startup, so cleanup cannot strand this caller's name.
-        ensure_owner(root, label, plist)
-        deadline = time.monotonic() + 10
-        while pending():
-            if time.monotonic() >= deadline:
-                raise RecoveryError("existing alias cleanup remains pending")
-            time.sleep(POLL_SECONDS)
-    response = bound_request(scope, "agent.get", {"target": terminal["pane_id"]})
-    if response.get("error", {}).get("code") == "agent_not_found":
-        return ""  # Re-enter fresh admission instead of borrowing the old alias.
-    if "error" in response:
-        raise RecoveryError("existing alias readback failed")
-    agent = response["result"]["agent"]
-    if agent.get("terminal_id") != terminal["terminal_id"] or agent.get("name") != expected_alias:
-        raise RecoveryError("existing alias changed during recovery")
-    return expected_alias
-
-
-def main():
+def main(engine_factory=RecoveryEngine):
     if sys.platform == "darwin" and sys.version_info < (3, 10):
         raise RecoveryError("claim recovery requires Python 3.10 or later on macOS")
     parser = argparse.ArgumentParser()
-    parser.add_argument("--observe")
-    parser.add_argument("--pid-file")
+    modes = parser.add_mutually_exclusive_group(required=True)
+    modes.add_argument("--admit", metavar="ROOT")
+    parser.add_argument("--socket-path")
+    parser.add_argument("--pane-id")
+    modes.add_argument("--observe", metavar="ROOT")
     parser.add_argument("--job-label")
-    parser.add_argument("--handoff", action="store_true")
-    parser.add_argument("--bind-exec")
+    modes.add_argument("--handoff", metavar="ROOT")
+    modes.add_argument("--bind-exec", metavar="ROOT")
+    parser.add_argument("--intent")
+    parser.add_argument("--native-leaf")
     parser.add_argument("--agent")
-    parser.add_argument("--source")
-    parser.add_argument("--alias")
     parser.add_argument("--launcher-pid", type=int)
-    parser.add_argument("--launcher-start")
-    parser.add_argument("--claim-intent")
-    parser.add_argument("--ensure-owner", action="store_true")
-    parser.add_argument("--reuse-alias")
-    parser.add_argument("--owner-root")
-    parser.add_argument("--owner-label")
-    parser.add_argument("--owner-plist")
     parser.add_argument("bridge_args", nargs=argparse.REMAINDER)
     arguments = parser.parse_args()
-    if arguments.reuse_alias:
-        if not all((arguments.alias, arguments.owner_label, arguments.owner_plist)):
-            parser.error("alias reuse requires --alias, --owner-label and --owner-plist")
-        print(json.dumps({"alias": resolve_existing_alias(arguments.reuse_alias, arguments.owner_label,
-                                                        arguments.owner_plist, arguments.alias)}))
-        return
-    if arguments.ensure_owner:
-        if not all((arguments.owner_root, arguments.owner_label, arguments.owner_plist)):
-            parser.error("--owner-root, --owner-label and --owner-plist are required with --ensure-owner")
-        print(json.dumps(ensure_owner(arguments.owner_root, arguments.owner_label, arguments.owner_plist)))
-        return
-    if arguments.claim_intent:
-        if not all((arguments.agent, arguments.source, arguments.alias, arguments.launcher_pid)):
-            parser.error("claim admission requires agent, source, alias and launcher identity")
-        print(json.dumps(claim_intent(arguments.claim_intent, arguments.agent, arguments.source,
-                                      arguments.alias, arguments.launcher_pid,
-                                      arguments.launcher_start)))
+    if arguments.admit:
+        if not all((arguments.agent, arguments.launcher_pid)):
+            parser.error("admission requires --agent and --launcher-pid")
+        result = engine_factory(arguments.admit).admit(
+            socket_path=arguments.socket_path, pane_id=arguments.pane_id,
+            agent=arguments.agent, launcher_pid=arguments.launcher_pid)
+        print(result.tsv())
         return
     if arguments.handoff:
-        path = recovery_intent_path()
-        if path:
-            request_handoff(path)
+        if not arguments.intent:
+            parser.error("handoff requires --intent")
+        result = engine_factory(arguments.handoff).handoff(arguments.intent)
+        print(json.dumps(result._asdict()))
         return
-    if arguments.bind_exec:
+    if arguments.bind_exec is not None:
+        if not arguments.native_leaf or not arguments.intent:
+            parser.error("bind-exec requires --intent and --native-leaf")
         args = arguments.bridge_args
         if args[:1] == ["--"]:
             args = args[1:]
         # cci probes its configured bridge with --version even for MCP mode.
         # That short-lived utility is not the native interactive client.
         if args == ["--version"]:
-            os.execv(arguments.bind_exec, [arguments.bind_exec, *args])
+            os.execv(arguments.native_leaf, [arguments.native_leaf, *args])
         try:
-            path = recovery_intent_path()
-            if not path:
-                raise RecoveryError("claim binding intent is unavailable")
-            bound = bind_native_client(path)
+            if not arguments.bind_exec:
+                raise RecoveryError("claim binding root is unavailable")
+            engine = engine_factory(arguments.bind_exec)
+            bound = engine.bind(arguments.intent, os.environ.get("AGENT_INTERCOM_CLAUDE_COMMAND"))
         except (OSError, ValueError, KeyError, RecoveryError) as error:
             print(f"claim binding unavailable: {error}", file=sys.stderr)
             bound = False
-        if bound:
-            os.execv(arguments.bind_exec, [arguments.bind_exec, *args])
-        # A bridge arriving after cleanup cannot resurrect the old claim. The
-        # original native argv still starts, without cci's generated enrollment.
-        command = os.environ.get("AGENT_INTERCOM_CLAUDE_COMMAND")
-        count = os.environ.get("AGENT_INTERCOM_CLAUDE_ARGC", "")
-        try:
-            if not command or not os.access(command, os.X_OK) or not count.isdecimal():
-                raise ValueError("invalid command or argument count")
-            native_args = [os.environ[f"AGENT_INTERCOM_CLAUDE_ARG_{index}"] for index in range(int(count))]
-        except (ValueError, KeyError):
-            print("herdr-agent-intercom: invalid Claude bridge environment", file=sys.stderr)
-            raise SystemExit(1)
-        exec_without_enrollment(command, native_args,
-                                "claim binding unavailable; starting native Claude without enrollment")
-    if not arguments.observe or not arguments.pid_file:
-        parser.error("--observe and --pid-file are required")
-    observer(arguments.observe, arguments.pid_file, arguments.job_label)
+        os.environ["HERDR_AGENT_INTERCOM_NATIVE_ONLY"] = "0" if bound else "1"
+        if not bound:
+            print("claim binding unavailable; starting native Claude without enrollment", file=sys.stderr, flush=True)
+        os.execv(arguments.native_leaf, [arguments.native_leaf, *args])
+    if not arguments.observe:
+        parser.error("observe requires a nonempty root")
+    observer(arguments.observe, arguments.job_label, engine_factory)
 
 
 def cli():

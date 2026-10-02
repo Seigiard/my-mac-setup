@@ -61,9 +61,9 @@ def read_state(path):
     except (OSError, ValueError):
         return {}
 
-def process_start_status(pid, start):
+def process_start_status(pid, start, identity_format):
     result = subprocess.run(
-        ["/bin/bash", "-c", "source \"$1\" && process_start_matches \"$2\" \"$3\"", "_", process_library, pid, start],
+        ["/bin/bash", "-c", "source \"$1\" && process_start_matches \"$2\" \"$3\" \"$4\"", "_", process_library, pid, start, identity_format],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -94,7 +94,7 @@ try:
             raise SystemExit(2)
         if os.path.isfile(invalidated):
             raise SystemExit(13 if read_state(invalidated).get("reason") == "reap" else 20)
-        atomic_write("delivery-pending.state", f"owner_pid={owner_pid}\nowner_start={owner_start}")
+        atomic_write("delivery-pending.state", f"owner_pid={owner_pid}\nowner_start={owner_start}\nidentity_format=ps-lstart-c-utc-v1")
     else:
         if os.path.isfile(pending):
             state = read_state(pending)
@@ -106,7 +106,7 @@ try:
                 except ProcessLookupError:
                     pass
                 else:
-                    if process_start_status(pid, start) != 1:
+                    if process_start_status(pid, start, state.get("identity_format", "")) != 1:
                         raise SystemExit(1)
             os.unlink(pending)
         atomic_write("reap-pending.state", f"status=pending\nowner_pid={owner_pid}\nowner_token={subject}")
@@ -375,7 +375,7 @@ callback_owner_alive() {
   owner_start="$(state_value "$run_dir/callback.state" owner_start)"
   [ -n "$owner_start" ] || return 1
   kill -0 "$owner_pid" 2>/dev/null || return 1
-  process_start_matches "$owner_pid" "$owner_start"
+  process_start_matches "$owner_pid" "$owner_start" "$(state_value "$run_dir/callback.state" identity_format)"
   identity_status=$?
   [ "$identity_status" -ne 1 ]
 }
