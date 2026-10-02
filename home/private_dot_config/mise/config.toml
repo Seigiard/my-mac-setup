@@ -4,3 +4,6 @@
 
 [tools]
 node = "lts"
+# OpenCode 2 drops V1 plugins and shares one server across panes; stay on 1.x
+# until #405 ports the local plugins and Intercom adapter.
+opencode = "1.18.34"
