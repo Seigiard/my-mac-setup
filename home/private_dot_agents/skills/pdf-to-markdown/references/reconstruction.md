@@ -22,7 +22,7 @@ Read the actual images. Use crops for small or ornate type. OCR/native text is a
 - Keep columns separate and choose their visual reading order. Place a sidebar/quote in a distinct block without interleaving it into body sentences.
 - Preserve running headers, footers, and printed page labels in HTML comments. They are not new sections. Do not discard a repeated sentence until its role as running material is visually established.
 - Recover hierarchy from consistent style and surrounding sections. For an isolated page, declare that hierarchy is page-local. For a book, use shared style classes and chapter context; reconcile skipped levels before final assembly.
-- At a page boundary, preserve the page marker while joining continued content. If the marker interrupts a Markdown table, use two table fragments with a continuation note rather than invalid table syntax. Check source column transitions as well as page transitions.
+- At a page boundary, preserve the page marker while joining continued content. Keep a continuing paragraph in one Markdown paragraph: place the marker inline, for example `First half <!-- PDF page: 3 --> second half.` A standalone HTML-comment line can become a block and split the paragraph even without a blank line. Keep running-header/footer comments outside the continued paragraph, recording their source page. If the marker interrupts a Markdown table, use two table fragments with a continuation note rather than invalid table syntax. Check source column transitions as well as page transitions.
 
 ## Verification
 
@@ -36,6 +36,8 @@ Inspect:
 2. Structure: actual titles become clean headings with defensible levels; body text, stat fields and running material stay out of the TOC. Checkbox state is retained separately.
 3. Sensitive content: compare all visible numbers, formulas/dice, signs, units and stat values on reviewed pages. Check negations, names, prerequisites and duration/end clauses. A high OCR confidence score can still accompany a wrong value.
 4. Corrections: verify changed native/OCR strings against the image, including high-confidence corrections. Check uncertain spans and log unresolved ones.
+
+For every joined paragraph and continued table, also inspect rendered Markdown or its parser structure. Confirm that a continued paragraph is one paragraph node and that table fragments render as tables in the intended Markdown dialect. Source-text equality and page-marker counts cannot prove this. Record the renderer/parser used and recheck these boundaries after assembly fixes.
 
 Report exact inspected pages/regions. Full page-by-page review and a sample review are different outcomes. A review by another session of the same model is model-to-model review, not human certification. If a defect is found, retain its source/output evidence, fix it, and verify again.
 

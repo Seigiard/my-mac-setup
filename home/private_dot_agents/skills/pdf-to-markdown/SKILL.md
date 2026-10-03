@@ -33,7 +33,7 @@ Start with the sample. Inspect its output before scheduling the remaining book. 
 
 ## 4. Assemble and verify
 
-Assemble in physical page order. Reconcile continued paragraphs, lists, tables, and repeated headings across every batch boundary. Use whole-book evidence for heading levels; page-local font sizes alone cannot establish chapter nesting. Keep physical page comments in the merged Markdown and retain the work manifest that maps pages to their evidence.
+Assemble in physical page order. Reconcile continued paragraphs, lists, tables, and repeated headings across every batch boundary. Check the rendered structure of continued paragraphs and tables, not just their words; the reconstruction contract explains how page comments can break a paragraph. Use whole-book evidence for heading levels; page-local font sizes alone cannot establish chapter nesting. Keep physical page comments in the merged Markdown and retain the work manifest that maps pages to their evidence.
 
 Have a separate worker compare the reconstruction with the original images, including all numeric expressions and changes made to OCR/native text. Use the verification section of the reconstruction contract. Keep this worker's findings separate from the author's correction log. Fix confirmed defects and recheck affected pages and their boundaries. A single-agent fallback must be reported as self-checked. Finish with an explicit verification scope and remaining uncertainties, rather than a blanket accuracy claim.
 
