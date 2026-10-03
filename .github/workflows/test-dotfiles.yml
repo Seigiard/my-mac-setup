@@ -95,6 +95,9 @@ jobs:
             brew-${{ runner.os }}-${{ hashFiles('home/private_dot_config/brewfiles/Brewfile*') }}-
             brew-${{ runner.os }}-
 
+      - name: Install uv for document-map contract tests
+        uses: astral-sh/setup-uv@v6
+
       - name: Run general Python tests
         run: make test-python
 
@@ -266,6 +269,9 @@ jobs:
             brew-${{ runner.os }}-${{ hashFiles('home/private_dot_config/brewfiles/Brewfile*') }}-
             brew-${{ runner.os }}-
 
+      - name: Install uv for document-map contract tests
+        uses: astral-sh/setup-uv@v6
+
       - name: Run general Python tests
         run: make test-python
 
@@ -402,6 +408,9 @@ jobs:
           # from its bound source commit. Keep that commit available in the
           # lint job too, not only in the platform jobs.
           fetch-depth: 0
+
+      - name: Install uv for document-map contract tests
+        uses: astral-sh/setup-uv@v6
 
       - name: Run general Python tests
         run: make test-python

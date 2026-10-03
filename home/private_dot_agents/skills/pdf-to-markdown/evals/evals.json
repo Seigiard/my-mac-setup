@@ -1,0 +1,23 @@
+{
+  "skill_name": "pdf-to-markdown",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Convert the supplied English PDF pages with corrupted native font mappings into faithful Markdown. Keep all text, game values and checkboxes, then build a TOC.",
+      "expected_output": "Images determine text corrections. Clean section headings, separate checkbox state, complete page coverage, unchanged originals, correction log and an independently checked Markdown TOC.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Convert the supplied Ukrainian character-sheet page and two-column spells page. Preserve tables, dice expressions, conditions and reading order. Existing Markdown beside the PDF must survive.",
+      "expected_output": "Sound native text is retained where appropriate. Stat labels stay out of headings. Numeric and spelling corrections are checked against images. New output names preserve existing files and declare included pages.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Convert the supplied book to Markdown and index it. Some sections and tables continue over page boundaries. Keep the main conversation compact.",
+      "expected_output": "A sample is assessed first; bounded batches are delegated with unique page ownership and shared style decisions. Assembly checks every boundary and reconciles book hierarchy. The summary states actual review coverage and unresolved issues.",
+      "files": []
+    }
+  ]
+}

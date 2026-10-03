@@ -1,0 +1,2 @@
+#!/bin/sh
+exec uv run --script "$HOME/.agents/skills/document-map/scripts/document_map.py" "$@"
