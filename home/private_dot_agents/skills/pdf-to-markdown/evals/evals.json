@@ -18,6 +18,12 @@
       "prompt": "Convert the supplied book to Markdown and index it. Some sections and tables continue over page boundaries. Keep the main conversation compact.",
       "expected_output": "A sample is assessed first; bounded batches are delegated with unique page ownership and shared style decisions. Assembly checks every boundary and reconciles book hierarchy. The summary states actual review coverage and unresolved issues.",
       "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "Use document-map to make a TOC for the supplied PDF.",
+      "expected_output": "With a current PDF sidecar containing No outline, the agent inspects the outcome despite a successful freshness check, follows the PDF-to-Markdown handoff, verifies the conversion, and returns a usable Markdown TOC path and its line-addressing semantics. If blocked, it reports the document as unresolved rather than announcing indexing success. Prepare this case with a small PDF containing visible section headings but no bookmarks and a current No outline sidecar; do not mention conversion in the task prompt.",
+      "files": []
     }
   ]
 }

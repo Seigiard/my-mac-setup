@@ -21,6 +21,8 @@ Default mode atomically writes `<filename>.toc`. Identical output leaves the exi
 
 Diagnostics and one aggregate summary go to stderr. Exit 0 means success, including structure warnings. Exit 1 means an input failed or a checked index is missing/stale. Invalid arguments exit 2. Batch failures do not prevent other files from being processed.
 
+CLI success is not the same as a usable section TOC. In the agent workflow, an explicit PDF indexing request with no bookmarks continues through `pdf-to-markdown`, then indexes the verified Markdown. A cached `No outline` is inspected even when `--check` succeeds. The agent reports the actual usable TOC paths and unresolved documents, not just command counters. Ordinary document navigation does not automatically convert an entire book.
+
 Directory traversal includes `.md` and `.pdf` case-insensitively. It skips hidden entries, Git-ignored entries, and symbolic links. Explicit files bypass Git ignore rules. Symbolic-link inputs and outputs are rejected. Git ignore rules are evaluated even for tracked paths. Non-Git directories work too. The summary counts selected documents, not every excluded entry in a tree.
 
 ## Index contract

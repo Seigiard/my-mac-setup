@@ -9,7 +9,7 @@ Produce a faithful transcription with useful headings, not a summary. Native tex
 
 ## 1. Scope and inspect
 
-Locate the input PDF and any existing Markdown. Preserve both. Choose a work directory outside the source tree and record the requested physical pages, or the whole-book scope. A missing PDF outline alone is not a request to convert an entire book.
+Locate the input PDF and any existing Markdown. Preserve both. Choose a work directory outside the source tree and record the requested physical pages, or the whole-book scope. A handoff from document-map for an explicit indexing request authorizes conversion within that requested scope. A missing PDF outline encountered during ordinary navigation alone is not a request to convert an entire book.
 
 Use `scripts/prepare_pages.py` through `uv run --script` to get PDF metadata (`--info`), then prepare a small sample with `--pages` and `--out`. See [README.md](README.md) for arguments and runtime requirements. Sample the beginning, middle, end, and distinct layouts: columns, tables, ornate type, or scanned pages. Preparation is complete when images, native text, coordinates, and their manifest exist for every selected page or a specific failure is recorded.
 
