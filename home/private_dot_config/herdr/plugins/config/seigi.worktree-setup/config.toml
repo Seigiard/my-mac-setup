@@ -17,3 +17,4 @@ steps = ["mise exec -- make setup"]
 
 [projects."github.com/Seigiard/my-mac-setup"]
 fresh-base = true
+steps = ["npm ci"]
