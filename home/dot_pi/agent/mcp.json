@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@0.0.83"
+      ],
+      "lifecycle": "eager"
+    }
+  }
+}
