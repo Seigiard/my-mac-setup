@@ -21,9 +21,9 @@ For follow-up revmux rounds, use the **Follow-up profile selection** policy in `
 
 </important>
 
-<important if="you are about to start, background, or wait on a long-running process — build, test run, dev server, migration, background agent, remote job">
+<important if="you are about to start, background, or wait on a long-running process that has no supervision of its own — build, test run, dev server, migration, remote job">
 
-Read `~/.claude/shared/long-running-work.md` before launching. It carries the supervision contract: completion and progress signals, launch-path verification, observation cadence and the mechanism behind it, stall diagnosis, chosen vs imposed deadlines, ownership of the wait, and escalation when the state cannot be determined.
+Read `~/.claude/shared/long-running-work.md` before launching. A tool that already reports its own progress, stalls, and exit status needs no extra supervision. It carries the supervision contract: completion and progress signals, launch-path verification, observation cadence and the mechanism behind it, stall diagnosis, chosen vs imposed deadlines, ownership of the wait, and escalation when the state cannot be determined.
 
 </important>
 
