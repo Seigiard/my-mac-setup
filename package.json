@@ -1,0 +1,11 @@
+{
+  "name": "my-mac-setup-checks",
+  "private": true,
+  "scripts": {
+    "lint:anti-slop": "oxlint ."
+  },
+  "devDependencies": {
+    "@oxlint/plugins": "1.87.0",
+    "oxlint": "1.87.0"
+  }
+}

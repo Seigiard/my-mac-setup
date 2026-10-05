@@ -89,13 +89,17 @@ test-docker: test-python build-docker
 
 # tests/bashunit/*_test.sh: converted test bodies; shellcheck them when the
 # vocabulary is nativized.
-lint:
+lint: lint-anti-slop
 	@echo "=== Running shellcheck ==="
 	find . -name "*.sh" -type f -not -path "./.git/*" -not -path "./.worktrees/*" -not -path "*/node_modules/*" -not -path "./.context/*" -not -path "./.claude/worktrees/*" -not -path "./tests/bashunit/*_test.sh" | xargs shellcheck --severity=warning
 	find home -name "run_*" -type f 2>/dev/null | xargs shellcheck --severity=warning
 	find home -name "executable_*" -type f -not -name "*.py" 2>/dev/null | xargs shellcheck --severity=warning
 	shellcheck --severity=warning tests/helpers/chezmoi-unattended
 	python3 scripts/check_bats_assertions.py tests
+
+.PHONY: lint-anti-slop
+lint-anti-slop:
+	npm run lint:anti-slop
 
 clean:
 	docker compose -f docker/docker-compose.yml down --rmi local --volumes --remove-orphans 2>/dev/null || true
