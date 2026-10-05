@@ -33,16 +33,20 @@
   "ui_font_size": 19,
   "buffer_font_family": "IosevkaTerm Nerd Font Mono",
   "agent": {
+    "threads_sidebar": {
+      "position": "right"
+    },
     "play_sound_when_agent_done": "always",
     "notify_when_agent_waiting": "all_screens",
-    "sidebar_side": "right",
     "dock": "right",
     "tool_permissions": {
       "default": "allow"
     },
     "use_modifier_to_send": false,
     "default_model": {
-      "model": "claude-sonnet-4",
+      "effort": "high",
+      "enable_thinking": true,
+      "model": "claude-sonnet-5-5",
       "provider": "zed.dev"
     },
     "inline_assistant_model": {
@@ -116,7 +120,7 @@
     "quick_actions": false
   },
   "buffer_font_weight": 400,
-  "ui_font_family": ".ZedSans",
+  "ui_font_family": "IosevkaTerm Nerd Font",
   "journal": {
     "path": "~/Dropbox/Knowledge Base",
     "hour_format": "hour24"
