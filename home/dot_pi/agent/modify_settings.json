@@ -28,6 +28,7 @@ fi
     "npm:@trevonistrevon/pi-loop",
     "npm:pi-web-access",
     "npm:pi-context-view",
+    "npm:pi-mcp-extension@1.5.1",
   ];
   const skills = Array.isArray(settings.skills)
     ? settings.skills.filter((skillSource) => skillSource !== "~/.claude/skills")

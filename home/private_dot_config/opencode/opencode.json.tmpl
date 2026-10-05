@@ -33,6 +33,15 @@
       "type": "remote",
       "url": "https://mcp.tavily.com/mcp/?tavilyApiKey={env:TAVILY_API_KEY}",
       "enabled": true
+    },
+    "playwright": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "@playwright/mcp@0.0.83"
+      ],
+      "enabled": true
     }
   },
   "provider": {
