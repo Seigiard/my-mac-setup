@@ -9,6 +9,7 @@ import type {
 } from "../home/dot_pi/agent/extensions/brew-auto-update/index.ts";
 
 const sourceRoot = process.env.SOURCE_ROOT ?? join(import.meta.dir, "../home");
+
 const {
   default: registerBrewAutoUpdater,
   captureExtensionSnapshot,
@@ -20,6 +21,7 @@ const cleanupPaths: string[] = [];
 async function temporaryLockPath(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "pi-brew-auto-update-test-"));
   cleanupPaths.push(root);
+
   return join(root, "state", "pi", "brew-auto-update.lock");
 }
 
@@ -34,6 +36,7 @@ afterEach(async () => {
 // only a stuck fixture -- never a loaded machine -- can reach it.
 async function waitFor(ready: () => boolean, what: string): Promise<void> {
   const deadline = Date.now() + 10_000;
+
   while (!ready()) {
     if (Date.now() > deadline) throw new Error(`timed out after 10s waiting until ${what}`);
     await Bun.sleep(1);
@@ -42,9 +45,11 @@ async function waitFor(ready: () => boolean, what: string): Promise<void> {
 
 function fakeUi() {
   const notifications: Array<{ message: string; level: string }> = [];
+
   const ui: UpdateUi = {
     notify: (message, level) => notifications.push({ message, level }),
   };
+
   return { ui, notifications };
 }
 
@@ -61,9 +66,11 @@ async function dependencies(
   overrides: Partial<BrewAutoUpdateDependencies> = {},
 ): Promise<{ deps: BrewAutoUpdateDependencies; calls: Array<[string, string[]]> }> {
   const calls: Array<[string, string[]]> = [];
+
   const deps: BrewAutoUpdateDependencies = {
     exec: async (command, args) => {
       calls.push([command, args]);
+
       return { code: 0, stdout: "", stderr: "", killed: false };
     },
     env: {},
@@ -77,6 +84,7 @@ async function dependencies(
     snapshotExtensions: async () => new Map(),
     ...overrides,
   };
+
   return { deps, calls };
 }
 
@@ -97,6 +105,7 @@ describe("captureExtensionSnapshot", () => {
     );
     const lockPath = join(root, "package-lock.json");
     await writeFile(lockPath, "old lock\n");
+
     const exec: BrewAutoUpdateDependencies["exec"] = async (command) => ({
       code: 0,
       stdout:
@@ -106,6 +115,7 @@ describe("captureExtensionSnapshot", () => {
       stderr: "",
       killed: false,
     });
+
     return { root, packagePath, lockPath, exec };
   }
 
@@ -172,15 +182,18 @@ describe("captureExtensionSnapshot", () => {
     cleanupPaths.push(root);
     const checkoutPath = join(root, "compound-engineering-plugin");
     await mkdir(checkoutPath, { recursive: true });
+
     return `User packages:\n  git:github.com/EveryInc/compound-engineering-plugin\n    ${checkoutPath}\n`;
   }
 
   test("carries the git checkout's reported revision and changes when it advances", async () => {
     const listing = await gitExtensionListing();
     let revisions = 0;
+
     const exec: BrewAutoUpdateDependencies["exec"] = async (command) => {
       if (command === "pi") return { code: 0, stdout: listing, stderr: "", killed: false };
       revisions += 1;
+
       return {
         code: 0,
         stdout: `${revisions === 1 ? FIRST_REVISION : SECOND_REVISION}\n`,
@@ -198,6 +211,7 @@ describe("captureExtensionSnapshot", () => {
 
   test("reports an unverifiable snapshot when the git revision command is killed", async () => {
     const listing = await gitExtensionListing();
+
     const exec: BrewAutoUpdateDependencies["exec"] = async (command) =>
       command === "pi"
         ? { code: 0, stdout: listing, stderr: "", killed: false }
@@ -215,6 +229,7 @@ describe("brew auto update sequence", () => {
     const { deps, calls } = await dependencies({
       exec: async (command, args) => {
         calls.push([command, args]);
+
         return {
           code: 0,
           stdout: command === "pi" ? "Updated packages\n" : "",
@@ -226,6 +241,7 @@ describe("brew auto update sequence", () => {
         };
       },
     });
+
     const { ui, notifications } = fakeUi();
 
     const result = await runBrewAutoUpdate("startup", ui, deps);
@@ -241,13 +257,16 @@ describe("brew auto update sequence", () => {
 
   test("passes the independently injected timeout to every update subprocess", async () => {
     const execOptions: CapturedExecOptions[] = [];
+
     const { deps, calls } = await dependencies({
       exec: async (command, args, options) => {
         calls.push([command, args]);
         execOptions.push(options as CapturedExecOptions);
+
         return { code: 0, stdout: "", stderr: "", killed: false };
       },
     });
+
     const { ui } = fakeUi();
 
     const result = await runBrewAutoUpdate("manual", ui, deps);
@@ -255,6 +274,7 @@ describe("brew auto update sequence", () => {
     expect(result.status).toBe("complete");
     expect(calls).toHaveLength(3);
     expect(execOptions).toHaveLength(3);
+
     for (const options of execOptions) {
       expect(options).toEqual({ timeout: INJECTED_TIMEOUT_MS });
     }
@@ -262,6 +282,7 @@ describe("brew auto update sequence", () => {
 
   test("stays silent at startup when the injected extension snapshot is unchanged", async () => {
     const unchanged = new Map([["git:compound-engineering", "unchanged-commit"]]);
+
     const { deps } = await dependencies({
       snapshotExtensions: async () => new Map(unchanged),
       exec: async (command) => ({
@@ -274,6 +295,7 @@ describe("brew auto update sequence", () => {
         killed: false,
       }),
     });
+
     const { ui, notifications } = fakeUi();
 
     const result = await runBrewAutoUpdate("startup", ui, deps);
@@ -284,6 +306,7 @@ describe("brew auto update sequence", () => {
 
   test("manual command reports up-to-date outcome", async () => {
     const unchanged = new Map([["git:compound-engineering", "unchanged-commit"]]);
+
     const { deps } = await dependencies({
       snapshotExtensions: async () => new Map(unchanged),
       exec: async (command) => ({
@@ -296,6 +319,7 @@ describe("brew auto update sequence", () => {
         killed: false,
       }),
     });
+
     const { ui, notifications } = fakeUi();
 
     const result = await runBrewAutoUpdate("manual", ui, deps);
@@ -306,14 +330,17 @@ describe("brew auto update sequence", () => {
 
   test("notifies when the injected extension snapshot differs across the update", async () => {
     let snapshots = 0;
+
     const { deps } = await dependencies({
       snapshotExtensions: async () => {
         snapshots += 1;
+
         return new Map([
           ["git:compound-engineering", snapshots === 1 ? "old-commit" : "new-commit"],
         ]);
       },
     });
+
     const { ui, notifications } = fakeUi();
 
     const result = await runBrewAutoUpdate("manual", ui, deps);
@@ -329,14 +356,17 @@ describe("brew auto update sequence", () => {
 
   test("notifies at startup too when a real update installs, unlike the silent up-to-date case", async () => {
     let snapshots = 0;
+
     const { deps } = await dependencies({
       snapshotExtensions: async () => {
         snapshots += 1;
+
         return new Map([
           ["git:compound-engineering", snapshots === 1 ? "old-commit" : "new-commit"],
         ]);
       },
     });
+
     const { ui, notifications } = fakeUi();
 
     const result = await runBrewAutoUpdate("startup", ui, deps);
@@ -370,14 +400,17 @@ describe("brew auto update sequence", () => {
     },
   ])("shows one specific notification when $label changed", async (updated) => {
     let snapshots = 0;
+
     const { deps, calls } = await dependencies({
       snapshotExtensions: async () => {
         snapshots += 1;
         const revision = updated.label === "extensions" && snapshots === 2 ? "new" : "old";
+
         return new Map([["extension", revision]]);
       },
       exec: async (command, args) => {
         calls.push([command, args]);
+
         return {
           code: 0,
           stdout:
@@ -387,6 +420,7 @@ describe("brew auto update sequence", () => {
         };
       },
     });
+
     const { ui, notifications } = fakeUi();
 
     const result = await runBrewAutoUpdate("manual", ui, deps);
@@ -397,9 +431,11 @@ describe("brew auto update sequence", () => {
 
   test("combines Pi and extension updates into one notification", async () => {
     let snapshots = 0;
+
     const { deps } = await dependencies({
       snapshotExtensions: async () => {
         snapshots += 1;
+
         return new Map([["extension", snapshots === 1 ? "old" : "new"]]);
       },
       exec: async (command, args) => ({
@@ -414,6 +450,7 @@ describe("brew auto update sequence", () => {
         killed: false,
       }),
     });
+
     const { ui, notifications } = fakeUi();
 
     await runBrewAutoUpdate("manual", ui, deps);
@@ -430,6 +467,7 @@ describe("brew auto update sequence", () => {
     const { deps } = await dependencies({
       snapshotExtensions: async () => undefined,
     });
+
     const { ui, notifications } = fakeUi();
 
     const result = await runBrewAutoUpdate("startup", ui, deps);
@@ -466,13 +504,16 @@ describe("brew auto update sequence", () => {
 
   test("stops after a timed-out command and notifies a manual caller of the failure", async () => {
     const execOptions: CapturedExecOptions[] = [];
+
     const { deps, calls } = await dependencies({
       exec: async (command, args, options) => {
         calls.push([command, args]);
         execOptions.push(options as CapturedExecOptions);
+
         return { code: null, stdout: "", stderr: "", killed: true };
       },
     });
+
     const { ui, notifications } = fakeUi();
 
     const result = await runBrewAutoUpdate("manual", ui, deps);
@@ -498,9 +539,11 @@ describe("brew auto update sequence", () => {
     const { deps, calls } = await dependencies({
       exec: async (command, args) => {
         calls.push([command, args]);
+
         return { code: 7, stdout: "", stderr: "network failed", killed: false };
       },
     });
+
     const { ui, notifications } = fakeUi();
 
     await expect(runBrewAutoUpdate("manual", ui, deps)).resolves.toEqual({
@@ -520,6 +563,7 @@ describe("brew auto update sequence", () => {
         throw new Error("spawn brew ENOENT");
       },
     });
+
     const { ui, notifications } = fakeUi();
 
     const result = await runBrewAutoUpdate("manual", ui, deps);
@@ -538,6 +582,7 @@ describe("brew auto update sequence", () => {
     const { deps } = await dependencies({
       exec: async () => ({ code: 7, stdout: "", stderr: "network failed", killed: false }),
     });
+
     const { ui, notifications } = fakeUi();
 
     const result = await runBrewAutoUpdate("startup", ui, deps);
@@ -552,6 +597,7 @@ describe("brew auto update sequence", () => {
     const { deps } = await dependencies({
       exec: async () => ({ code: 7, stdout: "", stderr: "network failed", killed: false }),
     });
+
     const { ui, notifications } = fakeUi();
 
     const first = await runBrewAutoUpdate("startup", ui, deps);
@@ -637,6 +683,7 @@ describe("cross-process update lock", () => {
       await new Promise<void>((resolve) => {
         releaseFirstCommand = resolve;
       });
+
       return { code: 1, stdout: "", stderr: "stop", killed: false };
     };
 
@@ -656,17 +703,21 @@ describe("cross-process update lock", () => {
 
 test("registers session_start to run the update sequence in the background, only on a startup reason", async () => {
   const handlers = new Map<string, Function>();
+
   const fakePi = {
     on: (event: string, handler: Function) => handlers.set(event, handler),
     registerCommand: () => {},
   };
+
   let finishExec!: () => void;
+
   const { deps, calls } = await dependencies({
     exec: async (command, args) => {
       calls.push([command, args]);
       await new Promise<void>((resolve) => {
         finishExec = resolve;
       });
+
       return { code: 1, stdout: "", stderr: "stop", killed: false };
     },
   });
@@ -680,7 +731,9 @@ test("registers session_start to run the update sequence in the background, only
   // sequence: no run can start without it. Counting that read is the causal
   // signal, and the startup event below is the control proving it still fires.
   let uiReads = 0;
-  const ctx = { get ui() { uiReads += 1; return fakeUi().ui; } };
+  const ctx = { get ui() { uiReads += 1;
+
+ return fakeUi().ui; } };
 
   // #when a session_start arrives for a reason that is not a startup
   startup({ reason: "reload" }, ctx);
@@ -701,15 +754,18 @@ test("registers session_start to run the update sequence in the background, only
 test("invokes the registered brew-auto-update-now handler and runs the full update sequence through the fake executor", async () => {
   const handlers = new Map<string, Function>();
   let commandHandler: Function | undefined;
+
   const fakePi = {
     on: (event: string, handler: Function) => handlers.set(event, handler),
     registerCommand: (name: string, options: { handler: Function }) => {
       if (name === "brew-auto-update-now") commandHandler = options.handler;
     },
   };
+
   const { deps, calls } = await dependencies({
     exec: async (command, args) => {
       calls.push([command, args]);
+
       return {
         code: 0,
         stdout: command === "pi" ? "Updated packages\n" : "",

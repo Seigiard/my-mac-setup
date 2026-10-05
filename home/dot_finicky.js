@@ -19,6 +19,7 @@ export default {
 
         let team,
           patterns = {};
+
         if (subdomain != "app") {
           switch (subdomain) {
             case "getmembrane":
@@ -29,6 +30,7 @@ export default {
                 `No Slack team ID found for ${url.host}`,
                 `Add the team ID to ~/.finicky.js to allow direct linking to Slack.`,
               );
+
               return url;
           }
 
@@ -48,6 +50,7 @@ export default {
         for (let [host, host_patterns] of Object.entries(patterns)) {
           for (let pattern of host_patterns) {
             let match = pattern.exec(url.pathname);
+
             if (match) {
               let search = `team=${team || match.groups.team}`;
 
@@ -57,9 +60,11 @@ export default {
 
               if (match.groups.message) {
                 let message = match.groups.message;
+
                 if (message.charAt(0) == "p") {
                   message = message.slice(1, 11) + "." + message.slice(11);
                 }
+
                 search += `&message=${message}`;
               }
 
@@ -67,6 +72,7 @@ export default {
               newUrl.search = search;
 
               console.log(`Rewrote Slack URL ${url.toString()} to deep link ${newUrl.toString()}`);
+
               return newUrl;
             }
           }

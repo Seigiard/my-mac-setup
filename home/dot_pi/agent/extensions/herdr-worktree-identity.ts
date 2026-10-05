@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 let handoffWorktreeIdentity: ((agent: "pi", sessionID: string, prompt: string) => Promise<void>) | undefined;
+
 try {
   ({ handoffWorktreeIdentity } = await import(
     join(process.env.HOME || homedir(), ".local", "lib", "agent-hooks", "worktree-identity.ts")
@@ -15,6 +16,7 @@ try {
 function sessionId(ctx: any): string | undefined {
   try {
     const id = ctx?.sessionManager?.getSessionId?.();
+
     return typeof id === "string" && id.length > 0 ? id : undefined;
   } catch {
     return undefined;
@@ -28,6 +30,7 @@ export default function registerWorktreeIdentity(pi: any): void {
     if (ctx?.hasUI !== true) return;
     const id = sessionId(ctx);
     const prompt = typeof event?.prompt === "string" ? event.prompt : "";
+
     if (!id || prompt.trim() === "") return;
     await handoffWorktreeIdentity("pi", id, prompt);
   });

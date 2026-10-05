@@ -7,16 +7,21 @@ const CORE_DIR =
   process.env.AGENT_HOOKS_CORE_PATH ?? join(import.meta.dir, "../home/dot_local/lib/agent-hooks");
 
 const core: any = await import(join(CORE_DIR, "index.ts"));
+
 const normalize: any = await import(join(CORE_DIR, "normalize.ts"));
+
 const selfcheck: any = await import(join(CORE_DIR, "selfcheck.ts"));
+
 import * as corpus from "./fixtures/agent-hooks/fixtures.ts";
 
 const CLIENTS = ["claude", "opencode", "pi"] as const;
+
 const temporaryPaths: string[] = [];
 
 function temporaryDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   temporaryPaths.push(dir);
+
   return dir;
 }
 
@@ -31,16 +36,19 @@ afterEach(() => {
 // same coverage without new test code.
 
 const RESERVED_COMMAND = "status=$? && exit $status";
+
 const BARE_QUERY = "two bare tokens";
 
 type Invocations = Record<string, number>;
 
 function countingPolicy(policy: any, invocations: Invocations): any {
   invocations[policy.name] = 0;
+
   return {
     ...policy,
     evaluate: (event: any) => {
       invocations[policy.name] += 1;
+
       return policy.evaluate(event);
     },
   };
@@ -55,7 +63,9 @@ function reservedNameGuard(): any {
     canary: { tool: "bash", payload: { command: RESERVED_COMMAND } },
     evaluate: (event: any) => {
       if (event.command.includes("fixture-ok:")) return undefined;
+
       if (!event.command.includes("status=")) return undefined;
+
       return core.block(
         `fixture-reserved-guard: this command assigns to a parameter zsh reserves. ` +
           `Use rc=$? instead, or prefix the command with fixture-ok: to override.`,
@@ -72,6 +82,7 @@ function contentGuard(): any {
     canary: { tool: "write", payload: { filePath: "/repo/tests/a_test.sh", content: "assert_absent x" } },
     evaluate: (event: any) => {
       if (!event.content.includes("assert_absent")) return undefined;
+
       return core.block(
         `fixture-content-guard: an absence assertion has no oracle here. ` +
           `Assert the capability that remains, or exercise the real transition instead.`,
@@ -184,6 +195,7 @@ describe("dispatch ordering", () => {
   test("the first deny stops later policies from running", () => {
     // #given two denying policies for the same tool, in declaration order
     const invocations: Invocations = {};
+
     const deny = (name: string) => ({
       name,
       tools: ["bash"],
@@ -191,6 +203,7 @@ describe("dispatch ordering", () => {
       canary: { tool: "bash", payload: { command: RESERVED_COMMAND } },
       evaluate: () => core.block(`${name}: denied. Use a different command instead.`),
     });
+
     const first = countingPolicy(deny("fixture-deny-first"), invocations);
     const second = countingPolicy(deny("fixture-deny-second"), invocations);
     const registry = registryWith([first, second]);
@@ -245,6 +258,7 @@ describe("AGENT_HOOKS_DISABLE (R8)", () => {
       registry,
       env: { AGENT_HOOKS_DISABLE: "fixture-reserved-guard" },
     });
+
     const other = core.dispatch("claude", bashEvent, {
       registry,
       env: { AGENT_HOOKS_DISABLE: "fixture-content-guard" },
@@ -355,6 +369,7 @@ describe("cross-client parity (KTD8)", () => {
     for (const registry of registries) {
       for (const policy of registry.policies) {
         const clients = core.applicableClients(registry, policy);
+
         if (clients.length < 2 || !policy.canary) continue;
 
         // #when its canary fixture is encoded into each applicable dialect.
@@ -367,6 +382,7 @@ describe("cross-client parity (KTD8)", () => {
         const decisions = clients.map((client: string) => {
           const raw = normalize.encodeEvent(client, policy.canary.tool, policy.canary.payload, registry);
           expect(raw).toBeDefined();
+
           return core.dispatch(client, raw, { registry, env: {} });
         });
 
@@ -417,6 +433,7 @@ describe("reason contract (R9)", () => {
       for (const policy of registry.policies) {
         if (!core.isBlockCapable(policy)) continue;
         const canary = policy.canary ?? { tool: "no-canary-declared", payload: {} };
+
         for (const client of core.applicableClients(registry, policy)) {
           const raw = normalize.encodeEvent(client, canary.tool, canary.payload, registry);
 
@@ -425,8 +442,10 @@ describe("reason contract (R9)", () => {
 
           // #then every route denies, names itself, and names its alternative
           const alternative = R9_ALTERNATIVES[policy.name];
+
           const named =
             alternative === undefined ? "unlisted" : String(decision.reason?.includes(alternative));
+
           observed.push(
             `${policy.name}@${client}: ${decision.verdict}` +
               ` prefixed=${decision.reason?.startsWith(`${policy.name}:`)}` +
@@ -507,6 +526,7 @@ describe("selfcheck canary", () => {
   test("a live route blocks and a dead one is reported as a failure", () => {
     // #given one policy that enforces and one whose canary no longer trips it
     const live = reservedNameGuard();
+
     const dead = {
       ...contentGuard(),
       name: "fixture-dead-route",
@@ -534,10 +554,12 @@ describe("selfcheck canary", () => {
     const registry = registryWith([reservedNameGuard()]);
     const previous = process.env.AGENT_HOOKS_DISABLE;
     process.env.AGENT_HOOKS_DISABLE = "fixture-reserved-guard";
+
     try {
       // #when the canaries run, and the same event is dispatched with the
       // process environment the canary deliberately ignores
       const results = selfcheck.runCanaries(registry);
+
       const withProcessEnv = core.dispatch("claude", corpus.fixture("bash command").raw.claude, {
         registry,
         env: process.env,
@@ -620,13 +642,16 @@ describe("selfcheck loaded-identity markers (KTD5)", () => {
       client: "opencode", pid: 4242, hash: OLD, processStartedAt: "old-start",
       identityFormat: "ps-lstart-c-utc-v1",
     }));
+
     const getProcessStart = (pid: number) => {
       if (pid === 4242) {
         selfcheck.writeMarker("opencode", {
           stateDir, pid, hash: OLD, isAlive: () => true, getProcessStart: () => "new-start",
         });
+
         return "new-start";
       }
+
       return "writer-start";
     };
 
@@ -660,7 +685,9 @@ describe("selfcheck loaded-identity markers (KTD5)", () => {
       // #given a live marker without verifiable start evidence
       const stateDir = temporaryDir("agent-hooks-state-");
       const marker = selfcheck.writeMarker("opencode", { stateDir, hash: DEPLOYED });
+
       if (unavailable === "legacy") delete marker.processStartedAt;
+
       if (unavailable === "legacy-format") delete marker.identityFormat;
       writeFileSync(join(stateDir, readdirSync(stateDir)[0]), JSON.stringify(marker));
       const options = unavailable === "unreadable" ? { getProcessStart: () => null } : {};
@@ -726,16 +753,19 @@ describe("selfcheck loaded-identity markers (KTD5)", () => {
   test("starting a session removes dead same-client markers but preserves live and foreign files", async () => {
     // #given a real exited process, a live stale session, and unrelated files
     const stateDir = temporaryDir("agent-hooks-state-");
+
     const child = Bun.spawn([process.execPath, "-e", `
       const { writeMarker } = await import(${JSON.stringify(join(CORE_DIR, "selfcheck.ts"))});
       writeMarker("opencode", {stateDir: ${JSON.stringify(stateDir)}, hash: ${JSON.stringify(OLD)}});
     `], { stdout: "ignore", stderr: "inherit" });
+
     expect(await child.exited).toBe(0);
     expect(selfcheck.processIsAlive(child.pid)).toBe(false);
     expect(selfcheck.processStartTime(child.pid)).toBe(null);
     const deadName = `opencode-${child.pid}.json`;
     const liveName = `opencode-${process.ppid}.json`;
     const foreignName = `pi-${child.pid}.json`;
+
     for (const [name, client, pid] of [
       [deadName, "opencode", child.pid],
       [liveName, "opencode", process.ppid],
@@ -746,6 +776,7 @@ describe("selfcheck loaded-identity markers (KTD5)", () => {
         identityFormat: "ps-lstart-c-utc-v1",
       }));
     }
+
     writeFileSync(join(stateDir, "opencode-not-a-pid.json"), "foreign data");
 
     // #when a new session writes its marker
@@ -780,6 +811,7 @@ describe("selfcheck loaded-identity markers (KTD5)", () => {
     // #given a directory where file creation is allowed but listing is denied
     const stateDir = temporaryDir("agent-hooks-state-");
     chmodSync(stateDir, 0o300);
+
     try {
       expect(() => readdirSync(stateDir)).toThrow("EACCES");
 
@@ -904,6 +936,7 @@ describe("selfcheck report", () => {
         stateDir, deployedHash: "new-core", clients: ["opencode"],
         isAlive: () => true, getProcessStart,
       });
+
       const identity = JSON.parse(JSON.stringify(report)).identity.clients[0];
 
       // #then unverified evidence is visible, but neither live nor stale is claimed
@@ -1001,7 +1034,9 @@ describe("selfcheck report", () => {
 
 function policyByName(name: string): any {
   const found = core.CORE_REGISTRY.policies.find((policy: any) => policy.name === name);
+
   if (!found) throw new Error(`policy not registered in CORE_POLICIES: ${name}`);
+
   return found;
 }
 
@@ -1009,9 +1044,11 @@ function dispatchFixture(fixture: any): any[] {
   const policy = policyByName(fixture.policy);
   const clients = core.applicableClients(core.CORE_REGISTRY, policy);
   expect(clients.length).toBeGreaterThan(0);
+
   return clients.map((client: string) => {
     const raw = normalize.encodeEvent(client, fixture.tool, fixture.payload, core.CORE_REGISTRY);
     expect(raw).toBeDefined();
+
     return core.dispatch(client, raw, { registry: core.CORE_REGISTRY, env: {} });
   });
 }
@@ -1029,7 +1066,9 @@ describe("ported policy corpus (KTD3)", () => {
       // #then every route reaches the shipped verdict and the shipped text
       for (const decision of decisions) {
         expect(`${fixture.name}: ${decision.verdict}`).toBe(`${fixture.name}: ${fixture.verdict}`);
+
         if (fixture.verdict === "block") expect(decision.reason).toBe(fixture.text);
+
         if (fixture.verdict === "context") expect(decision.text).toBe(fixture.text);
         expect(decision).toEqual(decisions[0]);
       }
@@ -1057,6 +1096,7 @@ describe("escape hatches (KTD3)", () => {
           [entry.field]: original.payload[entry.field].replace(entry.token, "note-only:"),
         },
       };
+
       const decisions = dispatchFixture(mutated);
 
       // #then the same content denies, so the token is what admitted it
@@ -1117,8 +1157,11 @@ describe("context-only policy applicability (KTD8)", () => {
     // #given a profile carrying a web-fetch spelling but only the block outcome
     const policy = policyByName("webfetch-markdown-hint");
     let calls = 0;
-    const counted = { ...policy, evaluate: (event: any) => { calls += 1; return policy.evaluate(event); } };
+    const counted = { ...policy, evaluate: (event: any) => { calls += 1;
+
+ return policy.evaluate(event); } };
     const base = core.CORE_REGISTRY.profiles.find((profile: any) => profile.client === "opencode");
+
     const registry = core.createRegistry({
       policies: [counted],
       profiles: [{ ...base, tools: { ...base.tools, webfetch: "web-fetch" }, outcomes: ["block"] }],

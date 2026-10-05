@@ -13,14 +13,17 @@ import { join } from "node:path";
 const PLUGIN_PATH =
   process.env.HERDR_RESOURCE_CONTEXT_OPENCODE_PLUGIN_PATH ??
   join(import.meta.dir, "../home/private_dot_config/opencode/plugins/herdr-resource-context.ts");
+
 const HEADING = "## Herdr Agent Resource Context (generated)";
 
 const temporaryPaths: string[] = [];
+
 let loadCount = 0;
 
 function temporaryDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   temporaryPaths.push(dir);
+
   return dir;
 }
 
@@ -55,6 +58,7 @@ fi
 `,
   );
   chmodSync(cli, 0o755);
+
   return cli;
 }
 
@@ -71,19 +75,23 @@ async function loadPlugin(
     HERDR_ENV: process.env.HERDR_ENV,
     HERDR_RESOURCE_CONTEXT_CLI: process.env.HERDR_RESOURCE_CONTEXT_CLI,
   };
+
   process.env.HOME = root;
   process.env.HERDR_ENV = herdrEnv;
   process.env.HERDR_RESOURCE_CONTEXT_CLI = cli;
 
   let calls = 0;
+
   try {
     const module: any = await import(copy);
+
     const hooks: Record<string, Function> =
       (await module.HerdrResourceContextPlugin({
         directory: root,
         worktree: root,
         client: { session: { promptAsync: async () => calls++ } },
       })) ?? {};
+
     return { hooks, promptAsyncCalls: () => calls };
   } finally {
     for (const [key, value] of Object.entries(previous)) {
@@ -97,12 +105,14 @@ async function loadTransform(root: string): Promise<{ transform: Transform; prom
   const host = await loadPlugin(root);
   const transform = host.hooks["experimental.chat.system.transform"];
   expect(transform).toBeTypeOf("function");
+
   return { transform: transform as Transform, promptAsyncCalls: host.promptAsyncCalls };
 }
 
 describe("OpenCode model-request resource context", () => {
   test("the shared branch projection reaches model input without an extra turn", async () => {
     const root = temporaryDir("herdr-resource-context-");
+
     const context = [
       'Parent agent: "agent-a"',
       'Descendant agent: "agent-c" [herdr:pi/id/session-C]',
@@ -111,6 +121,7 @@ describe("OpenCode model-request resource context", () => {
       '    - pane "owned" [w1:pC] terminal=term-C creator=herdr:opencode/id/session-B',
       "Context truncated. Full branch: `herdr-resource-tree --branch`.",
     ].join("\n");
+
     writeFileSync(join(root, "context"), context);
     writeFileSync(join(root, "stderr-session-B"), 'Excluded sibling: pane "sibling" [w1:pS]\n');
     const host = await loadTransform(root);

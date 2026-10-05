@@ -21,6 +21,7 @@ type DispatchFn = (client: string, rawEvent: unknown) => Decision;
 // core import as a path that must let the tool call through, and a static
 // import failure would put a stack trace on stderr for every matched call.
 let dispatchFn: DispatchFn | undefined;
+
 try {
   ({ dispatch: dispatchFn } = (await import("./index.ts")) as { dispatch: DispatchFn });
 } catch {
@@ -41,6 +42,7 @@ export function renderDecision(decision: Decision): string | undefined {
       2,
     );
   }
+
   if (decision.verdict === "context") {
     return JSON.stringify(
       {
@@ -53,6 +55,7 @@ export function renderDecision(decision: Decision): string | undefined {
       2,
     );
   }
+
   return undefined;
 }
 
@@ -60,6 +63,7 @@ export function main(): number {
   if (!dispatchFn) return 0;
 
   let raw: unknown;
+
   try {
     raw = JSON.parse(readFileSync(0, "utf8"));
   } catch {
@@ -67,6 +71,7 @@ export function main(): number {
   }
 
   let rendered: string | undefined;
+
   try {
     rendered = renderDecision(dispatchFn(CLIENT, raw));
   } catch {
@@ -74,6 +79,7 @@ export function main(): number {
   }
 
   if (rendered !== undefined) process.stdout.write(`${rendered}\n`);
+
   return 0;
 }
 

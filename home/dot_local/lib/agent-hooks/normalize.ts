@@ -29,6 +29,7 @@ function joinParts(parts: unknown[]): string {
 
 function editParts(edits: unknown, field: string): string[] {
   if (!Array.isArray(edits)) return [];
+
   return edits.map((edit: any) => str(edit?.[field]));
 }
 
@@ -36,6 +37,7 @@ type RawRead = { clientToolName: string; payload: EventPayload };
 
 function readClaude(raw: any): RawRead {
   const input = raw?.tool_input ?? {};
+
   return {
     clientToolName: str(raw?.tool_name),
     payload: {
@@ -50,6 +52,7 @@ function readClaude(raw: any): RawRead {
 
 function readOpencode(raw: any): RawRead {
   const args = raw?.args ?? {};
+
   return {
     clientToolName: str(raw?.tool),
     payload: {
@@ -65,6 +68,7 @@ function readOpencode(raw: any): RawRead {
 function readPi(raw: any): RawRead {
   const input = raw?.input ?? {};
   const clientToolName = str(raw?.toolName);
+
   return {
     clientToolName,
     payload: {
@@ -94,9 +98,11 @@ export function normalizeEvent(
 ): NormalizedEvent | undefined {
   const profile = profileFor(registry, client);
   const reader = READERS[client as ClientId];
+
   if (!profile || !reader) return undefined;
 
   let read: RawRead;
+
   try {
     read = reader(raw);
   } catch {
@@ -104,6 +110,7 @@ export function normalizeEvent(
   }
 
   const tool = toolKindFor(profile, read.clientToolName);
+
   if (!tool) return undefined;
 
   return { client: profile.client, clientToolName: read.clientToolName, tool, ...read.payload };
@@ -166,9 +173,11 @@ export function encodeEvent(
 ): unknown | undefined {
   const profile = profileFor(registry, client);
   const writer = WRITERS[client as ClientId];
+
   if (!profile || !writer) return undefined;
 
   const toolName = Object.keys(profile.tools).find((name) => profile.tools[name] === tool);
+
   if (!toolName) return undefined;
 
   return writer(toolName, { ...emptyPayload(), ...payload }, tool);

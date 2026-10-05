@@ -25,7 +25,9 @@ function bareTokenCount(query: string): number {
 
 function evaluate(event: NormalizedEvent): Decision {
   const query = event.query;
+
   if (query === "") return ALLOW;
+
   if (bareTokenCount(query) <= MAX_BARE_TOKENS) return ALLOW;
 
   return block(

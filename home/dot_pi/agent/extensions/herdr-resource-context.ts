@@ -5,8 +5,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 const HEADING = "## Herdr Agent Resource Context (generated)";
+
 const START = "<!-- herdr-resource-context:start -->";
+
 const END = "<!-- herdr-resource-context:end -->";
+
 const RESOURCE_CLI =
   process.env.HERDR_RESOURCE_CONTEXT_CLI ??
   join(process.env.HOME || homedir(), ".local", "bin", "herdr-resource-tree");
@@ -14,6 +17,7 @@ const RESOURCE_CLI =
 function sessionId(ctx: any): string | undefined {
   try {
     const id = ctx?.sessionManager?.getSessionId?.();
+
     return typeof id === "string" && id.length > 0 ? id : undefined;
   } catch {
     return undefined;
@@ -37,18 +41,22 @@ function queryContext(id: string): Promise<string | undefined> {
 function withoutGeneratedContext(systemPrompt: string): string {
   let result = systemPrompt;
   let start = result.indexOf(START);
+
   while (start !== -1) {
     const end = result.indexOf(END, start + START.length);
+
     if (end === -1) break;
     const blockStart = start >= 2 && result.slice(start - 2, start) === "\n\n" ? start - 2 : start;
     result = result.slice(0, blockStart) + result.slice(end + END.length);
     start = result.indexOf(START);
   }
+
   return result;
 }
 
 function withGeneratedContext(systemPrompt: string, context: string): string {
   const block = `${START}\n${HEADING}\n${context}\n${END}`;
+
   return systemPrompt === "" ? block : `${systemPrompt}\n\n${block}`;
 }
 
@@ -73,19 +81,25 @@ export default function registerResourceContext(pi: any): void {
   pi.on("before_agent_start", async (event: any, ctx: any) => {
     const systemPrompt = withoutGeneratedContext(typeof event?.systemPrompt === "string" ? event.systemPrompt : "");
     const requestSessionId = sessionId(ctx);
+
     if (!activeSessionId || !requestSessionId) {
       return unavailable(systemPrompt, "Pi did not expose a native session identity");
     }
+
     if (requestSessionId !== activeSessionId) {
       return unavailable(systemPrompt, "Pi session identity changed before context projection");
     }
+
     const context = await queryContext(requestSessionId);
+
     if (context === undefined) {
       return unavailable(systemPrompt, "the shared resource query failed");
     }
+
     if (context === "") {
       return systemPrompt === event.systemPrompt ? undefined : { systemPrompt };
     }
+
     return { systemPrompt: withGeneratedContext(systemPrompt, context) };
   });
 }

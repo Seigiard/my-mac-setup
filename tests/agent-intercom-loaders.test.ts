@@ -6,19 +6,24 @@ import { join } from "node:path";
 const OPENCODE_LOADER =
   process.env.AGENT_INTERCOM_OPENCODE_LOADER_PATH ??
   join(import.meta.dir, "../home/private_dot_config/opencode/plugins/agent-intercom.ts");
+
 const PI_LOADER =
   process.env.AGENT_INTERCOM_PI_LOADER_PATH ??
   join(import.meta.dir, "../home/dot_pi/agent/extensions/agent-intercom.ts");
+
 const PACKAGE_LOCK = join(
   import.meta.dir,
   "../home/dot_local/share/agent-intercom/package-lock.json",
 );
+
 const temporaryPaths: string[] = [];
+
 let loadCount = 0;
 
 function temporaryDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   temporaryPaths.push(dir);
+
   return dir;
 }
 
@@ -37,15 +42,20 @@ async function loadModulesFromHome(
   cpSync(loader, copy);
   const keys = ["HOME", "HERDR_ENV", "OPENCODE_INTERCOM_NAME", "HERDR_AGENT_INTERCOM_PI_LOAD"];
   const previous = new Map(keys.map((key) => [key, process.env[key]]));
+
   for (const key of keys) delete process.env[key];
   process.env.HOME = home;
+
   if (herdr) process.env.HERDR_ENV = "1";
   Object.assign(process.env, activation);
+
   try {
     const modules = [];
+
     for (let index = 0; index < count; index += 1) {
       modules.push(await import(`${copy}?load=${index}`));
     }
+
     return modules;
   } finally {
     for (const [key, value] of previous) {
@@ -88,6 +98,7 @@ async function plantImportMarker(home: string, packageName: string, entry: strin
       "",
     ].join("\n"),
   );
+
   return marker;
 }
 
@@ -95,6 +106,7 @@ describe("Agent Intercom package pins", () => {
   test("the lock resolves every git dependency over portable HTTPS URLs", () => {
     const lock = JSON.parse(readFileSync(PACKAGE_LOCK, "utf8"));
     const packages = lock.packages as Record<string, { resolved?: string }>;
+
     for (const name of [
       "agent-intercom-core",
       "agent-intercom-claude",
@@ -109,9 +121,11 @@ describe("Agent Intercom package pins", () => {
 
   test("every registry artifact has a recorded integrity hash", () => {
     const lock = JSON.parse(readFileSync(PACKAGE_LOCK, "utf8"));
+
     const packages = Object.entries(lock.packages) as Array<
       [string, { resolved?: string; integrity?: string }]
     >;
+
     const fromRegistry = packages.filter(([, entry]) =>
       entry.resolved?.startsWith("https://registry.npmjs.org/"),
     );
@@ -139,6 +153,7 @@ describe("OpenCode Agent Intercom loader", () => {
     const module = await loadFromHome(OPENCODE_LOADER, home, true, {
       OPENCODE_INTERCOM_NAME: "ochre-okapi",
     });
+
     expect(Object.keys(module)).toEqual(["AgentIntercomPlugin"]);
     expect(await module.AgentIntercomPlugin({})).toEqual({
       transport: "server",
@@ -166,6 +181,7 @@ describe("OpenCode Agent Intercom loader", () => {
     const response = new Response("already consumed");
     await response.text();
     const client = { session: { list: async () => ({ data: [], response }) } };
+
     const module = await loadFromHome(OPENCODE_LOADER, home, true, {
       OPENCODE_INTERCOM_NAME: "ochre-okapi",
     });
@@ -199,9 +215,11 @@ describe("OpenCode Agent Intercom loader", () => {
 
   test("is a no-op inside Herdr when the managed package is absent", async () => {
     const home = temporaryDir("agent-intercom-opencode-missing-herdr-");
+
     const module = await loadFromHome(OPENCODE_LOADER, home, true, {
       OPENCODE_INTERCOM_NAME: "ochre-okapi",
     });
+
     expect(await module.AgentIntercomPlugin({})).toEqual({});
   });
 
@@ -217,6 +235,7 @@ describe("OpenCode Agent Intercom loader", () => {
     const module = await loadFromHome(OPENCODE_LOADER, home, true, {
       OPENCODE_INTERCOM_NAME: "ochre-okapi",
     });
+
     expect(await module.AgentIntercomPlugin({})).toEqual({});
   });
 });
@@ -234,6 +253,7 @@ describe("Pi Agent Intercom loader", () => {
     const module = await loadFromHome(PI_LOADER, home, true, {
       HERDR_AGENT_INTERCOM_PI_LOAD: String(process.pid),
     });
+
     const pi: Record<string, unknown> = {};
     module.default(pi);
     expect(pi).toEqual({ transport: "native" });
@@ -265,9 +285,11 @@ describe("Pi Agent Intercom loader", () => {
 
   test("is a no-op inside Herdr when the managed package is absent", async () => {
     const home = temporaryDir("agent-intercom-pi-missing-herdr-");
+
     const module = await loadFromHome(PI_LOADER, home, true, {
       HERDR_AGENT_INTERCOM_PI_LOAD: String(process.pid),
     });
+
     const pi: Record<string, unknown> = {};
     module.default(pi);
     expect(pi).toEqual({});
@@ -285,6 +307,7 @@ describe("Pi Agent Intercom loader", () => {
     const module = await loadFromHome(PI_LOADER, home, true, {
       HERDR_AGENT_INTERCOM_PI_LOAD: String(process.pid),
     });
+
     expect(() => module.default({})).toThrow("initialization failed");
   });
 
@@ -304,6 +327,7 @@ describe("Pi Agent Intercom loader", () => {
       { HERDR_AGENT_INTERCOM_PI_LOAD: String(process.pid) },
       2,
     );
+
     const initial: Record<string, unknown> = {};
     const reloaded: Record<string, unknown> = {};
     modules[0].default(initial);
@@ -324,6 +348,7 @@ describe("Pi Agent Intercom loader", () => {
     const module = await loadFromHome(PI_LOADER, home, true, {
       HERDR_AGENT_INTERCOM_PI_LOAD: String(process.pid + 1),
     });
+
     const pi: Record<string, unknown> = {};
     module.default(pi);
     expect(pi).toEqual({});

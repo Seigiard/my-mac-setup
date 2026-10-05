@@ -6,20 +6,26 @@ import { join } from "node:path";
 const PLUGIN_PATH =
   process.env.AGENT_HOOKS_OPENCODE_PLUGIN_PATH ??
   join(import.meta.dir, "../home/private_dot_config/opencode/plugins/agent-hooks.ts");
+
 const CORE_DIR =
   process.env.AGENT_HOOKS_CORE_PATH ?? join(import.meta.dir, "../home/dot_local/lib/agent-hooks");
 
 const core: any = await import(join(CORE_DIR, "index.ts"));
+
 const normalize: any = await import(join(CORE_DIR, "normalize.ts"));
+
 import * as corpus from "./fixtures/agent-hooks/fixtures.ts";
 
 const REGISTRY = core.CORE_REGISTRY;
+
 const temporaryPaths: string[] = [];
+
 let loadCount = 0;
 
 function temporaryDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   temporaryPaths.push(dir);
+
   return dir;
 }
 
@@ -38,6 +44,7 @@ type Host = { hooks: Record<string, Function> };
 
 async function loadPlugin(coreDir?: string): Promise<Host> {
   const home = temporaryDir("agent-hooks-opencode-home-");
+
   if (coreDir !== undefined) {
     mkdirSync(join(home, ".local", "lib"), { recursive: true });
     symlinkSync(coreDir, join(home, ".local", "lib", "agent-hooks"));
@@ -48,9 +55,11 @@ async function loadPlugin(coreDir?: string): Promise<Host> {
 
   const previousHome = process.env.HOME;
   process.env.HOME = home;
+
   try {
     const module: any = await import(copy);
     const hooks = (await module.AgentHooksPlugin({ directory: home, worktree: home })) ?? {};
+
     return { hooks };
   } finally {
     process.env.HOME = previousHome;
@@ -67,8 +76,10 @@ async function callBefore(host: Host, raw: any): Promise<string | undefined> {
   // would arrive as a TypeError message rather than as "the plugin never
   // registered". Refuse to answer for the plugin when the plugin never hooked.
   expect(host.hooks["tool.execute.before"]).toBeTypeOf("function");
+
   try {
     await host.hooks["tool.execute.before"]({ tool: raw.tool }, { args: raw.args });
+
     return undefined;
   } catch (error: any) {
     return error?.message;
@@ -93,9 +104,12 @@ const OPENCODE_WIRE: Record<string, { tool: string; argNames: Record<string, str
 /** undefined = opencode has no wire shape for that tool, i.e. no route exists. */
 function opencodeRawFor(fixture: any): any | undefined {
   const wire = OPENCODE_WIRE[fixture.tool];
+
   if (wire === undefined) return undefined;
   const args: Record<string, unknown> = {};
+
   for (const [field, value] of Object.entries(fixture.payload)) args[wire.argNames[field]] = value;
+
   return { tool: wire.tool, args };
 }
 
@@ -107,9 +121,11 @@ describe("tool.execute.before deny and allow (R3)", () => {
     const denied = corpus
       .policyFixtures("zsh-reserved-name-guard")
       .find((candidate: any) => candidate.name === "zsh/flags the status capture idiom");
+
     const allowed = corpus
       .policyFixtures("zsh-reserved-name-guard")
       .find((candidate: any) => candidate.name === "zsh/an ordinary name zsh accepts is not blocked");
+
     const host = await loadPlugin(CORE_DIR);
 
     // #when both reach the handler
@@ -126,11 +142,13 @@ describe("tool.execute.before deny and allow (R3)", () => {
     const fixture = corpus
       .policyFixtures("zsh-reserved-name-guard")
       .find((candidate: any) => candidate.name === "zsh/blocks status");
+
     const raw: any = opencodeRawFor(fixture);
     const host = await loadPlugin(CORE_DIR);
 
     // #when input carries the tool name and output carries the args
     let thrown: string | undefined;
+
     try {
       await host.hooks["tool.execute.before"]({ tool: raw.tool, args: {} }, { args: raw.args });
     } catch (error: any) {
@@ -146,6 +164,7 @@ describe("tool.execute.before deny and allow (R3)", () => {
     const fixture = corpus
       .policyFixtures("zsh-reserved-name-guard")
       .find((candidate: any) => candidate.name === "zsh/blocks status");
+
     const raw: any = opencodeRawFor(fixture);
     const host = await loadPlugin(CORE_DIR);
 
@@ -195,6 +214,7 @@ describe("fail-open when the core cannot be imported (R4, KTD5)", () => {
     const fixture = corpus
       .policyFixtures("zsh-reserved-name-guard")
       .find((candidate: any) => candidate.name === "zsh/blocks status");
+
     const thrown = await callBefore(host, opencodeRawFor(fixture));
 
     // #then the handler exists and the call is allowed through: R4 requires a
@@ -211,9 +231,11 @@ describe("opencode arg dialect reaches Claude's verdicts (R3, KTD8)", () => {
   test("every shared fixture decides identically through the plugin and through Claude", async () => {
     // #given each policy fixture opencode has a wire shape for
     const host = await loadPlugin(CORE_DIR);
+
     const shared = corpus.POLICY_FIXTURES.filter(
       (fixture: any) => opencodeRawFor(fixture) !== undefined,
     );
+
     let denials = 0;
     let clearances = 0;
     // Cardinality before the loop: `shared` is selected by this file's own wire
@@ -259,9 +281,11 @@ describe("opencode arg dialect reaches Claude's verdicts (R3, KTD8)", () => {
     const fixture = corpus
       .policyFixtures("fff-grep-guard")
       .find((candidate: any) => candidate.name === "fff/multi-token bare query is denied");
+
     const control = corpus
       .policyFixtures("fff-grep-guard")
       .find((candidate: any) => candidate.name === "fff/single identifier passes");
+
     const host = await loadPlugin(CORE_DIR);
 
     // #when both go through opencode's verified fff tool spelling

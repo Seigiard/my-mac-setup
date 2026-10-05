@@ -14,6 +14,7 @@ import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
 
 export const LOCAL_INSTRUCTION_FILE_NAMES = ["AGENTS.local.md", "CLAUDE.local.md"] as const;
+
 export const MAX_LOCAL_INSTRUCTIONS_BYTES = 50 * 1024;
 
 // Emitted by formatLocalInstructions and read back by the opencode plugin as
@@ -61,11 +62,13 @@ export interface LocalInstructionsBlock {
 
 function isMissing(error: unknown): boolean {
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
+
   return code === "ENOENT" || code === "ENOTDIR";
 }
 
 function isWithinProject(projectRealPath: string, targetRealPath: string): boolean {
   const projectRelativePath = relative(projectRealPath, targetRealPath);
+
   return projectRelativePath === "" || (!projectRelativePath.startsWith("..") && !isAbsolute(projectRelativePath));
 }
 
@@ -76,6 +79,7 @@ async function inspectCandidate(
 ): Promise<{ diagnostic: LocalInstructionDiagnostic; warning?: string }> {
   const path = join(cwd, name);
   let linkStat;
+
   try {
     linkStat = await lstat(path);
   } catch (error) {
@@ -88,7 +92,9 @@ async function inspectCandidate(
         },
       };
     }
+
     const warning = `Could not inspect ${path}; skipping local instructions from ${name}.`;
+
     return {
       diagnostic: {
         name,
@@ -102,6 +108,7 @@ async function inspectCandidate(
   const isSymlink = linkStat.isSymbolicLink();
   let targetStat: Awaited<ReturnType<typeof stat>>;
   let targetRealPath: string;
+
   try {
     if (isSymlink) {
       [targetStat, targetRealPath] = await Promise.all([stat(path), realpath(path)]);
@@ -111,10 +118,12 @@ async function inspectCandidate(
     }
   } catch (error) {
     const status = isSymlink && isMissing(error) ? "skipped-broken-symlink" : "skipped-unreadable";
+
     const warning =
       status === "skipped-broken-symlink"
         ? `${path} is a broken symlink; skipping local instructions from ${name}.`
         : `Could not read ${path}; skipping local instructions from ${name}.`;
+
     return {
       diagnostic: {
         name,
@@ -137,8 +146,10 @@ async function inspectCandidate(
   }
 
   const cwdRealPath = await getCwdRealPath();
+
   if (cwdRealPath && !isWithinProject(cwdRealPath, targetRealPath)) {
     const warning = `${path} resolves outside the project to ${targetRealPath}; skipping local instructions from ${name}.`;
+
     return {
       diagnostic: {
         name,
@@ -153,6 +164,7 @@ async function inspectCandidate(
 
   if (targetStat.size > MAX_LOCAL_INSTRUCTIONS_BYTES) {
     const warning = `${path} is ${targetStat.size} bytes, above the ${MAX_LOCAL_INSTRUCTIONS_BYTES} byte limit; skipping local instructions from ${name}.`;
+
     return {
       diagnostic: {
         name,
@@ -185,11 +197,14 @@ function markSelection(
   selected?: LocalInstructionCandidate,
 ): LocalInstructionDiagnostic[] {
   if (!selected) return diagnostics;
+
   return diagnostics.map((diagnostic) => {
     if (diagnostic.status !== "candidate") return diagnostic;
+
     if (diagnostic.path === selected.path) {
       return { ...diagnostic, status: "selected" };
     }
+
     return {
       ...diagnostic,
       status: "skipped-preferred-agents",
@@ -199,19 +214,24 @@ function markSelection(
 
 export async function inspectLocalInstructions(cwd: string): Promise<LocalInstructionSelection> {
   let cwdRealPathPromise: Promise<string | undefined> | undefined;
+
   const getCwdRealPath = (): Promise<string | undefined> => {
     cwdRealPathPromise ??= realpath(cwd).catch(() => undefined);
+
     return cwdRealPathPromise;
   };
 
   const inspected = await Promise.all(
     LOCAL_INSTRUCTION_FILE_NAMES.map((name) => inspectCandidate(cwd, getCwdRealPath, name)),
   );
+
   const diagnostics = inspected.map(({ diagnostic }) => diagnostic);
   const warnings = inspected.flatMap(({ warning }) => (warning ? [warning] : []));
+
   const candidates = diagnostics.filter(
     (diagnostic): diagnostic is LocalInstructionCandidate => diagnostic.status === "candidate",
   );
+
   const selected = selectPreferredCandidate(candidates);
 
   return {
@@ -240,9 +260,11 @@ ${contents}`;
  */
 export async function buildLocalInstructions(cwd: string): Promise<LocalInstructionsBlock> {
   const selection = await inspectLocalInstructions(cwd);
+
   if (!selection.selected) return { warnings: selection.warnings };
 
   let contents;
+
   try {
     contents = await readFile(selection.selected.realPath, "utf8");
   } catch {

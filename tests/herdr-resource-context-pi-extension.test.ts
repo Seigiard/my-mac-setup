@@ -6,16 +6,21 @@ import { join } from "node:path";
 const EXTENSION_PATH =
   process.env.HERDR_RESOURCE_CONTEXT_PI_EXTENSION_PATH ??
   join(import.meta.dir, "../home/dot_pi/agent/extensions/herdr-resource-context.ts");
+
 const HEADING = "## Herdr Agent Resource Context (generated)";
+
 const START = "<!-- herdr-resource-context:start -->";
+
 const END = "<!-- herdr-resource-context:end -->";
 
 const temporaryPaths: string[] = [];
+
 let loadCount = 0;
 
 function temporaryDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   temporaryPaths.push(dir);
+
   return dir;
 }
 
@@ -43,6 +48,7 @@ fi
 `,
   );
   chmodSync(cli, 0o755);
+
   return cli;
 }
 
@@ -64,18 +70,21 @@ async function loadExtension(root: string, herdrEnv = "1") {
     HERDR_ENV: process.env.HERDR_ENV,
     HERDR_RESOURCE_CONTEXT_CLI: process.env.HERDR_RESOURCE_CONTEXT_CLI,
   };
+
   process.env.HOME = root;
   process.env.HERDR_ENV = herdrEnv;
   process.env.HERDR_RESOURCE_CONTEXT_CLI = cli;
 
   const handlers = new Map<string, Function>();
   let sendMessageCalls = 0;
+
   try {
     const { default: registerResourceContext } = await import(copy);
     registerResourceContext({
       on: (event: string, handler: Function) => handlers.set(event, handler),
       sendMessage: () => sendMessageCalls++,
     } as never);
+
     return { handlers, sendMessageCalls: () => sendMessageCalls };
   } finally {
     for (const [key, value] of Object.entries(previous)) {
@@ -103,6 +112,7 @@ function unavailableBlock(reason: string): string {
 async function loadActiveExtension(root: string) {
   const host = await loadExtension(root);
   expect([...host.handlers.keys()].sort()).toEqual(["before_agent_start", "session_start"]);
+
   return {
     sessionStart: host.handlers.get("session_start") as Function,
     beforeAgentStart: host.handlers.get("before_agent_start") as Function,
@@ -113,6 +123,7 @@ async function loadActiveExtension(root: string) {
 describe("Pi model-request resource context", () => {
   test("a resumed session's shared branch projection reaches model input without a synthetic turn", async () => {
     const root = temporaryDir("herdr-resource-context-pi-");
+
     const projected = [
       'Parent agent: "agent-a"',
       'Descendant agent: "agent-c" [herdr:opencode/id/session-C]',
@@ -121,6 +132,7 @@ describe("Pi model-request resource context", () => {
       '    - pane "owned" [w1:pC] terminal=term-C creator=herdr:pi/id/session-B',
       "Context truncated. Full branch: `herdr-resource-tree --branch`.",
     ].join("\n");
+
     writeFileSync(join(root, "context-session-B"), projected);
     const host = await loadActiveExtension(root);
     const ctx = context("session-B");
@@ -170,18 +182,22 @@ describe("Pi model-request resource context", () => {
     expect(first.systemPrompt).toBe(`Base prompt\n\n${generatedBlock(firstBranch)}`);
 
     writeFileSync(join(root, "context-session-B"), refreshedBranch);
+
     const refreshed = await host.beforeAgentStart(
       { systemPrompt: first.systemPrompt, prompt: "next" },
       resumed,
     );
+
     expect(refreshed.systemPrompt).toBe(`Base prompt\n\n${generatedBlock(refreshedBranch)}`);
 
     const replacement = context("session-new");
     await host.sessionStart({ reason: "new" }, replacement);
+
     const replaced = await host.beforeAgentStart(
       { systemPrompt: refreshed.systemPrompt, prompt: "replacement" },
       replacement,
     );
+
     expect(replaced.systemPrompt).toBe(`Base prompt\n\n${generatedBlock(replacementBranch)}`);
 
     const queryArgs = readFileSync(join(root, "query-argv"), "utf8").trim().split("\n");
@@ -205,13 +221,16 @@ describe("Pi model-request resource context", () => {
       { systemPrompt: `Base prompt\n\n${stale}`, prompt: "empty" },
       ctx,
     );
+
     expect(empty.systemPrompt).toBe("Base prompt");
 
     writeFileSync(join(root, "fail-session-B"), "");
+
     const failed = await host.beforeAgentStart(
       { systemPrompt: `Base prompt\n\n${stale}`, prompt: "failed" },
       ctx,
     );
+
     expect(failed.systemPrompt).toBe(
       `Base prompt\n\n${unavailableBlock("the shared resource query failed")}`,
     );
@@ -220,6 +239,7 @@ describe("Pi model-request resource context", () => {
       { systemPrompt: `Base prompt\n\n${stale}`, prompt: "replacement" },
       context("session-new"),
     );
+
     expect(mismatch.systemPrompt).toBe(
       `Base prompt\n\n${unavailableBlock("Pi session identity changed before context projection")}`,
     );
@@ -228,6 +248,7 @@ describe("Pi model-request resource context", () => {
       { systemPrompt: `Base prompt\n\n${stale}`, prompt: "missing" },
       context(),
     );
+
     expect(missing.systemPrompt).toBe(
       `Base prompt\n\n${unavailableBlock("Pi did not expose a native session identity")}`,
     );

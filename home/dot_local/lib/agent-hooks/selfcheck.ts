@@ -19,6 +19,7 @@ import { CORE_REGISTRY, applicableClients, isBlockCapable, registrySnapshot } fr
 import type { ClientId, Decision, Registry } from "./types.ts";
 
 export const CORE_DIR = dirname(fileURLToPath(import.meta.url));
+
 export const DEFAULT_STATE_DIR = join(homedir(), ".local", "state", "agent-hooks");
 
 // Claude runs the core as a fresh subprocess per tool call, so it has no loaded
@@ -27,23 +28,28 @@ export const MARKERLESS_CLIENTS: ClientId[] = ["claude"];
 
 function sourceFiles(dir: string): string[] {
   const found: string[] = [];
+
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
+
     if (entry.isDirectory()) found.push(...sourceFiles(path));
     else if (entry.name.endsWith(".ts")) found.push(path);
   }
+
   return found.sort();
 }
 
 /** Content hash of the deployed core; the identity a marker records. */
 export function coreHash(dir: string = CORE_DIR): string {
   const hash = createHash("sha256");
+
   for (const path of sourceFiles(dir)) {
     // Older deployments can retain the retired test corpus after source removal.
     if (path === join(dir, "fixtures.ts")) continue;
     hash.update(path.slice(dir.length));
     hash.update(readFileSync(path));
   }
+
   return hash.digest("hex").slice(0, 16);
 }
 
@@ -64,6 +70,7 @@ type ProcessProbe = {
 /** ps exposes OS start time on macOS and Linux, at one-second resolution. */
 export function processStartTime(pid: number): string | null {
   if (!Number.isSafeInteger(pid) || pid <= 0 || pid > 2147483647) return null;
+
   try {
     return execFileSync("ps", ["-p", String(pid), "-o", "lstart="], {
       encoding: "utf8",
@@ -79,8 +86,10 @@ export function processStartTime(pid: number): string | null {
 
 function matchesProcessStart(marker: Marker, getStart: (pid: number) => string | null): boolean | null {
   if (marker.identityFormat !== "ps-lstart-c-utc-v1") return null;
+
   if (typeof marker.processStartedAt !== "string" || marker.processStartedAt.length === 0) return null;
   const current = getStart(marker.pid);
+
   return current ? current === marker.processStartedAt : null;
 }
 
@@ -88,6 +97,7 @@ export function markerPath(stateDir: string, client: string, pid: number, starte
   // Start-specific names keep cleanup of an old record away from its replacement.
   // An unverifiable start gets its own filename rather than sharing a null identity.
   const generation = createHash("sha256").update(startedAt ?? randomUUID()).digest("hex");
+
   return join(stateDir, `${client}-${pid}-${generation}.json`);
 }
 
@@ -101,6 +111,7 @@ export function writeMarker(
   const stateDir = options.stateDir ?? DEFAULT_STATE_DIR;
   const getStart = options.getProcessStart ?? processStartTime;
   const pid = options.pid ?? process.pid;
+
   const marker: Marker = {
     client,
     pid,
@@ -109,45 +120,58 @@ export function writeMarker(
     processStartedAt: getStart(pid),
     identityFormat: "ps-lstart-c-utc-v1",
   };
+
   const path = markerPath(stateDir, marker.client, marker.pid, marker.processStartedAt ?? null);
   mkdirSync(stateDir, { recursive: true });
   const isAlive = options.isAlive ?? processIsAlive;
   let entries: string[] = [];
+
   try {
     entries = readdirSync(stateDir);
   } catch {
     // Listing is optional for cleanup; write permission can still be available.
   }
+
   for (const name of entries) {
     if (!name.startsWith(`${client}-`)) continue;
     const match = /^([1-9]\d*)(?:-[a-f0-9]{64})?\.json$/.exec(name.slice(client.length + 1));
+
     if (!match) continue;
     const pid = Number(match[1]);
+
     if (!Number.isSafeInteger(pid) || join(stateDir, name) === path) continue;
+
     try {
       // This process supersedes its own legacy or unverifiable records.
       if (pid !== marker.pid && isAlive(pid)) {
         const previous = JSON.parse(readFileSync(join(stateDir, name), "utf8"));
+
         if (previous?.client !== client || previous?.pid !== pid ||
             matchesProcessStart(previous, getStart) !== false) continue;
       }
+
       unlinkSync(join(stateDir, name));
     } catch {
       // Cleanup is best-effort: another startup may have removed the file,
       // or an old marker may be unwritable. Neither should block this session.
     }
   }
+
   writeFileSync(path, `${JSON.stringify(marker)}\n`);
+
   return marker;
 }
 
 export function readMarkers(stateDir: string): Marker[] {
   if (!existsSync(stateDir) || !statSync(stateDir).isDirectory()) return [];
   const markers: Marker[] = [];
+
   for (const name of readdirSync(stateDir)) {
     if (!name.endsWith(".json")) continue;
+
     try {
       const parsed = JSON.parse(readFileSync(join(stateDir, name), "utf8"));
+
       if (typeof parsed?.client === "string" && Number.isInteger(parsed?.pid) && typeof parsed?.hash === "string") {
         markers.push(parsed as Marker);
       }
@@ -155,13 +179,16 @@ export function readMarkers(stateDir: string): Marker[] {
       // A truncated or foreign file is not evidence; ignore it.
     }
   }
+
   return markers;
 }
 
 export function processIsAlive(pid: number): boolean {
   if (!Number.isSafeInteger(pid) || pid <= 0 || pid > 2147483647) return false;
+
   try {
     process.kill(pid, 0);
+
     return true;
   } catch (error: any) {
     return error?.code === "EPERM";
@@ -169,6 +196,7 @@ export function processIsAlive(pid: number): boolean {
 }
 
 export type IdentityStatus = "current" | "stale" | "unknown" | "per-call";
+
 export type ClientIdentity = {
   client: string;
   status: IdentityStatus;
@@ -198,6 +226,7 @@ export function inspectIdentity(options: IdentityOptions = {}): {
   const getStart = options.getProcessStart ?? processStartTime;
   const markerless = options.markerlessClients ?? MARKERLESS_CLIENTS;
   const clients = options.clients ?? CORE_REGISTRY.profiles.map((profile) => profile.client);
+
   const markers = readMarkers(stateDir)
     .filter((marker) => isAlive(marker.pid))
     .map((marker) => ({ marker, matches: matchesProcessStart(marker, getStart) }));
@@ -208,12 +237,15 @@ export function inspectIdentity(options: IdentityOptions = {}): {
       if (markerless.includes(client)) {
         return { client, status: "per-call" as IdentityStatus, live: [], stale: [], uncertain: [] };
       }
+
       const candidates = markers.filter(({ marker }) => marker.client === client);
       const live = candidates.filter(({ matches }) => matches === true).map(({ marker }) => marker);
       const stale = live.filter((marker) => marker.hash !== deployedHash);
       const uncertain = candidates.filter(({ matches }) => matches === null).map(({ marker }) => marker);
+
       const status: IdentityStatus =
         stale.length > 0 ? "stale" : live.length === 0 || uncertain.length > 0 ? "unknown" : "current";
+
       return { client, status, live, stale, uncertain };
     }),
   };
@@ -234,18 +266,23 @@ export type CanaryResult = {
  */
 export function runCanaries(registry: Registry = CORE_REGISTRY): CanaryResult[] {
   const results: CanaryResult[] = [];
+
   for (const policy of registry.policies) {
     if (!isBlockCapable(policy)) continue;
+
     for (const client of applicableClients(registry, policy)) {
       if (!policy.canary) {
         results.push({ policy: policy.name, client, ok: false, detail: "no canary fixture declared" });
         continue;
       }
+
       const raw = encodeEvent(client, policy.canary.tool, policy.canary.payload, registry);
+
       if (raw === undefined) {
         results.push({ policy: policy.name, client, ok: false, detail: "no client route for canary tool" });
         continue;
       }
+
       const decision = dispatch(client, raw, { registry, env: {} });
       results.push({
         policy: policy.name,
@@ -256,6 +293,7 @@ export function runCanaries(registry: Registry = CORE_REGISTRY): CanaryResult[] 
       });
     }
   }
+
   return results;
 }
 
@@ -276,6 +314,7 @@ export function selfcheck(
   const deployedHash = options.deployedHash ?? coreHash();
   const canaries = runCanaries(registry);
   const identity = inspectIdentity({ ...options, deployedHash });
+
   return {
     runtime: { bun: process.versions?.bun ?? null },
     coreDir: CORE_DIR,
@@ -294,11 +333,15 @@ export function formatReport(report: SelfcheckReport): string {
     `deployed hash: ${report.deployedHash}`,
     `policies: ${report.registry.policies.length}`,
   ];
+
   lines.push(report.canaries.length === 0 ? "canaries: none registered" : "canaries:");
+
   for (const result of report.canaries) {
     lines.push(`  [${result.ok ? "ok" : "FAIL"}] ${result.policy} @ ${result.client}: ${result.detail}`);
   }
+
   lines.push("loaded identity:");
+
   for (const client of report.identity.clients) {
     const sessions = client.stale.map((marker) => `pid ${marker.pid} (${marker.hash})`).join(", ");
     const unverified = client.uncertain.map((marker) => `pid ${marker.pid} (${marker.hash})`).join(", ");
@@ -307,13 +350,16 @@ export function formatReport(report: SelfcheckReport): string {
       (unverified ? ` — unverified sessions: ${unverified}` : ""),
     );
   }
+
   lines.push(report.ok ? "result: ok" : "result: FAILED");
+
   return lines.join("\n");
 }
 
 export function main(argv: string[] = process.argv.slice(2)): number {
   const report = selfcheck();
   process.stdout.write(argv.includes("--json") ? `${JSON.stringify(report, null, 2)}\n` : `${formatReport(report)}\n`);
+
   return report.ok ? 0 : 1;
 }
 

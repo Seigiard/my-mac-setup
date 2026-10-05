@@ -42,15 +42,21 @@ const AGENT_TREES = [
 
 function basenameOf(filePath: string): string {
   const cut = filePath.lastIndexOf("/");
+
   return cut === -1 ? filePath : filePath.slice(cut + 1);
 }
 
 export function isAgentDoc(filePath: string): boolean {
   if (filePath === "") return false;
   const basename = basenameOf(filePath);
+
   if (INSTRUCTION_FILE.test(basename)) return true;
+
   if (SKILL_ENTRY.test(basename)) return true;
+
   if (EXPLICIT_ONLY.test(basename)) return true;
+
   if (!PROSE.test(basename)) return false;
+
   return AGENT_TREES.some((tree) => filePath.includes(tree));
 }

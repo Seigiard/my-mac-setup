@@ -20,9 +20,11 @@ import { join } from "node:path";
 // returned undefined would look alive to a reader.
 
 const HOME = process.env.HOME ?? "";
+
 const MODULE_PATH = join(HOME, ".local", "lib", "agent-hooks", "local-instructions.ts");
 
 let buildLocalInstructions: ((cwd: string) => Promise<{ block?: string; warnings: string[] }>) | undefined;
+
 try {
   ({ buildLocalInstructions } = await import(MODULE_PATH));
 } catch {
@@ -33,8 +35,10 @@ const warnedKeys = new Set<string>();
 
 function notifyWarningsOnce(ctx, warnings: string[]): void {
   if (!ctx.hasUI) return;
+
   for (const warning of warnings) {
     const key = `${ctx.cwd}:${warning}`;
+
     if (warnedKeys.has(key)) continue;
     warnedKeys.add(key);
     ctx.ui.notify(warning, "warning");
@@ -47,6 +51,7 @@ export default function agentsLocalExtension(pi): void {
   pi.on("before_agent_start", async (event, ctx) => {
     let block: string | undefined;
     let warnings: string[] = [];
+
     try {
       ({ block, warnings } = await buildLocalInstructions(ctx.cwd));
     } catch {
@@ -54,7 +59,9 @@ export default function agentsLocalExtension(pi): void {
       // local instructions are additive, so degrading to none is safe (R4).
       return undefined;
     }
+
     notifyWarningsOnce(ctx, warnings);
+
     if (!block) return undefined;
 
     return {
