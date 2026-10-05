@@ -44,9 +44,10 @@ The hook deliberately does not run `make init`, start databases, or copy
 Redis, while `mise exec -- make setup` performs the supported dependency install
 and build with the repository-pinned toolchain.
 
-`Seigiard/my-mac-setup` enables only fresh-base behavior. It needs no setup
-steps because the repository has no per-checkout dependencies or required
-ignored environment files.
+`Seigiard/my-mac-setup` refreshes the base and runs `npm ci` to install the
+checkout's YAML and frontmatter check tools. Git hooks are shared between linked
+worktrees, but their commands resolve dependencies from the current checkout.
+Worktrees created outside Herdr need `npm ci` before committing or pushing.
 
 Fresh-base runs before copies and setup. It leaves the checkout unchanged when
 the branch tracks an upstream, a same-name remote branch exists, its HEAD is not

@@ -2386,8 +2386,8 @@ function test_scripts_001_python3_is_present_and_at_least_3_9_the_floor_re() {
 # ===========================================
 
 # Writes a shellcheck stub that appends its argv to $2 and exits with $3, so a
-# test can tell "make lint failed because shellcheck failed" apart from "make
-# lint failed for some other reason".
+# test can tell "make lint-shell failed because shellcheck failed" apart from
+# "make lint-shell failed for some other reason".
 write_shellcheck_stub() {
   local dir="$1" log="$2" code="$3"
   cat > "$dir/shellcheck" <<STUB
@@ -2403,7 +2403,7 @@ function test_scripts_002_lint_target_propagates_shellcheck_failures() {
   local repo_root="$BATS_TEST_DIRNAME/.."
   [[ -f "$repo_root/Makefile" ]] || skip "repo-root Makefile is not available in this environment"
 
-  # `make lint` runs three shellcheck sweeps plus a python checker, so a bare
+  # `make lint-shell` runs three shellcheck sweeps plus a python checker, so a bare
   # assert_failure is also satisfied by a broken Makefile or a failing python
   # step -- neither of which is this test's subject. The stub records that it
   # was reached, and the exit-0 leg is the control proving the target reaches
@@ -2414,12 +2414,12 @@ function test_scripts_002_lint_target_propagates_shellcheck_failures() {
   mkdir -p "$stubdir"
 
   write_shellcheck_stub "$stubdir" "$invocations" 1
-  run env PATH="$stubdir:$PATH" make -C "$repo_root" lint
+  run env PATH="$stubdir:$PATH" make -C "$repo_root" lint-shell
   assert_failure
   assert_file_exists "$invocations"
 
   write_shellcheck_stub "$stubdir" "$invocations" 0
-  run env PATH="$stubdir:$PATH" make -C "$repo_root" lint
+  run env PATH="$stubdir:$PATH" make -C "$repo_root" lint-shell
   assert_success
 }
 
@@ -2441,7 +2441,7 @@ function test_scripts_9_lint_input_set_excludes_agent_worktrees() {
   printf '#!/bin/bash\nprintf %%s "linted"\n' > "$probe_dir/probe.sh"
 
   write_shellcheck_stub "$stubdir" "$invocations" 0
-  run env PATH="$stubdir:$PATH" make -C "$repo_root" lint
+  run env PATH="$stubdir:$PATH" make -C "$repo_root" lint-shell
   local lint_status="$status"
   rm -f "$probe_dir/probe.sh"
   rmdir "$probe_dir" 2>/dev/null || true

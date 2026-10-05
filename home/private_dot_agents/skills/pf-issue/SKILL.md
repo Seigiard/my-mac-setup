@@ -1,6 +1,7 @@
 ---
 name: pf-issue
-description: Audit a tracker issue against the product contracts and the code, treating the issue as a hypothesis, then deliver validated solution options as a show-me markdown report. Defect entry to the /pf-research → /pf-spec → /pf-build cycle: hands off to /pf-spec when the chosen fix changes a contract, to /to-spec or /implement otherwise. Use when the user says "pf-issue <issue>", asks to study or explain an issue relative to code and contracts, or asks in Russian ("изучи <issue> относительно кода и контрактов", "исследуй <issue>, посмотри код и контракты", "в чём проблема и варианты решения").
+description: >-
+  Audit a tracker issue against the product contracts and the code, treating the issue as a hypothesis, then deliver validated solution options as a show-me markdown report. Defect entry to the /pf-research → /pf-spec → /pf-build cycle: hands off to /pf-spec when the chosen fix changes a contract, to /to-spec or /implement otherwise. Use when the user says "pf-issue <issue>", asks to study or explain an issue relative to code and contracts, or asks in Russian ("изучи <issue> относительно кода и контрактов", "исследуй <issue>, посмотри код и контракты", "в чём проблема и варианты решения").
 argument-hint: "<issue URL or ID>"
 ---
 
