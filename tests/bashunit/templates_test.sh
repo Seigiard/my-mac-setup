@@ -1314,6 +1314,36 @@ function test_templates_031_enabled_claude_plugin_keys_name_a_marketplace() {
   assert_output 'every enabled plugin names its marketplace'
 }
 
+function test_templates_0311_private_claude_plugins_are_scoped_to_mbp2026() {
+  _bats_test_init 311 'private Claude plugins and marketplaces are scoped to mbp2026'
+  [[ "$(get_os)" == "darwin" ]] || skip "mbp2021 and mbp2026 are macOS roles"
+  local mbp2021_config="$BATS_TEST_TMPDIR/mbp2021.yaml"
+  local mbp2026_config="$BATS_TEST_TMPDIR/mbp2026.yaml"
+  local mbp2021_settings="$BATS_TEST_TMPDIR/mbp2021-settings.json"
+  local mbp2026_settings="$BATS_TEST_TMPDIR/mbp2026-settings.json"
+  local template="$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl"
+
+  MMS_MACHINE_ROLE="mbp2021" write_test_config "$mbp2021_config"
+  MMS_MACHINE_ROLE="mbp2026" write_test_config "$mbp2026_config"
+  render_with_config "$mbp2021_config" "$template" > "$mbp2021_settings"
+  render_with_config "$mbp2026_config" "$template" > "$mbp2026_settings"
+
+  run jq -n \
+    --slurpfile old "$mbp2021_settings" \
+    --slurpfile current "$mbp2026_settings" '
+      ($old[0] | (.enabledPlugins | has("membrane-operator@membrane.private") | not)
+        and (.enabledPlugins | has("summit@summit-ai-notes") | not)
+        and (has("extraKnownMarketplaces") | not))
+      and
+      ($current[0] | .enabledPlugins["membrane-operator@membrane.private"] == true
+        and .enabledPlugins["summit@summit-ai-notes"] == true
+        and .extraKnownMarketplaces["membrane.private"].source.repo == "membranehq/platform"
+        and .extraKnownMarketplaces["summit-ai-notes"].source.repo == "SummitNotes/mcp-markeplace")
+    '
+  assert_success
+  assert_output "true"
+}
+
 function set_up_before_script() {
   :
 }

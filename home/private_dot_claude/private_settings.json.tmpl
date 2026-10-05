@@ -1,3 +1,4 @@
+{{- $machineRole := includeTemplate "machine-role" . | trim -}}
 {
   "fileSuggestion": {
     "type": "command",
@@ -129,8 +130,27 @@
     "playwright@claude-plugins-official": true,
     "plugin-dev@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true
+    "typescript-lsp@claude-plugins-official": true{{ if eq $machineRole "mbp2026" }},
+    "membrane-operator@membrane.private": true,
+    "summit@summit-ai-notes": true
+{{- end }}
   },
+{{- if eq $machineRole "mbp2026" }}
+  "extraKnownMarketplaces": {
+    "membrane.private": {
+      "source": {
+        "source": "github",
+        "repo": "membranehq/platform"
+      }
+    },
+    "summit-ai-notes": {
+      "source": {
+        "source": "github",
+        "repo": "SummitNotes/mcp-markeplace"
+      }
+    }
+  },
+{{- end }}
   "outputStyle": "writing-style",
   "effortLevel": "high",
   "autoUpdatesChannel": "stable",
