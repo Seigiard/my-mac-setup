@@ -14,11 +14,13 @@ const RESOURCE_CLI =
   process.env.HERDR_RESOURCE_CONTEXT_CLI ??
   join(process.env.HOME || homedir(), ".local", "bin", "herdr-resource-tree");
 
-function sessionId(ctx: any): string | undefined {
+type SessionContext = { sessionManager?: { getSessionId?: () => string | undefined } };
+
+function sessionId(ctx: SessionContext): string | undefined {
   try {
     const id = ctx?.sessionManager?.getSessionId?.();
 
-    return typeof id === "string" && id.length > 0 ? id : undefined;
+    return id || undefined;
   } catch {
     return undefined;
   }
@@ -60,7 +62,7 @@ function withGeneratedContext(systemPrompt: string, context: string): string {
   return systemPrompt === "" ? block : `${systemPrompt}\n\n${block}`;
 }
 
-function unavailable(systemPrompt: string, reason: string): { systemPrompt: string } {
+function unavailable(systemPrompt: string, reason: string) {
   return {
     systemPrompt: withGeneratedContext(
       systemPrompt,
@@ -78,8 +80,8 @@ export default function registerResourceContext(pi: any): void {
     activeSessionId = sessionId(ctx);
   });
 
-  pi.on("before_agent_start", async (event: any, ctx: any) => {
-    const systemPrompt = withoutGeneratedContext(typeof event?.systemPrompt === "string" ? event.systemPrompt : "");
+  pi.on("before_agent_start", async (event: { systemPrompt?: string }, ctx: SessionContext) => {
+    const systemPrompt = withoutGeneratedContext(event?.systemPrompt ?? "");
     const requestSessionId = sessionId(ctx);
 
     if (!activeSessionId || !requestSessionId) {

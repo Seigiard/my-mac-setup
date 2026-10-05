@@ -5,6 +5,7 @@
 // ~/.config/opencode/, where opencode's own dependencies live.
 import type { Plugin } from "@opencode-ai/plugin"
 import { join } from "node:path"
+import type { Decision, ToolEventValue } from "../../../dot_local/lib/agent-hooks/types.ts"
 
 // opencode transport for the shared agent-hooks dispatch core.
 //
@@ -26,7 +27,7 @@ const CORE_DIR = join(HOME, ".local", "lib", "agent-hooks")
 // Load-time import rather than per-call (KTD5): a failure is front-loaded into
 // a plugin that registers nothing, which is the honest fail-open shape — an
 // installed handler that silently allows would look alive to a reader.
-let dispatch: ((client: string, rawEvent: unknown) => any) | undefined
+let dispatch: ((client: string, rawEvent: ToolEventValue) => Decision) | undefined
 
 try {
   ;({ dispatch } = await import(join(CORE_DIR, "index.ts")))

@@ -56,7 +56,7 @@ async function register() {
 
   try {
     const { default: registerWorktreeIdentity } = await import(copy);
-    registerWorktreeIdentity({ on: (event: string, handler: Function) => handlers.set(event, handler) } as never);
+    registerWorktreeIdentity({ on: (event: string, handler: Function) => handlers.set(event, handler) });
 
     return handlers;
   } finally {

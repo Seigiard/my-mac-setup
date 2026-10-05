@@ -13,11 +13,13 @@ try {
   handoffWorktreeIdentity = undefined;
 }
 
-function sessionId(ctx: any): string | undefined {
+type SessionContext = { sessionManager?: { getSessionId?: () => string | undefined } };
+
+function sessionId(ctx: SessionContext): string | undefined {
   try {
     const id = ctx?.sessionManager?.getSessionId?.();
 
-    return typeof id === "string" && id.length > 0 ? id : undefined;
+    return id || undefined;
   } catch {
     return undefined;
   }
@@ -26,10 +28,10 @@ function sessionId(ctx: any): string | undefined {
 export default function registerWorktreeIdentity(pi: any): void {
   if (!handoffWorktreeIdentity || process.env.HERDR_ENV !== "1" || process.env.HERDR_WORKTREE_IDENTITY_ACTIVE) return;
 
-  pi.on("before_agent_start", async (event: any, ctx: any) => {
+  pi.on("before_agent_start", async (event: { prompt?: string }, ctx: SessionContext & { hasUI?: boolean }) => {
     if (ctx?.hasUI !== true) return;
     const id = sessionId(ctx);
-    const prompt = typeof event?.prompt === "string" ? event.prompt : "";
+    const prompt = event?.prompt ?? "";
 
     if (!id || prompt.trim() === "") return;
     await handoffWorktreeIdentity("pi", id, prompt);

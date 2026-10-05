@@ -58,7 +58,7 @@ function fakePi() {
     },
   };
 
-  registerAgentsLocalExtension(pi as never);
+  registerAgentsLocalExtension(pi);
 
   return { handlers };
 }

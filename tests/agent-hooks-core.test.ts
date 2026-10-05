@@ -411,7 +411,7 @@ describe("cross-client parity (KTD8)", () => {
 // alternative its reason must carry. A block-capable policy missing from this
 // map reports `alternative=unlisted` and fails the exact list below, so a new
 // policy has to declare its alternative here rather than inherit a pass.
-const R9_ALTERNATIVES: Record<string, string> = {
+const R9_ALTERNATIVES = {
   "fixture-reserved-guard": "fixture-ok:",
   "fixture-content-guard": "Assert the capability that remains",
   "zsh-reserved-name-guard": "zsh-ok:",
@@ -477,7 +477,7 @@ describe("reason contract (R9)", () => {
 const CLIENT_NAME_PATTERN = /\b(claude|opencode|pi)\b/i;
 
 function policyModules(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true, recursive: true } as any)
+  return readdirSync(dir, { withFileTypes: true, recursive: true })
     .filter((entry: any) => entry.isFile() && entry.name.endsWith(".ts"))
     .map((entry: any) => join(entry.parentPath ?? entry.path ?? dir, entry.name));
 }
@@ -1157,9 +1157,11 @@ describe("context-only policy applicability (KTD8)", () => {
     // #given a profile carrying a web-fetch spelling but only the block outcome
     const policy = policyByName("webfetch-markdown-hint");
     let calls = 0;
+
     const counted = { ...policy, evaluate: (event: any) => { calls += 1;
 
  return policy.evaluate(event); } };
+
     const base = core.CORE_REGISTRY.profiles.find((profile: any) => profile.client === "opencode");
 
     const registry = core.createRegistry({

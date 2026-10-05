@@ -60,12 +60,6 @@ export interface LocalInstructionsBlock {
   warnings: string[];
 }
 
-function isMissing(error: unknown): boolean {
-  const code = (error as NodeJS.ErrnoException | undefined)?.code;
-
-  return code === "ENOENT" || code === "ENOTDIR";
-}
-
 function isWithinProject(projectRealPath: string, targetRealPath: string): boolean {
   const projectRelativePath = relative(projectRealPath, targetRealPath);
 
@@ -83,7 +77,7 @@ async function inspectCandidate(
   try {
     linkStat = await lstat(path);
   } catch (error) {
-    if (isMissing(error)) {
+    if (error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")) {
       return {
         diagnostic: {
           name,
@@ -117,7 +111,8 @@ async function inspectCandidate(
       targetRealPath = await realpath(path);
     }
   } catch (error) {
-    const status = isSymlink && isMissing(error) ? "skipped-broken-symlink" : "skipped-unreadable";
+    const missing = error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR");
+    const status = isSymlink && missing ? "skipped-broken-symlink" : "skipped-unreadable";
 
     const warning =
       status === "skipped-broken-symlink"

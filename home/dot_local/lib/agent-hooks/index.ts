@@ -3,7 +3,7 @@
 
 import { normalizeEvent } from "./normalize.ts";
 import { CORE_REGISTRY, policiesFor, profileFor } from "./registry.ts";
-import type { ClientId, Decision, NormalizedEvent, Policy, Registry } from "./types.ts";
+import type { ClientId, Decision, NormalizedEvent, Policy, Registry, ToolEventValue } from "./types.ts";
 import { ALLOW } from "./types.ts";
 
 export * from "./types.ts";
@@ -38,7 +38,7 @@ export type DispatchOptions = {
 export function disabledPolicyNames(env: Record<string, string | undefined>): Set<string> {
   const raw = env[DISABLE_ENV_VAR];
 
-  if (typeof raw !== "string" || raw === "") return new Set();
+  if (!raw) return new Set();
 
   return new Set(
     raw
@@ -76,7 +76,7 @@ function runPolicies(event: NormalizedEvent, policies: Policy[]): DispatchTrace 
 /** Full pipeline with the list of policies actually invoked, for tests and selfcheck. */
 export function dispatchTraced(
   client: ClientId | string,
-  rawEvent: unknown,
+  rawEvent: ToolEventValue,
   options: DispatchOptions = {},
 ): DispatchTrace {
   const registry = options.registry ?? CORE_REGISTRY;
@@ -107,7 +107,7 @@ export function dispatchTraced(
 
 export function dispatch(
   client: ClientId | string,
-  rawEvent: unknown,
+  rawEvent: ToolEventValue,
   options: DispatchOptions = {},
 ): Decision {
   return dispatchTraced(client, rawEvent, options).decision;

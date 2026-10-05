@@ -11,11 +11,11 @@
 
 import { readFileSync } from "node:fs";
 
-import type { Decision } from "./types.ts";
+import type { Decision, ToolEventValue } from "./types.ts";
 
 const CLIENT = "claude";
 
-type DispatchFn = (client: string, rawEvent: unknown) => Decision;
+type DispatchFn = (client: string, rawEvent: ToolEventValue) => Decision;
 
 // A dynamic import in try/catch rather than a static one: R4 names a failed
 // core import as a path that must let the tool call through, and a static
@@ -23,7 +23,7 @@ type DispatchFn = (client: string, rawEvent: unknown) => Decision;
 let dispatchFn: DispatchFn | undefined;
 
 try {
-  ({ dispatch: dispatchFn } = (await import("./index.ts")) as { dispatch: DispatchFn });
+  ({ dispatch: dispatchFn } = await import("./index.ts"));
 } catch {
   dispatchFn = undefined;
 }
@@ -62,7 +62,7 @@ export function renderDecision(decision: Decision): string | undefined {
 export function main(): number {
   if (!dispatchFn) return 0;
 
-  let raw: unknown;
+  let raw: ToolEventValue;
 
   try {
     raw = JSON.parse(readFileSync(0, "utf8"));

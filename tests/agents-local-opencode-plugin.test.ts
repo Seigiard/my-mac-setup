@@ -62,7 +62,7 @@ async function loadUnderHome(sourcePath: string, prefix: string): Promise<any> {
   }
 }
 
-type Hook = (input: unknown, output: { system: string[] }) => Promise<void>;
+type Hook = (input: { sessionID?: string }, output: { system: string[] }) => Promise<void>;
 
 async function loadTransform(directory: string): Promise<Hook> {
   const module: any = await loadUnderHome(PLUGIN_PATH, "agents-local-opencode");
@@ -265,7 +265,7 @@ function importSpecifiers(source: string): string[] {
 }
 
 function typescriptFiles(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true, recursive: true } as any)
+  return readdirSync(dir, { withFileTypes: true, recursive: true })
     .filter((entry: any) => entry.isFile() && entry.name.endsWith(".ts"))
     .map((entry: any) => join(entry.parentPath ?? entry.path ?? dir, entry.name));
 }

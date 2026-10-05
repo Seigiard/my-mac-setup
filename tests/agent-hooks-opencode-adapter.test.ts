@@ -96,7 +96,7 @@ async function callBefore(host: Host, raw: any): Promise<string | undefined> {
 // hand-written `raw.opencode` entries — the shipped adapter. `fff_grep` is the
 // flattened MCP spelling observed against the deployed fff server (U4); a deny
 // only fires below if the registry still agrees with it.
-const OPENCODE_WIRE: Record<string, { tool: string; argNames: Record<string, string> }> = {
+const OPENCODE_WIRE = {
   bash: { tool: "bash", argNames: { command: "command" } },
   "fff-grep": { tool: "fff_grep", argNames: { query: "query" } },
 };
@@ -106,7 +106,7 @@ function opencodeRawFor(fixture: any): any | undefined {
   const wire = OPENCODE_WIRE[fixture.tool];
 
   if (wire === undefined) return undefined;
-  const args: Record<string, unknown> = {};
+  const args: Record<string, string> = {};
 
   for (const [field, value] of Object.entries(fixture.payload)) args[wire.argNames[field]] = value;
 

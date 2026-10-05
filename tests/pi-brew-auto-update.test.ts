@@ -261,7 +261,7 @@ describe("brew auto update sequence", () => {
     const { deps, calls } = await dependencies({
       exec: async (command, args, options) => {
         calls.push([command, args]);
-        execOptions.push(options as CapturedExecOptions);
+        execOptions.push(options);
 
         return { code: 0, stdout: "", stderr: "", killed: false };
       },
@@ -508,7 +508,7 @@ describe("brew auto update sequence", () => {
     const { deps, calls } = await dependencies({
       exec: async (command, args, options) => {
         calls.push([command, args]);
-        execOptions.push(options as CapturedExecOptions);
+        execOptions.push(options);
 
         return { code: null, stdout: "", stderr: "", killed: true };
       },
@@ -722,7 +722,7 @@ test("registers session_start to run the update sequence in the background, only
     },
   });
 
-  registerBrewAutoUpdater(fakePi as never, deps);
+  registerBrewAutoUpdater(fakePi, deps);
   const startup = handlers.get("session_start")!;
   // The sequence runs in the background and the first exec is several awaits
   // in, so `calls` is empty right after a rejected event whether the reason
@@ -731,6 +731,7 @@ test("registers session_start to run the update sequence in the background, only
   // sequence: no run can start without it. Counting that read is the causal
   // signal, and the startup event below is the control proving it still fires.
   let uiReads = 0;
+
   const ctx = { get ui() { uiReads += 1;
 
  return fakeUi().ui; } };
@@ -775,7 +776,7 @@ test("invokes the registered brew-auto-update-now handler and runs the full upda
     },
   });
 
-  registerBrewAutoUpdater(fakePi as never, deps);
+  registerBrewAutoUpdater(fakePi, deps);
   expect(commandHandler).toBeDefined();
 
   const { ui } = fakeUi();

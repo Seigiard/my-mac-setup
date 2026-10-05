@@ -211,6 +211,9 @@ jobs:
       - name: Install bun
         uses: oven-sh/setup-bun@v2
 
+      - name: Install checkout lint and test dependencies
+        run: npm ci
+
       # Stage 1: Initialize chezmoi (non-interactive via env vars)
       - name: Initialize chezmoi
         env:
@@ -369,6 +372,9 @@ jobs:
       # platforms rather than depending on Homebrew's shell environment.
       - name: Install bun
         uses: oven-sh/setup-bun@v2
+
+      - name: Install checkout lint and test dependencies
+        run: npm ci
 
       # This runner has 3 cores, so the suite's default of 8 workers
       # oversubscribes it nearly 3:1. The herdr-task-sync tests bound their

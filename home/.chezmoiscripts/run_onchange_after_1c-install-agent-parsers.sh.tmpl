@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Install schema parsers after mise has installed Node.
+# hooks manifest: {{ include "dot_local/lib/agent-hooks/package.json" | sha256sum }}
+# hooks lock: {{ include "dot_local/lib/agent-hooks/package-lock.json" | sha256sum }}
+# updater manifest: {{ include "dot_pi/agent/extensions/brew-auto-update/package.json" | sha256sum }}
+# updater lock: {{ include "dot_pi/agent/extensions/brew-auto-update/package-lock.json" | sha256sum }}
+set -euo pipefail
+
+for brew_bin in /opt/homebrew/bin/brew /home/linuxbrew/.linuxbrew/bin/brew /usr/local/bin/brew; do
+  if [[ -x "$brew_bin" ]]; then
+    eval "$("$brew_bin" shellenv)"
+    break
+  fi
+done
+
+for root in "$HOME/.local/lib/agent-hooks" "$HOME/.pi/agent/extensions/brew-auto-update"; do
+  npm ci --prefix "$root" --omit=dev --no-audit --no-fund
+done

@@ -21,7 +21,7 @@ if (shouldLoad) {
   try {
     const module = await import(join(root, "index.ts"))
 
-    if (typeof module.default === "function") intercomExtension = module.default
+    if (module.default instanceof Function) intercomExtension = module.default
   } catch {
     // Intercom is additive; an incomplete optional install must not block Pi.
   }

@@ -48,7 +48,7 @@ export const AgentsLocalPlugin: Plugin = async ({ directory }) => {
 
       if (!Array.isArray(system)) return
 
-      if (system.some((entry) => typeof entry === "string" && entry.includes(heading))) return
+      if (system.some((entry: string) => entry.includes(heading))) return
 
       let block: string | undefined
 

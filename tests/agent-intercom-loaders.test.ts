@@ -2,6 +2,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { z } from "zod";
+
+const lockSchema = z.object({
+  packages: z.record(z.string(), z.object({ resolved: z.string().optional(), integrity: z.string().optional() })),
+});
 
 const OPENCODE_LOADER =
   process.env.AGENT_INTERCOM_OPENCODE_LOADER_PATH ??
@@ -104,8 +109,8 @@ async function plantImportMarker(home: string, packageName: string, entry: strin
 
 describe("Agent Intercom package pins", () => {
   test("the lock resolves every git dependency over portable HTTPS URLs", () => {
-    const lock = JSON.parse(readFileSync(PACKAGE_LOCK, "utf8"));
-    const packages = lock.packages as Record<string, { resolved?: string }>;
+    const lock = lockSchema.parse(JSON.parse(readFileSync(PACKAGE_LOCK, "utf8")));
+    const packages = lock.packages;
 
     for (const name of [
       "agent-intercom-core",
@@ -120,11 +125,9 @@ describe("Agent Intercom package pins", () => {
   });
 
   test("every registry artifact has a recorded integrity hash", () => {
-    const lock = JSON.parse(readFileSync(PACKAGE_LOCK, "utf8"));
+    const lock = lockSchema.parse(JSON.parse(readFileSync(PACKAGE_LOCK, "utf8")));
 
-    const packages = Object.entries(lock.packages) as Array<
-      [string, { resolved?: string; integrity?: string }]
-    >;
+    const packages = Object.entries(lock.packages);
 
     const fromRegistry = packages.filter(([, entry]) =>
       entry.resolved?.startsWith("https://registry.npmjs.org/"),
@@ -254,7 +257,7 @@ describe("Pi Agent Intercom loader", () => {
       HERDR_AGENT_INTERCOM_PI_LOAD: String(process.pid),
     });
 
-    const pi: Record<string, unknown> = {};
+    const pi = {};
     module.default(pi);
     expect(pi).toEqual({ transport: "native" });
   });
@@ -264,7 +267,7 @@ describe("Pi Agent Intercom loader", () => {
     const marker = await plantImportMarker(home, "agent-intercom-pi", "index.ts");
 
     const module = await loadFromHome(PI_LOADER, home, false);
-    const pi: Record<string, unknown> = {};
+    const pi = {};
     module.default(pi);
 
     expect(existsSync(marker)).toBe(false);
@@ -276,7 +279,7 @@ describe("Pi Agent Intercom loader", () => {
     const marker = await plantImportMarker(home, "agent-intercom-pi", "index.ts");
 
     const module = await loadFromHome(PI_LOADER, home, true);
-    const pi: Record<string, unknown> = {};
+    const pi = {};
     module.default(pi);
 
     expect(existsSync(marker)).toBe(false);
@@ -290,7 +293,7 @@ describe("Pi Agent Intercom loader", () => {
       HERDR_AGENT_INTERCOM_PI_LOAD: String(process.pid),
     });
 
-    const pi: Record<string, unknown> = {};
+    const pi = {};
     module.default(pi);
     expect(pi).toEqual({});
   });
@@ -328,8 +331,8 @@ describe("Pi Agent Intercom loader", () => {
       2,
     );
 
-    const initial: Record<string, unknown> = {};
-    const reloaded: Record<string, unknown> = {};
+    const initial = {};
+    const reloaded = {};
     modules[0].default(initial);
     modules[1].default(reloaded);
     expect(initial).toEqual({ transport: "native" });
@@ -349,7 +352,7 @@ describe("Pi Agent Intercom loader", () => {
       HERDR_AGENT_INTERCOM_PI_LOAD: String(process.pid + 1),
     });
 
-    const pi: Record<string, unknown> = {};
+    const pi = {};
     module.default(pi);
     expect(pi).toEqual({});
   });

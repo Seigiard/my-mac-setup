@@ -106,7 +106,7 @@ async function loadTransform(root: string): Promise<{ transform: Transform; prom
   const transform = host.hooks["experimental.chat.system.transform"];
   expect(transform).toBeTypeOf("function");
 
-  return { transform: transform as Transform, promptAsyncCalls: host.promptAsyncCalls };
+  return { transform, promptAsyncCalls: host.promptAsyncCalls };
 }
 
 describe("OpenCode model-request resource context", () => {

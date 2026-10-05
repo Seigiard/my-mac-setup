@@ -25,8 +25,8 @@ function queryContext(sessionID: string): Promise<string | undefined> {
   })
 }
 
-function generatedContext(entry: unknown): boolean {
-  return typeof entry === "string" && (entry === HEADING || entry.startsWith(`${HEADING}\n`))
+function generatedContext(entry: string): boolean {
+  return entry === HEADING || entry.startsWith(`${HEADING}\n`)
 }
 
 export const HerdrResourceContextPlugin: Plugin = async () => {

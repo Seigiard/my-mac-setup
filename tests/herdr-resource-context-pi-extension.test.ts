@@ -83,7 +83,7 @@ async function loadExtension(root: string, herdrEnv = "1") {
     registerResourceContext({
       on: (event: string, handler: Function) => handlers.set(event, handler),
       sendMessage: () => sendMessageCalls++,
-    } as never);
+    });
 
     return { handlers, sendMessageCalls: () => sendMessageCalls };
   } finally {
@@ -113,9 +113,14 @@ async function loadActiveExtension(root: string) {
   const host = await loadExtension(root);
   expect([...host.handlers.keys()].sort()).toEqual(["before_agent_start", "session_start"]);
 
+  const sessionStart = host.handlers.get("session_start");
+  const beforeAgentStart = host.handlers.get("before_agent_start");
+
+  if (!sessionStart || !beforeAgentStart) throw new Error("resource context handlers were not registered");
+
   return {
-    sessionStart: host.handlers.get("session_start") as Function,
-    beforeAgentStart: host.handlers.get("before_agent_start") as Function,
+    sessionStart,
+    beforeAgentStart,
     sendMessageCalls: host.sendMessageCalls,
   };
 }

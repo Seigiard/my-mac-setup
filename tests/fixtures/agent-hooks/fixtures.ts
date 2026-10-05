@@ -6,14 +6,14 @@
 // generated from the normalizer, so it stays an independent statement of what a
 // client sends.
 
-import type { ClientId, EventPayload, ToolKind } from "../../../home/dot_local/lib/agent-hooks/types.ts";
+import type { ClientId, EventPayload, ToolKind, ToolEventValue } from "../../../home/dot_local/lib/agent-hooks/types.ts";
 
 export type DialectFixture = {
   name: string;
   tool: ToolKind;
   payload: Partial<EventPayload>;
   /** Absent client = that client has no wire shape for this tool. */
-  raw: Partial<Record<ClientId, unknown>>;
+  raw: Partial<Record<ClientId, ToolEventValue>>;
 };
 
 const TEST_FILE = "/repo/tests/example_test.sh";

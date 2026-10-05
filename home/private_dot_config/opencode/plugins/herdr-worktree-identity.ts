@@ -29,15 +29,14 @@ export const HerdrWorktreeIdentityPlugin: Plugin = async () => {
       if (!sessionID || childSessions.has(sessionID)) return
 
       const prompt = (Array.isArray(output?.parts) ? output.parts : [])
-        .filter((part: any) => part?.type === "text" && typeof part.text === "string")
-        .map((part: any) => part.text)
+        .flatMap((part: { type: string; text?: string }) => part?.type === "text" && part.text !== undefined ? [part.text] : [])
         .join("\n")
 
       if (prompt.trim() !== "") await handoffWorktreeIdentity("opencode", sessionID, prompt)
     },
     event: async ({ event }) => {
-      const type = (event as any)?.type
-      const info = (event as any)?.properties?.info
+      const type = event?.type
+      const info = event?.properties?.info
 
       if (type === "session.deleted" && info?.id) childSessions.delete(info.id)
       else if (info?.id && info.parentID) childSessions.add(info.id)

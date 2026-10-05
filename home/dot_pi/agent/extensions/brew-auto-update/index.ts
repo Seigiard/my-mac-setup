@@ -4,6 +4,7 @@ import { mkdir, readFile, rename, rmdir, stat, unlink, writeFile } from "node:fs
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
+import { z } from "zod";
 
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 
@@ -125,7 +126,7 @@ function defaultProcessAlive(pid: number): boolean {
 
     return true;
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
+    return ioErrorSchema.safeParse(error).data?.code === "EPERM";
   }
 }
 
@@ -147,23 +148,19 @@ function createDefaultDependencies(pi: ExtensionAPI): BrewAutoUpdateDependencies
   };
 }
 
-function errorCode(error: unknown): string | undefined {
-  return (error as NodeJS.ErrnoException | undefined)?.code;
-}
+const ioErrorSchema = z.object({ code: z.string() });
+
+const ownerSchema = z.object({
+  pid: z.number().refine(Number.isSafeInteger),
+  startedAt: z.number().finite(),
+  token: z.string().min(1),
+});
 
 async function readOwner(lockPath: string): Promise<LockOwner | undefined> {
   try {
-    const parsed = JSON.parse(await readFile(join(lockPath, OWNER_FILE), "utf8")) as Partial<LockOwner>;
+    const parsed = ownerSchema.safeParse(JSON.parse(await readFile(join(lockPath, OWNER_FILE), "utf8")));
 
-    if (
-      Number.isSafeInteger(parsed.pid) &&
-      typeof parsed.startedAt === "number" &&
-      Number.isFinite(parsed.startedAt) &&
-      typeof parsed.token === "string" &&
-      parsed.token.length > 0
-    ) {
-      return parsed as LockOwner;
-    }
+    if (parsed.success) return parsed.data;
   } catch {
     // A process can stop between the atomic directory create and owner write.
   }
@@ -187,7 +184,7 @@ async function removeLockDirectory(lockPath: string): Promise<void> {
   try {
     await unlink(join(lockPath, OWNER_FILE));
   } catch (error) {
-    if (errorCode(error) !== "ENOENT") throw error;
+    if (ioErrorSchema.safeParse(error).data?.code !== "ENOENT") throw error;
   }
 
   await rmdir(lockPath);
@@ -199,7 +196,9 @@ async function reclaimStaleLock(lockPath: string, deps: BrewAutoUpdateDependenci
   try {
     await rename(lockPath, stalePath);
   } catch (error) {
-    if (errorCode(error) === "ENOENT" || errorCode(error) === "EEXIST") return false;
+    const code = ioErrorSchema.safeParse(error).data?.code;
+
+    if (code === "ENOENT" || code === "EEXIST") return false;
     throw error;
   }
 
@@ -236,7 +235,7 @@ async function acquireLock(deps: BrewAutoUpdateDependencies): Promise<UpdateLock
         },
       };
     } catch (error) {
-      if (errorCode(error) !== "EEXIST") throw error;
+      if (ioErrorSchema.safeParse(error).data?.code !== "EEXIST") throw error;
     }
 
     const owner = await readOwner(deps.lockPath);
@@ -364,7 +363,7 @@ export async function captureExtensionSnapshot(
       try {
         snapshot.set(key, contentDigest(await readFile(join(installedPackage.path, "package.json"))));
       } catch (error) {
-        if (errorCode(error) !== "ENOENT") return undefined;
+        if (ioErrorSchema.safeParse(error).data?.code !== "ENOENT") return undefined;
         snapshot.set(key, "missing");
       }
 
@@ -380,7 +379,7 @@ export async function captureExtensionSnapshot(
         try {
           snapshot.set(`lock\0${path}`, contentDigest(await readFile(path)));
         } catch (error) {
-          if (errorCode(error) !== "ENOENT") return undefined;
+          if (ioErrorSchema.safeParse(error).data?.code !== "ENOENT") return undefined;
         }
       }
     }

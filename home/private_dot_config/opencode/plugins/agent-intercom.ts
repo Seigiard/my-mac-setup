@@ -6,24 +6,25 @@ let intercomPlugin: Plugin | undefined
 
 const intercomName = process.env.OPENCODE_INTERCOM_NAME?.trim()
 
-function withCloneableResponses(client: any): any {
+type IntercomClient = Parameters<Plugin>[0]["client"];
+
+function withCloneableResponses(client: IntercomClient): IntercomClient {
   if (!client) return client
-  const namespaces = new Set(["session", "tui"])
 
   return new Proxy(client, {
-    get(target, property, receiver) {
-      const namespace = Reflect.get(target, property, receiver)
+    get(target, property) {
+      const namespace = target[property]
 
-      if (!namespaces.has(property as string) || !namespace) return namespace
+      if ((property !== "session" && property !== "tui") || !namespace) return namespace
 
       return new Proxy(namespace, {
-        get(namespaceTarget, method, namespaceReceiver) {
-          const value = Reflect.get(namespaceTarget, method, namespaceReceiver)
+        get(namespaceTarget, method) {
+          const value = namespaceTarget[method]
 
-          if (typeof value !== "function") return value
+          if (!(value instanceof Function)) return value
 
           return async (...args: any[]) => {
-            const result = await Reflect.apply(value, namespaceTarget, args)
+            const result = await value.apply(namespaceTarget, args)
             const response = result?.response
 
             if (!response?.bodyUsed) return result
@@ -40,9 +41,9 @@ function withCloneableResponses(client: any): any {
                   })
                 }
 
-                const responseValue = Reflect.get(responseTarget, responseProperty, responseTarget)
+                const responseValue = responseTarget[responseProperty]
 
-                return typeof responseValue === "function"
+                return responseValue instanceof Function
                   ? responseValue.bind(responseTarget)
                   : responseValue
               },
@@ -70,7 +71,7 @@ if (process.env.HERDR_ENV === "1" && intercomName) {
   try {
     const module = await import(join(root, "dist", "plugin.mjs"))
 
-    if (typeof module.default === "function") intercomPlugin = module.default
+    if (module.default instanceof Function) intercomPlugin = module.default
   } catch {
     // Intercom is additive; an incomplete optional install must not block OpenCode.
   }

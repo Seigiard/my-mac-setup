@@ -12,6 +12,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync,
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { z } from "zod";
 
 import { dispatch } from "./index.ts";
 import { encodeEvent } from "./normalize.ts";
@@ -62,6 +63,15 @@ export type Marker = {
   identityFormat?: string;
 };
 
+const markerSchema = z.object({
+  client: z.string(),
+  pid: z.number().int(),
+  hash: z.string(),
+  loadedAt: z.string().catch(""),
+  processStartedAt: z.string().nullable().optional().catch(undefined),
+  identityFormat: z.string().optional().catch(undefined),
+});
+
 type ProcessProbe = {
   isAlive?: (pid: number) => boolean;
   getProcessStart?: (pid: number) => string | null;
@@ -87,7 +97,7 @@ export function processStartTime(pid: number): string | null {
 function matchesProcessStart(marker: Marker, getStart: (pid: number) => string | null): boolean | null {
   if (marker.identityFormat !== "ps-lstart-c-utc-v1") return null;
 
-  if (typeof marker.processStartedAt !== "string" || marker.processStartedAt.length === 0) return null;
+  if (!marker.processStartedAt) return null;
   const current = getStart(marker.pid);
 
   return current ? current === marker.processStartedAt : null;
@@ -144,9 +154,10 @@ export function writeMarker(
     try {
       // This process supersedes its own legacy or unverifiable records.
       if (pid !== marker.pid && isAlive(pid)) {
-        const previous = JSON.parse(readFileSync(join(stateDir, name), "utf8"));
+        const parsed = markerSchema.safeParse(JSON.parse(readFileSync(join(stateDir, name), "utf8")));
+        const previous = parsed.success ? parsed.data : undefined;
 
-        if (previous?.client !== client || previous?.pid !== pid ||
+        if (!previous || previous.client !== client || previous.pid !== pid ||
             matchesProcessStart(previous, getStart) !== false) continue;
       }
 
@@ -170,11 +181,9 @@ export function readMarkers(stateDir: string): Marker[] {
     if (!name.endsWith(".json")) continue;
 
     try {
-      const parsed = JSON.parse(readFileSync(join(stateDir, name), "utf8"));
+      const parsed = markerSchema.safeParse(JSON.parse(readFileSync(join(stateDir, name), "utf8")));
 
-      if (typeof parsed?.client === "string" && Number.isInteger(parsed?.pid) && typeof parsed?.hash === "string") {
-        markers.push(parsed as Marker);
-      }
+      if (parsed.success) markers.push(parsed.data);
     } catch {
       // A truncated or foreign file is not evidence; ignore it.
     }
@@ -216,10 +225,12 @@ export type IdentityOptions = ProcessProbe & {
  * Dead or replaced processes are not evidence. Unverifiable live markers keep
  * a client unknown unless a confirmed stale session already proves core skew.
  */
-export function inspectIdentity(options: IdentityOptions = {}): {
+export type IdentityReport = {
   deployedHash: string;
   clients: ClientIdentity[];
-} {
+};
+
+export function inspectIdentity(options: IdentityOptions = {}): IdentityReport {
   const stateDir = options.stateDir ?? DEFAULT_STATE_DIR;
   const deployedHash = options.deployedHash ?? coreHash();
   const isAlive = options.isAlive ?? processIsAlive;
@@ -233,9 +244,9 @@ export function inspectIdentity(options: IdentityOptions = {}): {
 
   return {
     deployedHash,
-    clients: clients.map((client) => {
+    clients: clients.map((client): ClientIdentity => {
       if (markerless.includes(client)) {
-        return { client, status: "per-call" as IdentityStatus, live: [], stale: [], uncertain: [] };
+        return { client, status: "per-call", live: [], stale: [], uncertain: [] };
       }
 
       const candidates = markers.filter(({ marker }) => marker.client === client);

@@ -5,6 +5,31 @@
 
 export type ClientId = "claude" | "opencode" | "pi";
 
+/** Values carried by a client's JSON tool-call transport, before decoding. */
+export type ToolEventValue = string | number | boolean | null | ToolEventValue[] | {
+  [field: string]: ToolEventValue | undefined;
+};
+
+export type ToolArguments = {
+  file_path?: string;
+  filePath?: string;
+  path?: string;
+  content?: string;
+  new_string?: string;
+  newString?: string;
+  edits?: { new_string?: string; newText?: string }[];
+  command?: string;
+  cmd?: string;
+  query?: string;
+  pattern?: string;
+  url?: string;
+};
+
+export type EncodedEvent =
+  | { tool_name: string; tool_input: ToolArguments }
+  | { tool: string; args: ToolArguments }
+  | { toolName: string; input: ToolArguments };
+
 /** Canonical tool kinds. Client-specific spellings are registry data. */
 export type ToolKind = "edit" | "write" | "bash" | "fff-grep" | "web-fetch";
 

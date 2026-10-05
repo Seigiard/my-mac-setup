@@ -68,7 +68,7 @@ async function loadExtension(coreDir?: string): Promise<Host> {
       },
     };
 
-    module.default(pi as never);
+    module.default(pi);
 
     return { handlers, events };
   } finally {
@@ -100,7 +100,7 @@ async function callToolCall(host: Host, raw: any): Promise<any> {
 // test below green while real pi traffic reached no policy. Source is the same
 // as the corpus's hand-written `raw.pi` entries — the shipped adapter, with
 // `ffgrep`/`pattern` as pi-fff spells them in its default tools-and-ui mode.
-const PI_WIRE: Record<string, { toolName: string; fields: Record<string, string> }> = {
+const PI_WIRE = {
   bash: { toolName: "bash", fields: { command: "command" } },
   "fff-grep": { toolName: "ffgrep", fields: { query: "pattern" } },
 };
@@ -110,7 +110,7 @@ function piRawFor(fixture: any): any | undefined {
   const wire = PI_WIRE[fixture.tool];
 
   if (wire === undefined) return undefined;
-  const input: Record<string, unknown> = {};
+  const input: Record<string, string> = {};
 
   for (const [field, value] of Object.entries(fixture.payload)) input[wire.fields[field]] = value;
 
