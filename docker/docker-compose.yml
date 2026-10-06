@@ -76,6 +76,7 @@ services:
       - ../package.json:/home/testuser/package.json:ro
       - ../package-lock.json:/home/testuser/package-lock.json:ro
       - ../.oxlintrc.json:/home/testuser/.oxlintrc.json:ro
+      - ../eslint.config.mjs:/home/testuser/eslint.config.mjs:ro
       - ../tools:/home/testuser/tools:ro
     environment:
       - CHEZMOI_NAME=Test User
@@ -117,6 +118,7 @@ services:
         cp /home/testuser/Makefile /home/testuser/worktree/Makefile
         cp /home/testuser/README.md /home/testuser/worktree/README.md
         cp /home/testuser/package.json /home/testuser/package-lock.json /home/testuser/.oxlintrc.json /home/testuser/worktree/
+        cp /home/testuser/eslint.config.mjs /home/testuser/worktree/
         cp -r /home/testuser/tools /home/testuser/worktree/tools
         cd /home/testuser/worktree
 
@@ -166,6 +168,7 @@ services:
       - ../package.json:/home/testuser/package.json:ro
       - ../package-lock.json:/home/testuser/package-lock.json:ro
       - ../.oxlintrc.json:/home/testuser/.oxlintrc.json:ro
+      - ../eslint.config.mjs:/home/testuser/eslint.config.mjs:ro
       - ../tools:/home/testuser/tools:ro
     environment:
       - CHEZMOI_NAME=Test User
@@ -200,6 +203,7 @@ services:
         cp /home/testuser/Makefile /home/testuser/worktree/Makefile
         cp /home/testuser/README.md /home/testuser/worktree/README.md
         cp /home/testuser/package.json /home/testuser/package-lock.json /home/testuser/.oxlintrc.json /home/testuser/worktree/
+        cp /home/testuser/eslint.config.mjs /home/testuser/worktree/
         cp -r /home/testuser/tools /home/testuser/worktree/tools
         cd /home/testuser/worktree
         (cd home && cp -r . /home/testuser/.local/share/chezmoi/)

@@ -62,6 +62,28 @@ chezmoi clones into `~/.local/share/chezmoi` (it reads `.chezmoiroot = home` aut
 - Applies macOS system preferences
 - Sets up all configs (zsh, git, starship, yazi, etc.)
 
+## Repository checks
+
+Run `make lint` to check shell scripts, YAML files, and Markdown YAML frontmatter.
+Run `npm ci` first to install the check tools. `make lint-yaml` runs only the YAML
+checks: remark-lint-frontmatter-validation validates Markdown frontmatter, and
+ESLint with eslint-plugin-yml validates YAML files.
+Chezmoi `.tmpl` sources are excluded from these source checks.
+
+Run `make install-git-hooks` once per clone to install hooks with simple-git-hooks.
+Before commit, nano-staged runs the matching checks for staged Markdown and YAML
+paths. Before push, all source YAML and frontmatter checks run against the working
+tree. CI runs the same checks through `make lint`. Add new file patterns and
+commands to the `nano-staged` section in `package.json` as checks grow.
+
+Herdr installs these dependencies in new worktrees through `npm ci`. Run it
+manually in worktrees created outside Herdr. `make lint-shell` runs the shell
+checks without npm dependencies.
+
+Nano-staged 1.0.2 preserves partial content edits, but does not hide unstaged
+file-type changes. Stage regular-file/symlink replacements explicitly before
+committing so the hook does not add a replacement you intended to leave unstaged.
+
 ## Manual Configuration
 
 After running chezmoi, configure these manually:

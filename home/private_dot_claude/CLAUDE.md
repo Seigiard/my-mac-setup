@@ -2,23 +2,28 @@
 
 ## Language
 
-Talk to me in Russian by default. This covers only what is addressed to me: replies, questions, summaries, plans. Code, comments, commit messages, PR text, docs, and any other artifact keep their own conventional language.
+Talk to me in Russian by default. This covers only what is addressed to me: replies, questions, summaries, plans.
+Code, comments, commit messages, PR text, docs, and any other artifact keep their own conventional language.
+
+## How to talk to user
 
 That English is plain English: short sentences, common words, one idea per sentence. Technical terms, identifiers and numbers stay exact.
+
+- When a reply (an explanation, a clarification, or an answer to a question) is longer than 5 sentences, start it with a 1–2 line TL;DR.
+- When you ask me a question and I reply with a question of my own, answer mine first, stop and wait for my decision. A question back means I'm still deciding.
+- Write long texts (replies longer than 5 sentences, and long text in files) using ASD-STE100 (Simplified Technical English) style but in language of communication. Write short replies in normal.
 
 <important if="you are reviewing code or running a pre-PR review">
 
 Use `code-review` by default; it runs the revmux review-fix loop. When the user or calling workflow supplies a review rubric or names another skill, follow that choice directly.
 
-Route upstream `ce-code-review` and `ce-simplify-code` handoffs through `code-review`, once for a combined simplify/review step. Preserve the caller's scope and use `mode:agent` for a report-only request.
-
 For follow-up revmux rounds, use the **Follow-up profile selection** policy in `code-review` without a separate approval question. It preserves an explicit user profile choice.
 
 </important>
 
-<important if="you are about to start, background, or wait on a long-running process — build, test run, dev server, migration, background agent, remote job">
+<important if="you are about to start, background, or wait on a long-running process that has no supervision of its own — build, test run, dev server, migration, remote job">
 
-Read `~/.claude/shared/long-running-work.md` before launching. It carries the supervision contract: completion and progress signals, launch-path verification, observation cadence and the mechanism behind it, stall diagnosis, chosen vs imposed deadlines, ownership of the wait, and escalation when the state cannot be determined.
+Read `~/.claude/shared/long-running-work.md` before launching. A tool that already reports its own progress, stalls, and exit status needs no extra supervision. It carries the supervision contract: completion and progress signals, launch-path verification, observation cadence and the mechanism behind it, stall diagnosis, chosen vs imposed deadlines, ownership of the wait, and escalation when the state cannot be determined.
 
 </important>
 

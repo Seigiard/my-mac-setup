@@ -4,10 +4,14 @@ A long-running process remains owned until it reaches an observed terminal state
 
 This file re-anchors the Environment rules in `~/.claude/CLAUDE.md` at the moment a process is launched, and adds what a tier-1 bullet cannot carry: the ordered supervision contract, and the failure patterns that keep a wait looking healthy after the work is already dead.
 
+## When this applies
+
+Apply the contract when the process runs for more than a few minutes, or cannot be restarted safely, and nothing but you watches it. If the tool already supervises itself — it reports progress, detects stalls, and returns a terminal status you can read — rely on that and skip the rest of this file.
+
 ## Supervision contract
 
 1. **Define completion and progress before launch.** Name the terminal success and failure signals, how the exit status will be recovered, and what observable change distinguishes progress from a live but blocked process.
-2. **Choose an observation cadence and the mechanism that carries it past this turn.** Set the next check from the process's expected progress rate and cost of failure. Name what will actually wake that check: a backgrounded task whose completion re-invokes the agent, a durable monitor armed on the log or state file, a scheduled wake-up, or a pane the user and the agent both read. A cadence with no mechanism behind it is an intention, not a plan.
+2. **Choose an observation cadence and the mechanism that carries it past this turn.** Set the next check from the process's expected progress rate and cost of failure. Name what will actually wake that check: a backgrounded task whose completion re-invokes the agent, a durable monitor armed on the log or state file, or a scheduled wake-up. Prefer these by default. Use a visible pane only when the user asks to watch the process or a project rule requires one. A cadence with no mechanism behind it is an intention, not a plan.
 3. **Verify the launch path.** Immediately confirm that the intended process started, output or state is observable, and the monitor can see its first event. Check whether the work depends on the launching wrapper, terminal, or parent remaining alive.
 4. **Inspect state at every checkpoint.** Check both liveness and progress: output age or growth, process tree, resource activity, child state, and the expected completion signal. A live PID alone is not evidence of progress; quiet output alone is not evidence of failure.
 5. **Treat unexplained stasis as an incident.** When expected progress stops, diagnose promptly instead of extending the wait. Establish whether the process is computing, blocked, orphaned, waiting for input or EOF, observing the wrong output, or already dead before deciding what to do.

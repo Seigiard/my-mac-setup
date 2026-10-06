@@ -1,5 +1,7 @@
 .PHONY: help test-python test-ubuntu test-local test-suite test-docker test-templates test-pi-agents-local test-agents-local-opencode test-herdr-resource-context-opencode test-herdr-resource-context-pi test-pi-brew-auto-update test-pi-herdr-worktree-identity test-agent-hooks-core test-agent-hooks-opencode test-agent-hooks-pi test-agent-intercom-loaders lint clean build-docker shell-ubuntu
 
+.PHONY: lint-yaml lint-shell install-git-hooks
+
 help:
 	@echo "Chezmoi Dotfiles - Available commands:"
 	@echo ""
@@ -19,7 +21,10 @@ help:
 	@echo "  make test-agent-intercom-loaders  Run focused Agent Intercom loader tests"
 	@echo "  make test-local       Diff checkout source against current home (dry-run)"
 	@echo "  make test-docker      Build and run full Docker test suite"
-	@echo "  make lint             Run shellcheck on all scripts"
+	@echo "  make lint             Run shellcheck and YAML validation"
+	@echo "  make lint-yaml        Check YAML files and Markdown frontmatter"
+	@echo "  make lint-shell       Run shellcheck and shell assertion checks"
+	@echo "  make install-git-hooks  Enable pre-commit and pre-push checks in this clone"
 	@echo "  make shell-ubuntu     Open interactive shell in Ubuntu container"
 	@echo "  make build-docker     Build Docker image without running tests"
 	@echo "  make clean            Remove Docker containers and images"
@@ -87,9 +92,17 @@ test-docker: test-python build-docker
 	@echo "=== Running Ubuntu tests ==="
 	docker compose -f docker/docker-compose.yml run --rm test-full
 
+lint-yaml:
+	npm run lint:yaml
+
+install-git-hooks:
+	npm run hooks:install
+
 # tests/bashunit/*_test.sh: converted test bodies; shellcheck them when the
 # vocabulary is nativized.
-lint: lint-anti-slop
+lint: lint-anti-slop lint-yaml lint-shell
+
+lint-shell:
 	@echo "=== Running shellcheck ==="
 	find . -name "*.sh" -type f -not -path "./.git/*" -not -path "./.worktrees/*" -not -path "*/node_modules/*" -not -path "./.context/*" -not -path "./.claude/worktrees/*" -not -path "./tests/bashunit/*_test.sh" | xargs shellcheck --severity=warning
 	find home -name "run_*" -type f 2>/dev/null | xargs shellcheck --severity=warning

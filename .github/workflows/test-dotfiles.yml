@@ -428,12 +428,14 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get install -y shellcheck
 
-      - uses: actions/setup-node@v4
+      - name: Install Node.js for lint tools
+        uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
 
-      - run: npm ci
+      - name: Install lint tools
+        run: npm ci
 
-      - name: Run shellcheck on scripts
+      - name: Run linters
         run: make lint
