@@ -19,7 +19,9 @@ const HINT =
 
 function evaluate(event: NormalizedEvent): Decision {
   const url = event.url;
+
   if (url === "" || url.includes(PREFERRED_HOST)) return ALLOW;
+
   return context(HINT);
 }
 

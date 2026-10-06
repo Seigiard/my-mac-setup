@@ -84,9 +84,11 @@ export function supportedToolKinds(profile: ClientProfile): ToolKind[] {
 export function isApplicable(profile: ClientProfile, policy: Policy): boolean {
   const kinds = supportedToolKinds(profile);
   const toolPresent = policy.tools.some((tool) => kinds.includes(tool));
+
   const outcomesSupported = policy.outcomes.every((outcome: OutcomeKind) =>
     profile.outcomes.includes(outcome),
   );
+
   return toolPresent && outcomesSupported;
 }
 

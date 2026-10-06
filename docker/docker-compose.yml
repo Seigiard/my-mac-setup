@@ -73,6 +73,11 @@ services:
       - ../scripts/check_bats_assertions.py:/home/testuser/check-bats-assertions.py:ro
       - ../Makefile:/home/testuser/Makefile:ro
       - ../README.md:/home/testuser/README.md:ro
+      - ../package.json:/home/testuser/package.json:ro
+      - ../package-lock.json:/home/testuser/package-lock.json:ro
+      - ../.oxlintrc.json:/home/testuser/.oxlintrc.json:ro
+      - ../eslint.config.mjs:/home/testuser/eslint.config.mjs:ro
+      - ../tools:/home/testuser/tools:ro
     environment:
       - CHEZMOI_NAME=Test User
       - CHEZMOI_EMAIL=test@example.com
@@ -112,6 +117,9 @@ services:
         cp /home/testuser/check-bats-assertions.py /home/testuser/worktree/scripts/check_bats_assertions.py
         cp /home/testuser/Makefile /home/testuser/worktree/Makefile
         cp /home/testuser/README.md /home/testuser/worktree/README.md
+        cp /home/testuser/package.json /home/testuser/package-lock.json /home/testuser/.oxlintrc.json /home/testuser/worktree/
+        cp /home/testuser/eslint.config.mjs /home/testuser/worktree/
+        cp -r /home/testuser/tools /home/testuser/worktree/tools
         cd /home/testuser/worktree
 
         echo "=== Copying dotfiles to chezmoi source ==="
@@ -131,6 +139,7 @@ services:
           --source=/home/testuser/.local/share/chezmoi --verbose
 
         echo "=== Running post-apply tests ==="
+        npm ci
         tests/run-post-apply.sh full
 
         echo "=== All done! ==="
@@ -156,6 +165,11 @@ services:
       - ../scripts/check_bats_assertions.py:/home/testuser/check-bats-assertions.py:ro
       - ../Makefile:/home/testuser/Makefile:ro
       - ../README.md:/home/testuser/README.md:ro
+      - ../package.json:/home/testuser/package.json:ro
+      - ../package-lock.json:/home/testuser/package-lock.json:ro
+      - ../.oxlintrc.json:/home/testuser/.oxlintrc.json:ro
+      - ../eslint.config.mjs:/home/testuser/eslint.config.mjs:ro
+      - ../tools:/home/testuser/tools:ro
     environment:
       - CHEZMOI_NAME=Test User
       - CHEZMOI_EMAIL=test@example.com
@@ -188,6 +202,9 @@ services:
         cp /home/testuser/check-bats-assertions.py /home/testuser/worktree/scripts/check_bats_assertions.py
         cp /home/testuser/Makefile /home/testuser/worktree/Makefile
         cp /home/testuser/README.md /home/testuser/worktree/README.md
+        cp /home/testuser/package.json /home/testuser/package-lock.json /home/testuser/.oxlintrc.json /home/testuser/worktree/
+        cp /home/testuser/eslint.config.mjs /home/testuser/worktree/
+        cp -r /home/testuser/tools /home/testuser/worktree/tools
         cd /home/testuser/worktree
         (cd home && cp -r . /home/testuser/.local/share/chezmoi/)
         tests/helpers/chezmoi-unattended --profile full-fixture -- init \
@@ -197,4 +214,5 @@ services:
         tests/lib/bashunit -j 8 tests/bashunit/templates_test.sh
         tests/helpers/chezmoi-unattended --profile full-fixture -- apply \
           --source=/home/testuser/.local/share/chezmoi --verbose
+        npm ci
         tests/run-post-apply.sh full

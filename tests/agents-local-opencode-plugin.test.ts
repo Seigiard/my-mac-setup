@@ -14,18 +14,22 @@ import { join } from "node:path";
 const PLUGIN_PATH =
   process.env.AGENTS_LOCAL_OPENCODE_PLUGIN_PATH ??
   join(import.meta.dir, "../home/private_dot_config/opencode/plugins/agents-local.ts");
+
 const PI_EXTENSION_PATH =
   process.env.PI_AGENTS_LOCAL_EXTENSION_PATH ?? join(import.meta.dir, "../home/dot_pi/agent/extensions/agents-local.ts");
+
 const CORE_DIR = process.env.AGENT_HOOKS_CORE_PATH ?? join(import.meta.dir, "../home/dot_local/lib/agent-hooks");
 
 const shared: any = await import(join(CORE_DIR, "local-instructions.ts"));
 
 const temporaryPaths: string[] = [];
+
 let loadCount = 0;
 
 function temporaryDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   temporaryPaths.push(dir);
+
   return dir;
 }
 
@@ -50,6 +54,7 @@ async function loadUnderHome(sourcePath: string, prefix: string): Promise<any> {
 
   const previousHome = process.env.HOME;
   process.env.HOME = home;
+
   try {
     return await import(copy);
   } finally {
@@ -57,13 +62,14 @@ async function loadUnderHome(sourcePath: string, prefix: string): Promise<any> {
   }
 }
 
-type Hook = (input: unknown, output: { system: string[] }) => Promise<void>;
+type Hook = (input: { sessionID?: string }, output: { system: string[] }) => Promise<void>;
 
 async function loadTransform(directory: string): Promise<Hook> {
   const module: any = await loadUnderHome(PLUGIN_PATH, "agents-local-opencode");
   const hooks = (await module.AgentsLocalPlugin({ directory, worktree: directory })) ?? {};
   const transform = hooks["experimental.chat.system.transform"];
   expect(transform).toBeTypeOf("function");
+
   return transform;
 }
 
@@ -75,6 +81,7 @@ async function loadPiHandler(): Promise<Function> {
   // caller would then surface as a TypeError from wherever it happened to call
   // it. Name the missing registration here instead.
   expect(handlers.before_agent_start).toBeTypeOf("function");
+
   return handlers.before_agent_start;
 }
 
@@ -83,6 +90,7 @@ const BASE_SYSTEM = "You are opencode.";
 async function projectWithAgentsLocal(contents: string): Promise<string> {
   const root = temporaryDir("agents-local-project-");
   await writeFile(join(root, "AGENTS.local.md"), contents);
+
   return root;
 }
 
@@ -119,6 +127,7 @@ describe("shared selection module (R7)", () => {
       "",
       contents,
     ].join("\n");
+
     expect(system).toEqual([BASE_SYSTEM, block]);
     expect(piResult.systemPrompt).toBe(BASE_SYSTEM + block);
   });
@@ -249,12 +258,14 @@ const LOCAL_INSTRUCTIONS_FILE = "local-instructions.ts";
 function importSpecifiers(source: string): string[] {
   const specifiers: string[] = [];
   const pattern = /(?:\bfrom\s*|\bimport\s*\(\s*)["']([^"']+)["']/g;
+
   for (const match of source.matchAll(pattern)) specifiers.push(match[1]);
+
   return specifiers;
 }
 
 function typescriptFiles(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true, recursive: true } as any)
+  return readdirSync(dir, { withFileTypes: true, recursive: true })
     .filter((entry: any) => entry.isFile() && entry.name.endsWith(".ts"))
     .map((entry: any) => join(entry.parentPath ?? entry.path ?? dir, entry.name));
 }

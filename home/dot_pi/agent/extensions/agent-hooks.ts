@@ -5,6 +5,7 @@
 // ~/.pi/agent/, where pi's own runtime resolves them.
 
 import { join } from "node:path";
+import type { Decision, ToolEventValue } from "../../../dot_local/lib/agent-hooks/types.ts";
 
 // pi transport for the shared agent-hooks dispatch core.
 //
@@ -17,7 +18,9 @@ import { join } from "node:path";
 // import, or a dispatch that throws must all let the tool call proceed.
 
 const CLIENT = "pi";
+
 const HOME = process.env.HOME ?? "";
+
 const CORE_DIR = join(HOME, ".local", "lib", "agent-hooks");
 
 // Load-time import rather than per-call (KTD5): a failure is front-loaded into
@@ -27,7 +30,8 @@ const CORE_DIR = join(HOME, ".local", "lib", "agent-hooks");
 // awaiting it. (pi 0.84.4 does await a promise-returning tool_call handler and
 // honours the block it resolves to — verified with a scratch extension — but
 // the core needs nothing from that.)
-let dispatch: ((client: string, rawEvent: unknown) => any) | undefined;
+let dispatch: ((client: string, rawEvent: ToolEventValue) => Decision) | undefined;
+
 try {
   ({ dispatch } = await import(join(CORE_DIR, "index.ts")));
 } catch {
@@ -53,6 +57,7 @@ export default function (pi) {
 
   pi.on("tool_call", (event) => {
     let decision: any;
+
     try {
       decision = dispatch(CLIENT, event);
     } catch {
@@ -61,6 +66,7 @@ export default function (pi) {
       // as denies is what the retired per-policy adapters had to do.
       return;
     }
+
     if (decision?.verdict === "block") return { block: true, reason: decision.reason };
   });
 }

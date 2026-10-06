@@ -566,13 +566,14 @@ class TestDockerContract(unittest.TestCase):
                     )
 
     def run_apply_service_script(
-        self, service, root, wrapper_exit_code, env_overrides=None
+        self, service, root, wrapper_exit_code, env_overrides=None, npm_exit_code=0
     ):
         """Run `service`'s complete command script (staging, chezmoi, both
         test gates) against a fake worktree at `root`, under a stubbed PATH.
 
-        chezmoi and the pre-apply bashunit gate are stubbed to always
-        succeed: this proves the script's OWN control flow (does `set -e`
+        chezmoi and the pre-apply bashunit gate always succeed. npm returns
+        the caller's chosen installation status. This proves the script's OWN
+        control flow (does `set -e`
         survive intact, is there a `|| true` or `set +e` hiding downstream
         of the post-apply suite), not chezmoi's behavior or real bashunit
         assertions -- those are covered by other suites.
@@ -596,6 +597,8 @@ class TestDockerContract(unittest.TestCase):
             "exit 0\n"
         )
         (bin_dir / "chezmoi").chmod(0o755)
+        (bin_dir / "npm").write_text("#!/bin/sh\nexit %d\n" % npm_exit_code)
+        (bin_dir / "npm").chmod(0o755)
         # docker/Dockerfile.ubuntu pre-creates this at image build time
         # (`RUN mkdir -p .../.local/share/chezmoi`); the script's own first
         # real step copies into it before ever calling chezmoi, so a stub
@@ -701,6 +704,29 @@ class TestDockerContract(unittest.TestCase):
                     "%s's command script must succeed when tests/run-post-apply.sh full "
                     "succeeds:\nstdout=%s\nstderr=%s" % (name, passing.stdout, passing.stderr),
                 )
+
+    def test_apply_service_scripts_stop_when_dependency_installation_fails(self):
+        for name in self.apply_service_names():
+            with self.subTest(service=name):
+                # given an installer failure and an otherwise successful suite
+                with tempfile.TemporaryDirectory() as tmp:
+                    # when the real service command script runs
+                    failed, _, post_apply = self.run_apply_service_script(
+                        name, Path(tmp), wrapper_exit_code=0, npm_exit_code=13
+                    )
+                    # then installation status survives and the suite is not reached
+                    self.assertEqual(failed.returncode, 13, failed.stdout + failed.stderr)
+                    self.assertFalse(post_apply.exists())
+
+                # given the same pipeline with installation succeeding
+                with tempfile.TemporaryDirectory() as tmp:
+                    # when the real service command script runs
+                    passed, _, post_apply = self.run_apply_service_script(
+                        name, Path(tmp), wrapper_exit_code=0, npm_exit_code=0
+                    )
+                    # then it reaches the suite and exits successfully
+                    self.assertEqual(passed.returncode, 0, passed.stdout + passed.stderr)
+                    self.assertTrue(post_apply.exists())
 
     # A test that greps docker/Dockerfile.ubuntu for the COPY/ARG/render
     # strings used to live here. It was deleted: every grep still matched

@@ -23,13 +23,16 @@ import { join } from "node:path"
 // silently stops the injection rather than breaking a session.
 
 const HOME = process.env.HOME ?? ""
+
 const MODULE_PATH = join(HOME, ".local", "lib", "agent-hooks", "local-instructions.ts")
 
 // Load-time import rather than per-call (KTD5): a failure is front-loaded into
 // a plugin that registers nothing, which is the honest degradation — a
 // registered hook that never appends would look alive to a reader.
 let buildLocalInstructions: ((cwd: string) => Promise<{ block?: string }>) | undefined
+
 let heading: string | undefined
+
 try {
   ;({ buildLocalInstructions, LOCAL_INSTRUCTIONS_HEADING: heading } = await import(MODULE_PATH))
 } catch {
@@ -42,10 +45,13 @@ export const AgentsLocalPlugin: Plugin = async ({ directory }) => {
   return {
     "experimental.chat.system.transform": async (_input, output) => {
       const system = output?.system
+
       if (!Array.isArray(system)) return
-      if (system.some((entry) => typeof entry === "string" && entry.includes(heading))) return
+
+      if (system.some((entry: string) => entry.includes(heading))) return
 
       let block: string | undefined
+
       try {
         ;({ block } = await buildLocalInstructions(directory))
       } catch {
@@ -53,6 +59,7 @@ export const AgentsLocalPlugin: Plugin = async ({ directory }) => {
         // it; local instructions are additive, so degrading to none is safe.
         return
       }
+
       if (block) system.push(block)
     },
   }

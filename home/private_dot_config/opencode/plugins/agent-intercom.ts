@@ -3,25 +3,30 @@ import type { Plugin } from "@opencode-ai/plugin"
 import { join } from "node:path"
 
 let intercomPlugin: Plugin | undefined
+
 const intercomName = process.env.OPENCODE_INTERCOM_NAME?.trim()
 
-function withCloneableResponses(client: any): any {
+type IntercomClient = Parameters<Plugin>[0]["client"];
+
+function withCloneableResponses(client: IntercomClient): IntercomClient {
   if (!client) return client
-  const namespaces = new Set(["session", "tui"])
 
   return new Proxy(client, {
-    get(target, property, receiver) {
-      const namespace = Reflect.get(target, property, receiver)
-      if (!namespaces.has(property as string) || !namespace) return namespace
+    get(target, property) {
+      const namespace = target[property]
+
+      if ((property !== "session" && property !== "tui") || !namespace) return namespace
 
       return new Proxy(namespace, {
-        get(namespaceTarget, method, namespaceReceiver) {
-          const value = Reflect.get(namespaceTarget, method, namespaceReceiver)
-          if (typeof value !== "function") return value
+        get(namespaceTarget, method) {
+          const value = namespaceTarget[method]
+
+          if (!(value instanceof Function)) return value
 
           return async (...args: any[]) => {
-            const result = await Reflect.apply(value, namespaceTarget, args)
+            const result = await value.apply(namespaceTarget, args)
             const response = result?.response
+
             if (!response?.bodyUsed) return result
 
             // The SDK has already consumed this body. Preserve response metadata
@@ -35,12 +40,15 @@ function withCloneableResponses(client: any): any {
                     headers: responseTarget.headers,
                   })
                 }
-                const responseValue = Reflect.get(responseTarget, responseProperty, responseTarget)
-                return typeof responseValue === "function"
+
+                const responseValue = responseTarget[responseProperty]
+
+                return responseValue instanceof Function
                   ? responseValue.bind(responseTarget)
                   : responseValue
               },
             })
+
             return { ...result, response: cloneableResponse }
           }
         },
@@ -59,13 +67,16 @@ if (process.env.HERDR_ENV === "1" && intercomName) {
     "@dataforxyz",
     "agent-intercom-opencode",
   )
+
   try {
     const module = await import(join(root, "dist", "plugin.mjs"))
-    if (typeof module.default === "function") intercomPlugin = module.default
+
+    if (module.default instanceof Function) intercomPlugin = module.default
   } catch {
     // Intercom is additive; an incomplete optional install must not block OpenCode.
   }
 }
+
 // Do not leak this session's alias to nested OpenCode processes.
 delete process.env.OPENCODE_INTERCOM_NAME
 
@@ -75,6 +86,7 @@ export const AgentIntercomPlugin: Plugin = async (input) => {
   if (!intercomPlugin || !intercomName) return {}
 
   process.env.OPENCODE_INTERCOM_NAME = intercomName
+
   try {
     return await intercomPlugin({ ...input, client: withCloneableResponses(input.client) })
   } catch {

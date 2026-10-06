@@ -100,7 +100,7 @@ install-git-hooks:
 
 # tests/bashunit/*_test.sh: converted test bodies; shellcheck them when the
 # vocabulary is nativized.
-lint: lint-yaml lint-shell
+lint: lint-anti-slop lint-yaml lint-shell
 
 lint-shell:
 	@echo "=== Running shellcheck ==="
@@ -109,6 +109,10 @@ lint-shell:
 	find home -name "executable_*" -type f -not -name "*.py" 2>/dev/null | xargs shellcheck --severity=warning
 	shellcheck --severity=warning tests/helpers/chezmoi-unattended
 	python3 scripts/check_bats_assertions.py tests
+
+.PHONY: lint-anti-slop
+lint-anti-slop:
+	npm run lint:anti-slop
 
 clean:
 	docker compose -f docker/docker-compose.yml down --rmi local --volumes --remove-orphans 2>/dev/null || true

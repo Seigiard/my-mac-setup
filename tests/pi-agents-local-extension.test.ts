@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 const extensionPath =
   process.env.PI_AGENTS_LOCAL_EXTENSION_PATH ?? join(import.meta.dir, "../home/dot_pi/agent/extensions/agents-local.ts");
+
 const coreDir = process.env.AGENT_HOOKS_CORE_PATH ?? join(import.meta.dir, "../home/dot_local/lib/agent-hooks");
 
 const { inspectLocalInstructions, MAX_LOCAL_INSTRUCTIONS_BYTES } = await import(
@@ -16,11 +17,17 @@ const { inspectLocalInstructions, MAX_LOCAL_INSTRUCTIONS_BYTES } = await import(
 // import time, so it has to be loaded under a home pointing at the core under
 // test — the checkout's by default, the applied one when smoke passes its path.
 const extensionHome = mkdtempSync(join(tmpdir(), "pi-agents-local-home-"));
+
 mkdirSync(join(extensionHome, ".local", "lib"), { recursive: true });
+
 symlinkSync(coreDir, join(extensionHome, ".local", "lib", "agent-hooks"));
+
 const previousHome = process.env.HOME;
+
 process.env.HOME = extensionHome;
+
 const { default: registerAgentsLocalExtension } = await import(extensionPath);
+
 process.env.HOME = previousHome;
 
 afterAll(() => {
@@ -32,6 +39,7 @@ const cleanupPaths: string[] = [];
 async function temporaryProject(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "pi-agents-local-test-"));
   cleanupPaths.push(root);
+
   return root;
 }
 
@@ -43,17 +51,21 @@ afterEach(async () => {
 
 function fakePi() {
   const handlers: Record<string, Function> = {};
+
   const pi = {
     on: (event: string, handler: Function) => {
       handlers[event] = handler;
     },
   };
-  registerAgentsLocalExtension(pi as never);
+
+  registerAgentsLocalExtension(pi);
+
   return { handlers };
 }
 
 function fakeContext(cwd: string) {
   const notifications: Array<{ message: string; level: string }> = [];
+
   return {
     ctx: {
       cwd,
@@ -115,6 +127,7 @@ describe("Pi AGENTS.local.md extension selection", () => {
       "",
       contents,
     ].join("\n");
+
     expect(first.systemPrompt).toBe(expectedPrompt);
     expect(second.systemPrompt).toBe(expectedPrompt);
 

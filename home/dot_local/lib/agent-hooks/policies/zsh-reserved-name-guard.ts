@@ -68,22 +68,29 @@ type Hit = { name: string; text: string };
 
 function heredocDelimiterOf(line: string): string {
   const start = line.match(HEREDOC_START);
+
   if (!start || start.index === undefined) return "";
   const rest = line.slice(start.index + start[0].length);
   const delimiter = rest.match(HEREDOC_DELIMITER);
+
   if (!delimiter) return "";
   const unquoted = delimiter[0].replace(/'/g, "").replace(/"/g, "");
+
   return IDENTIFIER.test(unquoted) ? unquoted : "";
 }
 
 function reservedNameIn(segment: string): string {
   let rest = segment.replace(/^[ \t]+/, "");
+
   while (DECLARATION_KEYWORDS.test(rest) || SHORT_OPTION.test(rest)) {
     rest = rest.replace(/^[^ \t]+[ \t]+/, "");
   }
+
   const assignment = rest.match(ASSIGNMENT);
+
   if (!assignment) return "";
   const name = assignment[0].replace(/(\[[^\]]*\])?\+?=$/, "");
+
   return RESERVED.has(name) ? name : "";
 }
 
@@ -96,17 +103,21 @@ function hits(command: string): Hit[] {
       // A script written into a file runs under its own interpreter, not under
       // the zsh executing this command, so its assignments are not gated.
       if (line.replace(/^[ \t]+/, "").replace(/[ \t]+$/, "") === heredoc) heredoc = "";
+
       return;
     }
 
     const delimiter = heredocDelimiterOf(line);
+
     if (delimiter !== "") heredoc = delimiter;
 
     const stripped = line.replace(/^[ \t]+/, "");
+
     if (stripped.startsWith("#")) return;
 
     for (const segment of line.replace(COMMAND_SEPARATORS, "\n").split("\n")) {
       const name = reservedNameIn(segment);
+
       if (name === "") continue;
       const shown = stripped.length > MAX_SHOWN ? `${stripped.slice(0, MAX_SHOWN - 3)}...` : stripped;
       found.push({ name, text: `  line ${index + 1}: ${shown}` });
@@ -119,9 +130,11 @@ function hits(command: string): Hit[] {
 
 function evaluate(event: NormalizedEvent): Decision {
   const command = event.command;
+
   if (command === "" || command.includes(ESCAPE_HATCH)) return ALLOW;
 
   const found = hits(command);
+
   if (found.length === 0) return ALLOW;
 
   const names = [...new Set(found.map((hit) => hit.name))].sort();
@@ -132,7 +145,9 @@ function evaluate(event: NormalizedEvent): Decision {
     `${NAME}: this command assigns to a parameter zsh reserves:`,
     ...found.map((hit) => hit.text),
   ];
+
   if (readonlyHits.length > 0) parts.push(`zsh makes ${readonlyHits.join(" ")} ${READONLY_SENTENCE}`);
+
   if (tiedHits.length > 0) parts.push(`zsh ties ${tiedHits.join(" ")} ${TIED_SENTENCE}`);
   parts.push(FIX);
 

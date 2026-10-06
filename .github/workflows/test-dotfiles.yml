@@ -211,6 +211,9 @@ jobs:
       - name: Install bun
         uses: oven-sh/setup-bun@v2
 
+      - name: Install checkout lint and test dependencies
+        run: npm ci
+
       # Stage 1: Initialize chezmoi (non-interactive via env vars)
       - name: Initialize chezmoi
         env:
@@ -370,6 +373,9 @@ jobs:
       - name: Install bun
         uses: oven-sh/setup-bun@v2
 
+      - name: Install checkout lint and test dependencies
+        run: npm ci
+
       # This runner has 3 cores, so the suite's default of 8 workers
       # oversubscribes it nearly 3:1. The herdr-task-sync tests bound their
       # waits in wall clock -- a claim gives up after ~200 ms, a git probe
@@ -425,7 +431,7 @@ jobs:
       - name: Install Node.js for lint tools
         uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: 24
           cache: npm
 
       - name: Install lint tools

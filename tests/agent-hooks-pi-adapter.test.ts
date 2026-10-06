@@ -6,20 +6,26 @@ import { join } from "node:path";
 const EXTENSION_PATH =
   process.env.AGENT_HOOKS_PI_EXTENSION_PATH ??
   join(import.meta.dir, "../home/dot_pi/agent/extensions/agent-hooks.ts");
+
 const CORE_DIR =
   process.env.AGENT_HOOKS_CORE_PATH ?? join(import.meta.dir, "../home/dot_local/lib/agent-hooks");
 
 const core: any = await import(join(CORE_DIR, "index.ts"));
+
 const normalize: any = await import(join(CORE_DIR, "normalize.ts"));
+
 import * as corpus from "./fixtures/agent-hooks/fixtures.ts";
 
 const REGISTRY = core.CORE_REGISTRY;
+
 const temporaryPaths: string[] = [];
+
 let loadCount = 0;
 
 function temporaryDir(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   temporaryPaths.push(dir);
+
   return dir;
 }
 
@@ -38,6 +44,7 @@ type Host = { handlers: Record<string, Function>; events: string[] };
 
 async function loadExtension(coreDir?: string): Promise<Host> {
   const home = temporaryDir("agent-hooks-pi-home-");
+
   if (coreDir !== undefined) {
     mkdirSync(join(home, ".local", "lib"), { recursive: true });
     symlinkSync(coreDir, join(home, ".local", "lib", "agent-hooks"));
@@ -48,17 +55,21 @@ async function loadExtension(coreDir?: string): Promise<Host> {
 
   const previousHome = process.env.HOME;
   process.env.HOME = home;
+
   try {
     const module: any = await import(copy);
     const handlers: Record<string, Function> = {};
     const events: string[] = [];
+
     const pi = {
       on: (event: string, handler: Function) => {
         events.push(event);
         handlers[event] = handler;
       },
     };
-    module.default(pi as never);
+
+    module.default(pi);
+
     return { handlers, events };
   } finally {
     process.env.HOME = previousHome;
@@ -77,6 +88,7 @@ async function callToolCall(host: Host, raw: any): Promise<any> {
   // would read as "the tool call proceeded". Refuse to answer for the
   // extension when the extension never registered.
   expect(handler).toBeTypeOf("function");
+
   return await handler(raw);
 }
 
@@ -88,7 +100,7 @@ async function callToolCall(host: Host, raw: any): Promise<any> {
 // test below green while real pi traffic reached no policy. Source is the same
 // as the corpus's hand-written `raw.pi` entries — the shipped adapter, with
 // `ffgrep`/`pattern` as pi-fff spells them in its default tools-and-ui mode.
-const PI_WIRE: Record<string, { toolName: string; fields: Record<string, string> }> = {
+const PI_WIRE = {
   bash: { toolName: "bash", fields: { command: "command" } },
   "fff-grep": { toolName: "ffgrep", fields: { query: "pattern" } },
 };
@@ -96,9 +108,12 @@ const PI_WIRE: Record<string, { toolName: string; fields: Record<string, string>
 /** undefined = pi has no wire shape for that tool, i.e. no route exists. */
 function piRawFor(fixture: any): any | undefined {
   const wire = PI_WIRE[fixture.tool];
+
   if (wire === undefined) return undefined;
-  const input: Record<string, unknown> = {};
+  const input: Record<string, string> = {};
+
   for (const [field, value] of Object.entries(fixture.payload)) input[wire.fields[field]] = value;
+
   return { toolName: wire.toolName, input };
 }
 
@@ -130,6 +145,7 @@ describe("tool_call deny and allow (R3)", () => {
       "zsh-reserved-name-guard",
       "zsh/an ordinary name zsh accepts is not blocked",
     );
+
     const host = await loadExtension(CORE_DIR);
 
     // #when the handler sees it
@@ -170,6 +186,7 @@ describe("openai-codex tool_call dialect (R3)", () => {
     const policy = policyFixture("zsh-reserved-name-guard", "zsh/flags the status capture idiom");
     const fixture = corpus.fixture("codex exec command");
     const host = await loadExtension(CORE_DIR);
+
     // Setup, not an assertion: `policy.text` is only the right expected value
     // below while the two corpus entries carry the same command.
     if (fixture.payload.command !== policy.payload.command) {
@@ -189,6 +206,7 @@ describe("openai-codex tool_call dialect (R3)", () => {
       "zsh-reserved-name-guard",
       "zsh/an ordinary name zsh accepts is not blocked",
     );
+
     const fixture = corpus.fixture("codex exec command");
     const raw = { ...fixture.raw.pi, input: { cmd: policy.payload.command } };
     const host = await loadExtension(CORE_DIR);
@@ -261,6 +279,7 @@ describe("pi arg dialect reaches Claude's verdicts (R3, KTD8)", () => {
       toolName: "ffgrep",
       input: { pattern: denied.payload.query },
     });
+
     const allowedDecision = await callToolCall(host, {
       toolName: "ffgrep",
       input: { pattern: allowed.payload.query },

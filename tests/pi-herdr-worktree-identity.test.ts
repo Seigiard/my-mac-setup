@@ -4,9 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const extensionPath = join(import.meta.dir, "../home/dot_pi/agent/extensions/herdr-worktree-identity.ts");
+
 const handoffPath = join(import.meta.dir, "../home/dot_local/lib/agent-hooks/worktree-identity.ts");
+
 const { handoffWorktreeIdentity } = await import(handoffPath);
+
 const cleanupPaths: string[] = [];
+
 let loadCount = 0;
 
 afterEach(async () => {
@@ -21,6 +25,7 @@ afterEach(async () => {
 async function temporaryRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "pi-worktree-identity-test-"));
   cleanupPaths.push(root);
+
   return root;
 }
 
@@ -34,6 +39,7 @@ printf '%s\\n' "$@" > "$call/argv"
 cat > "$call/stdin"
 `);
   await Bun.spawn(["chmod", "+x", engine]).exited;
+
   return engine;
 }
 
@@ -47,9 +53,11 @@ async function register() {
   const previousHome = process.env.HOME;
   process.env.HOME = home;
   const handlers = new Map<string, Function>();
+
   try {
     const { default: registerWorktreeIdentity } = await import(copy);
-    registerWorktreeIdentity({ on: (event: string, handler: Function) => handlers.set(event, handler) } as never);
+    registerWorktreeIdentity({ on: (event: string, handler: Function) => handlers.set(event, handler) });
+
     return handlers;
   } finally {
     process.env.HOME = previousHome;
@@ -72,15 +80,18 @@ describe("Pi worktree identity prompt capture", () => {
 
     const calls = (await readdir(root)).filter((entry) => entry.startsWith("call-"));
     expect(calls).toHaveLength(2);
+
     const records = await Promise.all(
       calls.map(async (entry) => {
         const call = join(root, entry);
+
         return {
           argv: (await Bun.file(join(call, "argv")).text()).trim().split("\n"),
           stdin: await Bun.file(join(call, "stdin")).text(),
         };
       }),
     );
+
     expect(records).toContainEqual({
       argv: ["--agent", "pi", "--session", "session-pi", "--pane", "pane-shared", "--workspace", "workspace-shared"],
       stdin: "Pi shared sentinel",

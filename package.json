@@ -2,6 +2,7 @@
   "name": "my-mac-setup-checks",
   "private": true,
   "scripts": {
+    "lint:anti-slop": "oxlint .",
     "lint:frontmatter": "remark-lint-frontmatter-validation --frontmatter yaml '**/*.md' '!**/node_modules/**' '!.worktrees/**' '!.claude/worktrees/**' '!.context/**' '!archive/**'",
     "lint:yaml-files": "eslint '**/*.{yaml,yml}'",
     "lint:yaml": "npm run lint:frontmatter && npm run lint:yaml-files",
@@ -18,10 +19,13 @@
     "preserveUnused": true
   },
   "devDependencies": {
+    "@oxlint/plugins": "1.87.0",
     "eslint": "10.12.0",
     "eslint-plugin-yml": "3.8.1",
     "nano-staged": "1.0.2",
     "remark-lint-frontmatter-validation": "1.0.4",
-    "simple-git-hooks": "2.14.0"
+    "simple-git-hooks": "2.14.0",
+    "oxlint": "1.87.0",
+    "zod": "4.3.6"
   }
 }

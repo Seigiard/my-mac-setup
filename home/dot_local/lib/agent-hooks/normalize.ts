@@ -10,74 +10,92 @@
 // writes past every content policy.
 
 import { profileFor, toolKindFor } from "./registry.ts";
+import { z } from "zod";
 import type {
   ClientId,
   EventPayload,
   NormalizedEvent,
   Registry,
   ToolKind,
+  ToolEventValue,
+  ToolArguments,
+  EncodedEvent,
 } from "./types.ts";
 import { emptyPayload } from "./types.ts";
 
-function str(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
+const text = z.string().catch("");
 
-function joinParts(parts: unknown[]): string {
-  return parts.map(str).filter((part) => part !== "").join("\n");
-}
+const edit = z.object({ new_string: text, newText: text }).catch({ new_string: "", newText: "" });
 
-function editParts(edits: unknown, field: string): string[] {
-  if (!Array.isArray(edits)) return [];
-  return edits.map((edit: any) => str(edit?.[field]));
+const argumentsSchema = z.object({
+  file_path: text, filePath: text, path: text,
+  content: text, new_string: text, newString: text,
+  edits: z.array(edit).catch([]),
+  command: text, cmd: text, query: text, pattern: text, url: text,
+});
+
+const argumentsWithFallback = argumentsSchema.catch(() => argumentsSchema.parse({}));
+
+const eventSchema = z.object({
+  tool_name: text, tool: text, toolName: text,
+  tool_input: argumentsWithFallback, args: argumentsWithFallback, input: argumentsWithFallback,
+});
+
+type ParsedEvent = z.infer<typeof eventSchema>;
+
+function joinParts(parts: string[]): string {
+  return parts.filter((part) => part !== "").join("\n");
 }
 
 type RawRead = { clientToolName: string; payload: EventPayload };
 
-function readClaude(raw: any): RawRead {
-  const input = raw?.tool_input ?? {};
+function readClaude(raw: ParsedEvent): RawRead {
+  const input = raw.tool_input;
+
   return {
-    clientToolName: str(raw?.tool_name),
+    clientToolName: raw.tool_name,
     payload: {
-      filePath: str(input.file_path),
-      content: joinParts([input.content, input.new_string, ...editParts(input.edits, "new_string")]),
-      command: str(input.command),
-      query: str(input.query),
-      url: str(input.url),
+      filePath: input.file_path,
+      content: joinParts([input.content, input.new_string, ...input.edits.map((edit) => edit.new_string)]),
+      command: input.command,
+      query: input.query,
+      url: input.url,
     },
   };
 }
 
-function readOpencode(raw: any): RawRead {
-  const args = raw?.args ?? {};
+function readOpencode(raw: ParsedEvent): RawRead {
+  const args = raw.args;
+
   return {
-    clientToolName: str(raw?.tool),
+    clientToolName: raw.tool,
     payload: {
-      filePath: str(args.filePath) || str(args.file_path),
+      filePath: args.filePath || args.file_path,
       content: joinParts([args.content, args.newString]),
-      command: str(args.command),
-      query: str(args.query),
-      url: str(args.url),
+      command: args.command,
+      query: args.query,
+      url: args.url,
     },
   };
 }
 
-function readPi(raw: any): RawRead {
-  const input = raw?.input ?? {};
-  const clientToolName = str(raw?.toolName);
+function readPi(raw: ParsedEvent): RawRead {
+  const input = raw.input;
+  const clientToolName = raw.toolName;
+
   return {
     clientToolName,
     payload: {
-      filePath: str(input.path),
-      content: joinParts([input.content, ...editParts(input.edits, "newText")]),
-      command: str(input.command) || str(input.cmd),
-      query: clientToolName === "ffgrep" ? str(input.pattern) : str(input.query),
-      url: str(input.url),
+      filePath: input.path,
+      content: joinParts([input.content, ...input.edits.map((edit) => edit.newText)]),
+      command: input.command || input.cmd,
+      query: clientToolName === "ffgrep" ? input.pattern : input.query,
+      url: input.url,
     },
   };
 }
 
-const READERS: Record<ClientId, (raw: any) => RawRead> = {
+const READERS: Record<ClientId, (raw: ParsedEvent) => RawRead> = {
   claude: readClaude,
   opencode: readOpencode,
   pi: readPi,
@@ -89,68 +107,89 @@ const READERS: Record<ClientId, (raw: any) => RawRead> = {
  */
 export function normalizeEvent(
   client: ClientId | string,
-  raw: unknown,
+  raw: ToolEventValue,
   registry: Registry,
 ): NormalizedEvent | undefined {
   const profile = profileFor(registry, client);
-  const reader = READERS[client as ClientId];
-  if (!profile || !reader) return undefined;
+
+  if (!profile) return undefined;
+  const reader = READERS[profile.client];
 
   let read: RawRead;
+
   try {
-    read = reader(raw);
+    const parsed = eventSchema.safeParse(raw);
+
+    if (!parsed.success) return undefined;
+    read = reader(parsed.data);
   } catch {
     return undefined;
   }
 
   const tool = toolKindFor(profile, read.clientToolName);
+
   if (!tool) return undefined;
 
   return { client: profile.client, clientToolName: read.clientToolName, tool, ...read.payload };
 }
 
-type Writer = (toolName: string, payload: EventPayload, tool: ToolKind) => unknown;
+type Writer = (toolName: string, payload: EventPayload, tool: ToolKind) => EncodedEvent;
 
 const WRITERS: Record<ClientId, Writer> = {
-  claude: (toolName, payload, tool) => ({
-    tool_name: toolName,
-    tool_input: {
-      ...(payload.filePath ? { file_path: payload.filePath } : {}),
-      ...(payload.content ? (tool === "edit" ? { new_string: payload.content } : { content: payload.content }) : {}),
-      ...(payload.command ? { command: payload.command } : {}),
-      ...(payload.query ? { query: payload.query } : {}),
-      ...(payload.url ? { url: payload.url } : {}),
-    },
-  }),
-  opencode: (toolName, payload, tool) => ({
-    tool: toolName,
-    args: {
-      ...(payload.filePath ? { filePath: payload.filePath } : {}),
-      ...(payload.content ? (tool === "edit" ? { newString: payload.content } : { content: payload.content }) : {}),
-      ...(payload.command ? { command: payload.command } : {}),
-      ...(payload.query ? { query: payload.query } : {}),
-      ...(payload.url ? { url: payload.url } : {}),
-    },
-  }),
-  pi: (toolName, payload, tool) => ({
-    toolName,
-    input: {
-      ...(payload.filePath ? { path: payload.filePath } : {}),
-      ...(payload.content
-        ? tool === "edit"
-          ? { edits: [{ newText: payload.content }] }
-          : { content: payload.content }
-        : {}),
-      ...(payload.command ? { command: payload.command } : {}),
-      ...(payload.query
-        ? tool === "fff-grep"
-          ? { pattern: payload.query }
-          : { query: payload.query }
-        : {}),
-      ...(payload.url ? { url: payload.url } : {}),
-    },
-  }),
+  claude: (toolName, payload, tool) => {
+    const input = commonArguments(payload);
+
+    if (payload.filePath) input.file_path = payload.filePath;
+
+    if (payload.content) {
+      if (tool === "edit") input.new_string = payload.content;
+      else input.content = payload.content;
+    }
+
+    return { tool_name: toolName, tool_input: input };
+  },
+  opencode: (toolName, payload, tool) => {
+    const args = commonArguments(payload);
+
+    if (payload.filePath) args.filePath = payload.filePath;
+
+    if (payload.content) {
+      if (tool === "edit") args.newString = payload.content;
+      else args.content = payload.content;
+    }
+
+    return { tool: toolName, args };
+  },
+  pi: (toolName, payload, tool) => {
+    const input = commonArguments(payload);
+
+    if (payload.filePath) input.path = payload.filePath;
+
+    if (payload.content) {
+      if (tool === "edit") input.edits = [{ newText: payload.content }];
+      else input.content = payload.content;
+    }
+
+    if (payload.query && tool === "fff-grep") {
+      delete input.query;
+      input.pattern = payload.query;
+    }
+
+    return { toolName, input };
+  },
 };
+
+function commonArguments(payload: EventPayload): ToolArguments {
+  const input: ToolArguments = {};
+
+  if (payload.command) input.command = payload.command;
+
+  if (payload.query) input.query = payload.query;
+
+  if (payload.url) input.url = payload.url;
+
+  return input;
+}
 
 /**
  * Inverse of normalizeEvent: renders a canonical payload in one client's
@@ -163,12 +202,14 @@ export function encodeEvent(
   tool: ToolKind,
   payload: Partial<EventPayload>,
   registry: Registry,
-): unknown | undefined {
+): EncodedEvent | undefined {
   const profile = profileFor(registry, client);
-  const writer = WRITERS[client as ClientId];
-  if (!profile || !writer) return undefined;
+
+  if (!profile) return undefined;
+  const writer = WRITERS[profile.client];
 
   const toolName = Object.keys(profile.tools).find((name) => profile.tools[name] === tool);
+
   if (!toolName) return undefined;
 
   return writer(toolName, { ...emptyPayload(), ...payload }, tool);

@@ -6,23 +6,30 @@
 // generated from the normalizer, so it stays an independent statement of what a
 // client sends.
 
-import type { ClientId, EventPayload, ToolKind } from "../../../home/dot_local/lib/agent-hooks/types.ts";
+import type { ClientId, EventPayload, ToolKind, ToolEventValue } from "../../../home/dot_local/lib/agent-hooks/types.ts";
 
 export type DialectFixture = {
   name: string;
   tool: ToolKind;
   payload: Partial<EventPayload>;
   /** Absent client = that client has no wire shape for this tool. */
-  raw: Partial<Record<ClientId, unknown>>;
+  raw: Partial<Record<ClientId, ToolEventValue>>;
 };
 
 const TEST_FILE = "/repo/tests/example_test.sh";
+
 const WRITE_BODY = "assert_file_not_exists /tmp/gone\n";
+
 const EDIT_BODY = "expect(result).toBe(1);";
+
 const MULTI_EDIT_BODY = "first replacement\nsecond replacement";
+
 const COMMAND = "status=$? && exit $status";
+
 const CODEX_COMMAND = "make test-ubuntu; status=$?; print -- FINAL_EXIT:$status; exit $status";
+
 const QUERY = "KnowledgeContextField console";
+
 const URL = "https://example.com/docs";
 
 export const DIALECT_FIXTURES: DialectFixture[] = [
@@ -112,7 +119,9 @@ export const DIALECT_FIXTURES: DialectFixture[] = [
 
 export function fixture(name: string): DialectFixture {
   const found = DIALECT_FIXTURES.find((candidate) => candidate.name === name);
+
   if (!found) throw new Error(`unknown fixture: ${name}`);
+
   return found;
 }
 
@@ -150,8 +159,10 @@ export type PolicyFixture = {
 
 const ZSH_READONLY_SENTENCE =
   "readonly. The assignment fails AND leaves $? at 1, so a following `exit $status` or `FINAL_EXIT:$status` marker reports a fabricated failure for a command that actually succeeded.";
+
 const ZSH_TIED_SENTENCE =
   "to PATH and the positional parameters. Assigning it silently destroys them for the rest of the command.";
+
 const ZSH_FIX_SENTENCE =
   'Fix: rename the variable — `rc`, `st`, `exit_code`, `dir`. Reading $status is legal zsh and is not blocked, only assignment is. If this assignment genuinely runs under bash rather than this zsh, add a "zsh-ok:" comment to the command and retry.';
 
@@ -163,9 +174,12 @@ const ZSH_FIX_SENTENCE =
 // rule honest.
 function zshReason(lines: string[], readonlyNames: string, tiedNames: string): string {
   const parts = ["zsh-reserved-name-guard: this command assigns to a parameter zsh reserves:", ...lines];
+
   if (readonlyNames !== "") parts.push(`zsh makes ${readonlyNames} ${ZSH_READONLY_SENTENCE}`);
+
   if (tiedNames !== "") parts.push(`zsh ties ${tiedNames} ${ZSH_TIED_SENTENCE}`);
   parts.push(ZSH_FIX_SENTENCE);
+
   return parts.join("\n");
 }
 

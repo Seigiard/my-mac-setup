@@ -1,13 +1,35 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rmdir, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename, rmdir, stat, unlink, writeFile } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
+import { z } from "zod";
 
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
+
 const DEFAULT_STALE_LOCK_MS = 20 * 60_000;
+
 const OWNER_FILE = "owner.json";
+
+// flock is tied to the open file description shared by Node and the helper.
+// Python exits immediately after acquisition; Node retains the claim until its
+// FileHandle closes. Kernel descriptor cleanup also releases it on a crash.
+// Never unlink the guard file: every contender must lock the same stable inode.
+const TRANSITION_LOCK_HELPER = [
+  "import fcntl, sys",
+  "flags = fcntl.LOCK_EX",
+  "if sys.argv[1] == 'try': flags |= fcntl.LOCK_NB",
+  "try:",
+  "    fcntl.flock(3, flags)",
+  "except BlockingIOError:",
+  "    sys.exit(73)",
+].join("\n");
+
+const TRANSITION_HELPER_TIMEOUT_MS = 5_000;
+
 const PACKAGE_LOCK_PATHS = [
   "package-lock.json",
   join("node_modules", ".package-lock.json"),
@@ -17,6 +39,7 @@ const PACKAGE_LOCK_PATHS = [
 ];
 
 type Trigger = "startup" | "manual";
+
 type NotificationLevel = "info" | "warning" | "error";
 
 export interface UpdateUi {
@@ -109,22 +132,26 @@ const UPDATE_STEPS: UpdateStep[] = [
 
 function defaultLockPath(env: Record<string, string | undefined>): string {
   const stateHome = env.XDG_STATE_HOME || join(homedir(), ".local", "state");
+
   return join(stateHome, "pi", "brew-auto-update.lock");
 }
 
 function defaultProcessAlive(pid: number): boolean {
   if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+
   try {
     process.kill(pid, 0);
+
     return true;
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
+    return ioErrorSchema.safeParse(error).data?.code === "EPERM";
   }
 }
 
 function createDefaultDependencies(pi: ExtensionAPI): BrewAutoUpdateDependencies {
   const exec = (command: string, args: string[], options: ExecOptions) =>
     pi.exec(command, args, options);
+
   return {
     exec,
     env: process.env,
@@ -139,32 +166,32 @@ function createDefaultDependencies(pi: ExtensionAPI): BrewAutoUpdateDependencies
   };
 }
 
-function errorCode(error: unknown): string | undefined {
-  return (error as NodeJS.ErrnoException | undefined)?.code;
-}
+const ioErrorSchema = z.object({ code: z.string() });
+
+const ownerSchema = z.object({
+  pid: z.number().refine(Number.isSafeInteger),
+  startedAt: z.number().finite(),
+  token: z.string().min(1),
+});
 
 async function readOwner(lockPath: string): Promise<LockOwner | undefined> {
   try {
-    const parsed = JSON.parse(await readFile(join(lockPath, OWNER_FILE), "utf8")) as Partial<LockOwner>;
-    if (
-      Number.isSafeInteger(parsed.pid) &&
-      typeof parsed.startedAt === "number" &&
-      Number.isFinite(parsed.startedAt) &&
-      typeof parsed.token === "string" &&
-      parsed.token.length > 0
-    ) {
-      return parsed as LockOwner;
-    }
+    const parsed = ownerSchema.safeParse(JSON.parse(await readFile(join(lockPath, OWNER_FILE), "utf8")));
+
+    if (parsed.success) return parsed.data;
   } catch {
     // A process can stop between the atomic directory create and owner write.
   }
+
   return undefined;
 }
 
 async function lockAge(lockPath: string, now: number, owner?: LockOwner): Promise<number> {
   if (owner) return Math.max(0, now - owner.startedAt);
+
   try {
     const lockStat = await stat(lockPath);
+
     return Math.max(0, now - lockStat.mtimeMs);
   } catch {
     return 0;
@@ -175,30 +202,113 @@ async function removeLockDirectory(lockPath: string): Promise<void> {
   try {
     await unlink(join(lockPath, OWNER_FILE));
   } catch (error) {
-    if (errorCode(error) !== "ENOENT") throw error;
+    if (ioErrorSchema.safeParse(error).data?.code !== "ENOENT") throw error;
   }
+
   await rmdir(lockPath);
 }
 
 async function reclaimStaleLock(lockPath: string, deps: BrewAutoUpdateDependencies): Promise<boolean> {
   const stalePath = `${lockPath}.stale-${deps.pid}-${deps.token}`;
+
   try {
     await rename(lockPath, stalePath);
   } catch (error) {
-    if (errorCode(error) === "ENOENT" || errorCode(error) === "EEXIST") return false;
+    const code = ioErrorSchema.safeParse(error).data?.code;
+
+    if (code === "ENOENT" || code === "EEXIST") return false;
     throw error;
   }
+
   await removeLockDirectory(stalePath);
+
   return true;
+}
+
+async function acquireTransitionClaim(lockPath: string, mode: "try" | "wait"): Promise<FileHandle | undefined> {
+  const claim = await open(`${lockPath}.guard`, "a+", 0o600);
+
+  try {
+    const helper = spawn("python3", ["-c", TRANSITION_LOCK_HELPER, mode], {
+      stdio: ["ignore", "ignore", "pipe", claim.fd],
+    });
+
+    let diagnostics = "";
+    helper.stderr.setEncoding("utf8");
+    helper.stderr.on("data", (chunk: string) => { diagnostics += chunk; });
+
+    const code = await new Promise<number>((resolve, reject) => {
+      let timedOut = false;
+
+      const timer = setTimeout(() => {
+        timedOut = true;
+        helper.kill("SIGKILL");
+      }, TRANSITION_HELPER_TIMEOUT_MS);
+
+      helper.once("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+      helper.once("exit", (code, signal) => {
+        clearTimeout(timer);
+
+        if (!timedOut && (code === 0 || code === 73)) resolve(code);
+        else reject(new Error(`update-lock transition helper ${timedOut ? "timed out" : `exited ${code ?? signal}`}: ${diagnostics.trim()}`));
+      });
+    });
+
+    if (code === 73) {
+      await claim.close();
+
+      return undefined;
+    }
+
+    return claim;
+  } catch (error) {
+    await claim.close().catch(() => {});
+    throw error;
+  }
+}
+
+async function releaseOwnedLock(deps: BrewAutoUpdateDependencies): Promise<void> {
+  let claim: FileHandle | undefined;
+
+  try {
+    claim = await acquireTransitionClaim(deps.lockPath, "wait");
+
+    if (!claim) return;
+    const currentOwner = await readOwner(deps.lockPath);
+
+    if (currentOwner?.token !== deps.token) return;
+    await removeLockDirectory(deps.lockPath);
+  } catch {
+    // Release remains best-effort. A failed cleanup keeps owner evidence for
+    // the existing dead/stale recovery policy instead of deleting a stranger.
+  } finally {
+    await claim?.close().catch(() => {});
+  }
 }
 
 async function acquireLock(deps: BrewAutoUpdateDependencies): Promise<UpdateLock> {
   await mkdir(dirname(deps.lockPath), { recursive: true });
+  const claim = await acquireTransitionClaim(deps.lockPath, "try");
+
+  if (!claim) return { acquired: false };
+
+  try {
+    return await acquireLockUnderClaim(deps);
+  } finally {
+    await claim.close();
+  }
+}
+
+async function acquireLockUnderClaim(deps: BrewAutoUpdateDependencies): Promise<UpdateLock> {
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       await mkdir(deps.lockPath);
       const owner: LockOwner = { pid: deps.pid, startedAt: deps.now(), token: deps.token };
+
       try {
         await writeFile(join(deps.lockPath, OWNER_FILE), `${JSON.stringify(owner)}\n`, {
           encoding: "utf8",
@@ -211,20 +321,21 @@ async function acquireLock(deps: BrewAutoUpdateDependencies): Promise<UpdateLock
 
       return {
         acquired: true,
-        release: async () => {
-          const currentOwner = await readOwner(deps.lockPath);
-          if (currentOwner?.token !== deps.token) return;
-          await removeLockDirectory(deps.lockPath).catch(() => {});
-        },
+        release: () => releaseOwnedLock(deps),
       };
     } catch (error) {
-      if (errorCode(error) !== "EEXIST") throw error;
+      if (ioErrorSchema.safeParse(error).data?.code !== "EEXIST") throw error;
     }
 
+    // Every owner read, stale decision, rename and publication is under the
+    // same kernel claim. A competing updater cannot replace this generation
+    // between the liveness assessment and reclamation.
     const owner = await readOwner(deps.lockPath);
     const age = await lockAge(deps.lockPath, deps.now(), owner);
     const ownerIsDead = owner ? !deps.processAlive(owner.pid) : false;
+
     if (!ownerIsDead && age <= deps.staleLockMs) return { acquired: false };
+
     if (!(await reclaimStaleLock(deps.lockPath, deps))) return { acquired: false };
   }
 
@@ -241,7 +352,9 @@ function notify(ui: UpdateUi, message: string, level: NotificationLevel): void {
 
 function failureDetail(result: ExecResult): string {
   const output = result.stderr.trim() || result.stdout.trim();
+
   if (!output) return `exit code ${result.code ?? "unknown"}`;
+
   return output.length > 500 ? `…${output.slice(-500)}` : output;
 }
 
@@ -259,7 +372,9 @@ function levelForStatus(status: UpdateResult["status"]): NotificationLevel {
 // terminal outcome since the user explicitly asked for one.
 function shouldNotify(trigger: Trigger, status: UpdateResult["status"], installedUpdate: boolean): boolean {
   if (status === "failed") return true;
+
   if (trigger === "manual") return true;
+
   return installedUpdate;
 }
 
@@ -272,6 +387,7 @@ function finish(
   if (shouldNotify(trigger, result.status, installedUpdate)) {
     notify(ui, result.message, levelForStatus(result.status));
   }
+
   return result;
 }
 
@@ -287,6 +403,7 @@ function parseInstalledPackages(output: string): InstalledPackage[] {
   for (let index = 0; index < lines.length - 1; index += 1) {
     const source = /^  ((?:git|npm):.+)$/.exec(lines[index])?.[1];
     const path = /^    (.+)$/.exec(lines[index + 1])?.[1];
+
     if (source && path) packages.push({ source, path });
   }
 
@@ -299,10 +416,12 @@ function contentDigest(content: string | Uint8Array): string {
 
 function npmInstallRoot(packagePath: string): string | undefined {
   let current = packagePath;
+
   while (dirname(current) !== current) {
     if (basename(current) === "node_modules") return dirname(current);
     current = dirname(current);
   }
+
   return undefined;
 }
 
@@ -312,18 +431,22 @@ export async function captureExtensionSnapshot(
 ): Promise<Map<string, string> | undefined> {
   try {
     const list = await exec("pi", ["list"], { timeout: timeoutMs });
+
     if (list.killed || list.code !== 0) return undefined;
 
     const snapshot = new Map<string, string>();
     const npmRoots = new Set<string>();
+
     for (const installedPackage of parseInstalledPackages(list.stdout)) {
       const key = `${installedPackage.source}\0${installedPackage.path}`;
+
       if (installedPackage.source.startsWith("git:")) {
         const revision = await exec(
           "git",
           ["-C", installedPackage.path, "rev-parse", "HEAD"],
           { timeout: timeoutMs },
         );
+
         if (revision.killed) return undefined;
         snapshot.set(key, revision.code === 0 ? revision.stdout.trim() : "missing");
         continue;
@@ -332,23 +455,27 @@ export async function captureExtensionSnapshot(
       try {
         snapshot.set(key, contentDigest(await readFile(join(installedPackage.path, "package.json"))));
       } catch (error) {
-        if (errorCode(error) !== "ENOENT") return undefined;
+        if (ioErrorSchema.safeParse(error).data?.code !== "ENOENT") return undefined;
         snapshot.set(key, "missing");
       }
+
       const root = npmInstallRoot(installedPackage.path);
+
       if (root) npmRoots.add(root);
     }
 
     for (const root of npmRoots) {
       for (const lockPath of PACKAGE_LOCK_PATHS) {
         const path = join(root, lockPath);
+
         try {
           snapshot.set(`lock\0${path}`, contentDigest(await readFile(path)));
         } catch (error) {
-          if (errorCode(error) !== "ENOENT") return undefined;
+          if (ioErrorSchema.safeParse(error).data?.code !== "ENOENT") return undefined;
         }
       }
     }
+
     return snapshot;
   } catch {
     return undefined;
@@ -357,9 +484,11 @@ export async function captureExtensionSnapshot(
 
 function snapshotsChanged(before: Map<string, string>, after: Map<string, string>): boolean {
   if (before.size !== after.size) return true;
+
   for (const [key, revision] of before) {
     if (after.get(key) !== revision) return true;
   }
+
   return false;
 }
 
@@ -367,8 +496,11 @@ function installedUpdateMessage(updates: Set<InstalledUpdate>): string | undefin
   if (updates.has("pi") && updates.has("extensions")) {
     return "Pi and its extensions updated. Restart Pi to use them.";
   }
+
   if (updates.has("pi")) return "Pi updated. Restart Pi to use the new version.";
+
   if (updates.has("extensions")) return "Pi extensions updated. Restart Pi to use them.";
+
   return undefined;
 }
 
@@ -379,34 +511,46 @@ export async function runBrewAutoUpdate(
 ): Promise<UpdateResult> {
   if (deps.env.PI_OFFLINE === "1") {
     const message = "Pi update skipped: offline mode is active.";
+
     return finish(trigger, ui, { status: "skipped", message });
   }
+
   if (trigger === "startup" && deps.env.PI_BREW_AUTO_UPDATE === "0") {
     const message = "Pi startup update is disabled.";
+
     return finish(trigger, ui, { status: "skipped", message });
   }
 
   let lock: AcquiredLock | undefined;
+
   try {
     const candidate = await acquireLock(deps);
+
     if (!candidate.acquired) {
       const message = "Pi update skipped: a Pi update is already running.";
+
       return finish(trigger, ui, { status: "contended", message });
     }
+
     lock = candidate;
 
     const installedUpdates = new Set<InstalledUpdate>();
     let extensionChangeUnknown = false;
+
     for (const step of UPDATE_STEPS) {
       const detectsExtensionUpdate = step.installedUpdate?.kind === "extensions";
+
       const extensionBefore = detectsExtensionUpdate
         ? await deps.snapshotExtensions()
         : undefined;
+
       let result: ExecResult;
+
       try {
         result = await deps.exec(step.command, [...step.args], { timeout: deps.timeoutMs });
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
+
         return finish(trigger, ui, reportFailure(`${step.label} failed: ${detail}`));
       }
 
@@ -417,11 +561,14 @@ export async function runBrewAutoUpdate(
           reportFailure(`${step.label} timed out after ${Math.round(deps.timeoutMs / 60_000)} minutes.`),
         );
       }
+
       if (result.code !== 0) {
         return finish(trigger, ui, reportFailure(`${step.label} failed: ${failureDetail(result)}`));
       }
+
       if (detectsExtensionUpdate) {
         const extensionAfter = await deps.snapshotExtensions();
+
         if (!extensionBefore || !extensionAfter) {
           extensionChangeUnknown = true;
         } else if (snapshotsChanged(extensionBefore, extensionAfter)) {
@@ -436,14 +583,17 @@ export async function runBrewAutoUpdate(
     }
 
     const updateMessage = installedUpdateMessage(installedUpdates);
+
     const message =
       updateMessage ??
       (extensionChangeUnknown
         ? "Pi package update completed; extension changes could not be verified."
         : "Pi is up to date.");
+
     return finish(trigger, ui, { status: "complete", message }, updateMessage !== undefined);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
+
     return finish(trigger, ui, reportFailure(`Pi update failed without blocking startup: ${detail}`));
   } finally {
     await lock?.release();

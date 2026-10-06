@@ -6,6 +6,7 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 
 const HEADING = "## Herdr Agent Resource Context (generated)"
+
 const RESOURCE_CLI =
   process.env.HERDR_RESOURCE_CONTEXT_CLI ??
   join(process.env.HOME || homedir(), ".local", "bin", "herdr-resource-tree")
@@ -24,8 +25,8 @@ function queryContext(sessionID: string): Promise<string | undefined> {
   })
 }
 
-function generatedContext(entry: unknown): boolean {
-  return typeof entry === "string" && (entry === HEADING || entry.startsWith(`${HEADING}\n`))
+function generatedContext(entry: string): boolean {
+  return entry === HEADING || entry.startsWith(`${HEADING}\n`)
 }
 
 export const HerdrResourceContextPlugin: Plugin = async () => {
@@ -34,6 +35,7 @@ export const HerdrResourceContextPlugin: Plugin = async () => {
   return {
     "experimental.chat.system.transform": async (input, output) => {
       const system = output?.system
+
       if (!Array.isArray(system)) return
 
       // Strip our own earlier entry before anything else can return: sessionID
@@ -44,20 +46,25 @@ export const HerdrResourceContextPlugin: Plugin = async () => {
       system.push(...retained)
 
       const sessionID = input?.sessionID
+
       if (!sessionID) {
         system.push(
           `${HEADING}\nHerdr resource context unavailable: OpenCode did not expose a native session identity. This must not be treated as an empty resource branch.`,
         )
+
         return
       }
 
       const context = await queryContext(sessionID)
+
       if (context === undefined) {
         system.push(
           `${HEADING}\nHerdr resource context unavailable: the shared resource query failed. This must not be treated as an empty resource branch.`,
         )
+
         return
       }
+
       if (context !== "") system.push(`${HEADING}\n${context}`)
     },
   }
