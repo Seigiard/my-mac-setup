@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,6 +19,8 @@ const {
 
 const cleanupPaths: string[] = [];
 
+const contenderProcesses: ReturnType<typeof Bun.spawn>[] = [];
+
 async function temporaryLockPath(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "pi-brew-auto-update-test-"));
   cleanupPaths.push(root);
@@ -26,6 +29,11 @@ async function temporaryLockPath(): Promise<string> {
 }
 
 afterEach(async () => {
+  for (const child of contenderProcesses.splice(0)) {
+    if (child.exitCode === null) child.kill("SIGKILL");
+    await child.exited;
+  }
+
   for (const path of cleanupPaths.splice(0)) {
     await rm(path, { recursive: true, force: true });
   }
@@ -633,6 +641,81 @@ describe("brew auto update sequence", () => {
 });
 
 describe("cross-process update lock", () => {
+  test("two stale contenders run only one updater after a replacement becomes live", async () => {
+    // #given an owner that has really exited, and B paused at its stale assessment
+    const lockPath = await temporaryLockPath();
+    const root = join(lockPath, "../..");
+    const deadOwner = Bun.spawn([process.execPath, "-e", ""], { stdout: "ignore", stderr: "ignore" });
+    expect(await deadOwner.exited).toBe(0);
+    await mkdir(lockPath, { recursive: true });
+    await writeFile(join(lockPath, "owner.json"), JSON.stringify({ pid: deadOwner.pid, startedAt: Date.now(), token: "dead" }));
+    const fixture = join(import.meta.dir, "fixtures/pi-brew-lock-contender.ts");
+    const modulePath = join(sourceRoot, "dot_pi/agent/extensions/brew-auto-update/index.ts");
+
+    const spawnContender = (label: string) => {
+      const child = Bun.spawn([process.execPath, fixture, modulePath, lockPath, root, label, String(deadOwner.pid)], { stdout: "pipe", stderr: "pipe" });
+      contenderProcesses.push(child);
+
+      return child;
+    };
+
+    const b = spawnContender("b");
+    await waitFor(() => existsSync(join(root, "assessment-b")), "B read the dead owner before probing its liveness");
+
+    // #when A attempts recovery, then B resumes its earlier stale assessment
+    const a = spawnContender("a");
+    await waitFor(() => existsSync(join(root, "attempt-a")), "A entered update or reported contention");
+    await writeFile(join(root, "resume-assessment-b"), "resume");
+    await waitFor(() => existsSync(join(root, "attempt-b")), "B entered update or reported contention");
+    await writeFile(join(root, "resume-update-a"), "resume");
+    await writeFile(join(root, "resume-update-b"), "resume");
+    expect(await a.exited).toBe(0);
+    expect(await b.exited).toBe(0);
+
+    // #then exactly one process completes the independently specified update sequence
+    const statuses = [];
+    const calls: string[] = [];
+
+    for (const label of ["a", "b"]) {
+      statuses.push(JSON.parse(await readFile(join(root, `result-${label}.json`), "utf8")).status);
+      const path = join(root, `calls-${label}`);
+
+      if (existsSync(path)) calls.push(...(await readFile(path, "utf8")).trim().split("\n"));
+    }
+
+    expect({ statuses: statuses.sort(), calls: calls.sort() }).toEqual({
+      statuses: ["complete", "contended"],
+      calls: ["brew update", "brew upgrade pi-coding-agent", "pi update --extensions"],
+    });
+  }, 30_000);
+
+  test("a crashed transition owner leaves no orphan claim blocking recovery", async () => {
+    // #given a real process paused while holding the stale-recovery transition
+    const lockPath = await temporaryLockPath();
+    const root = join(lockPath, "../..");
+    const deadOwner = Bun.spawn([process.execPath, "-e", ""], { stdout: "ignore", stderr: "ignore" });
+    expect(await deadOwner.exited).toBe(0);
+    await mkdir(lockPath, { recursive: true });
+    await writeFile(join(lockPath, "owner.json"), JSON.stringify({ pid: deadOwner.pid, startedAt: Date.now(), token: "dead" }));
+    const fixture = join(import.meta.dir, "fixtures/pi-brew-lock-contender.ts");
+    const modulePath = join(sourceRoot, "dot_pi/agent/extensions/brew-auto-update/index.ts");
+    const paused = Bun.spawn([process.execPath, fixture, modulePath, lockPath, root, "b", String(deadOwner.pid)], { stdout: "pipe", stderr: "pipe" });
+    contenderProcesses.push(paused);
+    await waitFor(() => existsSync(join(root, "assessment-b")), "the transition owner reached its paused liveness probe");
+
+    // #when that process is killed and a fresh process recovers on the same path
+    paused.kill("SIGKILL");
+    expect(await paused.exited).toBe(137);
+    await writeFile(join(root, "resume-update-a"), "resume");
+    const survivor = Bun.spawn([process.execPath, fixture, modulePath, lockPath, root, "a", String(deadOwner.pid)], { stdout: "pipe", stderr: "pipe" });
+    contenderProcesses.push(survivor);
+    expect(await survivor.exited).toBe(0);
+
+    // #then the updater completes, rather than retaining an orphaned claim
+    const result = JSON.parse(await readFile(join(root, "result-a.json"), "utf8"));
+    expect(result.status).toBe("complete");
+  }, 30_000);
+
   test("reports contention and does not wait for a live owner", async () => {
     const { deps, calls } = await dependencies();
     await mkdir(deps.lockPath, { recursive: true });

@@ -1,6 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rmdir, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename, rmdir, stat, unlink, writeFile } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
@@ -11,6 +13,22 @@ const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 const DEFAULT_STALE_LOCK_MS = 20 * 60_000;
 
 const OWNER_FILE = "owner.json";
+
+// flock is tied to the open file description shared by Node and the helper.
+// Python exits immediately after acquisition; Node retains the claim until its
+// FileHandle closes. Kernel descriptor cleanup also releases it on a crash.
+// Never unlink the guard file: every contender must lock the same stable inode.
+const TRANSITION_LOCK_HELPER = [
+  "import fcntl, sys",
+  "flags = fcntl.LOCK_EX",
+  "if sys.argv[1] == 'try': flags |= fcntl.LOCK_NB",
+  "try:",
+  "    fcntl.flock(3, flags)",
+  "except BlockingIOError:",
+  "    sys.exit(73)",
+].join("\n");
+
+const TRANSITION_HELPER_TIMEOUT_MS = 5_000;
 
 const PACKAGE_LOCK_PATHS = [
   "package-lock.json",
@@ -207,8 +225,84 @@ async function reclaimStaleLock(lockPath: string, deps: BrewAutoUpdateDependenci
   return true;
 }
 
+async function acquireTransitionClaim(lockPath: string, mode: "try" | "wait"): Promise<FileHandle | undefined> {
+  const claim = await open(`${lockPath}.guard`, "a+", 0o600);
+
+  try {
+    const helper = spawn("python3", ["-c", TRANSITION_LOCK_HELPER, mode], {
+      stdio: ["ignore", "ignore", "pipe", claim.fd],
+    });
+
+    let diagnostics = "";
+    helper.stderr.setEncoding("utf8");
+    helper.stderr.on("data", (chunk: string) => { diagnostics += chunk; });
+
+    const code = await new Promise<number>((resolve, reject) => {
+      let timedOut = false;
+
+      const timer = setTimeout(() => {
+        timedOut = true;
+        helper.kill("SIGKILL");
+      }, TRANSITION_HELPER_TIMEOUT_MS);
+
+      helper.once("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+      helper.once("exit", (code, signal) => {
+        clearTimeout(timer);
+
+        if (!timedOut && (code === 0 || code === 73)) resolve(code);
+        else reject(new Error(`update-lock transition helper ${timedOut ? "timed out" : `exited ${code ?? signal}`}: ${diagnostics.trim()}`));
+      });
+    });
+
+    if (code === 73) {
+      await claim.close();
+
+      return undefined;
+    }
+
+    return claim;
+  } catch (error) {
+    await claim.close().catch(() => {});
+    throw error;
+  }
+}
+
+async function releaseOwnedLock(deps: BrewAutoUpdateDependencies): Promise<void> {
+  let claim: FileHandle | undefined;
+
+  try {
+    claim = await acquireTransitionClaim(deps.lockPath, "wait");
+
+    if (!claim) return;
+    const currentOwner = await readOwner(deps.lockPath);
+
+    if (currentOwner?.token !== deps.token) return;
+    await removeLockDirectory(deps.lockPath);
+  } catch {
+    // Release remains best-effort. A failed cleanup keeps owner evidence for
+    // the existing dead/stale recovery policy instead of deleting a stranger.
+  } finally {
+    await claim?.close().catch(() => {});
+  }
+}
+
 async function acquireLock(deps: BrewAutoUpdateDependencies): Promise<UpdateLock> {
   await mkdir(dirname(deps.lockPath), { recursive: true });
+  const claim = await acquireTransitionClaim(deps.lockPath, "try");
+
+  if (!claim) return { acquired: false };
+
+  try {
+    return await acquireLockUnderClaim(deps);
+  } finally {
+    await claim.close();
+  }
+}
+
+async function acquireLockUnderClaim(deps: BrewAutoUpdateDependencies): Promise<UpdateLock> {
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -227,17 +321,15 @@ async function acquireLock(deps: BrewAutoUpdateDependencies): Promise<UpdateLock
 
       return {
         acquired: true,
-        release: async () => {
-          const currentOwner = await readOwner(deps.lockPath);
-
-          if (currentOwner?.token !== deps.token) return;
-          await removeLockDirectory(deps.lockPath).catch(() => {});
-        },
+        release: () => releaseOwnedLock(deps),
       };
     } catch (error) {
       if (ioErrorSchema.safeParse(error).data?.code !== "EEXIST") throw error;
     }
 
+    // Every owner read, stale decision, rename and publication is under the
+    // same kernel claim. A competing updater cannot replace this generation
+    // between the liveness assessment and reclamation.
     const owner = await readOwner(deps.lockPath);
     const age = await lockAge(deps.lockPath, deps.now(), owner);
     const ownerIsDead = owner ? !deps.processAlive(owner.pid) : false;
