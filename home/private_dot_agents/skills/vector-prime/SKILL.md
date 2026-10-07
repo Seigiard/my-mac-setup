@@ -21,7 +21,7 @@ bash ~/.claude/skills/vector-prime/scripts/vp.sh GET /workstreams | jq -r '.[] |
 
 **Every method needs the token, GET included.** The `/api-docs` page says read endpoints work unauthenticated; that holds only inside the browser, where a session cookie stands in. Auth lives in one Next.js middleware that never looks at the HTTP method, so an unauthenticated `GET /api/workstreams` answers `401 {"error":"Unauthorized"}`. An invalid token gives the same generic 401 — there is no distinct message for a bad token.
 
-The token comes from `VECTOR_PRIME_API_KEY`, exported by `.zshenv` from 1Password; the helper falls back to `op read` when the variable is unset. Against a local dashboard set `VECTOR_PRIME_API_URL=http://localhost:3456/api` — the app listens on **3456**, not 3000.
+The token comes from `VECTOR_PRIME_API_KEY`, exported by `.zshenv` from the machine secrets; the helper exits with status 2 when the variable is unset. Against a local dashboard set `VECTOR_PRIME_API_URL=http://localhost:3456/api` — the app listens on **3456**, not 3000.
 
 ## Start from the workstream id
 

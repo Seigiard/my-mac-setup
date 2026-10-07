@@ -28,7 +28,9 @@ Every repository-owned unattended chezmoi call goes through the shared launcher
 and names a profile. `full-fixture` requires disposable-home authority and all
 canary credentials, then renders every registered target. `host-partial` omits
 the named secret-sensitive targets and reports that omission. Interactive use
-continues to read real credentials from 1Password.
+continues to read real credentials from 1Password (amended by ADR-0023: interactive
+use now decrypts the age-encrypted machine secrets with a local identity; the
+profiles and the omission contract are unchanged).
 
 ## Consequences
 

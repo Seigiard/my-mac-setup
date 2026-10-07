@@ -29,8 +29,21 @@ sourceDir: {{ .chezmoi.sourceDir | quote }}
 {{-   fail (printf "machine role %q is not supported on %s" $machineRole .chezmoi.os) }}
 {{- end }}
 
-onepassword:
-  account: "my.1password.com"
+{{- /* Machine secrets travel in the source tree encrypted with age. The    */}}
+{{- /* identity is generated on each laptop and never leaves it           */}}
+{{- /* (docs/machine-secrets.md). Recipients come from the enrolled roles  */}}
+{{- /* in .chezmoidata/machines.yaml, read here with include because the   */}}
+{{- /* config template runs before chezmoi loads .chezmoidata.            */}}
+{{- $machines := include ".chezmoidata/machines.yaml" | fromYaml }}
+encryption: age
+age:
+  identity: {{ joinPath .chezmoi.homeDir ".config/chezmoi/key.txt" | quote }}
+  recipients:
+{{- range $roleName, $role := $machines.machines.roles }}
+{{- if hasKey $role "age_recipient" }}
+    - {{ $role.age_recipient | quote }}
+{{- end }}
+{{- end }}
 
 data:
   name: {{ $name | quote }}

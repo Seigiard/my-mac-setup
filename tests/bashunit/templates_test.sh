@@ -144,10 +144,9 @@ function test_templates_035_chezmoi_init_rejects_a_role_for_the_wrong_os() {
 
 make_ssh_policy_fixture() {
   local source="$1"
-  mkdir -p "$source/.chezmoidata" "$source/.chezmoitemplates" "$source/private_dot_ssh" \
-    "$source/private_dot_config/1Password/private_ssh"
+  mkdir -p "$source/.chezmoidata" "$source/.chezmoitemplates" "$source/private_dot_ssh"
   cp "$SOURCE_ROOT/.chezmoiignore" "$source/.chezmoiignore"
-  cp "$SOURCE_ROOT/.chezmoidata/ssh.yaml" "$source/.chezmoidata/ssh.yaml"
+  cp "$SOURCE_ROOT/.chezmoidata/machines.yaml" "$source/.chezmoidata/machines.yaml"
   cp "$SOURCE_ROOT/.chezmoitemplates/machine-role" "$source/.chezmoitemplates/machine-role"
   cp "$SOURCE_ROOT/.chezmoitemplates/resolve-machine-role.sh" \
     "$source/.chezmoitemplates/resolve-machine-role.sh"
@@ -155,18 +154,15 @@ make_ssh_policy_fixture() {
   printf 'managed authorization\n' > "$source/private_dot_ssh/private_authorized_keys"
   printf 'managed mbp2026 public key\n' > "$source/private_dot_ssh/mbp2026.pub"
   printf 'managed mbp2021 public key\n' > "$source/private_dot_ssh/mbp2021.pub"
-  printf 'managed agent config\n' \
-    > "$source/private_dot_config/1Password/private_ssh/private_agent.toml"
 }
 
 plant_ssh_policy_sentinels() {
   local dest="$1"
-  mkdir -p "$dest/.ssh" "$dest/.config/1Password/ssh"
+  mkdir -p "$dest/.ssh"
   printf 'existing config\n' > "$dest/.ssh/config"
   printf 'existing authorization\n' > "$dest/.ssh/authorized_keys"
   printf 'existing mbp2026 public key\n' > "$dest/.ssh/mbp2026.pub"
   printf 'existing mbp2021 public key\n' > "$dest/.ssh/mbp2021.pub"
-  printf 'existing agent config\n' > "$dest/.config/1Password/ssh/agent.toml"
 }
 
 assert_ssh_policy_sentinels() {
@@ -175,7 +171,6 @@ assert_ssh_policy_sentinels() {
   assert_file_contains "$dest/.ssh/authorized_keys" '^existing authorization$'
   assert_file_contains "$dest/.ssh/mbp2026.pub" '^existing mbp2026 public key$'
   assert_file_contains "$dest/.ssh/mbp2021.pub" '^existing mbp2021 public key$'
-  assert_file_contains "$dest/.config/1Password/ssh/agent.toml" '^existing agent config$'
 }
 
 function test_templates_036_apply_resolves_and_persists_a_missing_machine_role() {
@@ -284,29 +279,6 @@ function test_templates_038_a_valid_role_manages_its_ssh_policy_files() {
   assert_file_contains "$SSH_POLICY_DEST/.ssh/mbp2021.pub" '^managed mbp2021 public key$'
 }
 
-# The 1Password agent config is the one file in this fixture whose verdict
-# depends on the host, because write_test_config binds the role the host can
-# carry: mbp2026 on darwin, which uses the local agent, and server on linux,
-# which .chezmoiignore keeps out of the render. Both expectations behind one
-# `if is_macos` passed on either host whatever the ignore rules said. One test
-# per role keeps a single assertion path, and the named skip makes a run that
-# never reached the other one say so instead of reporting it as covered.
-function test_templates_0381_a_valid_role_deploys_the_1password_agent_config() {
-  _bats_test_init 381 'the mbp2026 role deploys the 1Password agent config'
-  is_macos || skip "only darwin binds a role (mbp2026) that uses the local 1Password SSH agent"
-  apply_valid_role_ssh_policy agent-used
-
-  assert_file_contains "$SSH_POLICY_DEST/.config/1Password/ssh/agent.toml" '^managed agent config$'
-}
-
-function test_templates_0382_the_server_role_leaves_the_1password_agent_config_alone() {
-  _bats_test_init 382 'the server role leaves an existing 1Password agent config alone'
-  is_linux || skip "only linux binds the server role, the one that does not use the local 1Password SSH agent"
-  apply_valid_role_ssh_policy agent-unused
-
-  assert_file_contains "$SSH_POLICY_DEST/.config/1Password/ssh/agent.toml" '^existing agent config$'
-}
-
 write_role_config() {
   local role="$1"
   local cfg="$2"
@@ -325,8 +297,8 @@ render_role_file() {
   printf '%s\n' "$output" > "$output_file"
 }
 
-function test_templates_039_laptop_public_keys_match_the_1password_items() {
-  _bats_test_init 39 'laptop public keys match the 1Password items'
+function test_templates_039_laptop_public_keys_match_the_committed_fingerprints() {
+  _bats_test_init 39 'laptop public keys match the committed fingerprints'
   command_exists ssh-keygen || skip "ssh-keygen not installed"
 
   run ssh-keygen -lf "$SOURCE_ROOT/private_dot_ssh/mbp2026.pub"
@@ -338,10 +310,13 @@ function test_templates_039_laptop_public_keys_match_the_1password_items() {
   assert_output --partial 'SHA256:EHMTK4CF46qEsk/z2atgPgQdsXThJX55V7J+/lPLUNY'
 }
 
-function test_templates_040_laptop_ssh_configs_select_one_1password_identity() {
-  _bats_test_init 40 'laptop SSH configs select one 1Password identity'
+# The private key path is the runbook contract (docs/machine-secrets.md): the
+# role's key is placed at ~/.ssh/<role> by hand and never committed, so the
+# rendered config must name exactly that file and no agent.
+function test_templates_040_laptop_ssh_configs_use_the_role_key_on_disk() {
+  _bats_test_init 40 'laptop SSH configs use the role private key on disk and no agent'
   command_exists ssh || skip "ssh not installed"
-  local role config target expected_host expected_user expected_key
+  local role config target expected_host expected_user
 
   for role in mbp2026 mbp2021; do
     config="$BATS_TEST_TMPDIR/$role-ssh-config"
@@ -349,12 +324,10 @@ function test_templates_040_laptop_ssh_configs_select_one_1password_identity() {
       target="mbp2021"
       expected_host="mbp2021.tailc9825c.ts.net"
       expected_user="seigiard"
-      expected_key="mbp2026.pub"
     else
       target="mbp2026"
       expected_host="mbp2026.tailc9825c.ts.net"
       expected_user="andrew.b"
-      expected_key="mbp2021.pub"
     fi
     render_role_file "$role" "$SOURCE_ROOT/private_dot_ssh/private_config.tmpl" "$config"
 
@@ -362,18 +335,19 @@ function test_templates_040_laptop_ssh_configs_select_one_1password_identity() {
     assert_success
     assert_line "hostname $expected_host"
     assert_line "user $expected_user"
-    assert_line "identityfile ~/.ssh/$expected_key"
+    assert_line "identityfile ~/.ssh/$role"
     assert_line 'identitiesonly yes'
     assert_line 'forwardagent no'
-    assert_line "identityagent $HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+    refute_line --regexp '^identityagent '
 
     run ssh -G -F "$config" server
     assert_success
     assert_line 'hostname home.tailc9825c.ts.net'
     assert_line 'user seigiard'
-    assert_line "identityfile ~/.ssh/$expected_key"
+    assert_line "identityfile ~/.ssh/$role"
     assert_line 'identitiesonly yes'
     assert_line 'forwardagent no'
+    refute_line --regexp '^identityagent '
   done
 }
 
@@ -426,9 +400,9 @@ function test_templates_0421_authorized_keys_reject_an_empty_role_allowlist() {
   local cfg="$BATS_TEST_TMPDIR/empty-authorized-keys.yaml"
   local role data template
   mkdir -p "$source/.chezmoidata" "$source/.chezmoitemplates" "$source/private_dot_ssh"
-  data="$source/.chezmoidata/ssh.yaml"
+  data="$source/.chezmoidata/machines.yaml"
   template="$source/private_dot_ssh/private_authorized_keys.tmpl"
-  cp "$SOURCE_ROOT/.chezmoidata/ssh.yaml" "$data"
+  cp "$SOURCE_ROOT/.chezmoidata/machines.yaml" "$data"
   cp "$SOURCE_ROOT/.chezmoitemplates/machine-role" "$source/.chezmoitemplates/machine-role"
   cp "$SOURCE_ROOT/.chezmoitemplates/resolve-machine-role.sh" \
     "$source/.chezmoitemplates/resolve-machine-role.sh"
@@ -468,24 +442,6 @@ with open(path, "w") as output:
   # Names the template and the role: the bare phrase cannot tell an empty
   # authorized_keys list for this role from one for any other.
   assert_output --partial "cannot render authorized_keys: machine_role \"$role\" has no authorized keys"
-}
-
-function test_templates_043_1password_agent_allowlists_only_the_role_key() {
-  _bats_test_init 43 '1Password agent allowlists only the role key'
-  local config="$SOURCE_ROOT/private_dot_config/1Password/private_ssh/private_agent.toml.tmpl"
-  local rendered
-
-  render_role_file mbp2026 "$config" "$BATS_TEST_TMPDIR/mbp2026-agent.toml"
-  rendered="$(< "$BATS_TEST_TMPDIR/mbp2026-agent.toml")"
-  run printf '%s\n' "$rendered"
-  assert_line 'item = "xew24lnqepklck6mqik5lmirqi"'
-  refute_output --partial 'ppztkbmrt3oo6xsm6ctlhia7ta'
-
-  render_role_file mbp2021 "$config" "$BATS_TEST_TMPDIR/mbp2021-agent.toml"
-  rendered="$(< "$BATS_TEST_TMPDIR/mbp2021-agent.toml")"
-  run printf '%s\n' "$rendered"
-  assert_line 'item = "ppztkbmrt3oo6xsm6ctlhia7ta"'
-  refute_output --partial 'xew24lnqepklck6mqik5lmirqi'
 }
 
 # ===========================================
@@ -779,44 +735,106 @@ function test_templates_0093_zshenv_shared_render_helper_uses_complete_full_fixt
   assert_output 'mms-test-linear-canary|mms-test-tavily-canary|mms-test-context7-canary|mms-test-vector-prime-canary|mms-test-openrouter-canary|mms-test-posthog-canary|mms-test-vrt-r2-access-key-canary|mms-test-vrt-r2-secret-key-canary'
 }
 
-function test_templates_0094_zshenv_skip_secrets_omits_state_but_execute_template_fails() {
-  _bats_test_init 94 'zshenv skip secrets omits state while execute-template still fails on its secret function'
-  local work="$BATS_TEST_TMPDIR/zshenv-compatibility"
-  local launcher="$BATS_TEST_DIRNAME/helpers/chezmoi-unattended"
-  local cfg="$work/chezmoi.yaml"
-  mkdir -p "$work/bin" "$work/home"
-  write_test_config "$cfg"
-  cat > "$work/bin/op" <<'FAKE_OP'
-#!/bin/sh
-printf launched > "$FAKE_OP_MARKER"
-exit 99
-FAKE_OP
-  chmod +x "$work/bin/op"
+# Machine-secrets fixture: a scratch home with its own age identity and a
+# source tree whose encrypted secrets file was produced by the age CLI, not by
+# chezmoi, for the recipient named in $2 (defaults to the scratch identity).
+# The real source file is unreadable here by design: it is encrypted only for
+# the enrolled laptops.
+make_machine_secrets_fixture() {
+  local work="$1"
+  local recipient="${2:-}"
+  local identity="$work/home/.config/chezmoi/key.txt"
+  mkdir -p "$work/home/.config/chezmoi" "$work/src/private_dot_config/secrets"
+  age-keygen -o "$identity" 2>/dev/null
+  [[ -n "$recipient" ]] || recipient="$(age-keygen -y "$identity")"
+  cp "$SOURCE_ROOT/dot_zshenv.tmpl" "$work/src/dot_zshenv.tmpl"
+  printf '%s\n' \
+    'LINEAR_API_KEY: "linear-age-canary"' \
+    'TAVILY_API_KEY: "tavily-age-canary"' \
+    'TAVILY_API_KEY_2: "tavily-2-age-canary"' \
+    'CONTEXT7_API_KEY: "context7-age-canary"' \
+    'VECTOR_PRIME_API_KEY: "vector-age-canary"' \
+    'OPENROUTER_API_KEY: "openrouter-age-canary"' \
+    'POSTHOG_PERSONAL_API_KEY: "posthog-age-canary"' \
+    'VRT_R2_ACCESS_KEY_ID: "vrt-r2-access-key-age-canary"' \
+    'VRT_R2_SECRET_ACCESS_KEY: "vrt-r2-secret-key-age-canary"' \
+    | age -r "$recipient" -o "$work/src/private_dot_config/secrets/encrypted_private_api-keys.yaml.age"
+  # HOME selects the identity path the config template writes, so the scratch
+  # key is the one chezmoi reads; nothing here touches the host's key.
+  HOME="$work/home" write_test_config "$work/chezmoi.yaml"
+}
 
-  printf '{{ "execute-template-control" }}' > "$work/non-secret.tmpl"
-  run env \
-    HOME="$work/home" \
-    PATH="$work/bin:$PATH" \
-    FAKE_OP_MARKER="$work/op-launched" \
-    MMS_CHEZMOI_UNATTENDED=1 \
-    "$launcher" --profile host-partial --finite-stdin -- \
-    execute-template --source "$SOURCE_ROOT" --config "$cfg" \
-    < "$work/non-secret.tmpl"
+# The attended render, outside the unattended launcher on purpose: both of its
+# profiles bypass the branch under test (full-fixture renders canaries from
+# env, host-partial passes --skip-secrets, which makes `decrypt` return "skip
+# template"). This is the one path that decrypts with an identity, and it is
+# exactly what `chezmoi apply` runs on a laptop. Nothing here can prompt: the
+# identity is a scratch key, the source is a scratch tree, --no-tty is set.
+render_zshenv_attended() {
+  local work="$1"
+  env -u MMS_CHEZMOI_UNATTENDED -u MMS_CHEZMOI_UNATTENDED_PROFILE \
+    HOME="$work/home" chezmoi --no-tty --no-pager execute-template \
+    --config "$work/chezmoi.yaml" --source "$work/src" \
+    --file "$work/src/dot_zshenv.tmpl" < /dev/null
+}
+
+function test_templates_0095_zshenv_exports_the_age_decrypted_machine_secrets() {
+  _bats_test_init 95 'zshenv exports the machine secrets decrypted with the local age identity'
+  command_exists age || skip "age not installed"
+  command_exists zsh || skip "zsh not installed"
+  local work="$BATS_TEST_TMPDIR/zshenv-age"
+  make_machine_secrets_fixture "$work"
+
+  run render_zshenv_attended "$work"
   assert_success
-  assert_output 'execute-template-control'
+  printf '%s\n' "$output" > "$work/zshenv.rendered"
 
-  run env \
-    HOME="$work/home" \
-    PATH="$work/bin:$PATH" \
-    FAKE_OP_MARKER="$work/op-launched" \
-    MMS_CHEZMOI_UNATTENDED=1 \
-    "$launcher" --profile host-partial --finite-stdin -- \
-    execute-template --source "$SOURCE_ROOT" --config "$cfg" \
-    < "$SOURCE_ROOT/dot_zshenv.tmpl"
+  run env HOME="$work/home" PATH="/usr/bin:/bin" zsh -f -c '
+    RANDOM=2
+    source "$1"
+    print -r -- "$LINEAR_API_KEY|$TAVILY_API_KEY|$CONTEXT7_API_KEY|$VECTOR_PRIME_API_KEY|$OPENROUTER_API_KEY|$POSTHOG_PERSONAL_API_KEY|$VRT_R2_ACCESS_KEY_ID|$VRT_R2_SECRET_ACCESS_KEY|${+_tavily_api_keys}"
+  ' _ "$work/zshenv.rendered"
+  assert_success
+  assert_output 'linear-age-canary|tavily-age-canary|context7-age-canary|vector-age-canary|openrouter-age-canary|posthog-age-canary|vrt-r2-access-key-age-canary|vrt-r2-secret-key-age-canary|0'
+}
+
+function test_templates_0096_zshenv_renders_without_secrets_where_no_identity_exists() {
+  _bats_test_init 96 'zshenv renders a key-less shell where no machine identity exists'
+  command_exists age || skip "age not installed"
+  command_exists zsh || skip "zsh not installed"
+  local work="$BATS_TEST_TMPDIR/zshenv-no-identity"
+  make_machine_secrets_fixture "$work"
+  rm "$work/home/.config/chezmoi/key.txt"
+
+  run render_zshenv_attended "$work"
+  assert_success
+  printf '%s\n' "$output" > "$work/zshenv.rendered"
+
+  # The host shell that runs the suite may itself export these names; unset
+  # them so only the rendered file can define them.
+  run env -u LINEAR_API_KEY -u VRT_R2_SECRET_ACCESS_KEY \
+    HOME="$work/home" PATH="/usr/bin:/bin" zsh -f -c '
+    source "$1"
+    print -r -- "[${LINEAR_API_KEY-unset}|${VRT_R2_SECRET_ACCESS_KEY-unset}|$VRT_R2_BUCKET]"
+  ' _ "$work/zshenv.rendered"
+  assert_success
+  assert_output '[unset|unset|membrane-visual-regression-testing]'
+}
+
+function test_templates_0097_zshenv_fails_when_the_identity_cannot_decrypt_the_secrets() {
+  _bats_test_init 97 'zshenv fails the render when the local identity is not a recipient of the secrets'
+  command_exists age || skip "age not installed"
+  local work="$BATS_TEST_TMPDIR/zshenv-foreign-recipient"
+  local foreign
+  foreign="$(age-keygen 2>/dev/null | sed -n 's/^# public key: //p')"
+  [[ -n "$foreign" ]] || foreign="$(age-keygen 2>/dev/null | grep -o 'age1[a-z0-9]*')"
+  make_machine_secrets_fixture "$work" "$foreign"
+
+  run render_zshenv_attended "$work"
   assert_failure
-  assert_output --partial 'onepasswordRead'
-  # oracle: fake op creates this marker only if skip-secrets fails before helper launch.
-  assert_file_not_exists "$work/op-launched"
+  # chezmoi's own wording for a template function that returned an error; the
+  # bare age message would also appear on a missing binary.
+  assert_output --partial 'error calling decrypt'
 }
 
 function test_templates_010_zshrc_cached_init_never_splices_two_concurrent_g() {

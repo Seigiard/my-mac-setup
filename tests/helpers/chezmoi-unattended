@@ -111,7 +111,10 @@ while IFS= read -r inventory_line || [ -n "$inventory_line" ]; do
     fail "malformed inventory row $inventory_line_number: fixture list is invalid"
   esac
 
+  # `-` registers a target with no fixtures: it is omitted on the host like
+  # any other row, and the full-fixture profile has nothing to supply for it.
   fixture_rest=$field_fixtures
+  [ "$fixture_rest" != "-" ] || fixture_rest=""
   while [ -n "$fixture_rest" ]; do
     fixture_name=${fixture_rest%%,*}
     if [ "$fixture_name" = "$fixture_rest" ]; then

@@ -22,29 +22,34 @@ broken rather than merely missing a convenience.
 
 Go to https://brew.sh/ and run the install command. Follow its prompt to add Homebrew to your `PATH`.
 
-### 2. Install chezmoi and 1Password
+### 2. Install chezmoi and age
 
 ```sh
-brew install chezmoi 1password-cli
-brew install --cask 1password
+brew install chezmoi age
 ```
 
-### 3. Set up a GitHub SSH key
+### 3. Set up the machine's SSH key
 
-The repo is cloned over SSH, so you need a key before chezmoi can pull it.
+The repo is cloned over SSH, so you need a key before chezmoi can pull it. The
+managed SSH config expects the key of this machine's role at `~/.ssh/<role>`
+(`mbp2026` or `mbp2021`), with no passphrase:
 
-- [Generate SSH key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent)
-- [Add key to GitHub](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account)
+```sh
+ssh-keygen -t ed25519 -f ~/.ssh/<role> -N "" -C "SSH <role>"
+```
 
-Verify it works: `ssh -T git@github.com`
+Register the public key on GitHub ([how](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/adding-a-new-ssh-key-to-your-github-account))
+and verify it works: `ssh -i ~/.ssh/<role> -T git@github.com`. If the key is
+new, also replace the role's public key and `authorized_keys` entries as
+described in [`docs/machine-secrets.md`](docs/machine-secrets.md).
 
-### 4. Enable 1Password CLI (optional, for secrets)
+### 4. Enroll the machine for secrets (optional)
 
-Some configs use 1Password to inject API keys (e.g., `LINEAR_API_KEY`).
-
-Open the 1Password app: **Settings → Developer → Enable "Integrate with 1Password CLI"**.
-
-Skip this and chezmoi still applies — secret templates are guarded by `lookPath "op"`, so missing 1Password just leaves those values empty.
+API keys reach `~/.zshenv` from one age-encrypted file in this repo, decrypted
+with a key that lives only on this machine. Without that key chezmoi still
+applies; the shell just has no API keys. Enrollment is a two-sided step, done
+from an already enrolled laptop: see
+[`docs/machine-secrets.md`](docs/machine-secrets.md).
 
 ### 5. Bootstrap with chezmoi
 
@@ -134,97 +139,27 @@ an agent works, then retains the assertion for 20 minutes after the final agent
 goes quiet. Updating it uses the same reviewed-pin policy; implementation and
 behavioral tests stay upstream.
 
-### Role-based SSH rollout
+### Role-based SSH access
 
 The managed roles and aliases are:
 
 | Role | Host | SSH user | Aliases from the other laptop |
 |---|---|---|---|
 | `mbp2026` | `mbp2026.tailc9825c.ts.net` | `andrew.b` | `mbp2026`, `mbp2026.local` |
-| `mbp2021` | `mbp2021.tailc9825c.ts.net` | `andrew.b` | `mbp2021`, `mbp2021.local` |
+| `mbp2021` | `mbp2021.tailc9825c.ts.net` | `seigiard` | `mbp2021`, `mbp2021.local` |
 | `server` | `home.tailc9825c.ts.net` | `seigiard` | `server`, `home.local` |
 
-Both laptops must enable the 1Password SSH Agent. Keep an existing SSH session
-or local console open while adopting `authorized_keys`. Do not remove an old
-key or backup until both laptops pass the checks below after a restart.
+Each laptop holds its own private key at `~/.ssh/<role>`; chezmoi renders
+`~/.ssh/config`, the public keys, and the `authorized_keys` matrix from
+`home/.chezmoidata/machines.yaml`. The server keeps no outbound key
+(ADR-0004); attended git access from it uses a dedicated forwarded session,
+`ssh -A server`. Key placement, replacement, and the enrollment of a laptop
+for secrets are in [`docs/machine-secrets.md`](docs/machine-secrets.md).
 
-1. On each machine, update the separate chezmoi source clone to the commit that
-   contains this policy.
-2. Back up every existing destination before assigning its role:
-
-   ```sh
-   stamp=$(date +%Y%m%d-%H%M%S)
-   for file in ~/.ssh/authorized_keys ~/.ssh/config ~/.ssh/mbp2026.pub ~/.ssh/mbp2021.pub ~/.config/1Password/ssh/agent.toml; do
-     if [ -f "$file" ]; then
-       cp -p "$file" "$file.before-role-ssh-$stamp"
-       test -r "$file.before-role-ssh-$stamp"
-     fi
-   done
-   ```
-
-3. Bind the role without applying files. Use the matching command on each
-   machine:
-
-   ```sh
-   MMS_MACHINE_ROLE=mbp2026 chezmoi init
-   MMS_MACHINE_ROLE=mbp2021 chezmoi init
-   MMS_MACHINE_ROLE=server chezmoi init
-   ```
-
-   A normal `chezmoi apply` also asks for a missing role and stores the answer in
-   `~/.config/chezmoi/machine-role`. This attended rollout binds it during init
-   so that authorization can be applied separately first.
-
-4. Keep the server session open. Install inbound authorization on `server`,
-   then `mbp2026`, then `mbp2021`:
-
-   ```sh
-   chezmoi diff ~/.ssh/authorized_keys
-   chezmoi apply ~/.ssh/authorized_keys
-   ```
-
-   After each apply, open a fresh login from an already authorized machine. If
-   it fails, restore that machine's timestamped backup from its local console.
-
-5. On each laptop, confirm that 1Password exposes the role key. Then review and
-   apply the remaining managed SSH files:
-
-   ```sh
-   SSH_AUTH_SOCK="$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock" ssh-add -L
-   chezmoi diff ~/.ssh/config ~/.ssh/mbp2026.pub ~/.ssh/mbp2021.pub ~/.config/1Password/ssh/agent.toml
-   chezmoi apply ~/.ssh/config ~/.ssh/mbp2026.pub ~/.ssh/mbp2021.pub ~/.config/1Password/ssh/agent.toml
-   ```
-
-6. Before accepting a new host-key prompt, run
-   `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` at the destination's local
-   console and compare its fingerprint with the prompt. The repository does not
-   manage `known_hosts`.
-7. Run the four ordinary paths from fresh, non-multiplexed sessions:
-
-   ```sh
-   # mbp2026
-   ssh -o ControlMaster=no -o ControlPath=none -o BatchMode=yes -o PreferredAuthentications=publickey mbp2021 true
-   ssh -o ControlMaster=no -o ControlPath=none -o BatchMode=yes -o PreferredAuthentications=publickey server true
-
-   # mbp2021
-   ssh -o ControlMaster=no -o ControlPath=none -o BatchMode=yes -o PreferredAuthentications=publickey mbp2026 true
-   ssh -o ControlMaster=no -o ControlPath=none -o BatchMode=yes -o PreferredAuthentications=publickey server true
-   ```
-
-8. From either laptop, prove that normal server sessions do not receive an
-   agent. Then open the dedicated forwarded session:
-
-   ```sh
-   ssh -o ControlMaster=no -o ControlPath=none -o BatchMode=yes -o PreferredAuthentications=publickey server 'test -z "$SSH_AUTH_SOCK"'
-   ssh -o ControlMaster=no -o ControlPath=none -o BatchMode=yes -o PreferredAuthentications=publickey -A server
-   ```
-
-   Inside the forwarded session, run `ssh-add -L` and a Git operation against
-   an existing SSH remote. Exit that session, open another normal server
-   session, and confirm that `ssh-add -L` cannot use the laptop agent.
-9. Restart both laptops, unlock 1Password, and repeat one fresh managed login
-   from each. Only then remove obsolete local private keys and timestamped
-   backups.
+Before accepting a new host-key prompt, run
+`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` at the destination's local
+console and compare its fingerprint with the prompt. The repository does not
+manage `known_hosts`.
 
 ## Structure
 
@@ -244,7 +179,7 @@ home/
 │   ├── kitty/                # kitty.conf + herdr.conf (herdr integration)
 │   ├── karabiner/
 │   └── yazi/
-├── dot_zshrc.tmpl            # Uses 1Password for API keys
+├── dot_zshenv.tmpl           # Exports API keys from the age-encrypted machine secrets
 ├── dot_aliases
 ├── dot_gitconfig.tmpl
 └── ...

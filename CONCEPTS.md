@@ -158,6 +158,20 @@ The rule that a gate's default answer under uncertainty is set by what a wrong a
 ### Explicit-only workflow
 A workflow that interrupts the current task and must run only after a direct user request. Its shared description and instructions are packaged as a Claude Code skill with model invocation disabled, consumed by Pi through the shared Claude skill path, and exposed to OpenCode as a manual command rather than a native skill.
 
+## Machine secrets
+
+### Machine role
+The one persisted identity of a machine in this repository: which of the known machines it is. A role carries everything that is true of that machine and of no other: its operating system, its SSH endpoints and public key, who may log in to it, and its Machine identity. A machine binds exactly one role, and the server is a role with no secrets and no outbound key.
+
+### Machine identity
+The key pair that makes one enrolled machine a reader of the machine secrets. It is created on that machine and never leaves it; only its public half is recorded, in the machine's role. A machine without one receives no secrets, and apply there succeeds without them.
+
+### Enrollment
+Making a machine a reader: its identity's public half is recorded in its role, and a machine that is already a reader re-encrypts the secrets for the new set. Until that second step completes, the new machine has no secrets. A reinstalled machine enrolls again; the old identity is gone with the disk.
+
+### Revocation
+Removing a machine from the set of readers and re-encrypting for the remaining set. Revocation stops the machine from reading future versions only; every version it could already read stays readable to whoever holds its identity, so a compromised machine also requires rotating the values themselves.
+
 ## Testing
 
 ### Semantic regression test

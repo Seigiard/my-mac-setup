@@ -22,6 +22,7 @@ Reference docs (read on demand):
 - `docs/agent-setup-inventory.md` — curated plugins/skills/agents for manual reinstall across Claude Code, OpenCode, Pi
 - `docs/herdr-worktrees.md` — native Herdr worktree ownership and per-repository setup policy
 - `docs/external-agent-cli-flags.md` — headless/one-shot invocation flags for external coding-agent CLIs
+- `docs/machine-secrets.md` — age-encrypted machine secrets and SSH keys: editing, enrollment, revocation
 
 ## Agent skills
 
@@ -146,18 +147,11 @@ Keep `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` in `home/dot_zshenv.tmpl` so OpenCo
 
 </important>
 
-<important if="you are working with templates, secrets, or 1Password integration">
+<important if="you are working with templates, secrets, or the age-encrypted machine secrets">
 
-- **Never** hardcode secrets — use `onepasswordRead` in templates.
-- 1Password calls must be guarded by `lookPath "op"` so CI/Docker environments (without 1Password) still apply. Real pattern from `home/dot_zshenv.tmpl`:
-
-  ```
-  {{ if lookPath "op" }}
-  export LINEAR_API_KEY="{{ onepasswordRead "op://Private/Linear API Key/credential" "my.1password.com" }}"
-  {{- end }}
-  ```
-
-- `op` must be absent from `PATH` in test environments, otherwise 1Password templates fail.
+- **Never** hardcode secrets in templates. Every exported API key lives in one age-encrypted file, `home/private_dot_config/secrets/encrypted_private_api-keys.yaml.age`, and reaches `~/.zshenv` through `include ... | decrypt | fromYaml` in `home/dot_zshenv.tmpl`. Edit it with `make edit-secrets`. The model, enrollment, and revocation are in `docs/machine-secrets.md`.
+- Decryption needs a Machine identity at the path in `.chezmoi.config.age.identity`. Guard every use with the pattern in `dot_zshenv.tmpl` (`dig "age" "identity" "" .chezmoi.config`, then `stat`) so CI, Docker, the server, and a host config generated before the age block render without one; `.chezmoiignore` drops the decrypted target in the same condition.
+- A new exported secret touches the age file, both branches of `dot_zshenv.tmpl`, and the full-fixture plumbing: `tests/helpers/chezmoi-unattended-targets.tsv`, the fixture count in `tests/helpers/chezmoi-unattended`, `tests/helpers/common.bash`, and `.github/workflows/test-dotfiles.yml`.
 - Required env vars in CI: `CHEZMOI_NAME`, `CHEZMOI_EMAIL` (set in the GitHub workflow).
 
 </important>

@@ -50,6 +50,7 @@ for arg in "$@"; do
     fi
     printf '%s\0' \
       "$HOME/.zshenv" \
+      "$HOME/.config/secrets/api-keys.yaml" \
       "$HOME/.claude.json" \
       "$HOME/.zshenv.backup" \
       "$HOME/.config/ordinary target" \
@@ -406,12 +407,16 @@ function test_chezmoi_unattended_010_diff_omits_exact_inventory_destinations() {
     MMS_CHEZMOI_FIXTURE_VRT_R2_SECRET_ACCESS_KEY=DO_NOT_LEAK_VRT_R2_SECRET_KEY \
     run "$LAUNCHER" --profile host-partial -- diff --source '/tmp/source tree'
   assert_success
-  # Exact, whole output: the inventory holds one row, the fake writes nothing
-  # to stdout, so the notice is fully determined. A partial on 'partial
-  # coverage' passed when the notice named the wrong destination. The exact
-  # match also subsumes the DO_NOT_LEAK refutation this replaced.
-  assert_output 'chezmoi-unattended: partial coverage; omitted source home/dot_zshenv.tmpl -> destination ~/.zshenv'
-  # ~/.claude.json is not in the inventory, so it is forwarded like any target.
+  # Exact, whole output: the inventory holds two rows, the fake writes nothing
+  # to stdout, so the notices are fully determined. A partial on 'partial
+  # coverage' passed when a notice named the wrong destination. The exact
+  # match also subsumes the DO_NOT_LEAK refutation this replaced. The second
+  # row is the `-` (no-fixture) form; its presence here is what proves the
+  # launcher accepts that form instead of failing closed on it.
+  assert_output 'chezmoi-unattended: partial coverage; omitted source home/dot_zshenv.tmpl -> destination ~/.zshenv
+chezmoi-unattended: partial coverage; omitted source home/private_dot_config/secrets/encrypted_private_api-keys.yaml.age -> destination ~/.config/secrets/api-keys.yaml'
+  # ~/.claude.json is not in the inventory, so it is forwarded like any target;
+  # the decrypted secrets copy is, so it never reaches the diff argv.
   assert_recorded_args --no-tty --no-pager --skip-secrets diff --source \
     '/tmp/source tree' "$HOME/.claude.json" "$HOME/.zshenv.backup" \
     "$HOME/.config/ordinary target" "$HOME/.config/line

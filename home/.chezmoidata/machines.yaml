@@ -1,5 +1,17 @@
-ssh:
-  agent_socket: "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+# One entry per machine role. A role carries the whole machine identity:
+# its OS, its SSH endpoints and keys, and its age recipient.
+#
+# age_recipient is the public half of the role's Machine identity. It is
+# present only on enrolled laptops; chezmoi encrypts the secrets file for
+# every recipient listed here, so adding or removing one is an enrollment or
+# a revocation and requires re-encrypting the secrets file afterwards
+# (docs/machine-secrets.md). The server has no recipient on purpose: it
+# receives no secrets.
+#
+# identity_file is the private SSH key the role uses for outbound access. It
+# is generated or placed on the machine by hand and never committed; chezmoi
+# manages only the public keys and authorized_keys.
+machines:
   roles:
     mbp2026:
       os: darwin
@@ -8,8 +20,7 @@ ssh:
         - mbp2026.local
       hostname: mbp2026.tailc9825c.ts.net
       user: andrew.b
-      public_key_file: ~/.ssh/mbp2026.pub
-      item_ref: xew24lnqepklck6mqik5lmirqi
+      identity_file: ~/.ssh/mbp2026
       authorized_keys:
         - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINUI/t06lbPQ/ieRE5sLlAVO6oUfdHwKvwNaH/irZ2w2 SSH mbp2021
     mbp2021:
@@ -19,8 +30,8 @@ ssh:
         - mbp2021.local
       hostname: mbp2021.tailc9825c.ts.net
       user: seigiard
-      public_key_file: ~/.ssh/mbp2021.pub
-      item_ref: ppztkbmrt3oo6xsm6ctlhia7ta
+      identity_file: ~/.ssh/mbp2021
+      age_recipient: age1mm9lq9varrdzgrz6lu8acj2smljjnyap76agv4l59yhjnjdcyptq5kngrr
       authorized_keys:
         - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDW5HyTbWdDE/Be0hHX2XgGOvNuEZyOOQBWu2VDzdrsC SSH mbp2026
     server:
