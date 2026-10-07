@@ -21,6 +21,7 @@ machines:
       hostname: mbp2026.tailc9825c.ts.net
       user: andrew.b
       identity_file: ~/.ssh/mbp2026
+      age_recipient: age1fnnphxjnvdmc609np5v56v5jva9jpl8nclyv9hhwp454y94283uqxzk4qf
       authorized_keys:
         - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINUI/t06lbPQ/ieRE5sLlAVO6oUfdHwKvwNaH/irZ2w2 SSH mbp2021
     mbp2021:
