@@ -1,4 +1,4 @@
-.PHONY: help test-python test-ubuntu test-local test-suite test-docker test-templates test-pi-agents-local test-agents-local-opencode test-herdr-resource-context-opencode test-herdr-resource-context-pi test-pi-brew-auto-update test-pi-herdr-worktree-identity test-agent-hooks-core test-agent-hooks-opencode test-agent-hooks-pi test-agent-intercom-loaders lint clean build-docker shell-ubuntu
+.PHONY: help test-python test-ubuntu test-local edit-secrets reencrypt-secrets test-suite test-docker test-templates test-pi-agents-local test-agents-local-opencode test-herdr-resource-context-opencode test-herdr-resource-context-pi test-pi-brew-auto-update test-pi-herdr-worktree-identity test-agent-hooks-core test-agent-hooks-opencode test-agent-hooks-pi test-agent-intercom-loaders lint clean build-docker shell-ubuntu
 
 .PHONY: lint-yaml lint-shell install-git-hooks
 
@@ -20,6 +20,8 @@ help:
 	@echo "  make test-agent-hooks-pi  Run focused agent-hooks Pi adapter tests"
 	@echo "  make test-agent-intercom-loaders  Run focused Agent Intercom loader tests"
 	@echo "  make test-local       Diff checkout source against current home (dry-run)"
+	@echo "  make edit-secrets     Edit the age-encrypted machine secrets in this checkout"
+	@echo "  make reencrypt-secrets  Re-encrypt the machine secrets for the current recipients"
 	@echo "  make test-docker      Build and run full Docker test suite"
 	@echo "  make lint             Run shellcheck and YAML validation"
 	@echo "  make lint-yaml        Check YAML files and Markdown frontmatter"
@@ -80,6 +82,21 @@ shell-ubuntu: build-docker
 
 test-local:
 	@MMS_CHEZMOI_UNATTENDED=1 tests/helpers/chezmoi-unattended --profile host-partial -- diff --source=./home
+
+# Decrypts the machine secrets from THIS checkout into $$EDITOR and re-encrypts
+# them on save, so the commit lands here rather than in chezmoi's own clone.
+# Uses the host config for the identity and recipients. See docs/machine-secrets.md.
+edit-secrets:
+	chezmoi edit --source=./home ~/.config/secrets/api-keys.yaml
+
+# Re-encrypts the machine secrets for the recipients in the host config. Run it
+# after `chezmoi init` picked up an enrollment or a revocation in machines.yaml.
+SECRETS_SOURCE := home/private_dot_config/secrets/encrypted_private_api-keys.yaml.age
+reencrypt-secrets:
+	@tmp=$$(mktemp "$(SECRETS_SOURCE).XXXXXX") && \
+	  chezmoi decrypt "$(SECRETS_SOURCE)" | chezmoi encrypt > "$$tmp" && \
+	  mv -f "$$tmp" "$(SECRETS_SOURCE)" && \
+	  echo "re-encrypted $(SECRETS_SOURCE)"
 
 # This host-safe target excludes tests/bashunit/idempotent_test.sh and applies
 # nothing. It reports on the already-applied $$HOME, not the working checkout.

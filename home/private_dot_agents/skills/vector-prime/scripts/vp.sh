@@ -37,11 +37,8 @@ esac
 base=${VECTOR_PRIME_API_URL:-https://vector.membranehq.com/api}
 
 token=${VECTOR_PRIME_API_KEY:-}
-if [ -z "$token" ] && command -v op >/dev/null 2>&1; then
-  token=$(op read "op://Private/VectorPrime API Key/credential" 2>/dev/null || true)
-fi
 if [ -z "$token" ]; then
-  echo "vp.sh: no token. Open a new shell so .zshenv exports VECTOR_PRIME_API_KEY, or run: op signin" >&2
+  echo "vp.sh: no token. Open a new shell so .zshenv exports VECTOR_PRIME_API_KEY" >&2
   exit 2
 fi
 

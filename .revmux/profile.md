@@ -137,7 +137,7 @@ the rules exist because the consequence already happened once.
 ## Where the rules live
 
 - `CLAUDE.md` — the `<important if>` blocks: where new things go, the chezmoi three-copy
-  split, secrets and 1Password guards, the test-oracle gate, which `make` target proves what.
+  split, secrets and age-identity guards, the test-oracle gate, which `make` target proves what.
 - `docs/agent-verification.md` — risk classes, evidence validity, publish and merge gates.
 - `docs/solutions/` — this repository's own post-mortems, with YAML front matter carrying
   `severity` and `applies_when`. Nineteen of them. When a change falls inside an

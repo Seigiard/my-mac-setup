@@ -26,7 +26,9 @@ drift. The role model and its security trade-offs were introduced in commit
 ## Decision
 
 Chezmoi persists exactly one OS-compatible machine role and renders the committed
-SSH topology from that role. Laptops use their own 1Password-backed identities.
+SSH topology from that role. Laptops use their own 1Password-backed identities
+(superseded by ADR-0023: each laptop now holds its own key on disk at
+`~/.ssh/<role>`, and no agent is involved).
 The server stores no persistent outbound private key; attended outbound Git access
 uses an explicit, non-multiplexed agent-forwarding session.
 

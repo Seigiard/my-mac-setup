@@ -1,25 +1,33 @@
 {{- $machineRole := includeTemplate "machine-role" . | trim -}}
-{{- if and $machineRole (not (hasKey .ssh.roles $machineRole)) -}}
+{{- if and $machineRole (not (hasKey .machines.roles $machineRole)) -}}
 {{-   fail (printf "invalid machine_role %q: expected mbp2021, mbp2026, or server" $machineRole) -}}
 {{- end -}}
-{{- if and $machineRole (ne .chezmoi.os (index .ssh.roles $machineRole).os) -}}
+{{- if and $machineRole (ne .chezmoi.os (index .machines.roles $machineRole).os) -}}
 {{-   fail (printf "machine role %q is not supported on %s" $machineRole .chezmoi.os) -}}
 {{- end }}
+{{- /* dig rather than .chezmoi.config.age.identity: a host config generated */}}
+{{- /* before the age block existed has no such key, and the render must     */}}
+{{- /* still succeed there so `chezmoi init` can be run to refresh it.       */}}
+{{- $ageIdentity := dig "age" "identity" "" .chezmoi.config }}
 
 # README and docs
 README.md
 LICENSE
 
-# Read-only commands preserve SSH files until apply binds a missing role. The
-# server does not use the local 1Password SSH agent.
+# Read-only commands preserve SSH files until apply binds a missing role.
 {{ if not $machineRole }}
 .ssh/config
 .ssh/authorized_keys
 .ssh/mbp2021.pub
 .ssh/mbp2026.pub
-.config/1Password/ssh/agent.toml
-{{ else if eq $machineRole "server" }}
-.config/1Password/ssh/agent.toml
+{{ end }}
+
+# Machine secrets decrypt only where a Machine identity exists. Without one
+# (the server, CI, Docker, a laptop before enrollment) the encrypted target is
+# left out so apply does not fail on a file this machine cannot read.
+{{ if not (and $ageIdentity (stat $ageIdentity)) }}
+.config/secrets
+.config/secrets/**
 {{ end }}
 
 # macOS-only files (ignore on Linux)
