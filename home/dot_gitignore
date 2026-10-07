@@ -37,6 +37,7 @@ CLAUDE.local.md
 
 mise.toml
 .ce-doc-review-tmp/
+.playwright-mcp/
 
 # revmux review archive: per-round prompts, agent streams and stage snapshots.
 # Local evidence for a review that already happened, ~0.5MB per round.
