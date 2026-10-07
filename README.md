@@ -22,10 +22,10 @@ broken rather than merely missing a convenience.
 
 Go to https://brew.sh/ and run the install command. Follow its prompt to add Homebrew to your `PATH`.
 
-### 2. Install chezmoi and age
+### 2. Install chezmoi
 
 ```sh
-brew install chezmoi age
+brew install chezmoi
 ```
 
 ### 3. Set up the machine's SSH key
