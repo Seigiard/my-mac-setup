@@ -69,10 +69,10 @@ full-fixture profile renders `.zshenv` from canaries and keeps a count of them:
 
 ## Enrollment: a new laptop, or a reinstalled one
 
-On the **new laptop**:
+On the **new laptop**, after its first `chezmoi apply` (the Brewfile installs
+`age`; a first apply without an identity succeeds and simply brings no keys):
 
 ```sh
-brew install age
 age-keygen -o ~/.config/chezmoi/key.txt
 chmod 600 ~/.config/chezmoi/key.txt
 age-keygen -y ~/.config/chezmoi/key.txt      # prints age1...
