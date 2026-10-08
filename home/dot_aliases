@@ -292,6 +292,9 @@ alias hllogs='cd /opt/homelab && docker compose logs -f'
 # -------------------------------------------
 
 alias fable='claude --model fable --effort high'
+alias opus='claude --model opus --effort high'
+alias sonnet='claude --model sonnet --effort high'
+alias haiku='claude --model haiku --effort high'
 
 # oh-my-claudecode in an isolated config sandbox. The extra /.claude level
 # keeps OMC's MCP-registry sync (writes to dirname of the config dir) inside
