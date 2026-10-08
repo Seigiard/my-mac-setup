@@ -3,7 +3,7 @@ description: "confirm contained fixes with built-in lenses and supplements; repo
 model: claude/opus:high
 agents:
   - {name: bugs+impl, lenses: [bugs, bugs-extended, impl], color: cyan}
-  - {name: adversarial, lenses: [adversarial, adversarial-extended], model: codex/gpt-6-sol:high, color: yellow}
+  - {name: adversarial, lenses: [adversarial, adversarial-extended], model: codex/gpt-6.1-sol:high, color: yellow}
 ---
 Review the cumulative change after fixes. Work independently and apply every assigned lens.
 

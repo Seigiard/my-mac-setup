@@ -24,15 +24,15 @@ model: claude/opus:high
 
 agents:
   - {name: bugs+impl-claude,    lenses: [bugs, bugs-extended, impl],                     color: cyan}
-  - {name: bugs+impl-codex,     lenses: [bugs, bugs-extended, impl],                     model: codex/gpt-6-sol:high, color: bright-cyan}
+  - {name: bugs+impl-codex,     lenses: [bugs, bugs-extended, impl],                     model: codex/gpt-6.1-sol:high, color: bright-cyan}
   - {name: arch+quality-claude, lenses: [architecture, architecture-extended, quality],  color: magenta}
-  - {name: arch+quality-codex,  lenses: [architecture, architecture-extended, quality],  model: codex/gpt-6-sol:high, color: bright-magenta}
+  - {name: arch+quality-codex,  lenses: [architecture, architecture-extended, quality],  model: codex/gpt-6.1-sol:high, color: bright-magenta}
   - {name: docs+tests-claude,   lenses: [docs, tests, comments],                         color: green}
-  - {name: docs+tests-codex,    lenses: [docs, tests, comments],                          model: codex/gpt-6-sol:high, color: bright-green}
+  - {name: docs+tests-codex,    lenses: [docs, tests, comments],                          model: codex/gpt-6.1-sol:high, color: bright-green}
   - {name: adversarial-claude,  lenses: [adversarial, adversarial-extended],             color: yellow}
-  - {name: adversarial-codex,   lenses: [adversarial, adversarial-extended],             model: codex/gpt-6-sol:high, color: bright-yellow}
+  - {name: adversarial-codex,   lenses: [adversarial, adversarial-extended],             model: codex/gpt-6.1-sol:high, color: bright-yellow}
   - {name: lean-claude,         lenses: [simplify, efficiency, test-worth],              color: blue}
-  - {name: lean-codex,          lenses: [simplify, efficiency, test-worth],              model: codex/gpt-6-sol:high, color: bright-blue}
+  - {name: lean-codex,          lenses: [simplify, efficiency, test-worth],              model: codex/gpt-6.1-sol:high, color: bright-blue}
 ---
 You are one reviewer on a panel. Other reviewers are working the same change in parallel. You never
 see their findings and must not guess at them — report what your own lenses find.

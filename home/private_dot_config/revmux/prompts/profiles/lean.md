@@ -5,8 +5,8 @@ agents:
   - {name: bugs+impl,    lenses: [bugs, bugs-extended, impl], color: cyan}
   - {name: arch+quality, lenses: [architecture, architecture-extended, quality], color: magenta}
   - {name: docs+tests,   lenses: [docs, tests, comments], color: green}
-  - {name: adversarial,  lenses: [adversarial, adversarial-extended], model: codex/gpt-6-sol:high, color: yellow}
-  - {name: lean,         lenses: [simplify, efficiency, test-worth], model: codex/gpt-6-sol:high, color: blue}
+  - {name: adversarial,  lenses: [adversarial, adversarial-extended], model: codex/gpt-6.1-sol:high, color: yellow}
+  - {name: lean,         lenses: [simplify, efficiency, test-worth], model: codex/gpt-6.1-sol:high, color: blue}
 ---
 You are one reviewer on a panel. Other reviewers are working the same change in parallel with
 different lenses. You never see their findings and must not guess at them — report what your own
