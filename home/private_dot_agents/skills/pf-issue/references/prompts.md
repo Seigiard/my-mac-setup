@@ -2,7 +2,9 @@
 
 Fill the angle-bracket slots. Every prompt names the repo root as an absolute path and the artifact directory files; agents trust the context file and verify only what their task needs.
 
-## Current-state map (step 2, Explore agent)
+## Current-state map (step 2, Explore agent, `model: "sonnet"`)
+
+The map only locates and quotes code, so run it on Sonnet.
 
 ```
 You are mapping the current state for issue <ID> in the repo at <ROOT> (a git worktree; git works). Read ~/.claude/artifacts/<ID>/context.md first — it holds the issue text and what is already verified; correct it only with evidence.
@@ -17,20 +19,22 @@ Map:
 Report in English, under 1000 words, every fact with file:line, sections: Consumers / Server truth / Contracts / Pins / History / Corrections to the context file.
 ```
 
-## Validator (step 4, one per candidate, general-purpose agent)
+## Validator (step 4, one per candidate, general-purpose agent, `isolation: "worktree"`)
+
+Launch with `isolation: "worktree"`: the validator edits and runs tests in its own copy, so the main tree stays clean (no lockfile churn, no scratch test files). The artifact files under `~/.claude/artifacts/` are outside the repo and stay readable.
 
 ```
-You are an adversarial validator for a proposed solution in the repo at <ROOT>. Read first:
+You are an adversarial validator for a proposed solution. You work in your own git worktree of the repo at <ROOT>; edit, install, and run tests there freely. Read first:
 - ~/.claude/artifacts/<ID>/context.md
 - ~/.claude/artifacts/<ID>/candidates.md
 
-Validate Candidate <N> ("<name>"). Break it by verifying each load-bearing claim against real code. Do not modify tracked files; a throwaway edit you revert, or a scratch script, is fine.
+Validate Candidate <N> ("<name>"). Break it by verifying each load-bearing claim against real code. Budget: about 30 tool calls in total. Spend them on the claims in the order listed; when the budget runs out, stop and mark every unchecked claim UNVERIFIED.
 
 Claims to verify, each with the line the candidate relies on:
 1. <claim> — <file:line>
 2. ...
 
-For each claim: trace every caller of the changed predicate, enumerate every actor class the rule admits and refuses, name the tests and behaviour entries that pin the current behaviour, and where feasible apply the change and run the affected tests (revert afterwards). State what a legitimate caller loses, or state none.
+For each claim: trace every caller of the changed predicate, enumerate every actor class the rule admits and refuses, name the tests and behaviour entries that pin the current behaviour, and where feasible apply the change and run the affected tests. State what a legitimate caller loses, or state none.
 
 Also check: which contract artifacts move and the impact label per the classifier in scripts/contracts; which gate blocks and who can override it; whether an existing e2e capability or fixture breaks.
 

@@ -25,7 +25,7 @@ Done when commit, full issue, sibling list, and contract locations are written t
 
 ## 2. Map the current state
 
-Read the code path yourself; delegate a wide surface to one Explore agent with the map prompt in `references/prompts.md`. Gather into the context file, every fact with `file:line`:
+Read the code path yourself; delegate a wide surface to one Explore agent (`model: "sonnet"`) with the map prompt in `references/prompts.md`. Gather into the context file, every fact with `file:line`:
 
 - **Measure, never trust.** Counts, sets, and "N places" come from a throwaway script or a grep you ran. When the issue says "not verified", verify the primary evidence: rows in the dev database, a live request, the dev stack viewed as the affected role.
 - **Contracts, both halves.** For every contract the surface touches read the prose overview *and* the built artifact, then the source that feeds the artifact (test titles, command declaration fields, catalog entries). Quote the governing line and say which half it came from. Also read the contract's process rules ("Making Changes", gates, override policy): a contract can forbid a PR shape, not only a behaviour.
@@ -57,7 +57,7 @@ Done when every option has all eight lines and a recommendation is written with 
 
 ## 4. Validate the top two
 
-Launch one validator per candidate in parallel with the validator prompt in `references/prompts.md`. The prompt lists the candidate's load-bearing claims with `file:line` and demands enumeration and execution — trace every caller, list every actor class, apply the change and run the tests where feasible — and a three-valued verdict: VIABLE, VIABLE WITH CHANGES, BROKEN, with UNVERIFIED on anything unfinished. When the change touches gating, add the flow-gap prompt: viewer classes × surfaces × loading states.
+Launch one validator per candidate in parallel with the validator prompt in `references/prompts.md`, each with `isolation: "worktree"` so edits and test runs stay in the validator's own copy. The prompt caps a validator at about 30 tool calls; whatever it did not reach comes back UNVERIFIED, and you decide whether to resume it or check that claim yourself. The prompt lists the candidate's load-bearing claims with `file:line` and demands enumeration and execution — trace every caller, list every actor class, apply the change and run the tests where feasible — and a three-valued verdict: VIABLE, VIABLE WITH CHANGES, BROKEN, with UNVERIFIED on anything unfinished. When the change touches gating, add the flow-gap prompt: viewer classes × surfaces × loading states.
 
 Re-verify every finding against source before accepting it; reject with a reason. A BROKEN verdict sends the option back to step 3 with the finding recorded, and the loop runs until two candidates hold or you can honestly say only one does. A claim you cannot verify locally gets a research agent for the workaround before it is reported as open.
 
