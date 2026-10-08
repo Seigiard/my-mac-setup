@@ -42,6 +42,17 @@ Every cycle's narratives live in `~/.claude/artifacts/<id>/` — never committed
 - Canonical sources: `issue.md` (with its `issue-source.md`, `context.md`, `candidates.md` working files), `research.md`, `spec.md`, `demo.md` (or a step-manifest in `build.ts`) plus captured images and `/pf-build`'s sub-task files under `tasks/`. **A later command reads the canonical source, not the built HTML** — keep sources current. Directories from cycles before 2026-08 may use the older names `divination.md` / `inscription.md` — read those when the new name is absent.
 - Built pages: `research.html`, `spec.html`, `demo.html`.
 
+## Dispatching subagents
+
+Every subagent that researches or checks — a gather lane, an audit, a validator, a re-check — works from a bounded brief and ends when each of its claims has a verdict. `/pf-build`'s implementation sessions follow that skill's own rules.
+
+- **Claims.** List the claims to confirm or refute, each with the `file:line` or source it rests on. When the question is open, name the surface and the questions the agent must answer. When the question is completeness ("every entry point of X"), measure the inventory first: one grep or throwaway script produces the list, and each item on it becomes a claim.
+- **Settled evidence.** Pass the facts already verified (the artifact directory's `gather/*.md`, `context.md`, an earlier round's report) as settled; the agent cites them as given. A fact the user has questioned is a claim again. The claims are the agent's whole scope.
+- **A budget.** About 30 tool calls for a check, about 60 for a gather lane. The agent reads each file range once and works from its notes after. It stops and reports at the budget, or after ten calls in a row that add no verdict and no new cited fact: findings so far, every unreached claim as UNVERIFIED, and the narrower scope that would settle it.
+- **A verdict per claim.** Confirmed, refuted, or UNVERIFIED, each with its evidence line.
+
+A re-check targets the claims that came back refuted, disputed, or UNVERIFIED, plus every claim the user questions; every other verdict goes in as settled. Split parallel agents by claim, so each claim has one owner. Resume an UNVERIFIED claim with a narrower brief, or check it yourself. A completion that reports usage far over budget points at the brief: narrow it before the next dispatch.
+
 ## Deferred deltas
 
 A **deferred delta** is a contract change that needs working code the epic PR can't yet carry — a gate would fail on it. Don't stub or fake it: `/pf-spec` records it in the spec narrative as the artifact file plus the precise entries/fields/values expected in its diff; `/pf-build` carries each one into the sub-task that implements it and verifies that diff at review.
