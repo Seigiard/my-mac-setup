@@ -18,7 +18,7 @@ The artifact directory `~/.claude/artifacts/<ISSUE-ID>/` carries the state betwe
 - Resolve the repo root once and use absolute paths in every command (a drifting cwd cost three sessions their first greps).
 - `git fetch origin`; record the commit you analyse and whether HEAD is behind `origin/main`. A sibling ticket may have just landed on the same surface.
 - Fetch the whole issue into `~/.claude/artifacts/<ISSUE-ID>/issue-source.md` — never through `| head`. Read the acceptance criteria: they may demand something the code cannot deliver.
-- Search the tracker for siblings sharing the screenshot, the surface, or the bet, so you know which layer this ticket owns.
+- Search the tracker for siblings sharing the screenshot, the surface, or the bet, so you know which layer this ticket owns. When a sibling has `~/.claude/artifacts/<SIBLING-ID>/context.md`, take its facts for the shared surface and re-check only the files that changed since its recorded commit (`git diff <its commit>..HEAD -- <files>`).
 - Locate the contracts: the repo's `AGENTS.md` / `CLAUDE.md` names them. For `platform`, `references/platform.md` caches the layout and the tracker commands.
 
 Done when commit, full issue, sibling list, and contract locations are written to `context.md` in the artifact directory.

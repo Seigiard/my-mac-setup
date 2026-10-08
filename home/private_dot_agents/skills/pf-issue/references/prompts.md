@@ -28,7 +28,7 @@ You are an adversarial validator for a proposed solution. You work in your own g
 - ~/.claude/artifacts/<ID>/context.md
 - ~/.claude/artifacts/<ID>/candidates.md
 
-Validate Candidate <N> ("<name>"). Break it by verifying each load-bearing claim against real code. Budget: about 30 tool calls in total. Spend them on the claims in the order listed; when the budget runs out, stop and mark every unchecked claim UNVERIFIED.
+Validate Candidate <N> ("<name>"). Facts in context.md that carry a file:line are verified; build on them. Spend your calls on what context.md does not cover and on what sets this candidate apart from the others in candidates.md. Break it by verifying each load-bearing claim against real code. Budget: about 30 tool calls in total. Spend them on the claims in the order listed; when the budget runs out, stop and mark every unchecked claim UNVERIFIED.
 
 Claims to verify, each with the line the candidate relies on:
 1. <claim> — <file:line>
