@@ -65,7 +65,7 @@ Done when both candidates carry a verdict you have re-verified and every require
 
 ## 5. Report
 
-Load the `show-me` skill and write `~/.claude/artifacts/<ISSUE-ID>/issue.md` with the shape in `references/report.md`; then `open` it and give a chat summary under fifteen lines. Verdict first, plain words, every term expanded, no labels coined in this session. Close with the decisions you made yourself, the one decision left to the user, and the handoff line the user can type:
+Read `~/.agents/skills/show-me/SKILL.md` (the skill is manual-only, so the Skill tool will not load it) and write `~/.claude/artifacts/<ISSUE-ID>/issue.md` with the shape in `references/report.md`; then `open` it and give a chat summary under fifteen lines. Verdict first, plain words, every term expanded, no labels coined in this session. Close with the decisions you made yourself, the one decision left to the user, and the handoff line the user can type:
 
 - `/pf-spec <ISSUE-ID>` when the chosen option changes a contract — the audit is the research narrative `/pf-spec` reads, and the contract owner's confirmation is part of that step.
 - When the fix stays inside the contracts: `/to-spec` in this same session when it needs more than one session — it synthesizes the conversation, and `/to-tickets` then `/implement` per ticket follow — or `/implement` right here when it fits one session. `/to-spec` and `/to-tickets` publish to the tracker, so they run only when the user types them.
