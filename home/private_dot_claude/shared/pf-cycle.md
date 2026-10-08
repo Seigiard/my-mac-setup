@@ -1,6 +1,6 @@
 # The pf cycle — shared mechanics for `/pf-issue`, `/pf-research`, `/pf-spec`, `/pf-build`
 
-Not a command. This file holds the mechanics shared by the development cycle so each command file states them once. The cycle has two entries: `/pf-research` for a product change, `/pf-issue` for a reported defect. Both end at the same fork — `/pf-spec` when the change touches a contract, `/to-spec` (multi-session) or `/implement` (one session) when it stays inside the contracts. Each command tells you when to read this; follow it as part of that command. Building and publishing a narrative page (screenshots, HTML, rendered contract diffs) has its own file, `~/.claude/shared/pf-cycle-narratives.md`, which the commands that build pages read as well.
+Not a command. This file holds the mechanics shared by the development cycle so each command file states them once. The cycle has two entries: `/pf-research` for a product change, `/pf-issue` for a reported defect. Both end at the same fork — `/pf-spec` when the change touches a contract, `/pf-build` when it stays inside the contracts. Each command tells you when to read this; follow it as part of that command. Building and publishing a narrative page (screenshots, HTML, rendered contract diffs) has its own file, `~/.claude/shared/pf-cycle-narratives.md`, which the commands that build pages read as well.
 
 ## The cycle
 
