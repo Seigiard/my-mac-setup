@@ -7,6 +7,15 @@
 <style>
   /* Stated on body, not inherited from html: a host page (Claude Artifacts) resets body to its own 14px font and colours. */
   body { font-size: 1rem; line-height: var(--pico-line-height); font-family: var(--pico-font-family); background: var(--pico-background-color); color: var(--pico-color); }
+  /* Type from modernfontstacks.com: installed system fonts only, so nothing downloads and an Artifact renders the same offline. Text is Neo-Grotesque, page and section titles Old Style, lower headings Industrial, code Monospace Code. Each stack falls through to fonts with Cyrillic. */
+  :root {
+    --pico-font-family-sans-serif: Inter, Roboto, 'Helvetica Neue', 'Arial Nova', 'Nimbus Sans', Arial, sans-serif, var(--pico-font-family-emoji);
+    --pico-font-family-monospace: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace, var(--pico-font-family-emoji);
+  }
+  :is(h3, h4, h5, h6) { font-family: Bahnschrift, 'DIN Alternate', 'Franklin Gothic Medium', 'Nimbus Sans Narrow', sans-serif-condensed, sans-serif; }
+  :is(h1, h2) { font-family: 'Iowan Old Style', 'Palatino Linotype', 'URW Palladio L', P052, serif; font-weight: 700; }
+  /* Figures line up in columns wherever values are compared. */
+  table, dl.rows, .ui { font-variant-numeric: tabular-nums; }
   /* Pico drops the container's side padding above 576px; a reading page keeps a gutter at every width. */
   main.container { max-width: 52rem; padding-inline: var(--pico-spacing); }
   /* Prose keeps a reading measure of about 80 characters; code, frames, tables and diagrams use the full column. */

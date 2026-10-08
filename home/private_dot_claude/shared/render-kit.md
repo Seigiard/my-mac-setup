@@ -8,7 +8,7 @@ Write semantic HTML and let the kit style it. Two libraries load from jsDelivr, 
 
 A draft carries three markers and `python3 ~/.claude/shared/render-kit/assemble.py <draft> -o <page>` replaces them with the kit's files, so the page carries the kit inside itself and works from disk, by mail, or on a host:
 
-- `<!-- kit: head -->` inside `<head>`, after `<title>`: `head.html`, with charset and viewport, the three stylesheet links, and a base layer with the reason for each rule (body font stated against host resets, a side gutter on `main.container`, a reading measure on `p` and `li`, long words, paths and URLs breaking anywhere except in table cells, code blocks in Pico's colours).
+- `<!-- kit: head -->` inside `<head>`, after `<title>`: `head.html`, with charset and viewport, the three stylesheet links, and a base layer with the reason for each rule (system font stacks from modernfontstacks.com: Neo-Grotesque text, Old Style `h1` and `h2`, Industrial lower headings, Monospace Code, tabular figures; body font stated against host resets, a side gutter on `main.container`, a reading measure on `p` and `li`, long words, paths and URLs breaking anywhere except in table cells, code blocks in Pico's colours).
 - `<!-- kit: components -->` right after it: `components.css` in a `<style>`.
 - `<!-- kit: scripts -->` at the end of `<body>`: `scripts.html`, the highlighter loader, the Mermaid loader, the frame lightbox, and a guard that wraps a table left outside `overflow-auto`, so no table widens a phone page.
 

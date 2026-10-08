@@ -27,8 +27,8 @@ dialog.lightbox img { max-width: none; margin: auto; border-radius: var(--pico-b
 .chip.bad { color: var(--pico-del-color); }
 .chip.new { color: var(--pico-primary); }
 
-/* Status beside a heading: <h3>Step <small>today</small></h3>. Muted uppercase so a scan finds it without it competing with the heading; class new takes the accent. */
-:is(h2, h3, h4) > small { margin-left: .5rem; font-size: .6em; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; vertical-align: middle; color: var(--pico-muted-color); }
+/* Status beside a heading: <h3>Step <small>today</small></h3>. Muted uppercase so a scan finds it without it competing with the heading; class new takes the accent. It is a label, not part of the title, so it keeps the text face whatever stack the heading uses. */
+:is(h2, h3, h4) > small { font-family: var(--pico-font-family); margin-left: .5rem; font-size: .6em; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; vertical-align: middle; color: var(--pico-muted-color); }
 :is(h2, h3, h4) > small.new { color: var(--pico-primary); }
 
 /* Checklist: items the reader can tick; each li holds <label><input type="checkbox"> …</label>. */
