@@ -14,7 +14,9 @@ A narrative, not a spec and not a plan: the story of the current reality and the
 
 ## Gather
 
-Gather wide, then keep only what shapes the narrative. Gathering is done when every surface the change touches has a captured "before" screenshot, every contract slice it touches has been read rather than recalled, and every question the gather raised is written down as answered or open:
+Gather wide, then keep only what shapes the narrative. Gathering is done when every surface the change touches has a captured "before" screenshot, every contract slice it touches has been read rather than recalled, and every question the gather raised is written down as answered or open.
+
+Split the gather into lanes so your own context holds summaries, not file dumps. After a short orientation (the topic or epic, enough to name the surfaces), dispatch the contracts, code, history, and prod lanes in one message as parallel subagents (`model: "sonnet"`; Explore for contracts and history, general-purpose for code and prod, where the lane must judge cost or run queries). Each prompt carries the topic, the surfaces, and that lane's bullet below as its brief. Read a narrow lane yourself, and skip a lane the change does not reach. Each lane returns a short summary with every fact cited (`file:line`, issue id, query); write each to `~/.claude/artifacts/<id>/gather/<lane>.md`. While they run, you own the live product: the "before" screenshots and nothing else. Then open the cited lines behind every fact the narrative states about the contracts or the code; a summary tells you where to read, and the reading is yours. Batch independent reads into one turn.
 
 - **The contracts** — the committed artifacts (entity manifest, commands, ux manifest, AI surfaces) are the authoritative map of what the product *is*; read the relevant slices before trusting memory of them.
 - **The live product** — run it and look: the current state of every surface the change touches, captured as real screenshots (pf-cycle-narratives → screenshot mechanics). What users see today is the "before" half of the story.
