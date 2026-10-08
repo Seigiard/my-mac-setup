@@ -20,12 +20,13 @@ The artifact directory `~/.claude/artifacts/<ISSUE-ID>/` carries the state betwe
 - Fetch the whole issue into `~/.claude/artifacts/<ISSUE-ID>/issue-source.md` — never through `| head`. Read the acceptance criteria: they may demand something the code cannot deliver.
 - Search the tracker for siblings sharing the screenshot, the surface, or the bet, so you know which layer this ticket owns. When a sibling has `~/.claude/artifacts/<SIBLING-ID>/context.md`, take its facts for the shared surface and re-check only the files that changed since its recorded commit (`git diff <its commit>..HEAD -- <files>`).
 - Locate the contracts: the repo's `AGENTS.md` / `CLAUDE.md` names them. For `platform`, `references/platform.md` caches the layout and the tracker commands.
+- Read the contract lines that govern the disputed rule, then write the frame (pf-cycle → The frame) at the top of `context.md`. The issue's own claims seed its required evidence; its proposed fix is one candidate answer, not the question.
 
-Done when commit, full issue, sibling list, and contract locations are written to `context.md` in the artifact directory.
+Done when the frame, commit, full issue, sibling list, and contract locations are written to `context.md` in the artifact directory.
 
 ## 2. Map the current state
 
-Pick one reader per surface. When your own read of the lines the issue points at confirms the cause, finish the map yourself and skip the map agent. A narrow code path you read yourself. A wide surface goes to one Explore agent (`model: "sonnet"`) with the map prompt in `references/prompts.md`, and while it runs you search the tracker for sibling issues and nothing else; its report is the map, and afterwards you open only the lines the candidates rely on. Gather into the context file, every fact with `file:line`:
+Pick one reader per surface. When your own read of the lines the issue points at confirms the cause, finish the map yourself and skip the map agent. A narrow code path you read yourself. A wide surface goes to one Explore agent (`model: "sonnet"`) with the map prompt in `references/prompts.md`, and while it runs you search the tracker for sibling issues and nothing else; its report is the map, and afterwards you open only the lines the candidates rely on. Map what the frame's required claims need, and gather into the context file, every fact with `file:line`:
 
 - **Measure, never trust.** Counts, sets, and "N places" come from a throwaway script or a grep you ran. When the issue says "not verified", verify the primary evidence: rows in the dev database, a live request, the dev stack viewed as the affected role.
 - **Contracts, both halves.** For every contract the surface touches read the prose overview *and* the built artifact, then the source that feeds the artifact (test titles, command declaration fields, catalog entries). Quote the governing line and say which half it came from. Also read the contract's process rules ("Making Changes", gates, override policy): a contract can forbid a PR shape, not only a behaviour.

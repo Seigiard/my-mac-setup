@@ -7,7 +7,7 @@ Fill the angle-bracket slots. Every prompt names the repo root as an absolute pa
 The map only locates and quotes code, so run it on Sonnet.
 
 ```
-You are mapping the current state for issue <ID> in the repo at <ROOT> (a git worktree; git works). Read ~/.claude/artifacts/<ID>/context.md first — it holds the issue text and what is already verified; correct it only with evidence.
+You are mapping the current state for issue <ID> in the repo at <ROOT> (a git worktree; git works). Read ~/.claude/artifacts/<ID>/context.md first — it holds the issue text and what is already verified; correct it only with evidence. The frame at its top bounds your scope: map what its required claims need, and report any other finding as one line under Out of scope. Budget: about 60 tool calls.
 
 Map:
 1. Consumers. Grep for <symbols>. For each consumer file, one line: surface it gates, and whether it gates read-only display or a write affordance.
@@ -16,7 +16,7 @@ Map:
 4. Pins. Which existing tests, behaviour entries, or e2e specs pin the current behaviour.
 5. History. `git log --follow` on <files>; `gh pr view <N> --json title,body` for the PRs that shaped them. Deliberate or accidental?
 
-Report in English, under 1000 words, every fact with file:line, sections: Consumers / Server truth / Contracts / Pins / History / Corrections to the context file.
+Report in English, under 1000 words, every fact with file:line, sections: Consumers / Server truth / Contracts / Pins / History / Corrections to the context file / Out of scope.
 ```
 
 ## Validator (step 4, one per validated candidate, general-purpose agent, `isolation: "worktree"`)

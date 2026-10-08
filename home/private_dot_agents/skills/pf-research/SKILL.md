@@ -6,17 +6,21 @@ argument-hint: "<topic-or-epic>"
 
 # /pf-research — gather and narrate a product change
 
-Research a product change: gather everything relevant — code, contracts, the live product, Linear, prod — and produce a **research narrative**: the story of what is and what should become, which the user confirms before `/pf-spec` writes it into the product contracts. First step of the `/pf-research` → `/pf-spec` → `/pf-build` cycle (shared mechanics: read `~/.claude/shared/pf-cycle.md` first; for screenshots and narrative pages also `~/.claude/shared/pf-cycle-narratives.md`).
+Research a product change: frame the decisions it needs, gather the evidence for them — from code, contracts, the live product, Linear, prod — and produce a **research narrative**: the story of what is and what should become, which the user confirms before `/pf-spec` writes it into the product contracts. First step of the `/pf-research` → `/pf-spec` → `/pf-build` cycle (shared mechanics: read `~/.claude/shared/pf-cycle.md` first; for screenshots and narrative pages also `~/.claude/shared/pf-cycle-narratives.md`).
 
 ## What the research narrative is
 
 A narrative, not a spec and not a plan: the story of the current reality and the envisioned change, told in product terms, precise enough that `/pf-spec` can turn it into contract deltas without guessing intent. It changes nothing — no contract edits, no sub-issue slicing, no code, no PRs. Its entire job is to get the theory in the user's head and the theory on the page to be the same theory.
 
+## Frame
+
+Orient on the topic or epic until you can name the surfaces it touches, then write the frame (pf-cycle → The frame) at the top of `~/.claude/artifacts/<id>/research.md`. Read the governing contract lines before any code. Done when the frame states the question, quotes the governing rule, lists the required claims, and says when the gather is done.
+
 ## Gather
 
-Gather wide, then keep only what shapes the narrative. Gathering is done when every surface the change touches has a captured "before" screenshot, every contract slice it touches has been read rather than recalled, and every question the gather raised is written down as answered or open.
+Gather what the frame requires. Gathering is done when the frame's done condition holds, every surface the frame names has a captured "before" screenshot, every contract slice it names has been read rather than recalled, and every question the gather raised is written down as answered or open.
 
-Split the gather into lanes so your own context holds summaries, not file dumps. After a short orientation (the topic or epic, enough to name the surfaces), dispatch the contracts, code, history, and prod lanes in one message as parallel subagents (`model: "sonnet"`; Explore for contracts and history, general-purpose for code and prod, where the lane must judge cost or run queries). Each prompt carries the topic, the surfaces, and that lane's bullet below as its brief, bounded per pf-cycle → Dispatching subagents. Read a narrow lane yourself, and skip a lane the change does not reach. Each lane returns a short summary with every fact cited (`file:line`, issue id, query); write each to `~/.claude/artifacts/<id>/gather/<lane>.md`. While they run, you own the live product: the "before" screenshots and nothing else. Then open the cited lines behind every fact the narrative states about the contracts or the code; a summary tells you where to read, and the reading is yours. Batch independent reads into one turn.
+Split the gather into lanes so your own context holds summaries, not file dumps. Dispatch the contracts, code, history, and prod lanes in one message as parallel subagents (`model: "sonnet"`; Explore for contracts and history, general-purpose for code and prod, where the lane must judge cost or run queries). Each prompt carries the frame, the surfaces, and that lane's bullet below as its brief, bounded per pf-cycle → Dispatching subagents. Read a narrow lane yourself, and skip a lane the change does not reach. Each lane returns a short summary with every fact cited (`file:line`, issue id, query); write each to `~/.claude/artifacts/<id>/gather/<lane>.md`. While they run, you own the live product: the "before" screenshots and nothing else. Then open the cited lines behind every fact the narrative states about the contracts or the code; a summary tells you where to read, and the reading is yours. Batch independent reads into one turn.
 
 - **The contracts** — the committed artifacts (entity manifest, commands, ux manifest, AI surfaces) are the authoritative map of what the product *is*; read the relevant slices before trusting memory of them.
 - **The live product** — run it and look: the current state of every surface the change touches, captured as real screenshots (pf-cycle-narratives → screenshot mechanics). What users see today is the "before" half of the story.
@@ -32,7 +36,7 @@ Structure the research narrative HTML (pf-cycle → artifact storage + Language;
 2. **The gap** — why change: the user need, the broken seam, the opportunity; grounded in what Gather found, not asserted.
 3. **What should become** — the envisioned change as a user-experienced story: what the user will see and do, flow by flow. Vision-state imagery may be sketches/mockups here (clearly badged as such) — `/pf-spec` replaces them with real story renders.
 4. **The surfaces it will touch** — a forecast of which contracts (IA / API / UX / AI) will need deltas and roughly what kind, so the user sees the blast radius. A forecast, not the deltas themselves.
-5. **Decisions and open questions** — every choice the narrative makes that the user could reasonably make differently, stated as a decision with the chosen answer; genuinely open questions listed for the user to answer at review.
+5. **Decisions and open questions** — every choice the narrative makes that the user could reasonably make differently, stated as a decision with the chosen answer; genuinely open questions listed for the user to answer at review; neighbouring findings the frame left out, one line each.
 6. **Risks and constraints** — migrations, breaking-label exposure, deploy shape, anything expensive the vision implies.
 
 ## Present and iterate

@@ -7,7 +7,7 @@ Not a command. This file holds the mechanics shared by the development cycle so 
 | Step           | Does                                                                                                                      | Artifact                                                            |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | `/pf-issue`    | Audit a tracker issue against the contracts and the code; validate the top options with subagents. No repo changes.       | The **issue audit** — a markdown report the user decides on          |
-| `/pf-research` | Gather everything relevant; narrate what is and what should become. No repo changes.                                      | The **research narrative** — an HTML page the user confirms          |
+| `/pf-research` | Frame the change, gather what the frame needs; narrate what is and what should become. No repo changes.                  | The **research narrative** — an HTML page the user confirms          |
 | `/pf-spec`     | Write the approved research into the product contracts; open the **epic PR**; iterate until it matches theory.            | Contract deltas in the epic PR + the **spec narrative**              |
 | `/pf-build`    | Implement the contract spec in real code via opencode sub-issue PRs auto-merged into the epic branch; prove it live.      | The **demo** — walkthrough + discrepancy report vs the contract spec |
 
@@ -39,8 +39,19 @@ Identifiers, paths, commands, contract terms, error text and code stay in Englis
 
 Every cycle's narratives live in `~/.claude/artifacts/<id>/` — never committed to the product repo. `<id>` is a short kebab topic slug by default; when a Linear epic or issue exists (pre-existing, or created on explicit request), use its id instead and rename a slug-named directory to it.
 
-- Canonical sources: `issue.md` (with its `issue-source.md`, `context.md`, `candidates.md` working files), `research.md`, `spec.md`, `demo.md` (or a step-manifest in `build.ts`) plus captured images and `/pf-build`'s sub-task files under `tasks/`. **A later command reads the canonical source, not the built HTML** — keep sources current. Directories from cycles before 2026-08 may use the older names `divination.md` / `inscription.md` — read those when the new name is absent.
+- Canonical sources (`research.md` and `context.md` open with the frame): `issue.md` (with its `issue-source.md`, `context.md`, `candidates.md` working files), `research.md`, `spec.md`, `demo.md` (or a step-manifest in `build.ts`) plus captured images and `/pf-build`'s sub-task files under `tasks/`. **A later command reads the canonical source, not the built HTML** — keep sources current. Directories from cycles before 2026-08 may use the older names `divination.md` / `inscription.md` — read those when the new name is absent.
 - Built pages: `research.html`, `spec.html`, `demo.html`.
+
+## The frame
+
+`/pf-research` and `/pf-issue` gather against a frame written before the first search: at the top of `research.md` and `context.md` respectively. It has four parts:
+
+- **The question** — the decision the step must settle: for `/pf-research`, the change the user brought and the choices that shape it; for `/pf-issue`, which fix the issue's claims call for.
+- **The governing rule** — the contract lines that define the rule in dispute, read first and quoted with `file:line`: what a field means, who a rule protects, what it requires and of whom. The answer is as wide as that rule demands; cite the line behind each part of it.
+- **Required evidence** — the claims the answer rests on, each to be settled with evidence.
+- **Done when** — every required claim has a verdict and the question has an answer the evidence supports.
+
+A neighbouring finding — another surface, an adjacent defect, a related smell — widens the frame only when it changes the answer: it refutes the answer, it shows the answer leaves the defect in place (a symmetric leak under the same rule), or it is a surface the answer itself alters. Widen by an edit to the frame that states the finding behind it. Every other finding gets one line in the step's out-of-scope list (`/pf-issue`'s «Рядом, но вне задачи», the research narrative's open questions) and the gather moves on.
 
 ## Dispatching subagents
 
