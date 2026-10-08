@@ -82,7 +82,7 @@ Rendered diagrams only, from these families:
 
 - **Frames** from step 3 for anything the user sees; a `.ui` mock only as the labelled fallback there.
 - **Data flow with example data** (`.flow` classes): every box carries a concrete value from the toy examples, not a type name.
-- **Sequence or state**: a `<pre class="mermaid">` block, rendered by the template's Mermaid loader.
+- **Sequence or state**: a `<pre class="mermaid">` block, rendered by the kit's Mermaid loader.
 
 The content picks the family: a frame for what the user sees, a `.flow` for data changing shape, a sequence diagram for the order of calls between parties, a state diagram for a lifecycle. A before and an after case use the same family so the reader compares like with like.
 
@@ -93,7 +93,7 @@ Path: `/tmp/YYYY-MM-DD-explanation-<slug>.html`, today's date, slug from the bra
 Before assembling, confirm in the draft:
 
 - every code block is a `<div class="shj-lang-…">` with `<`, `>` and `&` escaped as entities; sketches are `shj-lang-diff` with raw `+` and `-` lines and no spans of your own;
-- the only external resource of your own is the template's Mermaid loader; the kit adds Pico, the highlighter theme and its loader;
+- the page adds no external resource of its own; the kit adds Pico, the highlighter theme and its loader, and the Mermaid loader when the page has a diagram;
 - absolute paths from this machine appear only inside diff snippets.
 
 On macOS without `--no-open`, run `open "$file"`.

@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" font-family="system-ui, sans-serif">
+<rect width="1440" height="900" fill="#f4f5f7"/>
+<rect width="1440" height="64" fill="#1f2a37"/>
+<text x="32" y="41" font-size="22" fill="#ffffff">Orders — all statuses</text>
+<rect x="32" y="76" width="1376" height="56" rx="6" fill="#ffffff" stroke="#d5d9e0"/>
+<text x="56" y="112" font-size="20" fill="#1f2a37">Order 1042</text>
+<text x="1384" y="112" font-size="20" fill="#5b6576" text-anchor="end">Paid</text>
+<rect x="32" y="152" width="1376" height="56" rx="6" fill="#ffffff" stroke="#d5d9e0"/>
+<text x="56" y="188" font-size="20" fill="#1f2a37">Order 1043</text>
+<text x="1384" y="188" font-size="20" fill="#5b6576" text-anchor="end">Awaiting payment</text>
+<rect x="32" y="228" width="1376" height="56" rx="6" fill="#ffffff" stroke="#d5d9e0"/>
+<text x="56" y="264" font-size="20" fill="#1f2a37">Order 1044</text>
+<text x="1384" y="264" font-size="20" fill="#5b6576" text-anchor="end">Paid</text>
+<rect x="32" y="304" width="1376" height="56" rx="6" fill="#ffffff" stroke="#d5d9e0"/>
+<text x="56" y="340" font-size="20" fill="#1f2a37">Order 1045</text>
+<text x="1384" y="340" font-size="20" fill="#5b6576" text-anchor="end">Refunded</text>
+<rect x="32" y="380" width="1376" height="56" rx="6" fill="#ffffff" stroke="#d5d9e0"/>
+<text x="56" y="416" font-size="20" fill="#1f2a37">Order 1046</text>
+<text x="1384" y="416" font-size="20" fill="#5b6576" text-anchor="end">Paid</text>
+<rect x="32" y="456" width="1376" height="56" rx="6" fill="#ffffff" stroke="#d5d9e0"/>
+<text x="56" y="492" font-size="20" fill="#1f2a37">Order 1047</text>
+<text x="1384" y="492" font-size="20" fill="#5b6576" text-anchor="end">Awaiting payment</text>
+<rect x="32" y="532" width="1376" height="56" rx="6" fill="#ffffff" stroke="#d5d9e0"/>
+<text x="56" y="568" font-size="20" fill="#1f2a37">Order 1048</text>
+<text x="1384" y="568" font-size="20" fill="#5b6576" text-anchor="end">Paid</text>
+<rect x="32" y="608" width="1376" height="56" rx="6" fill="#ffffff" stroke="#d5d9e0"/>
+<text x="56" y="644" font-size="20" fill="#1f2a37">Order 1049</text>
+<text x="1384" y="644" font-size="20" fill="#5b6576" text-anchor="end">Paid</text>
+<rect x="32" y="684" width="1376" height="56" rx="6" fill="#ffffff" stroke="#d5d9e0"/>
+<text x="56" y="720" font-size="20" fill="#1f2a37">Order 1050</text>
+<text x="1384" y="720" font-size="20" fill="#5b6576" text-anchor="end">Refunded</text>
+<rect x="32" y="760" width="1376" height="56" rx="6" fill="#ffffff" stroke="#d5d9e0"/>
+<text x="56" y="796" font-size="20" fill="#1f2a37">Order 1051</text>
+<text x="1384" y="796" font-size="20" fill="#5b6576" text-anchor="end">Paid</text>
+</svg>

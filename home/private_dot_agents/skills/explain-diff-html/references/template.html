@@ -55,11 +55,5 @@
 </main>
 
 <!-- kit: scripts -->
-<!-- Mermaid renders <pre class="mermaid"> blocks. Everything loads from the CDN; offline, the text and frames still read. -->
-<script type="module">
-  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
-  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
-  mermaid.initialize({ startOnLoad: true, theme: dark ? "dark" : "neutral" });
-</script>
 </body>
 </html>

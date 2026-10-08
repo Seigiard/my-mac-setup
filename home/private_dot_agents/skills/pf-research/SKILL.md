@@ -14,7 +14,7 @@ A narrative, not a spec and not a plan: the story of the current reality and the
 
 ## Frame
 
-Orient on the topic or epic until you can name the surfaces it touches, then write the frame (pf-cycle → The frame) at the top of `~/.claude/artifacts/<id>/research.md`. Read the governing contract lines before any code. Done when the frame states the question, quotes the governing rule, lists the required claims, and says when the gather is done.
+Orient on the topic or epic until you can name the surfaces it touches, then copy the research template (pf-cycle-narratives → Narrative HTML mechanics) to `~/.claude/artifacts/<id>/research.html` and fill its Frame block (pf-cycle → The frame). Read the governing contract lines before any code. Done when the frame states the question, quotes the governing rule, lists the required claims, and says when the gather is done.
 
 ## Gather
 
@@ -30,19 +30,19 @@ Split the gather into lanes so your own context holds summaries, not file dumps.
 
 ## The narrative
 
-Structure the research narrative HTML (pf-cycle → artifact storage + Language; pf-cycle-narratives → HTML mechanics + Publishing; visible text follows pf-cycle → Naming on public surfaces) in product order:
+Fill the research template's sections in `research.html` (pf-cycle → artifact storage + Language; pf-cycle-narratives → HTML mechanics + Publishing; visible text follows pf-cycle → Naming on public surfaces), in product order:
 
 1. **What is** — the current state, narrated over real screenshots of today's product; the entities/commands/pages involved as they exist now.
 2. **The gap** — why change: the user need, the broken seam, the opportunity; grounded in what Gather found, not asserted.
-3. **What should become** — the envisioned change as a user-experienced story: what the user will see and do, flow by flow. Vision-state imagery may be sketches/mockups here (clearly badged as such) — `/pf-spec` replaces them with real story renders.
+3. **What should become** — the envisioned change as a user-experienced story: what the user will see and do, flow by flow. Vision-state imagery may be sketch frames here (pf-cycle-narratives → Screenshot mechanics) — `/pf-spec` replaces them with real story renders.
 4. **The surfaces it will touch** — a forecast of which contracts (IA / API / UX / AI) will need deltas and roughly what kind, so the user sees the blast radius. A forecast, not the deltas themselves.
 5. **Decisions and open questions** — every choice the narrative makes that the user could reasonably make differently, stated as a decision with the chosen answer; genuinely open questions listed for the user to answer at review; neighbouring findings the frame left out, one line each.
 6. **Risks and constraints** — migrations, breaking-label exposure, deploy shape, anything expensive the vision implies.
 
 ## Present and iterate
 
-Present the research narrative in chat: the published artifact link plus a tight summary of the vision and the open questions. When the user starts answering the open questions, walk them one per turn, each as a self-contained decision brief: the question in plain words with no session labels, the options with their consequences, your recommendation. Fold feedback in and republish until the user confirms the narrative matches the theory in their head — run the **missing-prior analysis** (pf-cycle) on every round: feedback that reveals a missing prior updates repo context, not just the narrative.
+Present the research narrative in chat: the published artifact link plus a tight summary of the vision and the open questions. When the user starts answering the open questions, walk them one per turn, each as a self-contained decision brief: the question in plain words with no session labels, the options with their consequences, your recommendation. Fold each round into `research.html`, rebuild it with `assemble.py`, and republish until the user confirms the narrative matches the theory in their head — run the **missing-prior analysis** (pf-cycle) on every round: feedback that reveals a missing prior updates repo context, not just the narrative.
 
 **Pure research — no Linear writes.** This step changes nothing anywhere: no epic, no issues, no comments. If an epic already exists, read it as history and store artifacts under its id; otherwise store them under a short kebab topic slug (`~/.claude/artifacts/<topic-slug>/`). The whole cycle works off this directory — Linear stays untouched unless the user explicitly asks for it (pf-cycle → Linear is opt-in).
 
-**Hand off.** On confirmation, `~/.claude/artifacts/<id>/research.md` carries every approved change — that file, not the built HTML, is what `/pf-spec` reads. The state of the cycle lives in that directory, so the next step starts from a clean context: close with the line the user types after `/clear` — `/pf-spec <epic-or-topic>`.
+**Hand off.** On confirmation, `~/.claude/artifacts/<id>/research.html` carries every approved change, and it is what `/pf-spec` reads. The state of the cycle lives in that directory, so the next step starts from a clean context: close with the line the user types after `/clear` — `/pf-spec <epic-or-topic>`.

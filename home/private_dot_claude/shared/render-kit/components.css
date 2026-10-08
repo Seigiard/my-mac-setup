@@ -15,12 +15,31 @@ figcaption::before { content: "Frame " counter(frame) ". "; font-weight: 600; co
 :lang(ru) figcaption::before { content: "Кадр " counter(frame) ". "; }
 .grid figure { margin: 0; }
 
+/* Lightbox: frames are downscaled inline and reviewers need the pixels. A click on a frame opens it at natural size in a dialog that scrolls when the frame is wider than the screen; auto margins centre a smaller frame without clipping a larger one. */
+figure img { cursor: zoom-in; }
+dialog.lightbox { align-items: flex-start; justify-content: flex-start; overflow: auto; cursor: zoom-out; padding: var(--pico-spacing); }
+dialog.lightbox img { max-width: none; margin: auto; border-radius: var(--pico-border-radius); }
+
+/* Chip: a verdict or status label next to a heading. Colour carries meaning only: good and bad take Pico's ins and del colours, new the accent, a bare chip stays muted. */
+.chip { display: inline-block; vertical-align: middle; padding: .05rem .55rem; border: 1px solid currentColor; border-radius: 1rem; font-size: .7rem; font-weight: 600; line-height: 1.6; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; color: var(--pico-muted-color); }
+.chip.good { color: var(--pico-ins-color); }
+.chip.bad { color: var(--pico-del-color); }
+.chip.new { color: var(--pico-primary); }
+
+/* Status beside a heading: <h3>Step <small>today</small></h3>. Muted uppercase so a scan finds it without it competing with the heading; class new takes the accent. */
+:is(h2, h3, h4) > small { margin-left: .5rem; font-size: .6em; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; vertical-align: middle; color: var(--pico-muted-color); }
+:is(h2, h3, h4) > small.new { color: var(--pico-primary); }
+
 /* Checklist: items the reader can tick; each li holds <label><input type="checkbox"> …</label>. */
 ul.checklist { list-style: none; padding-left: 0; }
 ul.checklist li { list-style: none; margin: .4rem 0; }
 ul.checklist label { font-weight: normal; }
 
-/* Mermaid block: <pre class="mermaid"> rendered by the Mermaid loader. */
+/* Table of contents: Pico's nav keeps one row and squeezes each link onto two lines; a long contents list wraps between links instead. */
+nav.toc ul { flex-wrap: wrap; }
+nav.toc li { white-space: nowrap; }
+
+/* Mermaid block: <pre class="mermaid"> rendered by the kit's Mermaid loader. */
 pre.mermaid { background: var(--pico-card-background-color); text-align: center; }
 
 /* Diagram family: data flow with example data. Boxes in a row with arrows between, stacked on phones; <b> is a box's label, <code> its example value. */
@@ -29,7 +48,8 @@ pre.mermaid { background: var(--pico-card-background-color); text-align: center;
 .flow .box b { display: block; font-size: .75rem; color: var(--pico-muted-color); text-transform: uppercase; letter-spacing: .03em; }
 .flow .box code { display: block; margin-top: .3rem; white-space: pre-wrap; }
 .flow .arrow { align-self: center; color: var(--pico-muted-color); font-size: 1.4rem; padding: 0 .2rem; }
-@media (max-width: 480px) { .flow { flex-direction: column; } .flow .arrow { transform: rotate(90deg); text-align: center; } }
+/* Stacked, a box's 9rem basis would become its height, so the basis goes back to the content. */
+@media (max-width: 480px) { .flow { flex-direction: column; } .flow .box { flex-basis: auto; } .flow .arrow { transform: rotate(90deg); text-align: center; } }
 
 /* Diagram family: simplified UI sketch, the labelled fallback when no frame exists. A title bar, rows, buttons, and an accent outline on what is new. */
 .ui { background: var(--pico-card-background-color); border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius); padding: .75rem; margin: var(--pico-typography-spacing-vertical) 0; font-size: .9rem; max-width: 26rem; }
@@ -43,5 +63,6 @@ pre.mermaid { background: var(--pico-card-background-color); text-align: center;
 @media print {
   nav.toc { display: none; }
   pre, figure, article, .flow, .ui, [class*="shj-lang-"] { break-inside: avoid; }
+  dialog.lightbox { display: none; }
   a[href^="http"]::after { content: " (" attr(href) ")"; font-size: .8em; }
 }

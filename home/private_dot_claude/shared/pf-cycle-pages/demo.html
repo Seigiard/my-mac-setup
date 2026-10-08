@@ -1,0 +1,46 @@
+<!doctype html>
+<!-- Demo page, the canonical source of the build step's demo: English, published to the team. Fill the slots in place, keep the kit markers, build with assemble.py. Element patterns: ~/.claude/shared/render-kit/gallery.html. -->
+<html lang="en">
+<head>
+<title><!-- slot: title, the product change --></title>
+<!-- kit: head -->
+<!-- kit: components -->
+</head>
+<body>
+<main class="container" lang="en">
+  <hgroup>
+    <h1><!-- slot: title, the product change --></h1>
+    <p><!-- slot: meta (PR link, branch at the demoed commit, date) --></p>
+  </hgroup>
+
+  <nav class="toc" aria-label="Contents">
+    <ul>
+      <li><a href="#walkthrough">Walkthrough</a></li>
+      <li><a href="#built">How it was built</a></li>
+      <li><a href="#discrepancies">Discrepancies</a></li>
+    </ul>
+  </nav>
+
+  <p><strong>Outcome:</strong> <!-- slot: what the demo proves, in one or two sentences --></p>
+
+  <h2 id="walkthrough">Walkthrough</h2>
+  <!-- slot: product-order sections over the live captures: an <h3> per step, 1 to 3 sentences on what the user now sees and does, and its frames as <figure><img src="frames/<name>.jpg" alt="…"><figcaption>what to see <small>route</small></figcaption></figure>; two compared states side by side in <div class="grid"> -->
+
+  <h2 id="built">How it was built</h2>
+  <!-- slot: one card per sub-task: <article><header><strong>task title</strong> <a href="PR url">#N</a></header><p>one paragraph: what and how, anything notable</p></article> -->
+
+  <h2 id="discrepancies">Discrepancies</h2>
+  <div class="overflow-auto">
+    <table class="striped">
+      <thead><tr><th>Spec section</th><th>Shipped</th><th>Class</th></tr></thead>
+      <tbody>
+        <!-- slot: one row per spec section: what shipped, and its class: matches, implementation constraint (with the constraint), contract gap (with the follow-up change) or intentional refinement (with who decided); anything the demo cannot show says so -->
+      </tbody>
+    </table>
+  </div>
+
+  <footer><small><!-- slot: the stack and commit the demo ran on --></small></footer>
+</main>
+<!-- kit: scripts -->
+</body>
+</html>

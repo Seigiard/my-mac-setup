@@ -1,0 +1,51 @@
+<!doctype html>
+<!-- Spec narrative, the canonical source of the spec step: fill the slots in place from what the epic PR changed, keep the kit markers, build with assemble.py. Element patterns: ~/.claude/shared/render-kit/gallery.html. -->
+<!-- slot: lang on <html> and <main> is the page language code; every heading and label below is translated into it, ids stay -->
+<html lang="en">
+<head>
+<title><!-- slot: title, the epic's product change --></title>
+<!-- kit: head -->
+<!-- kit: components -->
+</head>
+<body>
+<main class="container" lang="en">
+  <hgroup>
+    <h1><!-- slot: title, the epic's product change --></h1>
+    <p><!-- slot: meta (epic PR link, branch, date) --></p>
+  </hgroup>
+
+  <nav class="toc" aria-label="Contents">
+    <ul>
+      <li><a href="#purpose">Purpose</a></li>
+      <li><a href="#results">Results</a></li>
+      <li><a href="#deferred">Deferred deltas</a></li>
+      <li><a href="#log">Iteration ledger</a></li>
+    </ul>
+  </nav>
+
+  <h2 id="purpose">Purpose</h2>
+  <!-- slot: what the change is for, one paragraph carried over from the research narrative or the user's instruction -->
+
+  <h2 id="results">Results</h2>
+  <!-- slot: product-order flow sections, one <h3> each with 1 to 3 sentences and its story renders as <figure><img src="frames/<name>.jpg" alt="…"><figcaption>what to see <small>story id · <code>file path</code></small></figcaption></figure>.
+  Then one card per changed contract:
+  <article><header><strong>CONTRACT · <code>entry</code></strong> <span class="chip">computed impact label</span></header>
+    <div class="shj-lang-diff">the diff from contracts:diff, &lt; &gt; &amp; escaped: added entries as + lines, removed as -, a changed entry as both</div>
+  </article> -->
+
+  <h2 id="deferred">Deferred deltas</h2>
+  <!-- slot: one card per deferred delta: <article><header><strong><code>artifact file</code></strong></header><p>why it cannot land yet</p><div class="shj-lang-diff">the expected entries, fields and values</div></article>; when there are none, one sentence saying so -->
+
+  <h2 id="log">Iteration ledger</h2>
+  <div class="overflow-auto">
+    <table class="striped">
+      <thead><tr><th>Date</th><th>Feedback</th><th>Classification</th><th>Change</th></tr></thead>
+      <tbody>
+        <!-- slot: one row per feedback item: date, feedback, under-specified or missing prior, what changed and where any prior landed -->
+      </tbody>
+    </table>
+  </div>
+</main>
+<!-- kit: scripts -->
+</body>
+</html>

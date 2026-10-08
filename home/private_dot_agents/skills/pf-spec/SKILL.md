@@ -8,9 +8,9 @@ argument-hint: "<epic-or-topic>"
 
 Write the approved research narrative into the product contracts: author the contract deltas, open the **epic PR** (kept open — `/pf-build` builds into it), and iterate with the user until the contract spec matches the theory in their head, analyzing every feedback round for missing priors. Second step of the `/pf-research` → `/pf-spec` → `/pf-build` cycle (shared mechanics: read `~/.claude/shared/pf-cycle.md` first; for screenshots and narrative pages also `~/.claude/shared/pf-cycle-narratives.md`).
 
-**Fresh context.** When this conversation already ran `/pf-research` (or an audit), say in one line that `research.md` carries everything and `/clear` then `/pf-spec <id>` runs leaner; then continue unless the user clears.
+**Fresh context.** When this conversation already ran `/pf-research` (or an audit), say in one line that `research.html` carries everything and `/clear` then `/pf-spec <id>` runs leaner; then continue unless the user clears.
 
-**Entry.** The normal entry is an approved research narrative at `~/.claude/artifacts/<id>/research.md`, or an issue audit at `~/.claude/artifacts/<ISSUE-ID>/issue.md` whose chosen option changes a contract — then its Рекомендация section is what Step 1 reads, and the contract owner's confirmation the audit called for happens in this step. A small, well-understood change may instead be spec'd directly from the user's instruction, with no formal research step — then the user's instruction is what Step 1 reads, and the spec narrative's Purpose section carries it.
+**Entry.** The normal entry is an approved research narrative in `~/.claude/artifacts/<id>/` (pf-cycle → Artifact storage names which file is the source), or an issue audit at `~/.claude/artifacts/<ISSUE-ID>/issue.md` whose chosen option changes a contract — then its Рекомендация section is what Step 1 reads, and the contract owner's confirmation the audit called for happens in this step. A small, well-understood change may instead be spec'd directly from the user's instruction, with no formal research step — then the user's instruction is what Step 1 reads, and the spec narrative's Purpose section carries it.
 
 ## What the contract spec is
 
@@ -20,7 +20,7 @@ The product change expressed as contract deltas: the entities, commands, pages/c
 
 **Anchor in the artifact directory — no Linear writes by default.** The research step's directory (`~/.claude/artifacts/<topic-slug>/`, or `<EPIC-ID>/` when an epic already exists) is the cycle's tracker; keep working off it. Create a Linear epic only when the user explicitly asks for Linear tracking (title = the change, description = the research narrative's model summary + artifact link; Linear is a public surface — pf-cycle → Naming on public surfaces), then rename the artifact directory from its topic slug to the epic id. Never sub-issues — slicing is `/pf-build`'s.
 
-Read the research narrative's canonical source (`~/.claude/artifacts/<id>/research.md`). Route the change through the contract table in `CLAUDE.md` (IA / API / UX / AI / Code Quality) and follow each affected overview's "Making Changes". Write the actual source declarations and build the artifacts (`bun run contracts:build:<name>`):
+Read the research narrative's canonical source (`research.html`, or the older cycle's file pf-cycle → Artifact storage names). Route the change through the contract table in `CLAUDE.md` (IA / API / UX / AI / Code Quality) and follow each affected overview's "Making Changes". Write the actual source declarations and build the artifacts (`bun run contracts:build:<name>`):
 
 - **UX** — Storybook stories for every new or changed component/page, plus route/manifest declarations. The stories are the design spec `/pf-build` implements against — get states, copy, and layout decided here, not during implementation. Two recurring gotchas: story-only pages must **not** declare `parameters.uxRoute` (the ux-manifest build fails on routes that don't exist yet — use derived titles until wired), and any story-only ALLOWLIST entries you add must be removed by the implementation sub-task that wires the page — record that handoff as a deferred delta (below).
 - **IA** — entity/schema declarations, so the entity-manifest delta shows exactly the new or changed entities, fields, and relations.
@@ -39,7 +39,7 @@ One PR, base `main`, branch named for the change. **Name the PR for what it will
 
 ## Step 3 — Generate the narrative from the artifacts
 
-Build the spec narrative HTML (pf-cycle → artifact storage + Language; pf-cycle-narratives → HTML mechanics + Publishing; visible text follows pf-cycle → Naming on public surfaces — the page presents itself as the epic's contract spec) from what the PR actually changed — never from intentions:
+Fill the spec template into `~/.claude/artifacts/<id>/spec.html` (pf-cycle → artifact storage + Language; pf-cycle-narratives → HTML mechanics + Publishing; visible text follows pf-cycle → Naming on public surfaces — the page presents itself as the epic's contract spec) from what the PR actually changed — never from intentions:
 
 - **Purpose** — what the change is for, carried over from the research narrative in a paragraph.
 - **The results** — per contract: the rendered diff (pf-cycle-narratives → rendering contract diffs) with its computed impact label, and for UX every new/changed story captured as a real render. Product-order flow sections, exactly as the change will be experienced.
@@ -66,7 +66,7 @@ Review only. Do not edit, write, create, or delete anything — report findings 
 
 You are reviewing a product contract spec for the Membrane `platform` monorepo, on branch
 <epic-branch>. Read the actual diff: `git diff origin/main...<epic-branch>`.
-Attached: the spec narrative HTML at <path>, the research narrative source at <path>, and
+Attached: the built spec narrative at <path>, the research narrative source at <path>, and
 every story render as a PNG (the -f files).
 
 Judge this as a CONTRACT review, not a prose edit. Challenge decisions; do not restyle

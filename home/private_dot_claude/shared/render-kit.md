@@ -1,6 +1,6 @@
 # Render kit for HTML pages
 
-Reached from `~/.claude/rules/artifacts.md` for any HTML page or Claude Artifact, and from the `explain-diff-html` skill, whose template is built on it.
+Reached from `~/.claude/rules/artifacts.md` for any HTML page or Claude Artifact, from the `explain-diff-html` skill, and from the pf cycle's page templates in `~/.claude/shared/pf-cycle-pages/`, all built on it. `render-kit/gallery.html` shows, in working markup, every element a pf narrative page uses; assemble it to see the kit in both themes.
 
 Write semantic HTML and let the kit style it. Two libraries load from jsDelivr, both following `prefers-color-scheme`: Pico 2.1.1 styles every bare element (`hgroup`, `nav`, `article`, `details`, `blockquote`, `figure`, `table`, `kbd`, `mark`, `ins`, `del`, `progress`, `dialog`, forms), and speed-highlight 2.1.0 colours code blocks. The class vocabulary is Pico's table below plus the kit's own components; an element outside those carries no class.
 
@@ -10,7 +10,9 @@ A draft carries three markers and `python3 ~/.claude/shared/render-kit/assemble.
 
 - `<!-- kit: head -->` inside `<head>`, after `<title>`: `head.html`, with charset and viewport, the three stylesheet links, and a base layer of four rules with the reason for each (body font stated against host resets, a side gutter on `main.container`, a reading measure on `p` and `li`, code blocks in Pico's colours).
 - `<!-- kit: components -->` right after it: `components.css` in a `<style>`.
-- `<!-- kit: scripts -->` at the end of `<body>`: `scripts.html`, the highlighter loader.
+- `<!-- kit: scripts -->` at the end of `<body>`: `scripts.html`, the highlighter loader, the Mermaid loader and the frame lightbox.
+
+An `<img src>` that names a local file, relative to the draft, becomes a data URI, so a draft keeps its frames as files and stays small enough to read and edit. Remote and `data:` sources and markup inside comments stay as written. A missing kit file or image stops the run with exit status 1.
 
 A page's own rules, when it needs any, go in a `<style>` after the components marker and use Pico's variables (`--pico-primary`, `--pico-muted-color`, `--pico-muted-border-color`, `--pico-card-background-color`, `--pico-code-background-color`, `--pico-border-radius`, `--pico-spacing`) so both themes follow.
 
@@ -23,10 +25,12 @@ Artifacts load scripts from a few CDNs and no external stylesheet. `python3 ~/.c
 | Class | On | Markup | Effect |
 |---|---|---|---|
 | `rows` | `dl` | `<dl class="rows"><dt>Label</dt><dd>…</dd>…</dl>`, inside an `<article>` when it needs a title band | two-column grid, labels in the accent colour, one column on phones |
-| (none) | `figure` | `<figure><img …><figcaption>… <small>source</small></figcaption></figure>`; two side by side inside `<div class="grid">` | a card with the caption under a rule, numbered by a CSS counter whose label follows the nearest `lang` ("Frame N.", `ru`: «Кадр N.»; another language adds its own `:lang()` rule in the page's `<style>`) |
+| (none) | `figure` | `<figure><img …><figcaption>… <small>source</small></figcaption></figure>`; two side by side inside `<div class="grid">` | a card with the caption under a rule, numbered by a CSS counter whose label follows the nearest `lang` ("Frame N.", `ru`: «Кадр N.»; another language adds its own `:lang()` rule in the page's `<style>`); a click opens the frame at natural size, and a click or Escape closes it |
 | `checklist` | `ul` | `<li><label><input type="checkbox"> …</label></li>` | items the reader can tick, no bullets |
-| `toc` | `nav` | `<nav class="toc"><ul><li><a href="#…">…</a></li></ul></nav>` | a row of section links, hidden in print |
-| `mermaid` | `pre` | `<pre class="mermaid">sequenceDiagram …</pre>` plus the Mermaid loader script | a sequence or state diagram |
+| `toc` | `nav` | `<nav class="toc"><ul><li><a href="#…">…</a></li></ul></nav>` | a row of section links that wraps between links, hidden in print |
+| `chip` | `span` | `<span class="chip good">corroborates</span>` after a heading's text, in a table cell, or in a `.ui` bar; `good`, `bad`, `new`, or none | a small uppercase label whose colour carries a verdict: Pico's ins and del colours, the accent, or muted |
+| (none), `new` | `small` in `h2`–`h4` | `<h3>Pick a status <small class="new">new</small></h3>` | a step's status beside its heading: muted uppercase, `new` in the accent |
+| `mermaid` | `pre` | `<pre class="mermaid">flowchart LR …</pre>`; the kit loads Mermaid only on a page that has one | a flow between screens, a sequence or a state diagram |
 | `flow` | `div` | `<div class="flow"><div class="box"><b>Label</b><code>value</code></div><div class="arrow">→</div>…</div>` | data flow with example data: boxes in a row, stacked on phones |
 | `ui` | `div` | `<div class="ui"><div class="bar">title</div><div class="row"><span>…</span><span class="btn new">…</span></div></div>` | a labelled sketch of a screen, the fallback when no frame exists |
 
