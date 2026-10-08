@@ -6,9 +6,9 @@ The demo goes to the team's host, so it is written in English (pf-cycle → Lang
 
 When every child is merged and the big PR is green, prove the change in the **real product** — as real as possible: full dev stack (`bun run dev` in the epic's worktree on the epic branch, then `bun run dev:wait` for a ready-or-failed signal), seeded auth, and the dev-stack helpers in `internal-dev-doc/browser-automation.md` (`dev:token` to inspect workspace state instead of reading Postgres, `seed:demo-job` for a launchable job, `?noAutoLogin` to reach the login screen).
 
-**Resolve the port, never assume it** (pf-cycle-narratives → Screenshot mechanics). Before the first capture, confirm that the port `dev:wait` reported is the port you drive, and that the stack is serving the branch under test.
+**Run pf-cycle → Environment preflight, and resolve the port, never assume it** (pf-cycle-narratives → Screenshot mechanics). Before the first capture, confirm that the port `dev:wait` reported is the port you drive, and that the stack is serving the branch under test.
 
-1. **Walk through every new flow end-to-end as a user** — not stories, the running app: create the real entities, click the real buttons, watch the real jobs run. **Validating and capturing are one pass** (pf-cycle-narratives → Screenshot mechanics): pass `filePath` to `take_screenshot` so each verified step writes its own PNG.
+1. **Walk through every new flow end-to-end as a user** — not stories, the running app: create the real entities, click the real buttons, watch the real jobs run. **Validating and capturing are one pass** (pf-cycle-narratives → Screenshot mechanics): give `browser_take_screenshot` a `filename` so each verified step writes its own frame.
 2. **Validate against the contract spec.** Each flow section of the spec narrative gets checked live: does the product do what the spec promised? Exercise the validation criteria's user-facing halves for real.
 3. **Build the demo HTML** (pf-cycle → Artifact storage; pf-cycle-narratives → Narrative HTML mechanics + Publishing; this page is published to the team — all visible text follows pf-cycle → Naming on public surfaces), `demo.html` in the epic's artifact dir:
    - **The walkthrough** — product-order sections over the live captures: what the user now sees and does.

@@ -53,6 +53,17 @@ Every cycle's narratives live in `~/.claude/artifacts/<id>/` — never committed
 
 A neighbouring finding — another surface, an adjacent defect, a related smell — widens the frame only when it changes the answer: it refutes the answer, it shows the answer leaves the defect in place (a symmetric leak under the same rule), or it is a surface the answer itself alters. Widen by an edit to the frame that states the finding behind it. Every other finding gets one line in the step's out-of-scope list (`/pf-issue`'s «Рядом, но вне задачи», the research narrative's open questions) and the gather moves on.
 
+## Environment preflight
+
+Before the first piece of work that needs the live environment — a screenshot, a live request, a prod read, the demo — run one preflight, and fix what it finds before the long pass. Each item is one cheap command with a pass or fail signal; check the items the coming work needs.
+
+- **Stack** — `bun run dev:wait` reports ready, `bun run dev:url` names the port you will drive, and that stack serves the branch under test. Dependencies are installed and the build outputs the flow loads exist, so a missing module or an unbuilt bundle fails here instead of mid-flow.
+- **Roles** — the auth for each role the work acts as answers (`dev:token` for a seeded user), and any prod or cloud access the work reads answers one cheap call (for AWS, `aws sts get-caller-identity`).
+- **Browser and capture** — the Playwright MCP opens the `dev:url` page, and one `browser_take_screenshot` to the real target path leaves a file you can see on disk.
+- **Async work** — for each background job the flow waits on, the explicit trigger (an API call or a command) and when the job should start. When that time passes, check the job's state once; a job that is neither queued nor running gets the explicit trigger.
+
+An item you cannot fix goes to the user as a blocker, with the failing command and its output, before the long pass starts. Work that does not depend on it continues.
+
 ## Dispatching subagents
 
 Every subagent that researches or checks — a gather lane, an audit, a validator, a re-check — works from a bounded brief and ends when each of its claims has a verdict. `/pf-build`'s implementation sessions follow that skill's own rules.

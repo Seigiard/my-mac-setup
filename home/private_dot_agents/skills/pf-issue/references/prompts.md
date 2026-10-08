@@ -36,7 +36,7 @@ Claims to verify, each with the line the candidate relies on:
 
 For each claim: trace every caller of the changed predicate, enumerate every actor class the rule admits and refuses, name the tests and behaviour entries that pin the current behaviour. Apply the change and run tests only when reading the code cannot decide the claim. State what a legitimate caller loses, or state none.
 
-When you render a UI change, save a screenshot of each state you looked at to ~/.claude/artifacts/<ID>/candidate-<N>-<state>.png and list the paths in the report; the report embeds them, so the prototype is not rebuilt for pictures.
+Before you run tests or render, install dependencies and build what the check loads in your worktree. When you render a UI change, capture each state you looked at into your worktree's .logs/ (the capture tool writes only under the workspace root), copy it to ~/.claude/artifacts/<ID>/candidate-<N>-<state>.png, and list the paths in the report; the report embeds them, so the prototype is not rebuilt for pictures.
 
 Also check: which contract artifacts move and the impact label per the classifier in scripts/contracts; which gate blocks and who can override it; whether an existing e2e capability or fixture breaks.
 
