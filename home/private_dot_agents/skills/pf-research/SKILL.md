@@ -6,7 +6,7 @@ argument-hint: "<topic-or-epic>"
 
 # /pf-research — gather and narrate a product change
 
-Research a product change: gather everything relevant — code, contracts, the live product, Linear, prod — and produce a **research narrative**: the story of what is and what should become, which the user confirms before `/pf-spec` writes it into the product contracts. First step of the `/pf-research` → `/pf-spec` → `/pf-build` cycle (shared mechanics: read `~/.claude/shared/pf-cycle.md` first).
+Research a product change: gather everything relevant — code, contracts, the live product, Linear, prod — and produce a **research narrative**: the story of what is and what should become, which the user confirms before `/pf-spec` writes it into the product contracts. First step of the `/pf-research` → `/pf-spec` → `/pf-build` cycle (shared mechanics: read `~/.claude/shared/pf-cycle.md` first; for screenshots and narrative pages also `~/.claude/shared/pf-cycle-narratives.md`).
 
 ## What the research narrative is
 
@@ -17,14 +17,14 @@ A narrative, not a spec and not a plan: the story of the current reality and the
 Gather wide, then keep only what shapes the narrative. Gathering is done when every surface the change touches has a captured "before" screenshot, every contract slice it touches has been read rather than recalled, and every question the gather raised is written down as answered or open:
 
 - **The contracts** — the committed artifacts (entity manifest, commands, ux manifest, AI surfaces) are the authoritative map of what the product *is*; read the relevant slices before trusting memory of them.
-- **The live product** — run it and look: the current state of every surface the change touches, captured as real screenshots (pf-cycle → screenshot mechanics). What users see today is the "before" half of the story.
+- **The live product** — run it and look: the current state of every surface the change touches, captured as real screenshots (pf-cycle-narratives → screenshot mechanics). What users see today is the "before" half of the story.
 - **The code** — enough of the affected areas (via their `README.md` guides) to know what's load-bearing, what's cheap, and what's expensive; the narrative should not envision the impossible without saying so.
 - **History** — Linear (prior issues, the epic if one exists), memory topics, git history of the touched surfaces: what was tried, decided, or deliberately avoided.
 - **Prod** — when the change concerns real usage, ground it in data (prod DB read-only access, logs, task inspection per repo `CLAUDE.md`).
 
 ## The narrative
 
-Structure the research narrative HTML (pf-cycle → artifact storage + HTML mechanics + Language; visible text follows pf-cycle → Naming on public surfaces) in product order:
+Structure the research narrative HTML (pf-cycle → artifact storage + Language; pf-cycle-narratives → HTML mechanics + Publishing; visible text follows pf-cycle → Naming on public surfaces) in product order:
 
 1. **What is** — the current state, narrated over real screenshots of today's product; the entities/commands/pages involved as they exist now.
 2. **The gap** — why change: the user need, the broken seam, the opportunity; grounded in what Gather found, not asserted.

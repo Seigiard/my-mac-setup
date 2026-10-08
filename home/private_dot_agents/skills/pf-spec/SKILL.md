@@ -6,7 +6,7 @@ argument-hint: "<epic-or-topic>"
 
 # /pf-spec — write the research into the product contracts
 
-Write the approved research narrative into the product contracts: author the contract deltas, open the **epic PR** (kept open — `/pf-build` builds into it), and iterate with the user until the contract spec matches the theory in their head, analyzing every feedback round for missing priors. Second step of the `/pf-research` → `/pf-spec` → `/pf-build` cycle (shared mechanics: read `~/.claude/shared/pf-cycle.md` first).
+Write the approved research narrative into the product contracts: author the contract deltas, open the **epic PR** (kept open — `/pf-build` builds into it), and iterate with the user until the contract spec matches the theory in their head, analyzing every feedback round for missing priors. Second step of the `/pf-research` → `/pf-spec` → `/pf-build` cycle (shared mechanics: read `~/.claude/shared/pf-cycle.md` first; for screenshots and narrative pages also `~/.claude/shared/pf-cycle-narratives.md`).
 
 **Entry.** The normal entry is an approved research narrative at `~/.claude/artifacts/<id>/research.md`, or an issue audit at `~/.claude/artifacts/<ISSUE-ID>/issue.md` whose chosen option changes a contract — then its Рекомендация section is what Step 1 reads, and the contract owner's confirmation the audit called for happens in this step. A small, well-understood change may instead be spec'd directly from the user's instruction, with no formal research step — then the user's instruction is what Step 1 reads, and the spec narrative's Purpose section carries it.
 
@@ -37,10 +37,10 @@ One PR, base `main`, branch named for the change. **Name the PR for what it will
 
 ## Step 3 — Generate the narrative from the artifacts
 
-Build the spec narrative HTML (pf-cycle → artifact storage + HTML mechanics + Language; visible text follows pf-cycle → Naming on public surfaces — the page presents itself as the epic's contract spec) from what the PR actually changed — never from intentions:
+Build the spec narrative HTML (pf-cycle → artifact storage + Language; pf-cycle-narratives → HTML mechanics + Publishing; visible text follows pf-cycle → Naming on public surfaces — the page presents itself as the epic's contract spec) from what the PR actually changed — never from intentions:
 
 - **Purpose** — what the change is for, carried over from the research narrative in a paragraph.
-- **The results** — per contract: the rendered diff (pf-cycle → rendering contract diffs) with its computed impact label, and for UX every new/changed story captured as a real render. Product-order flow sections, exactly as the change will be experienced.
+- **The results** — per contract: the rendered diff (pf-cycle-narratives → rendering contract diffs) with its computed impact label, and for UX every new/changed story captured as a real render. Product-order flow sections, exactly as the change will be experienced.
 - **Deferred deltas** — the explicit list `/pf-build` must produce, each with its expected artifact diff.
 - **Iteration ledger** — dated rounds: feedback → classification (missing-prior analysis) → what changed and where any prior landed.
 
