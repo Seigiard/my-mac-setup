@@ -8,6 +8,8 @@ argument-hint: "<epic-or-topic>"
 
 Write the approved research narrative into the product contracts: author the contract deltas, open the **epic PR** (kept open — `/pf-build` builds into it), and iterate with the user until the contract spec matches the theory in their head, analyzing every feedback round for missing priors. Second step of the `/pf-research` → `/pf-spec` → `/pf-build` cycle (shared mechanics: read `~/.claude/shared/pf-cycle.md` first; for screenshots and narrative pages also `~/.claude/shared/pf-cycle-narratives.md`).
 
+**Fresh context.** When this conversation already ran `/pf-research` (or an audit), say in one line that `research.md` carries everything and `/clear` then `/pf-spec <id>` runs leaner; then continue unless the user clears.
+
 **Entry.** The normal entry is an approved research narrative at `~/.claude/artifacts/<id>/research.md`, or an issue audit at `~/.claude/artifacts/<ISSUE-ID>/issue.md` whose chosen option changes a contract — then its Рекомендация section is what Step 1 reads, and the contract owner's confirmation the audit called for happens in this step. A small, well-understood change may instead be spec'd directly from the user's instruction, with no formal research step — then the user's instruction is what Step 1 reads, and the spec narrative's Purpose section carries it.
 
 ## What the contract spec is
@@ -82,4 +84,4 @@ Triage open-mindedly, but don't be a pushover — record accept/reject with reas
 
 Present in chat: the PR link, one-line summary per contract delta, impact labels, and the narrative artifact link. This loop is the point of the command — expect several rounds. On every round run the **missing-prior analysis** (pf-cycle): feedback caused by an under-specified spec is simply applied; feedback caused by a missing prior *also* updates the repository context so the next spec doesn't repeat it. Rebuild artifacts, regenerate the narrative, republish, update the ledger, keep the PR green.
 
-**Hand off.** When the user confirms the contract spec matches their theory: record the PR + narrative links in the artifact directory (and on the epic, when a Linear one exists), and the user runs `/pf-build <epic-or-topic>`.
+**Hand off.** When the user confirms the contract spec matches their theory: record the PR + narrative links in the artifact directory (and on the epic, when a Linear one exists), and close with the line the user types after `/clear` — `/pf-build <epic-or-topic>`. The artifact directory and the epic PR carry the cycle's state; `/pf-build` needs no chat history, and a build run in this context spends its tokens against the spec session's weight.

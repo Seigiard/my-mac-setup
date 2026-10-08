@@ -10,6 +10,8 @@ Implement the open **epic PR**'s contract deltas in real code — slice the work
 
 Invoked as `/pf-build <epic-or-topic>` (the artifact directory's id: a topic slug, or a Linear identifier like PRD-1234 when an epic exists). If none is given, use the one from the current conversation.
 
+**Fresh context.** When this conversation already ran `/pf-research` or `/pf-spec`, say in one line that the artifact directory and the epic PR carry everything and `/clear` then `/pf-build <id>` runs leaner; then continue unless the user clears. This step spends the most tokens of the cycle, so it gains most from a clean start.
+
 ## Two ways to build
 
 **Epic-PR-based (the default, everything below).** The full cycle: an open epic PR is the target, children merge into its branch, local task files track the sub-tasks, and the child-CI caveat, watcher, and heartbeat all apply. Every section after this one assumes this mode.

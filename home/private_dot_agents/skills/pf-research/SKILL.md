@@ -39,4 +39,4 @@ Present the research narrative in chat: the published artifact link plus a tight
 
 **Pure research — no Linear writes.** This step changes nothing anywhere: no epic, no issues, no comments. If an epic already exists, read it as history and store artifacts under its id; otherwise store them under a short kebab topic slug (`~/.claude/artifacts/<topic-slug>/`). The whole cycle works off this directory — Linear stays untouched unless the user explicitly asks for it (pf-cycle → Linear is opt-in).
 
-**Hand off.** On confirmation, `~/.claude/artifacts/<id>/research.md` carries every approved change — that file, not the built HTML, is what `/pf-spec` reads. The user runs `/pf-spec <epic-or-topic>`.
+**Hand off.** On confirmation, `~/.claude/artifacts/<id>/research.md` carries every approved change — that file, not the built HTML, is what `/pf-spec` reads. The state of the cycle lives in that directory, so the next step starts from a clean context: close with the line the user types after `/clear` — `/pf-spec <epic-or-topic>`.
