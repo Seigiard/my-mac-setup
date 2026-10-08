@@ -1,7 +1,7 @@
 /* Render kit components, see ~/.claude/shared/render-kit.md. Placed by assemble.py at the kit components marker, after the head's base layer. Pico variables only, so both themes follow. */
 
 /* Labelled rows: a dl as a two-column grid, labels in the accent colour, one column on phones. */
-dl.rows { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1rem; margin: 0; }
+dl.rows { display: grid; grid-template-columns: fit-content(40%) minmax(0, 1fr); gap: .35rem 1rem; margin: 0; }
 dl.rows dt { font-weight: 600; color: var(--pico-primary); }
 dl.rows dd { margin: 0; }
 @media (max-width: 480px) { dl.rows { grid-template-columns: 1fr; } dl.rows dd { margin-bottom: .5rem; } }
@@ -9,7 +9,8 @@ dl.rows dd { margin: 0; }
 /* A frame is a card: the image, then a numbered caption under a rule, so the caption belongs to its frame and not to the prose around it. */
 main { counter-reset: frame; }
 figure { counter-increment: frame; margin: var(--pico-typography-spacing-vertical) 0; padding: .5rem; background: var(--pico-card-background-color); border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius); }
-figure img { display: block; max-width: 100%; border-radius: calc(var(--pico-border-radius) - 2px); }
+/* A tall frame stops at three quarters of the screen, centred, so it does not bury the page; the lightbox shows it whole. */
+figure img { display: block; max-width: 100%; max-height: 75vh; width: auto; margin-inline: auto; border-radius: calc(var(--pico-border-radius) - 2px); }
 figcaption { margin-top: .5rem; padding-top: .5rem; border-top: 1px solid var(--pico-muted-border-color); font-size: .9rem; }
 figcaption::before { content: "Frame " counter(frame) ". "; font-weight: 600; color: var(--pico-primary); }
 :lang(ru) figcaption::before { content: "Кадр " counter(frame) ". "; }
@@ -21,7 +22,7 @@ dialog.lightbox { align-items: flex-start; justify-content: flex-start; overflow
 dialog.lightbox img { max-width: none; margin: auto; border-radius: var(--pico-border-radius); }
 
 /* Chip: a verdict or status label next to a heading. Colour carries meaning only: good and bad take Pico's ins and del colours, new the accent, a bare chip stays muted. */
-.chip { display: inline-block; vertical-align: middle; padding: .05rem .55rem; border: 1px solid currentColor; border-radius: 1rem; font-size: .7rem; font-weight: 600; line-height: 1.6; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; color: var(--pico-muted-color); }
+.chip { display: inline-block; vertical-align: middle; padding: .05rem .55rem; border: 1px solid currentColor; border-radius: 1rem; font-size: .7rem; font-weight: 600; line-height: 1.6; letter-spacing: .06em; text-transform: uppercase; max-width: 100%; color: var(--pico-muted-color); }
 .chip.good { color: var(--pico-ins-color); }
 .chip.bad { color: var(--pico-del-color); }
 .chip.new { color: var(--pico-primary); }
@@ -37,14 +38,17 @@ ul.checklist label { font-weight: normal; }
 
 /* Table of contents: Pico's nav keeps one row and squeezes each link onto two lines; a long contents list wraps between links instead. */
 nav.toc ul { flex-wrap: wrap; }
-nav.toc li { white-space: nowrap; }
+
+/* Tooltip: Pico keeps the text on one line, and the hidden bubble alone widens a phone page; it wraps within a bounded width instead. */
+[data-tooltip]::before { white-space: normal; width: max-content; max-width: min(20rem, 70vw); }
 
 /* Mermaid block: <pre class="mermaid"> rendered by the kit's Mermaid loader. */
-pre.mermaid { background: var(--pico-card-background-color); text-align: center; }
+/* Diagrams keep their natural size and scroll when wider than the column: scaled down to a phone, a wide flowchart's text becomes unreadable. */
+pre.mermaid { background: var(--pico-card-background-color); text-align: center; overflow-x: auto; }
 
 /* Diagram family: data flow with example data. Boxes in a row with arrows between, stacked on phones; <b> is a box's label, <code> its example value. */
 .flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: .5rem; margin: var(--pico-typography-spacing-vertical) 0; }
-.flow .box { flex: 1 1 9rem; min-width: 9rem; background: var(--pico-card-background-color); border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius); padding: .5rem .7rem; font-size: .9rem; }
+.flow .box { flex: 1 1 9rem; min-width: min(9rem, 100%); background: var(--pico-card-background-color); border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius); padding: .5rem .7rem; font-size: .9rem; }
 .flow .box b { display: block; font-size: .75rem; color: var(--pico-muted-color); text-transform: uppercase; letter-spacing: .03em; }
 .flow .box code { display: block; margin-top: .3rem; white-space: pre-wrap; }
 .flow .arrow { align-self: center; color: var(--pico-muted-color); font-size: 1.4rem; padding: 0 .2rem; }
@@ -54,8 +58,11 @@ pre.mermaid { background: var(--pico-card-background-color); text-align: center;
 /* Diagram family: simplified UI sketch, the labelled fallback when no frame exists. A title bar, rows, buttons, and an accent outline on what is new. */
 .ui { background: var(--pico-card-background-color); border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius); padding: .75rem; margin: var(--pico-typography-spacing-vertical) 0; font-size: .9rem; max-width: 26rem; }
 .ui .bar { border-bottom: 1px solid var(--pico-muted-border-color); padding-bottom: .4rem; margin-bottom: .6rem; color: var(--pico-muted-color); font-size: .8rem; }
-.ui .row { display: flex; justify-content: space-between; gap: .5rem; padding: .3rem 0; border-bottom: 1px dashed var(--pico-muted-border-color); }
+.ui .row { display: flex; justify-content: space-between; gap: .5rem; min-width: 0; padding: .3rem 0; border-bottom: 1px dashed var(--pico-muted-border-color); }
 .ui .row:last-child { border-bottom: 0; }
+/* The label takes the room left and breaks a long word; the value keeps its words whole, so "Paid" never splits into two lines. */
+.ui .row > :first-child { flex: 1 1 0; min-width: 0; }
+.ui .row > :last-child { overflow-wrap: normal; text-align: right; }
 .ui .btn { display: inline-block; border: 1px solid var(--pico-primary); color: var(--pico-primary); border-radius: 6px; padding: .1rem .5rem; }
 .ui .new { outline: 2px solid var(--pico-primary); outline-offset: 2px; border-radius: 4px; }
 

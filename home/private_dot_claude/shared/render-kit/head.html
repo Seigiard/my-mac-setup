@@ -10,6 +10,9 @@
   /* Pico drops the container's side padding above 576px; a reading page keeps a gutter at every width. */
   main.container { max-width: 52rem; padding-inline: var(--pico-spacing); }
   /* Prose keeps a reading measure of about 80 characters; code, frames, tables and diagrams use the full column. */
+  /* A path, URL or hash has no space to break at and would push the page wider than a phone; it breaks anywhere instead. Table cells keep whole words, so a wide table scrolls in its overflow-auto wrapper rather than crushing its columns letter by letter. */
+  main { overflow-wrap: anywhere; }
+  main :is(th, td) { overflow-wrap: normal; }
   p, li { max-width: 44rem; }
   /* Code blocks take Pico's code colours and font instead of the highlighter theme's own box. */
   [class*="shj-lang-"] { background: var(--pico-code-background-color); color: var(--pico-code-color); border: 0; border-radius: var(--pico-border-radius); padding: var(--pico-spacing); margin: var(--pico-typography-spacing-vertical) 0; font: .875em/1.6 var(--pico-font-family-monospace); }

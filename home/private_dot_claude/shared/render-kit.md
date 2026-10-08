@@ -8,9 +8,9 @@ Write semantic HTML and let the kit style it. Two libraries load from jsDelivr, 
 
 A draft carries three markers and `python3 ~/.claude/shared/render-kit/assemble.py <draft> -o <page>` replaces them with the kit's files, so the page carries the kit inside itself and works from disk, by mail, or on a host:
 
-- `<!-- kit: head -->` inside `<head>`, after `<title>`: `head.html`, with charset and viewport, the three stylesheet links, and a base layer of four rules with the reason for each (body font stated against host resets, a side gutter on `main.container`, a reading measure on `p` and `li`, code blocks in Pico's colours).
+- `<!-- kit: head -->` inside `<head>`, after `<title>`: `head.html`, with charset and viewport, the three stylesheet links, and a base layer with the reason for each rule (body font stated against host resets, a side gutter on `main.container`, a reading measure on `p` and `li`, long words, paths and URLs breaking anywhere except in table cells, code blocks in Pico's colours).
 - `<!-- kit: components -->` right after it: `components.css` in a `<style>`.
-- `<!-- kit: scripts -->` at the end of `<body>`: `scripts.html`, the highlighter loader, the Mermaid loader and the frame lightbox.
+- `<!-- kit: scripts -->` at the end of `<body>`: `scripts.html`, the highlighter loader, the Mermaid loader, the frame lightbox, and a guard that wraps a table left outside `overflow-auto`, so no table widens a phone page.
 
 An `<img src>` that names a local file, relative to the draft, becomes a data URI, so a draft keeps its frames as files and stays small enough to read and edit. Remote and `data:` sources and markup inside comments stay as written. A missing kit file or image stops the run with exit status 1.
 
@@ -25,12 +25,12 @@ Artifacts load scripts from a few CDNs and no external stylesheet. `python3 ~/.c
 | Class | On | Markup | Effect |
 |---|---|---|---|
 | `rows` | `dl` | `<dl class="rows"><dt>Label</dt><dd>…</dd>…</dl>`, inside an `<article>` when it needs a title band | two-column grid, labels in the accent colour, one column on phones |
-| (none) | `figure` | `<figure><img …><figcaption>… <small>source</small></figcaption></figure>`; two side by side inside `<div class="grid">` | a card with the caption under a rule, numbered by a CSS counter whose label follows the nearest `lang` ("Frame N.", `ru`: «Кадр N.»; another language adds its own `:lang()` rule in the page's `<style>`); a click opens the frame at natural size, and a click or Escape closes it |
+| (none) | `figure` | `<figure><img …><figcaption>… <small>source</small></figcaption></figure>`; two side by side inside `<div class="grid">` | a card with the caption under a rule, numbered by a CSS counter whose label follows the nearest `lang` ("Frame N.", `ru`: «Кадр N.»; another language adds its own `:lang()` rule in the page's `<style>`); a tall frame stops at three quarters of the screen height; a click opens the frame at natural size, and a click or Escape closes it |
 | `checklist` | `ul` | `<li><label><input type="checkbox"> …</label></li>` | items the reader can tick, no bullets |
 | `toc` | `nav` | `<nav class="toc"><ul><li><a href="#…">…</a></li></ul></nav>` | a row of section links that wraps between links, hidden in print |
 | `chip` | `span` | `<span class="chip good">corroborates</span>` after a heading's text, in a table cell, or in a `.ui` bar; `good`, `bad`, `new`, or none | a small uppercase label whose colour carries a verdict: Pico's ins and del colours, the accent, or muted |
 | (none), `new` | `small` in `h2`–`h4` | `<h3>Pick a status <small class="new">new</small></h3>` | a step's status beside its heading: muted uppercase, `new` in the accent |
-| `mermaid` | `pre` | `<pre class="mermaid">flowchart LR …</pre>`; the kit loads Mermaid only on a page that has one. A node that carries an example value takes a Markdown string in backticks, so its label is bold and its value sits on the next line: ``menu["`**Menu**`` then a line break then ``status = paid`"]``; without the backticks the `**` prints as text | a flow between screens, data changing shape with an example value per node, a sequence or a state diagram. A Claude Artifact renders the block itself, in the host's theme |
+| `mermaid` | `pre` | `<pre class="mermaid">flowchart LR …</pre>`; the kit loads Mermaid only on a page that has one. A node that carries an example value takes a Markdown string in backticks, so its label is bold and its value sits on the next line: ``menu["`**Menu**`` then a line break then ``status = paid`"]``; without the backticks the `**` prints as text | a flow between screens, data changing shape with an example value per node, a sequence or a state diagram. A diagram keeps its natural size and scrolls when wider than the column. A Claude Artifact renders the block itself, in the host's theme |
 | `flow` | `div` | `<div class="flow"><div class="box"><b>Label</b><code>value</code></div><div class="arrow">→</div>…</div>` | data flow with example data: boxes in a row, stacked on phones |
 | `ui` | `div` | `<div class="ui"><div class="bar">title</div><div class="row"><span>…</span><span class="btn new">…</span></div></div>` | a labelled sketch of a screen, the fallback when no frame exists |
 

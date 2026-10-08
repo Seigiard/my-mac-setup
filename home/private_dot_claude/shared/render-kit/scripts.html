@@ -1,4 +1,4 @@
-<!-- Render kit scripts, placed by assemble.py at the kit scripts marker, at the end of <body>: the highlighter loader, the Mermaid loader and the frame lightbox. -->
+<!-- Render kit scripts, placed by assemble.py at the kit scripts marker, at the end of <body>: the highlighter loader, the Mermaid loader, the frame lightbox and the table guard. -->
 <script type="module">
   import { highlightAll } from "https://cdn.jsdelivr.net/npm/@speed-highlight/core@2.1.0/dist/index.js";
   highlightAll();
@@ -7,8 +7,22 @@
   // Mermaid loads only on a page that has a diagram; offline, the diagram's source text still reads.
   if (document.querySelector("pre.mermaid")) {
     const { default: mermaid } = await import("https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs");
-    mermaid.initialize({ startOnLoad: false, theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "neutral" });
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "neutral",
+      flowchart: { useMaxWidth: false }, sequence: { useMaxWidth: false }, state: { useMaxWidth: false },
+    });
     await mermaid.run();
+  }
+</script>
+<script>
+  // A table left outside an overflow-auto wrapper would widen the whole page on a phone; it gets the wrapper here.
+  for (const table of document.querySelectorAll("main table")) {
+    if (table.closest(".overflow-auto")) continue;
+    const wrapper = document.createElement("div");
+    wrapper.className = "overflow-auto";
+    table.replaceWith(wrapper);
+    wrapper.append(table);
   }
 </script>
 <script>
