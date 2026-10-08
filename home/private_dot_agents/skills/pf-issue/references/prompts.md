@@ -19,7 +19,7 @@ Map:
 Report in English, under 1000 words, every fact with file:line, sections: Consumers / Server truth / Contracts / Pins / History / Corrections to the context file.
 ```
 
-## Validator (step 4, one per candidate, general-purpose agent, `isolation: "worktree"`)
+## Validator (step 4, one per validated candidate, general-purpose agent, `isolation: "worktree"`)
 
 Launch with `isolation: "worktree"`: the validator edits and runs tests in its own copy, so the main tree stays clean (no lockfile churn, no scratch test files). The artifact files under `~/.claude/artifacts/` are outside the repo and stay readable.
 
@@ -34,7 +34,9 @@ Claims to verify, each with the line the candidate relies on:
 1. <claim> — <file:line>
 2. ...
 
-For each claim: trace every caller of the changed predicate, enumerate every actor class the rule admits and refuses, name the tests and behaviour entries that pin the current behaviour, and where feasible apply the change and run the affected tests. State what a legitimate caller loses, or state none.
+For each claim: trace every caller of the changed predicate, enumerate every actor class the rule admits and refuses, name the tests and behaviour entries that pin the current behaviour. Apply the change and run tests only when reading the code cannot decide the claim. State what a legitimate caller loses, or state none.
+
+When you render a UI change, save a screenshot of each state you looked at to ~/.claude/artifacts/<ID>/candidate-<N>-<state>.png and list the paths in the report; the report embeds them, so the prototype is not rebuilt for pictures.
 
 Also check: which contract artifacts move and the impact label per the classifier in scripts/contracts; which gate blocks and who can override it; whether an existing e2e capability or fixture breaks.
 

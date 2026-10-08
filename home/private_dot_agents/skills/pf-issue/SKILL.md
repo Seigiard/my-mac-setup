@@ -25,7 +25,7 @@ Done when commit, full issue, sibling list, and contract locations are written t
 
 ## 2. Map the current state
 
-Pick one reader per surface. A narrow code path you read yourself. A wide surface goes to one Explore agent (`model: "sonnet"`) with the map prompt in `references/prompts.md`, and while it runs you search the tracker for sibling issues and nothing else; its report is the map, and afterwards you open only the lines the candidates rely on. Gather into the context file, every fact with `file:line`:
+Pick one reader per surface. When your own read of the lines the issue points at confirms the cause, finish the map yourself and skip the map agent. A narrow code path you read yourself. A wide surface goes to one Explore agent (`model: "sonnet"`) with the map prompt in `references/prompts.md`, and while it runs you search the tracker for sibling issues and nothing else; its report is the map, and afterwards you open only the lines the candidates rely on. Gather into the context file, every fact with `file:line`:
 
 - **Measure, never trust.** Counts, sets, and "N places" come from a throwaway script or a grep you ran. When the issue says "not verified", verify the primary evidence: rows in the dev database, a live request, the dev stack viewed as the affected role.
 - **Contracts, both halves.** For every contract the surface touches read the prose overview *and* the built artifact, then the source that feeds the artifact (test titles, command declaration fields, catalog entries). Quote the governing line and say which half it came from. Also read the contract's process rules ("Making Changes", gates, override policy): a contract can forbid a PR shape, not only a behaviour.
@@ -53,15 +53,19 @@ Two to four options, composites allowed. Each option answers, in one line each:
 
 Numbers come from evidence in the repo or are marked unknown. An estimate you cannot source is left out.
 
+An option the comparison rejects is a finished result: record the line that rules it out and move on.
+
 Done when every option has all eight lines and a recommendation is written with its reason.
 
-## 4. Validate the top two
+## 4. Validate the recommendation
 
-Launch one validator per candidate in parallel with the validator prompt in `references/prompts.md`, each with `isolation: "worktree"` so edits and test runs stay in the validator's own copy. The prompt caps a validator at about 30 tool calls; whatever it did not reach comes back UNVERIFIED, and you decide whether to resume it or check that claim yourself. The prompt lists the candidate's load-bearing claims with `file:line` and demands enumeration and execution — trace every caller, list every actor class, apply the change and run the tests where feasible — and a three-valued verdict: VIABLE, VIABLE WITH CHANGES, BROKEN, with UNVERIFIED on anything unfinished. When the change touches gating, add the flow-gap prompt: viewer classes × surfaces × loading states.
+The audit stops when the evidence settles the current choice. By default that is one validator on the recommended option. Add a second validator, for the runner-up, only when you cannot choose between the two without its verdict; the decision left to the user is then the choice between them. If the recommendation comes back BROKEN, promote the next option and validate it instead.
 
-Re-verify against source only the findings that change a verdict (BROKEN, VIABLE WITH CHANGES), and only at the `file:line` the validator cites; reject with a reason. Take the rest as reported. A BROKEN verdict sends the option back to step 3 with the finding recorded, and the loop runs until two candidates hold or you can honestly say only one does. A claim you cannot verify locally gets a research agent for the workaround before it is reported as open.
+Launch each validator with the validator prompt in `references/prompts.md` and `isolation: "worktree"`, so edits and test runs stay in its own copy. The prompt lists the candidate's load-bearing claims with `file:line`, caps the validator at about 30 tool calls, and asks for a three-valued verdict: VIABLE, VIABLE WITH CHANGES, BROKEN. Whatever it did not reach comes back UNVERIFIED; resume it or check that claim yourself. When the change touches gating, add the flow-gap prompt: viewer classes × surfaces × loading states.
 
-Done when both candidates carry a verdict you have re-verified and every required change is listed.
+Re-verify against source only the findings that change a verdict (BROKEN, VIABLE WITH CHANGES), and only at the `file:line` the validator cites; reject with a reason. Take the rest as reported. A claim you cannot verify locally gets a research agent for the workaround before it is reported as open.
+
+Done when the recommended option carries a verdict you have re-verified, every required change is listed, and any visual prototype has its screenshot in the artifact directory.
 
 ## 5. Report
 

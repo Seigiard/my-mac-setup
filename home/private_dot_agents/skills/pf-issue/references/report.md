@@ -8,8 +8,8 @@ Markdown at `~/.claude/artifacts/<ISSUE-ID>/issue.md`, user's language, every vi
 4. **В чём проблема** — pseudocode of the faulty path, the numbered defects, the symptom classification (data leak / wording leak / declared behaviour / stale prose / invalid fixture).
 5. **Откуда это взялось** — commit / PR / date table and the one-line verdict: deliberate or accidental.
 6. **Что затронет любое решение** — file tree with `#` comments for the blast radius; the non-obvious places.
-7. **Варианты** — one subsection per option with a `diff` or pseudocode sketch, then a comparison table over the eight lines of step 3 (mechanism, fixes/leaves, who loses what, boundary kind, pinned test, contract impact + classifier line, blocking gate, unknowns).
-8. **Проверка** — per validated candidate: verdict, required changes, what stayed UNVERIFIED and why.
+7. **Варианты** — one subsection per option with a `diff` or pseudocode sketch and the validator's screenshots when a prototype was rendered, then a comparison table over the eight lines of step 3 (mechanism, fixes/leaves, who loses what, boundary kind, pinned test, contract impact + classifier line, blocking gate, unknowns).
+8. **Проверка** — per validated candidate: verdict, required changes, what stayed UNVERIFIED and why. For an option not validated, one line on why its verdict could not change the choice.
 9. **Рекомендация** — the option, its reason, a numbered work order, and which contracts change or stay untouched.
 10. **Что я решил сам / Что решаешь ты** — two short lists; the second holds exactly the decisions the user must make.
 11. **Рядом, но вне задачи** — follow-up candidates in ticket-ready form (summary / observed / done-when) and the list of things you did not verify.
