@@ -1,0 +1,20 @@
+#!/bin/bash
+# Name the Mac after its machine role, so the shell prompt, `hostname`, and
+# Bonjour agree with the role's aliases in .chezmoidata/machines.yaml
+# (`<role>.local` resolves only when LocalHostName equals the role).
+#
+# The role is rendered into this script, so chezmoi re-runs it when the role
+# changes. sudo runs only for names that differ, so a correctly named Mac
+# never prompts for a password.
+
+set -euo pipefail
+
+target="{{ .machine_role }}"
+
+for key in HostName LocalHostName ComputerName; do
+  current=$(scutil --get "$key" 2>/dev/null || true)
+  if [ "$current" != "$target" ]; then
+    echo "Setting $key: '${current}' -> '${target}'"
+    sudo scutil --set "$key" "$target"
+  fi
+done
