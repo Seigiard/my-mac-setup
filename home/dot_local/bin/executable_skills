@@ -22,7 +22,7 @@ NPX_PID=''
 EXCLUSION_RECOVERY_REQUIRED=0
 
 usage() {
-  printf '%s\n' 'Usage: skills [--verbose] {add SOURCE [SKILL...]|remove SOURCE SKILL...|update [SKILL...]|sync}' >&2
+  printf '%s\n' 'Usage: skills [--verbose] {add SOURCE [SKILL...]|remove SOURCE [SKILL...]|update [SKILL...]|sync}' >&2
 }
 
 fail() {
@@ -69,6 +69,12 @@ validate_live_lock() {
 lock_source_for_skill() {
   lock_records | while IFS=$'\t' read -r name source; do
     [ "$name" = "$1" ] && { printf '%s\n' "$source"; return 0; }
+  done
+}
+
+lock_skills_for_source() {
+  lock_records | while IFS=$'\t' read -r name source; do
+    [ "$source" = "$1" ] && printf '%s\n' "$name"
   done
 }
 
@@ -257,6 +263,9 @@ for index, line in enumerate(lines):
         continue
     found = True
     current = fields[1:]
+    if action == "drop":
+        del lines[index]
+        break
     if action == "add":
         if "*" in skills:
             incoming = list(dict.fromkeys(skills))
@@ -307,6 +316,20 @@ publish_managed_manifest() {
   chezmoi git -- push || {
     fail 'skills manifest is committed locally but could not be pushed'; return 1
   }
+}
+
+# Upstream removes the canonical copy and the Claude and OpenCode links but
+# leaves the Pi link dangling. Only a dangling link into the canonical tree
+# is ours to delete.
+remove_pi_links() {
+  local skill link
+  for skill in "$@"; do
+    link="$HOME/.pi/agent/skills/$skill"
+    [ -L "$link" ] && [ ! -e "$link" ] || continue
+    case "$(readlink "$link")" in
+      ../../../.agents/skills/"$skill"|"$CANONICAL_ROOT/$skill") rm -f "$link" ;;
+    esac
+  done
 }
 
 manifest_source_uses_wildcard() {
@@ -376,6 +399,9 @@ PY
     }
   done
   EXCLUSION_RECOVERY_REQUIRED=0
+  # After the restore loop: a repository-owned skill is back in place, so its
+  # Pi link resolves again and is skipped as not dangling.
+  remove_pi_links "${excluded[@]}"
   [ "$remove_status" -eq 0 ] || return "$remove_status"
   printf 'Excluded skills from %s: %s\n' "$source" "${excluded[*]}"
 }
@@ -646,24 +672,52 @@ add() {
 
 remove() {
   local source="$1"; shift
-  local skill owner
+  local skill owner name whole_source=0 requested_sorted locked_sorted
+  local locked=()
   valid_source "$source" || { fail "invalid source: $source"; return 1; }
-  [ "$#" -gt 0 ] || { fail 'remove requires at least one skill'; return 1; }
   validate_live_lock || return 1
   for skill in "$@"; do
     valid_skill "$skill" || { fail "invalid skill: $skill"; return 1; }
     owner="$(lock_source_for_skill "$skill")"
     [ "$owner" = "$source" ] || { fail "lock does not own $skill as $source"; return 1; }
   done
+  while IFS= read -r name; do
+    [ -z "$name" ] && continue
+    valid_skill "$name" || { fail "invalid skill name in global lock: $name"; return 1; }
+    locked+=("$name")
+  done < <(lock_skills_for_source "$source")
   prepare_managed_manifest || return 1
   parse_manifest || return 1
-  manifest_source_uses_wildcard "$source" && {
-    fail "cannot persist removal from wildcard manifest source: $source; use !<glob> after * to exclude upstream paths"
-    return 1
-  }
-  run_remove "$@" || return "$?"
-  update_manifest_skills remove "$source" "$@" || { fail "could not update skills manifest: $MANIFEST"; return 1; }
-  publish_managed_manifest remove "$@"
+  if [ "$#" -eq 0 ]; then
+    whole_source=1
+    if [ "${#locked[@]}" -gt 0 ]; then
+      set -- "${locked[@]}"
+    else
+      case " ${MANIFEST_SOURCES[*]} " in
+        *" $source "*) ;;
+        *) fail "nothing to remove for $source"; return 1 ;;
+      esac
+    fi
+  elif manifest_source_uses_wildcard "$source"; then
+    requested_sorted="$(printf '%s\n' "$@" | sort -u)"
+    locked_sorted="$(printf '%s\n' "${locked[@]}" | sort -u)"
+    [ "$requested_sorted" = "$locked_sorted" ] || {
+      fail "cannot persist removal of part of wildcard manifest source: $source; use !<glob> after * to exclude upstream paths, name every installed skill (${locked[*]}), or run: skills remove $source"
+      return 1
+    }
+    whole_source=1
+  fi
+  if [ "$#" -gt 0 ]; then
+    run_remove "$@" || return "$?"
+    remove_pi_links "$@"
+  fi
+  if [ "$whole_source" -eq 1 ]; then
+    update_manifest_skills drop "$source" || { fail "could not update skills manifest: $MANIFEST"; return 1; }
+    publish_managed_manifest remove "$source"
+  else
+    update_manifest_skills remove "$source" "$@" || { fail "could not update skills manifest: $MANIFEST"; return 1; }
+    publish_managed_manifest remove "$@"
+  fi
 }
 
 update() {
@@ -683,7 +737,7 @@ command="${1:-}"
 shift || true
 case "$command" in
   add) [ "$#" -ge 1 ] || { usage; exit 2; }; add "$@" ;;
-  remove) [ "$#" -ge 2 ] || { usage; exit 2; }; remove "$@" ;;
+  remove) [ "$#" -ge 1 ] || { usage; exit 2; }; remove "$@" ;;
   update) update "$@" ;;
   sync) [ "$#" -eq 0 ] || { usage; exit 2; }; sync ;;
   *) usage; exit 2 ;;

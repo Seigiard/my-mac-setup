@@ -9574,12 +9574,16 @@ function test_scripts_307_skills_sync_removes_wildcard_path_exclusions() {
   : > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
   printf '%s\n' 'example/upstream-skills * !*/in-progress/*' > "$manifest"
   printf '%s\n' '{"version":3,"skills":{}}' > "$lock"
+  # Upstream's add links the excluded skill into Pi and its remove leaves that link dangling.
+  mkdir -p "$BATS_TEST_TMPDIR/home/.pi/agent/skills"
+  ln -s ../../../.agents/skills/draft "$BATS_TEST_TMPDIR/home/.pi/agent/skills/draft"
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
     SKILLS_MANIFEST="$manifest" bash "$SKILLS_WRAPPER" sync
   assert_success
   assert_output --partial 'Excluded skills from example/upstream-skills: draft'
+  [ ! -L "$BATS_TEST_TMPDIR/home/.pi/agent/skills/draft" ]
   assert_dir_exists "$canonical/stable"
   assert_dir_not_exists "$canonical/draft"
   run python3 - "$lock" <<'PY'
@@ -9606,6 +9610,9 @@ function test_scripts_3071_skills_add_persists_and_applies_wildcard_path_exclusi
   printf '%s\n' original > "$canonical/draft/SKILL.md"
   printf '%s\n' 'other/repo other-skill' > "$manifest"
   printf '%s\n' '{"version":3,"skills":{}}' > "$lock"
+  # The repository's own link: valid again once the exclusion restores the skill.
+  mkdir -p "$BATS_TEST_TMPDIR/home/.pi/agent/skills"
+  ln -s ../../../.agents/skills/draft "$BATS_TEST_TMPDIR/home/.pi/agent/skills/draft"
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
@@ -9627,6 +9634,7 @@ PY
   run cat "$canonical/draft/SKILL.md"
   assert_success
   assert_output original
+  [ -e "$BATS_TEST_TMPDIR/home/.pi/agent/skills/draft" ]
 
   : > "$BATS_TEST_TMPDIR/tmp/fail-remove"
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
@@ -9645,22 +9653,105 @@ PY
   skills_exclusion_recovery_case add "$stub"
 }
 
-function test_scripts_3072_skills_remove_points_wildcard_sources_to_exclusion_syntax() {
-  _bats_test_init 3072 'skills remove points wildcard sources to persistent path exclusion syntax'
+function test_scripts_3072_skills_remove_refuses_part_of_a_wildcard_source_and_names_the_alternatives() {
+  _bats_test_init 3072 'skills remove refuses part of a wildcard source and names the alternatives'
   local stub manifest lock
   stub="$(skills_stub_npx)"
   manifest="$BATS_TEST_TMPDIR/manifest"
   lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
   mkdir -p "$(dirname "$lock")"
   printf '%s\n' 'owner/repo * !*/in-progress/*' > "$manifest"
-  printf '%s\n' '{"version":3,"skills":{"draft":{"source":"owner/repo","skillPath":"skills/in-progress/draft/SKILL.md"}}}' > "$lock"
+  printf '%s\n' '{"version":3,"skills":{"draft":{"source":"owner/repo"},"stable":{"source":"owner/repo"}}}' > "$lock"
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" SKILLS_MANIFEST="$manifest" \
     bash "$SKILLS_WRAPPER" remove owner/repo draft
-  assert_failure
-  assert_output --partial 'cannot persist removal from wildcard manifest source: owner/repo; use !<glob> after * to exclude upstream paths'
+  assert_failure 1
+  assert_output --partial 'cannot persist removal of part of wildcard manifest source: owner/repo'
+  assert_output --partial 'use !<glob> after * to exclude upstream paths'
+  assert_output --partial 'skills remove owner/repo'
   assert_file_not_exists "$BATS_TEST_TMPDIR/tmp/npx.log"
+  assert_file_contains "$manifest" '^owner/repo \* !\*/in-progress/\*$'
+}
+
+function test_scripts_3076_skills_remove_drops_a_whole_wildcard_source() {
+  _bats_test_init 3076 'skills remove drops a wildcard source by naming every locked skill or none'
+  local stub manifest lock home
+  stub="$(skills_stub_npx)"
+  manifest="$BATS_TEST_TMPDIR/manifest"
+  lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
+  home="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$(dirname "$lock")" "$home/.pi/agent/skills"
+  printf '%s\n' '{"version":3,"skills":{"alpha":{"source":"owner/repo"},"beta":{"source":"owner/repo"},"keep":{"source":"other/repo"}}}' > "$lock"
+  # Upstream leaves the Pi link of a removed skill dangling; the neighbours below must survive.
+  ln -s ../../../.agents/skills/alpha "$home/.pi/agent/skills/alpha"
+  ln -s ../../../.agents/skills/beta "$home/.pi/agent/skills/beta"
+  ln -s ../../../.agents/skills/keep "$home/.pi/agent/skills/keep"
+
+  # #given: a wildcard source with an exclusion and a neighbouring source.
+  printf '%s\n' '# head' 'other/repo keep' 'owner/repo * !*/in-progress/*  # note' > "$manifest"
+  # #when: no skill names -- every locked skill of the source goes.
+  run env PATH="$stub:/usr/bin:/bin" HOME="$home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" SKILLS_MANIFEST="$manifest" \
+    bash "$SKILLS_WRAPPER" remove owner/repo
+  # #then
+  assert_success
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<remove><--global><alpha><beta><--yes>$'
+  run cat "$manifest"
+  assert_output $'# head\nother/repo keep'
+  [ ! -L "$home/.pi/agent/skills/alpha" ]
+  [ ! -L "$home/.pi/agent/skills/beta" ]
+  [ -L "$home/.pi/agent/skills/keep" ]
+
+  # #given: the same shape, but the names given cover all locked skills, in another order.
+  rm -f "$BATS_TEST_TMPDIR/tmp/npx.log"
+  printf '%s\n' 'owner/repo *' > "$manifest"
+  # #when
+  run env PATH="$stub:/usr/bin:/bin" HOME="$home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" SKILLS_MANIFEST="$manifest" \
+    bash "$SKILLS_WRAPPER" remove owner/repo beta alpha
+  # #then
+  assert_success
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<remove><--global><beta><alpha><--yes>$'
+  assert_file_not_contains "$manifest" 'owner/repo'
+
+  # #given: a source nobody installed or listed.
+  rm -f "$BATS_TEST_TMPDIR/tmp/npx.log"
+  printf '%s\n' 'other/repo keep' > "$manifest"
+  # #when
+  run env PATH="$stub:/usr/bin:/bin" HOME="$home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" SKILLS_MANIFEST="$manifest" \
+    bash "$SKILLS_WRAPPER" remove ghost/repo
+  # #then
+  assert_failure 1
+  assert_output --partial 'skills: nothing to remove for ghost/repo'
+  assert_file_not_exists "$BATS_TEST_TMPDIR/tmp/npx.log"
+}
+
+function test_scripts_3077_skills_remove_cleans_the_pi_link_of_a_named_skill() {
+  _bats_test_init 3077 'skills remove deletes the dangling Pi link of a removed named skill'
+  local stub manifest lock home
+  stub="$(skills_stub_npx)"
+  manifest="$BATS_TEST_TMPDIR/manifest"
+  lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
+  home="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$(dirname "$lock")" "$home/.pi/agent/skills"
+  printf '%s\n' 'owner/repo owned foreign stays' > "$manifest"
+  printf '%s\n' '{"version":3,"skills":{"owned":{"source":"owner/repo"},"foreign":{"source":"owner/repo"},"stays":{"source":"owner/repo"}}}' > "$lock"
+  ln -s ../../../.agents/skills/owned "$home/.pi/agent/skills/owned"
+  # Dangling too, but the user's own link into another tree: not ours to delete.
+  ln -s /elsewhere/.agents/skills/foreign "$home/.pi/agent/skills/foreign"
+  ln -s ../../../.agents/skills/stays "$home/.pi/agent/skills/stays"
+
+  run env PATH="$stub:/usr/bin:/bin" HOME="$home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" SKILLS_MANIFEST="$manifest" \
+    bash "$SKILLS_WRAPPER" remove owner/repo owned foreign
+  assert_success
+  [ ! -L "$home/.pi/agent/skills/owned" ]
+  [ -L "$home/.pi/agent/skills/foreign" ]
+  [ -L "$home/.pi/agent/skills/stays" ]
+  run cat "$manifest"
+  assert_output 'owner/repo stays'
 }
 
 function test_scripts_3075_skills_add_preserves_existing_wildcard_exclusions() {
