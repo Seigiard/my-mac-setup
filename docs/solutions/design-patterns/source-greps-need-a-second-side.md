@@ -85,8 +85,6 @@ side can be edited to satisfy it alone:
 - Every `run = "plugin X"` keymap versus the plugin entrypoint on disk (`templates_test.sh` 016).
 - kitty's `send_text` bindings versus ghostty's, chord for chord, after normalising the two spelling
   conventions (`smoke_test.sh` 027).
-- The mapping table in `herdr-peer-launch.md` versus the executable's own case table
-  (`external_leg_pair_test.sh`).
 
 Two properties make these work. The derived side is **not transcribed into the test** — copying the
 list into the test file puts expectation and implementation in the same patch. And the extraction

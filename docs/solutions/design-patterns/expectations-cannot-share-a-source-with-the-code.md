@@ -99,9 +99,8 @@ next reader repairs the "stale" schema and deletes the test's subject.
 ### 3. Resolve against a second, independently edited side
 
 Where no literal exists and nothing was captured, derive the expectation from a different artifact
-than the one under test, and make both sides fail the comparison. `external_leg_pair_test.sh` reads
-the complexity-to-model table out of `herdr-peer-launch.md` rather than out of the executable's own
-`case`. `platform_test.sh` reads a `.chezmoiignore` platform block and resolves every entry against
+than the one under test, and make both sides fail the comparison. `platform_test.sh` reads a
+`.chezmoiignore` platform block and resolves every entry against
 `chezmoi managed` on this host. `smoke_test.sh` 016 runs the chezmoi source modifier and checks the
 applied `settings.json` against it, so the two sides are source-of-truth and deployment.
 
