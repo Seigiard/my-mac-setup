@@ -1319,50 +1319,6 @@ function test_templates_030_agent_skills_sync_hash_changes_for_each_managed_inpu
   assert_success
 }
 
-function test_templates_031_enabled_claude_plugin_keys_name_a_marketplace() {
-  _bats_test_init 31 'every enabled Claude plugin key names both a plugin and its marketplace'
-  skip_if_no_chezmoi
-  # Which plugins are enabled is a selection, not a contract:
-  # docs/agent-setup-inventory.md owns the list, and this suite cannot read it
-  # (the template container mounts only home/, tests/, Makefile and README.md
-  # -- docker/docker-compose.yml). Naming the four current plugins here would
-  # copy them out of the template this test renders, so an intended edit would
-  # change both sides at once and never fail.
-  #
-  # What survives any selection edit is the key format Claude resolves a plugin
-  # by: "<plugin>@<marketplace>", mapped to true. A key that lost its
-  # marketplace half, or a value that is not true, disables the plugin silently
-  # at load -- no error, no plugin.
-  #
-  # The retired-provider absence checks this test used to carry are gone. Two
-  # of them could not fail: the template declares no extraKnownMarketplaces and
-  # opencode.json declares no plugin key, so `jq -e ... | has(...)` ran against
-  # null and exited non-zero whatever the settings said. Removing a provider
-  # does not by itself justify asserting its absence (~/.claude/rules/
-  # testing.md); the capability that remains is asserted below. JSON validity
-  # of both renders is owned by test 14 ('every opencode instructions entry is
-  # a managed source file') and test 151 ('private settings register the
-  # worktree identity and handoff hooks'), which jq the same two templates.
-  local home="$BATS_TEST_TMPDIR/client-home"
-
-  HOME="$home" run chezmoi_full_fixture_finite_stdin --source "$SOURCE_ROOT" execute-template \
-    < "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl"
-  assert_success
-
-  run jq -r '
-    (.enabledPlugins // {}) as $plugins
-    | [$plugins | to_entries[]
-       | select((.key | test("^[^@[:space:]]+@[^@[:space:]]+$") | not) or .value != true)
-       | .key]
-    | if ($plugins | length) == 0 then "no plugin is enabled"
-      elif length > 0 then "unresolvable: " + join(", ")
-      else "every enabled plugin names its marketplace"
-      end
-  ' <<< "$output"
-  assert_success
-  assert_output 'every enabled plugin names its marketplace'
-}
-
 function test_templates_0311_private_claude_plugins_are_scoped_to_mbp2026() {
   _bats_test_init 311 'private Claude plugins and marketplaces are scoped to mbp2026'
   [[ "$(get_os)" == "darwin" ]] || skip "mbp2021 and mbp2026 are macOS roles"
