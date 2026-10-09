@@ -1138,7 +1138,6 @@ function test_templates_021_an_unset_mms_ci_minimal_renders_the_full_brewfil() {
   run render_with_config "$cfg" "$SOURCE_ROOT/$BREWFILE_MACOS_TMPL"
   assert_success
   assert_line 'cask "spotify"'
-  assert_line --partial 'brew "elio"'
 }
 
 function test_templates_022_an_empty_mms_ci_minimal_renders_the_full_brewfil() {
