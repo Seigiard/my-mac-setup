@@ -7,6 +7,9 @@
 {{- end -}}
 # Each laptop indexes its own history and queries the other over SSH.
 # Host aliases come from ~/.ssh/config (home/private_dot_ssh/private_config.tmpl).
+# A peer reports token usage only when its own config sets this, so it is on everywhere.
+token_usage = true
+
 [multi_machine]
 default = ["local"{{ range $peers }}, {{ . | quote }}{{ end }}]
 timeout_seconds = 10

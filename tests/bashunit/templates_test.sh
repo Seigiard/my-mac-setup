@@ -366,11 +366,13 @@ function test_templates_043_memex_config_lists_the_other_laptop_as_a_ssh_peer() 
     run python3 -c '
 import sys, tomllib
 cfg = tomllib.load(open(sys.argv[1], "rb"))
+print(cfg["token_usage"])
 print(cfg["multi_machine"]["default"])
 for m in cfg["machines"]:
     print(m["id"], m["control"]["host"])
 ' "$memex_config"
     assert_success
+    assert_line 'True'
     assert_line "['local', '$peer']"
     assert_line "$peer $peer"
 
