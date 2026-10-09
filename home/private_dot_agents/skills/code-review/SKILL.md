@@ -16,9 +16,8 @@ that job's supplied rubric and return findings directly. Do not launch a nested 
 
 ## 1. Establish the review scope
 
-Resolve the user's scope through the applicable review route. Record the checkout, fixed
-base commit, paths,
-explicit exclusions, and initial working-tree state. Include the in-scope committed,
+Resolve the user's scope through the applicable review route. Record the checkout, fixed base
+commit, paths, explicit exclusions, and initial working-tree state. Include the in-scope committed,
 staged, unstaged, and untracked work. List untracked files for reviewers to read because
 git diff omits them. Every later round covers this same cumulative scope plus its fixes,
 against the same base; the base is not reset to the commit at which the loop started.
@@ -102,7 +101,7 @@ is findings, not a tool failure. A tool or launcher error, malformed output, mis
 sources, or non-empty `sources.degraded` means incomplete coverage: report the failure and
 stop rather than claiming convergence. For a healthy `raised 0` source, name the source
 and inspect its `agents/<name>.*` tee; treat it as incomplete only when the tee shows that
-the agent could not work. Let revmux inject prior findings.
+the agent could not work.
 
 On the prose route, the fresh child must produce a parseable report with the required keys;
 an absent or malformed report is incomplete coverage, so report the failure and stop.
@@ -162,7 +161,8 @@ Before delegation, run `tdd`'s "Before the chain" in the run directory when it h
 this round's routed findings, run `tdd` steps 1-2 in that same directory: apply the oracle
 gate, record seams, allowed test paths, test command, and applicable checks. Run these steps
 for every round, whether the directory is new or reused. For a code-only route, record
-`base_sha` and use the checks-only path.
+`base_sha`; when `lock.json` exists, use its existing lock for steps 4 and 5, otherwise use
+the checks-only path.
 
 Fix the mechanism, including matching in-scope occurrences, rather than only the quoted
 example. Follow the repository's test-oracle gate before adding or changing tests. Route a
@@ -180,9 +180,10 @@ report-only.
 
 When no child can start, report the reason and stop. The caller never writes a fix itself.
 
-The caller verifies the result: run the `tdd` step 5 lock diff check, the green test command,
-applicable checks from repository verification rules, and the clean-worktree check. A child's
-report is not evidence. The caller still checks styling in step 3.
+The caller verifies the result: when `lock.json` exists, run the `tdd` step 5 lock diff check
+against its existing lock; otherwise use the checks-only validation. Then run the green test
+command, applicable checks from repository verification rules, and the clean-worktree check. A
+child's report is not evidence. The caller still checks styling in step 3.
 
 ## 5. Repeat or finish
 
