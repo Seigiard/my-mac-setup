@@ -24,6 +24,7 @@
 tap "oven-sh/bun", trusted: true
 {{ if $full -}}
 tap "lazywalker/tap", trusted: true
+tap "nicosuave/tap", trusted: true
 {{ end -}}
 
 # Shell & prompt
@@ -79,6 +80,7 @@ brew "agent-browser"
 brew "pi-coding-agent"
 brew "herdr"        # agent multiplexer
 brew "nono"
+brew "nicosuave/tap/memex"  # memex, local history search for Claude and Codex logs
 
 # Dev tools
 brew "act"          # run GitHub Actions locally
