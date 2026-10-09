@@ -26,6 +26,7 @@ tap "schpet/tap", trusted: true
 tap "letstri/tap", trusted: true
 tap "crmne/tap", trusted: true
 tap "umputun/apps", trusted: true
+tap "nicosuave/tap", trusted: true
 
 # CLI tools (macOS only)
 brew "python"       # recovery requires Python 3.10+ for a shared monotonic clock
@@ -48,6 +49,8 @@ cask "codex"
 cask "executor"
 # Supervised multi-agent review; drives the claude-code and codex CLIs above.
 cask "umputun/apps/revmux"
+# Browser for the local Claude and Codex history that the memex CLI indexes (Brewfile).
+cask "nicosuave/tap/memex-app"
 
 # Fonts
 cask "font-jetbrains-mono-nerd-font"
