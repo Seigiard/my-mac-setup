@@ -204,5 +204,5 @@ reach both sides of it".
   when the artifact cannot be executed here. Its two-sided form is option 3 above.
 - `fakes-need-the-real-binary-as-oracle.md` — the same problem one layer out: a test double
   reproducing another program's contract cannot be adjudicated by anything written beside it.
-- `~/.claude/rules/testing.md` — the false-green rules that apply in every repository, including the
+- `~/.claude/shared/testing.md` — the false-green rules that apply in every repository, including the
   ban on values re-derived by running the logic under test.

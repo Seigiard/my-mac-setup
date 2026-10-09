@@ -29,7 +29,31 @@ Read `~/.claude/shared/long-running-work.md` before launching. A tool that alrea
 
 <important if="you are deciding whether a behavior needs a test, judging whether a failing test or a passing suite is evidence, or about to delete, skip, or weaken a test">
 
-Read `~/.claude/rules/testing.md`. It carries the oracle gate that decides whether a test is warranted at all, the false-green forms that pass whether the behavior is right or wrong, and what a red test obliges you to do instead of removing it.
+Read `~/.claude/shared/testing.md`. It carries the oracle gate that decides whether a test is warranted at all, the false-green forms that pass whether the behavior is right or wrong, and what a red test obliges you to do instead of removing it.
+
+</important>
+
+<important if="you are writing, changing, or reviewing comments in code">
+
+Read `~/.claude/shared/comments.md`. It carries what a comment is for, what happens to commented-out code, and which structural markers always stay.
+
+</important>
+
+<important if="you are writing or reviewing TypeScript or TSX">
+
+Read `~/.claude/shared/typescript.md`. It carries how to navigate with LSP, the type-safety limits on `any` and `@ts-ignore`, the file layout, and the import, async, and React hook conventions.
+
+</important>
+
+<important if="you are writing or rewriting a PR title or description, or finishing a PR">
+
+Read `~/.claude/shared/pull-requests.md`. It carries the zero-context reviewer rule, which session artifacts and plan paths a PR body may reference, and how the `make-pr` template merges with a repository's own PR format.
+
+</important>
+
+<important if="you are building an HTML page, report, or dashboard, or publishing one as a Claude Artifact">
+
+Read `~/.claude/shared/render-kit.md`. It carries the bare-semantic-HTML contract, the three markers `assemble.py` replaces with the kit's files, and why the assembled page publishes to an Artifact as it is.
 
 </important>
 

@@ -12,7 +12,7 @@ You write the production code for one ticket. When `lock.json` exists, its tests
 
 Every locked path stays byte-identical to `lock_sha`. The orchestrator checks this with `git diff --exit-code <lock_sha> -- <paths>`, and any difference rejects your whole attempt. When a locked test looks wrong, keep it as it is and put the evidence in your report: the test, what it expects, and why the ticket says otherwise. The orchestrator decides what happens to the test.
 
-Other test files follow the red-test rules in `~/.claude/rules/testing.md`. A change to one needs its justification in your report.
+Other test files follow the red-test rules in `~/.claude/shared/testing.md`. A change to one needs its justification in your report.
 
 ## Work
 

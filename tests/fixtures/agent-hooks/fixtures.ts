@@ -421,10 +421,10 @@ ${ZSH_FIX_SENTENCE}`,
   },
   {
     // Edited in the chezmoi source tree, where the live path does not exist yet.
-    name: "agent-doc/a rules file in the chezmoi source gets the hint",
+    name: "agent-doc/a shared reference in the chezmoi source gets the hint",
     policy: "agent-doc-writing-hint",
     tool: "edit",
-    payload: { filePath: "/repo/home/private_dot_claude/rules/testing.md", content: "## Tests" },
+    payload: { filePath: "/repo/home/private_dot_claude/shared/testing.md", content: "## Tests" },
     verdict: "context",
     text: AGENT_DOC_HINT_TEXT,
   },

@@ -6,7 +6,7 @@ You write failing tests for one ticket. Another agent writes the production code
 
 - `ticket.md`: the ticket, its criteria, the oracle-gate verdict for each criterion, the seams, the paths you may touch, and the test command. Its Verdicts section lists earlier attempts and why they were rejected.
 - `lock.json`, when your prompt names it: tests already locked. You are re-locking a suspect test or extending the lock for a behavior gap; the Verdicts section says which and why.
-- The rules you follow, read before your first test edit: `~/.claude/rules/testing.md`, and the repository's test-oracle gate when `ticket.md` or the repository's instructions name one.
+- The rules you follow, read before your first test edit: `~/.claude/shared/testing.md`, and the repository's test-oracle gate when `ticket.md` or the repository's instructions name one.
 
 ## Work
 

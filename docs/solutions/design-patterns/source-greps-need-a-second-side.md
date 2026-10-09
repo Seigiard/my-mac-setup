@@ -177,6 +177,6 @@ have to change for this assertion to be wrong, and can one person change it in o
   expectation loses its second side: computed by the code under test rather than read off a file.
 - `fakes-need-the-real-binary-as-oracle.md` — the mirror case: a fake reproduces an upstream
   contract, so the real binary has to be the second side.
-- `~/.claude/rules/testing.md` — the false-green rules that apply in every repository, including the
+- `~/.claude/shared/testing.md` — the false-green rules that apply in every repository, including the
   absence-assertion rule this document applies to source text.
 - `docs/agent-verification.md` — which checks to run, and when their evidence is still valid.

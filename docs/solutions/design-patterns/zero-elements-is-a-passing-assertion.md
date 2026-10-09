@@ -215,5 +215,5 @@ this body run fewer times, and would anything fail".
   an extraction that matches nothing has to fail loudly.
 - `skip-set-parity-proves-reduced-dependencies.md` — the same loss one level up: coverage that
   disappears through skips rather than through empty collections, with a green suite either way.
-- `~/.claude/rules/testing.md` — the false-green rules that apply in every repository, including the
+- `~/.claude/shared/testing.md` — the false-green rules that apply in every repository, including the
   requirement that a test be observed red before it counts as calibrated.

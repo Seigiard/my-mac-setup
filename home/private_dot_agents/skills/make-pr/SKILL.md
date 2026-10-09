@@ -5,7 +5,7 @@ description: Ship the current branch as a pull request, from evidence and body t
 
 # Make PR
 
-Commit, capture evidence, describe, publish, check. The body follows `references/pr-body-template.md`; the rule it must satisfy is `~/.claude/rules/pull-requests.md`.
+Commit, capture evidence, describe, publish, check. The body follows `references/pr-body-template.md`; the rule it must satisfy is `~/.claude/shared/pull-requests.md`.
 
 ## Modes
 
@@ -44,7 +44,7 @@ Invoke the `explain-for-manager` skill for the resolved range, take its block ve
 
 ### 5. Compose title and body
 
-Read `references/pr-body-template.md` and fill every slot. With a repository contract from step 1, keep its headings and place each slot under the section it belongs to; the stakeholder block still comes first. Where the contract states a rule explicitly, that rule beats the slot's own: a mandated format, a forbidden section, a different cap. The Shape section uses the view families in `~/.agents/skills/show-me/SKILL.md` (a manual-only skill: read the file, the Skill tool will not load it). Done when the draft passes the rule in `~/.claude/rules/pull-requests.md`, every slot cap (the word cap counts the slots, not the sections a contract adds), and `git ls-files <path>` returns every repository path the body links, with evidence references awaiting `--attach` exempt because `gh` rewrites those to uploaded URLs at publish.
+Read `references/pr-body-template.md` and fill every slot. With a repository contract from step 1, keep its headings and place each slot under the section it belongs to; the stakeholder block still comes first. Where the contract states a rule explicitly, that rule beats the slot's own: a mandated format, a forbidden section, a different cap. The Shape section uses the view families in `~/.agents/skills/show-me/SKILL.md` (a manual-only skill: read the file, the Skill tool will not load it). Done when the draft passes the rule in `~/.claude/shared/pull-requests.md`, every slot cap (the word cap counts the slots, not the sections a contract adds), and `git ls-files <path>` returns every repository path the body links, with evidence references awaiting `--attach` exempt because `gh` rewrites those to uploaded URLs at publish.
 
 An existing body is rebuilt around three things kept: regions between paired HTML comment markers (`<!-- name --> … <!-- /name -->`, written by CI or a bot) verbatim; existing `Fixes`/`Related` references, folded into the single `Related:` line; and evidence frames or links that are still true.
 

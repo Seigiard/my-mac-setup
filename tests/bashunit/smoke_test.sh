@@ -357,7 +357,7 @@ function test_smoke_0172_opencode_tui_names_a_theme_with_no_local_file_side() {
   _bats_test_init 172 'opencode tui.json names a theme, whose resolution is upstream-owned'
   # OpenCode builtin names carry no marker separating them from custom themes
   # and it deploys no theme files here, so the name has no local oracle and the
-  # resolution side stays untested on purpose (~/.claude/rules/testing.md:
+  # resolution side stays untested on purpose (~/.claude/shared/testing.md:
   # upstream-owned behavior). What this repository does own is that tui.json
   # parses and carries a non-empty theme string; a null or missing one drops
   # OpenCode onto its fallback palette.
@@ -442,7 +442,7 @@ function test_smoke_020_explicit_only_workflow_keeps_manual_invocation_b() {
 # deployed surface already writes; it drifts silently when a shared file is
 # renamed and its entry here is forgotten. Cross-check both independent sides
 # instead: every ~/.claude/shared/*.md pointer written in the deployed surface
-# (CLAUDE.md, skills, agents, hooks, output-styles, rules, and the herdr
+# (CLAUDE.md, skills, agents, hooks, output-styles, and the herdr
 # child-launch lib) must resolve to a real file, and conversely every deployed
 # shared file except the directory's own README index must be reachable from
 # at least one such pointer, or it is dead weight nothing loads. The scanned
@@ -458,7 +458,7 @@ function test_smoke_022_shared_references_form_a_closed_reference_set() {
   pointers="$(grep -rho '~/\.claude/shared/[A-Za-z0-9._-]*\.md' \
     "$HOME/.claude/CLAUDE.md" "$HOME/.agents" "$HOME/.local/lib" \
     "$HOME/.claude/agents" "$HOME/.claude/hooks" "$HOME/.claude/output-styles" \
-    "$HOME/.claude/rules" "$HOME/.claude/skills" 2>/dev/null | sort -u)"
+    "$HOME/.claude/skills" 2>/dev/null | sort -u)"
   [ -n "$pointers" ] || fail "no ~/.claude/shared pointer found in the deployed agent surface"
 
   local pointer missing=""
@@ -767,7 +767,7 @@ function test_smoke_1054_claude_settings_deliver_herdr_resource_context() {
   assert_file_exists "$settings"
   # The retired herdr-task-sync-hook.sh absence assertion is gone: removing a
   # hook does not by itself justify asserting that its name stays out of the
-  # file (~/.claude/rules/testing.md). The Stop check below is not that -- it
+  # file (~/.claude/shared/testing.md). The Stop check below is not that -- it
   # guards a live wiring rule, since a resource refresh on Stop re-enters the
   # continuation it just ended.
   run python3 - "$settings" <<'PY'

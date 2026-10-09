@@ -1,8 +1,6 @@
----
-paths: "**/*.{test,spec}.{ts,tsx,js,jsx,mjs,cjs}, **/__tests__/**, **/*_test.{sh,py,go,rb,ts,tsx,exs}, **/*_spec.{rb,ts,js,lua}, **/test_*.py, **/*.bats, **/tests/**, **/test/**, **/spec/**"
----
-
 ## Testing Rules
+
+Reached from the testing pointer in `~/.claude/CLAUDE.md` and from the `tdd` skill.
 
 ### Declare the oracle first
 

@@ -1,8 +1,6 @@
----
-paths: "**/*.{ts,tsx}"
----
-
 ## TypeScript Rules
+
+Reached from the TypeScript pointer in `~/.claude/CLAUDE.md`.
 
 Grep/Glob **locates**, LSP **understands**: find the file with Grep/Glob, then use `goToDefinition`, `findReferences`, and `hover` for definitions, call sites, and types instead of reading the file whole. Grep returns text matches; LSP returns exact ones.
 

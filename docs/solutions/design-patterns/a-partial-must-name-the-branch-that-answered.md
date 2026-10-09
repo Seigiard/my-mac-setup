@@ -174,6 +174,6 @@ be able to tell". If more than one branch qualifies, the match is too short.
   matching, and what the legitimate exceptions look like here.
 - `source-greps-need-a-second-side.md` — the sibling case: what makes a text-reading check
   legitimate when the artifact cannot be executed here.
-- `~/.claude/rules/testing.md` — the false-green rules that apply in every repository, including
+- `~/.claude/shared/testing.md` — the false-green rules that apply in every repository, including
   "assert the exact value" and "assert status before output".
 - `docs/agent-verification.md` — which checks to run, and when their evidence is still valid.

@@ -22,7 +22,7 @@ Done when the worktree is clean and `ticket.md` holds the ticket and its criteri
 
 ## The chain
 
-1. **Oracle gate.** For each criterion, decide whether a permanent test is warranted. Apply the repository's test-oracle gate when it has one (in my-mac-setup: `docs/solutions/design-patterns/semantic-regression-tests-over-source-shape.md`) and the oracle rule in `~/.claude/rules/testing.md`. Each criterion gets one of two verdicts, and both are complete paths:
+1. **Oracle gate.** For each criterion, decide whether a permanent test is warranted. Apply the repository's test-oracle gate when it has one (in my-mac-setup: `docs/solutions/design-patterns/semantic-regression-tests-over-source-shape.md`) and the oracle rule in `~/.claude/shared/testing.md`. Each criterion gets one of two verdicts, and both are complete paths:
    - **test**: the consumer, the observable failure, and the independent oracle, on one line.
    - **no test**: the reason. The usual cases are agent-facing text (skills, instruction docs), a verbatim copy or move, config with no observable behavior, and behavior owned by an upstream system; the two gate documents carry the reasoning.
 
@@ -33,7 +33,7 @@ Done when the worktree is clean and `ticket.md` holds the ticket and its criteri
    - **Otherwise** accept the work only if:
      - `git diff --name-only <base_sha> HEAD` lists only the allowed test paths and fixtures, and the worktree is clean;
      - on a first lock or a behavior gap, the test command fails, and each new test fails on an assertion about the missing behavior, not on a setup, import, or syntax error. On a re-lock over a suspect test, a corrected test may already pass against the existing code;
-     - each test matches the oracle line in the report, that line holds against the gate, and the test passes the false-green rules in `~/.claude/rules/testing.md`.
+     - each test matches the oracle line in the report, that line holds against the gate, and the test passes the false-green rules in `~/.claude/shared/testing.md`.
 
    A failed condition is a **rejection**. Reset the branch (`git reset --hard <base_sha>`, then `git clean -fd`), record the verdict, and start a fresh test writer one tier up the [ladder](#escalation-ladder).
 

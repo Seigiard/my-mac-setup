@@ -1,6 +1,6 @@
 # Render kit for HTML pages
 
-Reached from `~/.claude/rules/artifacts.md` for any HTML page or Claude Artifact, from the `explain-diff-html` skill, and from the pf cycle's page templates in `~/.claude/shared/pf-cycle-pages/`, all built on it. `render-kit/gallery.html` shows, in working markup, every element a pf narrative page uses; assemble it to see the kit in both themes.
+Reached from the HTML-page pointer in `~/.claude/CLAUDE.md` for any HTML page or Claude Artifact, from the `explain-diff-html` skill, and from the pf cycle's page templates in `~/.claude/shared/pf-cycle-pages/`, all built on it. `render-kit/gallery.html` shows, in working markup, every element a pf narrative page uses; assemble it to see the kit in both themes.
 
 Write bare semantic HTML and let the kit style it. The kit is one base layer on CSS variables; page markup carries two classes, `language-x` on code and `mermaid` on a diagram, and every other element is styled by its tag. Two libraries load from jsDelivr as scripts: speed-highlight 2.1.0 colours code, and Mermaid draws diagrams.
 
