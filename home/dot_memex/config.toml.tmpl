@@ -1,0 +1,24 @@
+{{- $machineRole := includeTemplate "machine-role" . | trim -}}
+{{- $peers := list -}}
+{{- range $targetRole, $target := .machines.roles -}}
+{{-   if and (ne $targetRole $machineRole) (eq $target.os "darwin") -}}
+{{-     $peers = append $peers $targetRole -}}
+{{-   end -}}
+{{- end -}}
+# Each laptop indexes its own history and queries the other over SSH.
+# Host aliases come from ~/.ssh/config (home/private_dot_ssh/private_config.tmpl).
+[multi_machine]
+default = ["local"{{ range $peers }}, {{ . | quote }}{{ end }}]
+timeout_seconds = 10
+{{ range $peers }}{{ $target := index $.machines.roles . }}
+[[machines]]
+id = {{ . | quote }}
+label = {{ . | quote }}
+
+[machines.control]
+type = "ssh"
+host = {{ index $target.aliases 0 | quote }}
+
+[machines.index]
+type = "remote"
+{{ end }}

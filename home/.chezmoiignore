@@ -20,6 +20,7 @@ LICENSE
 .ssh/authorized_keys
 .ssh/mbp2021.pub
 .ssh/mbp2026.pub
+.memex/config.toml
 {{ end }}
 
 # Machine secrets decrypt only where a Machine identity exists. Without one
@@ -33,6 +34,8 @@ LICENSE
 # macOS-only files (ignore on Linux)
 # Patterns match target paths, not source names
 {{ if ne .chezmoi.os "darwin" }}
+.memex
+.memex/**
 .hammerspoon
 .hammerspoon/**
 Library

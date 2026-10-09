@@ -351,6 +351,35 @@ function test_templates_040_laptop_ssh_configs_use_the_role_key_on_disk() {
   done
 }
 
+function test_templates_043_memex_config_lists_the_other_laptop_as_a_ssh_peer() {
+  _bats_test_init 34512 'memex config on each laptop lists only the other laptop, by an alias its SSH config resolves'
+  command_exists ssh || skip "ssh not installed"
+  local role peer ssh_config memex_config
+
+  for role in mbp2026 mbp2021; do
+    peer=$([[ "$role" == "mbp2026" ]] && echo mbp2021 || echo mbp2026)
+    ssh_config="$BATS_TEST_TMPDIR/$role-ssh-config"
+    memex_config="$BATS_TEST_TMPDIR/$role-memex.toml"
+    render_role_file "$role" "$SOURCE_ROOT/private_dot_ssh/private_config.tmpl" "$ssh_config"
+    render_role_file "$role" "$SOURCE_ROOT/dot_memex/config.toml.tmpl" "$memex_config"
+
+    run python3 -c '
+import sys, tomllib
+cfg = tomllib.load(open(sys.argv[1], "rb"))
+print(cfg["multi_machine"]["default"])
+for m in cfg["machines"]:
+    print(m["id"], m["control"]["host"])
+' "$memex_config"
+    assert_success
+    assert_line "['local', '$peer']"
+    assert_line "$peer $peer"
+
+    run ssh -G -F "$ssh_config" "$peer"
+    assert_success
+    assert_line --regexp '^hostname .+\.ts\.net$'
+  done
+}
+
 function test_templates_041_server_ssh_config_uses_only_a_forwarded_agent() {
   _bats_test_init 41 'server SSH config uses only a forwarded agent'
   command_exists ssh || skip "ssh not installed"
