@@ -76,11 +76,26 @@ Read the complete report, including `open_questions`, `pre_existing`, and `immat
 In report-only mode, return here; for `mode:agent`, return the revmux JSON without wrapping
 it in a CE report or adding prose.
 
-## 3. Fix and verify
+## 3. Check styles
+
+Skip this step when the scope adds or changes no styling. Styling means CSS, Tailwind
+classes, StyleX, CSS-in-JS, and inline styles, in any file type. Revmux reviewers do not
+carry the `good-css` rules, so the parent checks the changed styling itself.
+
+Load the `good-css` skill and read the reference files it names for the declarations in
+the diff. Judge every added or changed styling line against the matching entry and the
+conditions in its rules. Tag the results `good-css` and treat them like revmux findings
+in step 4: a clear, local replacement is a fix; a taste call, or a technique the project's
+browsers lack per the entry's `Support:` line, is a decision to report.
+
+When `good-css` is not installed, report that in the final report and continue; the
+styling then counts as unchecked.
+
+## 4. Fix and verify
 
 Confirm the in-scope tree still matches what was reviewed. If it changed during the
 round, review the new state before applying stale findings. Report the round's findings
-briefly, then act without another approval prompt:
+and the `good-css` results briefly, then act without another approval prompt:
 
 - Fix supported `critical` and `major` findings in the agreed scope.
 - Fix a `minor` when its defect and remedy are clear, the edit is local and reversible,
@@ -100,7 +115,7 @@ Leave changes uncommitted unless the user or calling workflow explicitly authori
 commit. A dirty tree does not by itself block this loop. Pushes and PR creation remain
 separate requests.
 
-## 4. Repeat or finish
+## 5. Repeat or finish
 
 Apply these rules in order:
 
