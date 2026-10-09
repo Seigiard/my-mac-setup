@@ -33,7 +33,7 @@ selected upstream skill name.
 
 ## Skills CLI
 
-Use `skills add <source> [skill...]`, `skills remove <source> <skill...>`,
+Use `skills add <source> [skill...]`, `skills remove <source> [skill...]`,
 `skills update [skill...]`, or `skills sync`. `sync` installs every manifest
 entry and reports unmanaged or obsolete lock entries with explicit commands to
 remove them or preserve them through `skills add`. Before a managed `add` or
@@ -43,9 +43,11 @@ captures the manifest with `chezmoi add`, commits only that file, and pushes the
 commit. A wildcard may be followed by path exclusions, for example
 `skills add mattpocock/skills '*' '!*/in-progress/*'`. After the wildcard
 installation, each `!<glob>` removes skills whose upstream `skillPath` matches;
-named skills still cannot be mixed with `*`. Removing one named skill from a
-wildcard source remains rejected because it cannot produce a durable path
-exclusion. `sync` applies declared exclusions but never removes other drift
+named skills still cannot be mixed with `*`. To drop a whole source, run
+`skills remove <source>` with no skill names, or name every skill the lock
+records for it; both remove those skills, delete the manifest line, and delete
+their dangling Pi links. Removing only some skills of a wildcard source stays
+rejected because it cannot produce a durable path exclusion. `sync` applies declared exclusions but never removes other drift
 automatically. Restart Claude Code, OpenCode, and Pi after installation or
 discovery configuration changes.
 Successful upstream CLI output is hidden by default; use `skills --verbose
