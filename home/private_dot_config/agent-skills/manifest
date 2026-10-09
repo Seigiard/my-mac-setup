@@ -1,6 +1,6 @@
 EveryInc/compound-engineering-plugin ce-commit ce-babysit-pr ce-resolve-pr-feedback ce-debug ce-noslop
 mattpocock/skills * !*/in-progress/* !*/code-review/* !*/migrate-to-shoehorn/* !*/scaffold-exercises/* !*/setup-pre-commit/* !*/git-guardrails-claude-code/*
-anthropics/skills skill-creator frontend-design
+anthropics/skills skill-creator
 humanlayer/skills show-me improve-claude-md
 nolabs-ai/nono-packs nono-sandbox
 umputun/revmux revmux
