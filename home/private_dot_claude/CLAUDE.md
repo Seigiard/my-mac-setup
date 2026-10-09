@@ -39,6 +39,12 @@ Read `~/.claude/shared/agent-intercom-contract.md`. It carries the tool set and 
 
 </important>
 
+<important if="you are writing or reviewing interface copy: control labels, toasts, statuses">
+
+Read `~/.claude/shared/interface-copy.md`. It carries the grammar that names a control by its job (command, status, or navigation) and the one-word link between an action and its result.
+
+</important>
+
 <important if="you are writing or rewriting the prose in a skill, an AGENTS.md or CLAUDE.md, a client command, an output style, or another document an agent reads — including its chezmoi source in `my-mac-setup`, where the live path does not exist yet">
 
 Read the `writing-for-agents` skill first.
