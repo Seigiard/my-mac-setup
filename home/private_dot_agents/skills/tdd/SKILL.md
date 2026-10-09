@@ -29,6 +29,8 @@ You are the **orchestrator** of one ticket. You decide what is tested, start one
    - the test command fails, and each new test fails on an assertion about the missing behavior, not on a setup, import, or syntax error;
    - each test matches its oracle line and passes the false-green rules in `~/.claude/rules/testing.md`.
 
+   A failed condition is a **rejection**. Restore the changed paths (`git restore --source=<base_sha> --staged --worktree -- <changed paths>`, then commit), record the verdict, and start a fresh test writer one tier up the [ladder](#escalation-ladder).
+
    On acceptance, write the [lock](#the-lock): the branch tip becomes `lock_sha`, and the changed files become the locked paths. A criterion the test writer returned with zero tests moves to **no test**, with its reason. When none of the tests survive, no lock exists and the ticket follows the checks-only path.
 4. **Implementer.** Start an implementer child (brief: `implementer.md` in this skill's directory). It writes code until the locked tests pass and the criteria hold.
 5. **Validation.** When the implementer settles, all of these must hold:
@@ -37,7 +39,7 @@ You are the **orchestrator** of one ticket. You decide what is tested, start one
    - every applicable check in `ticket.md` passes, run by you, not taken from the report;
    - any change to an unlocked test file is justified in the report under the red-test rules of `~/.claude/rules/testing.md`.
 
-   A failed condition is a **rejection**. Restore the locked files (`git restore --source=<lock_sha> --staged --worktree -- <locked paths>`, then commit), record the verdict, and start a fresh implementer one rung up the [ladder](#escalation-ladder). Done when all conditions hold on one implementer's result.
+   A failed condition is a **rejection**. Restore the locked files (`git restore --source=<lock_sha> --staged --worktree -- <locked paths>`, then commit), record the verdict, and start a fresh implementer one tier up the [ladder](#escalation-ladder). Done when all conditions hold on one implementer's result.
 
 Report to the caller: `lock_sha` or the checks-only verdict, the final branch tip, each check with its result, and the run directory.
 
@@ -78,20 +80,11 @@ The child's answer is its report file. Pane text and the JSONL log are evidence 
 
 ## Escalation ladder
 
-One child per phase, each fresh. Every failed attempt moves one rung and adds a line to the Verdicts section of `ticket.md`.
+One rule: a failed attempt, whether a rejection or a child that settles without a report, gets a line in the Verdicts section of `ticket.md` and a fresh child of the same role one tier up: low → medium → high.
 
-| Rung | Who | Tier |
-|---|---|---|
-| 1 | Test writer | medium |
-| 2 | Implementer, attempt 1 | low |
-| 3 | Implementer, attempt 2 | medium |
-| 4 | You inspect the locked tests. A suspect test (wrong oracle, false green, unreachable seam, or a contradiction with the ticket) goes to a fresh test writer on high, then re-lock. | high (test writer) |
-| 5 | Implementer, attempt 3 | high |
-| 6 | Stop and ask the user | — |
-
-- A rejected test writer at rung 1 gets one fresh retry on medium. A second rejection stops the chain and goes to the user.
-- When rung 4 finds no suspect test, go straight to rung 5.
-- The checks-only path skips rungs 1 and 4: implementer on low, then medium, then high, then the user.
+- The test writer starts on medium. The implementer starts on low.
+- Before an implementer goes to high, read the locked tests once. A suspect test (wrong oracle, false green, unreachable seam, or a contradiction with the ticket) goes to a fresh test writer one tier up and is re-locked; then the implementer runs on high.
+- A failure on high ends the chain. Stop and ask the user.
 
 ## ticket.md
 
@@ -128,9 +121,8 @@ One child per phase, each fresh. Every failed attempt moves one rung and adds a 
 {
   "base_sha": "<HEAD before the test writer>",
   "lock_sha": "<branch tip after the accepted test writer>",
-  "paths": ["<each file the test writer changed>"],
-  "superseded": ["<earlier lock_sha values, oldest first>"]
+  "paths": ["<each file the test writer changed>"]
 }
 ```
 
-A re-lock sets `base_sha` and `lock_sha` from the new test writer, adds the files it changed to `paths`, and appends the old `lock_sha` to `superseded`. A path stays locked once locked. The diff check is the only enforcement of the lock.
+A re-lock sets `base_sha` and `lock_sha` from the new test writer and adds the files it changed to `paths`; earlier lock SHAs stay in the Verdicts section. A path stays locked once locked. The diff check is the only enforcement of the lock.
