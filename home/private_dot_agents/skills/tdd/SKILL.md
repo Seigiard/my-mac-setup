@@ -54,7 +54,7 @@ Review-fix implementers climb the same ladder.
 
 ## Dispatch
 
-Every child runs on OpenCode with an `openai/*` model. The tier picks the model: use the OpenCode column of the complexity table in `~/.claude/shared/herdr-peer-launch.md`. The ceiling is **high**; never xhigh.
+Every child runs on OpenCode with an `openai/*` model. The tier picks the model: use the OpenCode column of `~/.claude/shared/model-tiers.md`. The ceiling is **high**; never xhigh.
 
 Write the child's prompt to `<role>-<n>.prompt.md`. It carries pointers only, never pasted history:
 
@@ -69,10 +69,9 @@ Work in <checkout> on branch <branch>. Commit your work. Do not push.
 
 Choose the mode in this order:
 
-1. `SE_EXTERNAL_LEG` is non-empty: you are inside a leg and no child can start. Stop.
-2. `HERDR_ENV=1`: start a visible pane with `herdr-child start --kind opencode --posture rw --model <model> --cwd <checkout> --prompt-file <prompt> --detach`. Follow the parent duties in `~/.claude/shared/child-agent-contract.md`; the supervision marker wakes you.
-3. `opencode` is on `PATH`: run `opencode run --dir <checkout> -m <model> --auto --format json "$(cat <prompt>)" > <run-dir>/<role>-<n>.jsonl 2>&1` as a background process that re-invokes you on exit (in Claude Code, the Bash tool's `run_in_background`). `~/.claude/shared/long-running-work.md` owns its supervision.
-4. Otherwise no child can start. Stop.
+1. `HERDR_ENV=1`: start a visible pane with `herdr-child start --kind opencode --posture rw --model <model> --cwd <checkout> --prompt-file <prompt> --detach`. Follow the parent duties in `~/.claude/shared/child-agent-contract.md`; the supervision marker wakes you.
+2. `opencode` is on `PATH`: run `opencode run --dir <checkout> -m <model> --auto --format json "$(cat <prompt>)" > <run-dir>/<role>-<n>.jsonl 2>&1` as a background process that re-invokes you on exit (in Claude Code, the Bash tool's `run_in_background`). `~/.claude/shared/long-running-work.md` owns its supervision.
+3. Otherwise no child can start. Stop.
 
 When no child can start, or a start fails, report the reason to the caller and stop. The orchestrator never writes the child's work itself.
 
