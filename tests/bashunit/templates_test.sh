@@ -1139,7 +1139,7 @@ function test_templates_021_an_unset_mms_ci_minimal_renders_the_full_brewfil() {
   assert_success
   assert_line 'cask "spotify"'
   assert_line --partial 'brew "elio"'
-  assert_line --partial 'brew "rust"'
+  refute_line --partial 'brew "rust"'
   refute_line 'brew "terminal-notifier"'
 }
 
