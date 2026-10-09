@@ -1,6 +1,5 @@
 EveryInc/compound-engineering-plugin ce-commit ce-babysit-pr ce-resolve-pr-feedback ce-debug ce-noslop
 mattpocock/skills * !*/in-progress/* !*/code-review/*
-schpet/linear-cli linear-cli
 anthropics/skills frontend-design skill-creator
 humanlayer/skills show-me improve-claude-md
 metarhia/skills error-handling js-gof
