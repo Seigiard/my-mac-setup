@@ -1,28 +1,123 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- Render kit, see ~/.claude/shared/render-kit.md: Pico styles bare semantic HTML, speed-highlight colours shj-lang-* blocks, both follow prefers-color-scheme. assemble.py places this at the kit head marker. -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@speed-highlight/core@2.1.0/dist/themes/github-light.css" media="(prefers-color-scheme: light)">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@speed-highlight/core@2.1.0/dist/themes/github-dark.css" media="(prefers-color-scheme: dark)">
+<!-- Render kit, see ~/.claude/shared/render-kit.md: one base layer styles bare semantic HTML from CSS variables. It loads no external stylesheet, because Claude Artifacts block them. assemble.py places this at the kit head marker. -->
 <style>
-  /* Stated on body, not inherited from html: a host page (Claude Artifacts) resets body to its own 14px font and colours. */
-  body { font-size: 1rem; line-height: var(--pico-line-height); font-family: var(--pico-font-family); background: var(--pico-background-color); color: var(--pico-color); }
-  /* Type from modernfontstacks.com: installed system fonts only, so nothing downloads and an Artifact renders the same offline. Text is Neo-Grotesque, page and section titles Old Style, lower headings Industrial, code Monospace Code. Each stack falls through to fonts with Cyrillic. */
+  /* Colours are the Harmony palette (github.com/evilmartians/harmony 1.4.0): OKLCH, and every hue has the same APCA contrast on the same step. Each role takes one step, light and dark in one light-dark() token. Text steps 700/300 give Lc 70 or more on the page and on a fill; labels (ins, del) take 800/200. The theme is color-scheme alone: the system sets it, and a host's data-theme overrides it. */
   :root {
-    --pico-font-family-sans-serif: Inter, Roboto, 'Helvetica Neue', 'Arial Nova', 'Nimbus Sans', Arial, sans-serif, var(--pico-font-family-emoji);
-    --pico-font-family-monospace: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace, var(--pico-font-family-emoji);
+    color-scheme: light dark;
+    --bg: light-dark(oklch(98.8% 0.005 275), oklch(19.3% 0.016 275));      /* gray 50 / 950 */
+    --surface: light-dark(oklch(100% 0 none), oklch(30.3% 0.016 275));      /* white / gray 900 */
+    --tint: light-dark(oklch(96.5% 0.016 275), oklch(30.3% 0.016 275));     /* gray 100 / 900 */
+    --fg: light-dark(oklch(30.3% 0.016 275), oklch(96.5% 0.016 275));       /* gray 900 / 100 */
+    --muted: light-dark(oklch(52.3% 0.016 275), oklch(85.4% 0.016 275));    /* gray 700 / 300 */
+    --line: light-dark(oklch(91.8% 0.016 275), oklch(41.2% 0.016 275));     /* gray 200 / 800 */
+    --accent: light-dark(oklch(53.3% 0.116 300), oklch(85.9% 0.078 300));   /* purple 700 / 300 */
+    --good: light-dark(oklch(40% 0.091 140), oklch(91.4% 0.042 140));       /* emerald 800 / 200 */
+    --bad: light-dark(oklch(42% 0.091 20), oklch(92.2% 0.042 20));          /* red 800 / 200 */
+    --good-fill: light-dark(oklch(96.3% 0.017 140), oklch(29.5% 0.066 140));       /* emerald 100 / 900, behind a diff's added lines */
+    --bad-fill: light-dark(oklch(96.7% 0.017 20), oklch(30.7% 0.066 20));          /* red 100 / 900, behind a diff's removed lines */
+    --code-bg: light-dark(oklch(96.5% 0.016 275), oklch(30.3% 0.016 275));  /* gray 100 / 900 */
+    --c-kwd: var(--accent);                                                 /* purple 700 / 300 */
+    --c-str: light-dark(oklch(51.2% 0.116 140), oklch(84.6% 0.078 140));    /* emerald 700 / 300 */
+    --c-num: light-dark(oklch(53.1% 0.116 43.3), oklch(85.9% 0.078 43.3));  /* orange 700 / 300 */
+    --c-fn: light-dark(oklch(51.8% 0.116 240), oklch(85% 0.078 240));       /* blue 700 / 300 */
+    --c-type: light-dark(oklch(53.7% 0.116 340), oklch(86.3% 0.078 340));   /* pink 700 / 300 */
+    --c-cmnt: light-dark(oklch(61.3% 0.016 275), oklch(78.9% 0.016 275));   /* gray 600 / 400, quieter on purpose */
+    /* Type from modernfontstacks.com: installed system fonts only, so nothing downloads and a page renders the same offline. Neo-Grotesque text, Old Style headings, Monospace Code; each stack falls through to fonts with Cyrillic. */
+    --sans: Inter, Roboto, 'Helvetica Neue', 'Arial Nova', 'Nimbus Sans', Arial, sans-serif;
+    --serif: 'Iowan Old Style', 'Palatino Linotype', 'URW Palladio L', P052, serif;
+    --mono: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+    --radius: 6px;
   }
-  :is(h3, h4, h5, h6) { font-family: Bahnschrift, 'DIN Alternate', 'Franklin Gothic Medium', 'Nimbus Sans Narrow', sans-serif-condensed, sans-serif; }
-  :is(h1, h2) { font-family: 'Iowan Old Style', 'Palatino Linotype', 'URW Palladio L', P052, serif; font-weight: 700; }
-  /* Figures line up in columns wherever values are compared. */
-  table, dl.rows, .ui { font-variant-numeric: tabular-nums; }
-  /* Pico drops the container's side padding above 576px; a reading page keeps a gutter at every width. */
-  main.container { max-width: 52rem; padding-inline: var(--pico-spacing); }
-  /* Prose keeps a reading measure of about 80 characters; code, frames, tables and diagrams use the full column. */
-  /* A path, URL or hash has no space to break at and would push the page wider than a phone; it breaks anywhere instead. Table cells keep whole words, so a wide table scrolls in its overflow-auto wrapper rather than crushing its columns letter by letter. */
-  main { overflow-wrap: anywhere; }
-  main :is(th, td) { overflow-wrap: normal; }
-  p, li { max-width: 44rem; }
-  /* Code blocks take Pico's code colours and font instead of the highlighter theme's own box. */
-  [class*="shj-lang-"] { background: var(--pico-code-background-color); color: var(--pico-code-color); border: 0; border-radius: var(--pico-border-radius); padding: var(--pico-spacing); margin: var(--pico-typography-spacing-vertical) 0; font: .875em/1.6 var(--pico-font-family-monospace); }
+  :root[data-theme="light"] { color-scheme: light; }
+  :root[data-theme="dark"] { color-scheme: dark; }
+
+  * { box-sizing: border-box; }
+  html { font-size: 18px; text-wrap: pretty; -webkit-text-size-adjust: 100%; }
+  @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+  /* Stated on body, not inherited from html: a host page (Claude Artifacts) resets body to its own 14px font and colours. */
+  body { margin: 0; font: 1rem / 1.6 var(--sans); background: var(--bg); color: var(--fg); }
+
+  /* The page: text on the left, the contents beside it. A long path, URL or hash has no space to break at and would push a phone page wider, so it breaks anywhere; table cells keep whole words and the table scrolls instead. */
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 14.5rem; column-gap: 3.25rem; max-inline-size: 66rem; margin-inline: auto; padding: 2rem 1rem 8rem; overflow-wrap: anywhere; counter-reset: frame; }
+  main > * { grid-column: 1; min-inline-size: 0; }
+  /* Contents: sticky beside the text. scroll-target-group lets Chrome light the current section in CSS; scripts.html does the same where it cannot. */
+  main > nav { grid-column: 2; grid-row: 1 / span 200; position: sticky; inset-block-start: 1.5rem; align-self: start; padding-block-start: .5rem; scroll-target-group: auto; }
+  nav ul { list-style: none; margin: 0; padding: 0; border-inline-start: 1px solid var(--line); }
+  nav li { max-inline-size: none; }
+  nav a { display: block; padding: .38rem .9rem; margin-inline-start: -1px; border-inline-start: 2px solid transparent; color: var(--muted); font-size: .9rem; line-height: 1.35; text-decoration: none; }
+  @media (hover: hover) and (pointer: fine) { nav a:hover { color: var(--fg); } }
+  nav a.cur { color: var(--accent); border-inline-start-color: var(--accent); font-weight: 600; }
+  nav a:target-current { color: var(--accent); border-inline-start-color: var(--accent); font-weight: 600; }
+  /* A phone or a narrow window has no room beside the text: the contents becomes a row of pills above it. 936px is 52rem at the page's 18px. */
+  @media (max-width: 936px) {
+    main { display: block; }
+    main > nav { position: static; padding: 0; margin-block-start: 1.25rem; }
+    nav ul { display: flex; flex-wrap: wrap; gap: .25rem .5rem; border: 0; margin-block-end: 1.5rem; }
+    nav a { border: 1px solid var(--line); border-radius: 99px; padding: .2rem .7rem; margin: 0; }
+    nav a.cur, nav a:target-current { border-color: var(--accent); }
+  }
+
+  h1, h2, h3, h4 { font-family: var(--serif); text-wrap: balance; }
+  h1 { margin: 0 0 .4rem; font-size: clamp(1.9rem, 1rem + 3.2vw, 2.4rem); font-weight: 650; line-height: 1.12; letter-spacing: -.015em; }
+  hgroup { padding-block-end: 1.25rem; border-block-end: 1px solid var(--line); }
+  hgroup p { margin: 0; color: var(--muted); }
+  h2 { margin: 2.75rem 0 1rem; padding-block-start: 1.75rem; border-block-start: 1px solid var(--line); font-size: 1.6rem; font-weight: 650; line-height: 1.25; letter-spacing: -.015em; }
+  nav + h2 { border-block-start: 0; padding-block-start: 0; margin-block-start: 1.5rem; }
+  h3 { margin: 1.7rem 0 .5rem; font-size: 1.25rem; font-weight: 650; line-height: 1.3; }
+  h4 { margin: 1.4rem 0 .4rem; font-size: 1.05rem; font-weight: 650; line-height: 1.3; }
+  /* Prose keeps a reading measure; code, frames, tables and diagrams use the full column. */
+  p { margin: 0 0 1rem; max-inline-size: 68ch; }
+  li { max-inline-size: 68ch; }
+  ul, ol { margin: 0 0 1rem; padding-inline-start: 1.3rem; }
+  a { color: var(--accent); }
+  strong { font-weight: 650; }
+  small { color: var(--muted); }
+  code { font: .875em var(--mono); background: var(--code-bg); padding: .1em .35em; border-radius: 3px; }
+
+  /* Labels: ins is good, del bad, mark new, small neutral. Beside a heading a label is small uppercase text; in a card header or a table cell it is a pill. A label keeps the text face whatever stack the heading uses. */
+  ins, del, mark, small { text-decoration: none; background: none; }
+  ins { color: var(--good); }
+  del { color: var(--bad); }
+  mark { color: var(--accent); }
+  :is(h2, h3, h4) :is(ins, del, mark, small) { margin-inline-start: .5rem; font: 600 .78rem var(--sans); letter-spacing: .08em; text-transform: uppercase; vertical-align: middle; }
+  :is(article > header, td) :is(ins, del, mark, small) { display: inline-block; padding: .05rem .55rem; border: 1px solid currentColor; border-radius: 1rem; font: 600 .78rem / 1.6 var(--sans); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; vertical-align: middle; }
+
+  /* A card is a soft fill, not a box with a border. */
+  article { margin: 1.25rem 0; padding: 1rem 1.25rem; background: var(--tint); border-radius: var(--radius); }
+  article > header { margin-block-end: .8rem; padding-block-end: .6rem; border-block-end: 1px solid var(--line); }
+  article > footer { margin-block-start: .8rem; padding-block-start: .6rem; border-block-start: 1px solid var(--line); font-size: .9em; color: var(--muted); }
+  article > :last-child:not(footer) { margin-block-end: 0; }
+  main > footer { margin-block-start: 2.5rem; padding-block-start: 1rem; border-block-start: 1px solid var(--line); }
+
+  /* Labelled rows: any dl, labels in the accent colour, one column on a phone. */
+  dl { display: grid; grid-template-columns: fit-content(40%) minmax(0, 1fr); gap: .45rem 1rem; margin: 0 0 1rem; }
+  dt { font-weight: 600; color: var(--accent); }
+  dd { margin: 0; }
+  dd > ul { margin: 0; }
+  @media (max-width: 612px) { dl { grid-template-columns: 1fr; gap: 0; } dd { margin-block-end: .6rem; } }
+
+  blockquote { margin: 1.25rem 0; padding: .2rem 1rem; border-inline-start: 2px solid var(--accent); color: var(--muted); }
+  blockquote > :last-child { margin: 0; }
+
+  details { margin: 1.25rem 0; }
+  details[open] > summary { margin-block-end: 1rem; }
+  summary { display: inline-block; padding: .4rem 1rem; list-style: none; background: var(--tint); border-radius: var(--radius); color: var(--muted); cursor: pointer; }
+  @media (hover: hover) and (pointer: fine) { summary:hover { color: var(--fg); } }
+
+  /* A table scrolls inside itself, so no table widens a phone page; rows alternate a fill. */
+  table { display: block; max-inline-size: 100%; margin: 1rem 0; overflow-x: auto; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { padding: .5rem .75rem; border-block-end: 1px solid var(--line); text-align: start; vertical-align: top; overflow-wrap: normal; }
+  th { color: var(--muted); font-size: .9em; font-weight: 650; }
+  tbody tr:nth-child(odd) { background: var(--tint); }
+
+  /* A checklist is any ul that holds a checkbox. The box hangs outside the label's text, so the text keeps flowing as one line of mixed code and words. */
+  ul:has(input[type="checkbox"]) { list-style: none; padding: 0; }
+  ul:has(input[type="checkbox"]) li { margin: .55rem 0; }
+  label:has(> input[type="checkbox"]) { display: block; position: relative; padding-inline-start: 1.75rem; }
+  label > input[type="checkbox"] { position: absolute; inset-inline-start: 0; inset-block-start: .3em; inline-size: 1.1em; block-size: 1.1em; margin: 0; accent-color: var(--accent); }
+
+  :focus-visible { outline: max(2px, .08em) solid var(--accent); outline-offset: .25em; }
+  :is(summary, nav a):active { transform: scale(.97); }
+  @media (prefers-reduced-motion: no-preference) { :is(summary, nav a) { transition: transform 160ms ease-out; } }
 </style>

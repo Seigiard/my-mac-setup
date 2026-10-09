@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- Every element a narrative page uses, on kit classes only, so a gap shows here before it shows on a real page. Build: python3 assemble.py gallery.html -o /tmp/gallery.html -->
+<!-- Every element a narrative page uses, in bare markup, so a gap shows here before it shows on a real page. The only classes are language-x on code and mermaid on a diagram. Build: python3 assemble.py gallery.html -o /tmp/gallery.html -->
 <html lang="en">
 <head>
 <title>Render kit gallery</title>
@@ -7,13 +7,13 @@
 <!-- kit: components -->
 </head>
 <body>
-<main class="container" lang="en">
+<main lang="en">
   <hgroup>
     <h1>Render kit gallery</h1>
     <p>Orders can be filtered by payment status · branch <code>feat/order-filter</code> · 2026-10-08</p>
   </hgroup>
 
-  <nav class="toc" aria-label="Contents">
+  <nav aria-label="Contents">
     <ul>
       <li><a href="#figures">Headline figures</a></li>
       <li><a href="#frames">Frames</a></li>
@@ -29,10 +29,10 @@
     </ul>
   </nav>
 
-  <p><strong>Model:</strong> an order list gains a payment-status filter; the filter is a query parameter, so a filtered view can be shared as a link.</p>
+  <p><strong>Model:</strong> an order list gains a payment-status filter; the filter is a query parameter, so a filtered view can be shared as a link. The status is stored as an <dfn title="A value that never changes after it is written: a status is added as a new row, not edited in place.">append-only</dfn> history.</p>
 
   <h2 id="figures">Headline figures</h2>
-  <dl class="rows">
+  <dl>
     <dt>Orders without a status</dt><dd><strong>156 of 245</strong> orders created before 2026-03 carry no payment status.</dd>
     <dt>Filter use</dt><dd><strong>41%</strong> of list views in September applied a client-side filter (n = 12 480 views).</dd>
   </dl>
@@ -42,7 +42,7 @@
     <img src="gallery/orders-list.svg" alt="The order list with ten orders of mixed status">
     <figcaption>Today the list shows every status at once; click the frame to see it at natural size. <small>Orders/List — default · <code>console/orders/list.tsx</code></small></figcaption>
   </figure>
-  <div class="grid">
+  <div>
     <figure>
       <img src="gallery/filter-before.svg" alt="Filter before">
       <figcaption>Before: no filter. <small>Orders/Filter — empty</small></figcaption>
@@ -55,26 +55,24 @@
 
   <h2 id="claims">Claims</h2>
   <article>
-    <header><strong>Old orders have no status</strong> <span class="chip good">corroborates</span></header>
+    <header><strong>Old orders have no status</strong> <ins>corroborates</ins></header>
     <p>Orders created before the March migration never received a payment status, so a status filter hides them unless it has an «unknown» option.</p>
-    <div class="overflow-auto">
-      <table class="striped">
-        <thead><tr><th>Created</th><th>Orders</th><th>With status</th></tr></thead>
-        <tbody>
-          <tr><td>before 2026-03</td><td>156</td><td>0</td></tr>
-          <tr><td>2026-03 and later</td><td>89</td><td>89</td></tr>
-        </tbody>
-      </table>
-    </div>
+    <table>
+      <thead><tr><th>Created</th><th>Orders</th><th>With status</th></tr></thead>
+      <tbody>
+        <tr><td>before 2026-03</td><td>156</td><td>0</td></tr>
+        <tr><td>2026-03 and later</td><td>89</td><td>89</td></tr>
+      </tbody>
+    </table>
     <footer><small>Sources: prod query on <code>orders</code> 2026-10-08; <code>migrations/0042_payment_status.sql:12</code></small></footer>
   </article>
   <article>
-    <header><strong>Refunds are a payment status</strong> <span class="chip bad">contradicts</span></header>
+    <header><strong>Refunds are a payment status</strong> <del>contradicts</del></header>
     <p>The brief treats a refund as a status; the contract keeps it as a separate entity, so «Refunded» needs a join, not a field.</p>
     <footer><small>Sources: <code>contracts/ia/order.ts:40</code></small></footer>
   </article>
   <article>
-    <header><strong>Shareable filtered views</strong> <span class="chip new">new capability</span></header>
+    <header><strong>Shareable filtered views</strong> <mark>new capability</mark></header>
     <p>A filter in the URL makes a filtered list a link that a teammate can open.</p>
     <footer><small>Sources: <code>console/orders/list.tsx:88</code></small></footer>
   </article>
@@ -83,7 +81,7 @@
   <h2 id="steps">Flow steps</h2>
   <h3>1. Open the order list <small>today</small></h3>
   <p>The user opens Orders and sees every order, newest first.</p>
-  <h3>2. Pick a status <small class="new">new</small></h3>
+  <h3>2. Pick a status <mark>new</mark></h3>
   <p>A status menu above the list narrows it; the URL gains <code>?status=paid</code>.</p>
 
   <h2 id="diagrams">Diagrams</h2>
@@ -96,38 +94,50 @@
   list[Order list] -->|pick a status| filtered[Filtered list]
   filtered -->|copy link| shared[Teammate opens the link]
   filtered -->|clear| list</pre>
+  <pre class="mermaid">sequenceDiagram
+  participant U as User
+  participant P as Page
+  participant A as API
+  U->>P: pick "paid"
+  P->>A: listOrders(status=paid)
+  A-->>P: 3 orders
+  P-->>U: filtered list</pre>
+  <pre class="mermaid">stateDiagram-v2
+  [*] --> All
+  All --> Filtered: pick a status
+  Filtered --> All: clear
+  Filtered --> [*]</pre>
 
   <h2 id="contracts">Contract diffs</h2>
   <article>
-    <header><strong>API · <code>listOrders</code></strong> <span class="chip">API: Additive</span></header>
-    <div class="shj-lang-diff">@@ commands/listOrders.ts @@
+    <header><strong>API · <code>listOrders</code></strong> <small>API: Additive</small></header>
+    <pre><code class="language-diff">@@ commands/listOrders.ts @@
  input: z.object({
 -  paidOnly: z.boolean().optional(),
 +  status: z.enum(["paid", "awaiting", "unknown"]).optional(),
- }),</div>
+ }),</code></pre>
   </article>
 
   <h2 id="code">Code</h2>
-  <div class="shj-lang-ts">export const statusFromUrl = (params: URLSearchParams): Status | undefined =&gt;
-  STATUSES.find((status) =&gt; status === params.get("status"));</div>
-  <div class="shj-lang-bash">bun run contracts:diff origin/main HEAD --contract api</div>
+  <pre><code class="language-ts">// The one place that turns the address into a status.
+export const statusFromUrl = (params: URLSearchParams): Status | undefined =&gt;
+  STATUSES.find((status) =&gt; status === params.get("status"));</code></pre>
+  <pre><code class="language-bash">bun run contracts:diff origin/main HEAD --contract api</code></pre>
 
   <h2 id="discrepancies">Discrepancies</h2>
-  <div class="overflow-auto">
-    <table class="striped">
-      <thead><tr><th>Spec section</th><th>Shipped</th><th>Class</th></tr></thead>
-      <tbody>
-        <tr><td>Filter menu</td><td>as specified</td><td>matches</td></tr>
-        <tr><td>«Unknown» option</td><td>hidden when every order has a status</td><td>intentional refinement, decided by the product owner</td></tr>
-        <tr><td>Count per status</td><td>not shown: the count query takes 2 s on 10⁵ orders</td><td>implementation constraint</td></tr>
-      </tbody>
-    </table>
-  </div>
+  <table>
+    <thead><tr><th>Spec section</th><th>Shipped</th><th>Class</th></tr></thead>
+    <tbody>
+      <tr><td>Filter menu</td><td>as specified</td><td>matches</td></tr>
+      <tr><td>«Unknown» option</td><td>hidden when every order has a status</td><td>intentional refinement, decided by the product owner</td></tr>
+      <tr><td>Count per status</td><td>not shown: the count query takes 2 s on 10⁵ orders</td><td>implementation constraint</td></tr>
+    </tbody>
+  </table>
 
   <h2 id="decisions">Decisions and open questions</h2>
   <article>
     <header><strong>Decisions</strong></header>
-    <dl class="rows">
+    <dl>
       <dt>Filter in the URL</dt><dd>A query parameter, not local state, so a filtered view is a link.</dd>
       <dt>«Unknown» status</dt><dd>An explicit option, so old orders stay reachable.</dd>
     </dl>
@@ -147,21 +157,19 @@
   </details>
 
   <h2 id="checklist">Checklist</h2>
-  <ul class="checklist">
+  <ul>
     <li><label><input type="checkbox"> <code>listOrders</code> rejects an unknown status value</label></li>
     <li><label><input type="checkbox"> Old orders appear under «unknown»</label></li>
   </ul>
 
   <h2 id="log">Iteration log</h2>
-  <div class="overflow-auto">
-    <table class="striped">
-      <thead><tr><th>Date</th><th>Feedback</th><th>Classification</th><th>Change</th></tr></thead>
-      <tbody>
-        <tr><td>2026-10-07</td><td>Keep old orders reachable</td><td>missing prior</td><td>«Unknown» option; prior added to <code>orders/README.md</code></td></tr>
-        <tr><td>2026-10-08</td><td>Name the menu «Payment»</td><td>under-specified</td><td>Label changed</td></tr>
-      </tbody>
-    </table>
-  </div>
+  <table>
+    <thead><tr><th>Date</th><th>Feedback</th><th>Classification</th><th>Change</th></tr></thead>
+    <tbody>
+      <tr><td>2026-10-07</td><td>Keep old orders reachable</td><td>missing prior</td><td>«Unknown» option; prior added to <code>orders/README.md</code></td></tr>
+      <tr><td>2026-10-08</td><td>Name the menu «Payment»</td><td>under-specified</td><td>Label changed</td></tr>
+    </tbody>
+  </table>
 
   <footer><small>Figures from prod read-only replica, 2026-10-08 09:00 UTC; code at <code>feat/order-filter@3f2a91c</code>.</small></footer>
 </main>

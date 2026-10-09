@@ -1,28 +1,48 @@
-<!-- Render kit scripts, placed by assemble.py at the kit scripts marker, at the end of <body>: the highlighter loader, the Mermaid loader, the frame lightbox and the table guard. -->
+<!-- Render kit scripts, placed by assemble.py at the kit scripts marker, at the end of <body>: the highlighter, the Mermaid loader, the term upgrade, the contents fallback and the frame lightbox. -->
 <script type="module">
-  import { highlightAll } from "https://cdn.jsdelivr.net/npm/@speed-highlight/core@2.1.0/dist/index.js";
-  highlightAll();
+  // Each <pre><code class="language-x"> goes to the highlighter, which wraps tokens in shj-syn-* spans that the base layer colours. A language it has no grammar for prints as plain text.
+  import { highlightElement } from "https://cdn.jsdelivr.net/npm/@speed-highlight/core@2.1.0/dist/index.js";
+  for (const code of document.querySelectorAll("pre > code[class*='language-']")) {
+    const language = [...code.classList].find((name) => name.startsWith("language-")).slice("language-".length);
+    highlightElement(code, language, { block: false });
+  }
 </script>
 <script type="module">
-  // Mermaid loads only on a page that has a diagram; offline, the diagram's source text still reads.
+  // Mermaid loads only on a page that has a diagram; offline, the diagram's source text still reads. Its colours come from the page's CSS (components.css), which also recolours a diagram that the host draws itself.
   if (document.querySelector("pre.mermaid")) {
     const { default: mermaid } = await import("https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs");
     mermaid.initialize({
       startOnLoad: false,
-      theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "neutral",
+      fontFamily: getComputedStyle(document.body).fontFamily,
       flowchart: { useMaxWidth: false }, sequence: { useMaxWidth: false }, state: { useMaxWidth: false },
     });
     await mermaid.run();
   }
 </script>
 <script>
-  // A table left outside an overflow-auto wrapper would widen the whole page on a phone; it gets the wrapper here.
-  for (const table of document.querySelectorAll("main table")) {
-    if (table.closest(".overflow-auto")) continue;
-    const wrapper = document.createElement("div");
-    wrapper.className = "overflow-auto";
-    table.replaceWith(wrapper);
-    wrapper.append(table);
+  // A term is written <dfn title="…">. The title moves to data-tooltip so the browser's tooltip does not double the page's bubble, and the term takes keyboard focus; without this script the browser's own tooltip still shows.
+  for (const term of document.querySelectorAll("dfn[title]")) {
+    term.dataset.tooltip = term.title;
+    term.removeAttribute("title");
+    term.tabIndex = 0;
+  }
+</script>
+<script>
+  // The contents lights the current section in CSS (:target-current) where the browser has it. Elsewhere this does it: the last section whose heading has passed 30% of the screen is current.
+  if (!CSS.supports("selector(:target-current)")) {
+    const links = [...document.querySelectorAll("main > nav a[href^='#']")];
+    let waiting = false;
+    const update = () => {
+      waiting = false;
+      let current = links[0];
+      for (const link of links) {
+        const heading = document.getElementById(link.getAttribute("href").slice(1));
+        if (heading && heading.getBoundingClientRect().top <= innerHeight * 0.3) current = link;
+      }
+      for (const link of links) link.classList.toggle("cur", link === current);
+    };
+    addEventListener("scroll", () => { if (!waiting) { waiting = true; requestAnimationFrame(update); } }, { passive: true });
+    update();
   }
 </script>
 <script>

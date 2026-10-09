@@ -52,39 +52,39 @@ Real pixels beat drawings. Take the first source that yields frames, in this ord
 1. `--evidence <dir>`: every PNG there.
 2. Images already in the PR body (`![caption](url)`): download each and keep its caption.
 3. A visible surface with no frames yet: start the app or the affected Storybook stories the way the repository documents and capture with the Playwright tools, following `~/.agents/skills/make-pr/references/evidence.md`.
-4. Only when none of these produced a frame: a `.ui` mock, and the caption says it is a sketch.
+4. Only when none of these produced a frame: no picture. The page says in one sentence that no frame exists and describes the surface in words; it shows no invented screen.
 
-Embed frames as data URIs so the page stays self-contained. A test run or a log is not a frame: its closing lines go into the tests section as a `shj-lang-plain` block, never rendered into an image. Done when every visible state the reader must see has a frame or a labelled sketch.
+Embed frames as data URIs so the page stays self-contained. A test run or a log is not a frame: its closing lines go into the tests section as a `language-plain` block, never rendered into an image. Done when every visible state the reader must see has a frame or the one-sentence note that none exists.
 
 ### 4. Fill the template
 
 Copy `references/template.html` and fill each `<!-- slot: ... -->` in place, leaving the three `<!-- kit: … -->` markers where they are; the template owns structure, the render kit in `~/.claude/shared/render-kit.md` owns styling and names every class and component the page may use. The template's headings, labels and `lang` attributes are English; translate them once into the page language, keeping the ids, so the table of contents, the frame counter (the kit labels frames by `lang`) and the checklist follow. The page `<title>` and `<h1>` are the PR title, else the first commit subject of the range. Length follows the change: a two-file fix makes a short page, a forty-file feature a long one. Each slot has a shape, the shape is the only gate, and a slot holds exactly what its shape asks for:
 
-- **For non-engineers**: the stakeholder block as four `<dt>`/`<dd>` rows of the `dl.rows` grid. When the change is a PR whose body already opens with a `**For non-engineers.**` block, translate it into the page language and keep its four slots; otherwise invoke the `explain-for-manager` skill with `--lang <page language>` for the resolved range and continue here. It sits first so a manager can stop reading after it.
-- **What changed**: three to five sentences on what the change does, why, and what the reader can judge after reading, then the frames from step 3 as `<figure>` elements. A caption is one sentence on what the reader should see in the frame, the story or route name last in `<small>`; the template numbers the frames itself. Two narrow frames that compare states sit side by side in a `<div class="grid">`. A rule the reader must hold to judge the code (an access rule, an ordering guarantee) follows the lead as one `<blockquote>` callout, in one or two sentences.
+- **For non-engineers**: the stakeholder block as four `<dt>`/`<dd>` rows of a `<dl>`. When the change is a PR whose body already opens with a `**For non-engineers.**` block, translate it into the page language and keep its four slots; otherwise invoke the `explain-for-manager` skill with `--lang <page language>` for the resolved range and continue here. It sits first so a manager can stop reading after it.
+- **What changed**: three to five sentences on what the change does, why, and what the reader can judge after reading, then the frames from step 3 as `<figure>` elements. A caption is one sentence on what the reader should see in the frame, the story or route name last in `<small>`; the template numbers the frames itself. Two narrow frames that compare states sit side by side in a bare `<div>` that holds both `<figure>` elements. A rule the reader must hold to judge the code (an access rule, an ordering guarantee) follows the lead as one `<blockquote>` callout, in one or two sentences.
 - **Background, for a newcomer**: the subsystem the change touches, told to a reader who has never seen the repository, collapsed by default. Names the entities, where they live, how data flows between them, and stops at what a newcomer needs to follow the walkthrough.
-- **Walkthrough**: the shape of the change, in the view families of `~/.agents/skills/show-me/SKILL.md` (a manual-only skill: read the file, the Skill tool will not load it). One group per purpose the diff serves, and the heading is that purpose ("The route turns mine into a tenant id once"), never a file or component name ("Changes in RailTopRow"): the files that serve one purpose form one group whatever their number, so a large feature makes several groups and a small fix one. A group is one sentence of intent followed by one sketch (a call tree, file tree, or pseudocode as a `<div class="shj-lang-diff">` whose changed lines start with `+` or `-`; the highlighter colours them) and ends at the sketch: the sketch carries the detail, the sentence says why the group exists. The hunks themselves stay in the diff; tests have their own section below; mechanical changes (renames, imports, formatting, documentation that restates the code) collapse into one list at the end.
-- **What the tests prove**: one paragraph per suite or test file the diff touches: what it proves about the change and why that proof matters to this reader, named by suite or file, not by test name. A run captured as text follows as one `shj-lang-plain` block of its closing lines. A change without tests says so in one sentence, and the risks below carry what that leaves unproven.
+- **Walkthrough**: the shape of the change, in the view families of `~/.agents/skills/show-me/SKILL.md` (a manual-only skill: read the file, the Skill tool will not load it). One group per purpose the diff serves, and the heading is that purpose ("The route turns mine into a tenant id once"), never a file or component name ("Changes in RailTopRow"): the files that serve one purpose form one group whatever their number, so a large feature makes several groups and a small fix one. A group is one sentence of intent followed by one sketch (a call tree, file tree, or pseudocode as a `<pre><code class="language-diff">` whose changed lines start with `+` or `-`; the highlighter colours them) and ends at the sketch: the sketch carries the detail, the sentence says why the group exists. The hunks themselves stay in the diff; tests have their own section below; mechanical changes (renames, imports, formatting, documentation that restates the code) collapse into one list at the end.
+- **What the tests prove**: one paragraph per suite or test file the diff touches: what it proves about the change and why that proof matters to this reader, named by suite or file, not by test name. A run captured as text follows as one `language-plain` block of its closing lines. A change without tests says so in one sentence, and the risks below carry what that leaves unproven.
 - **Risks and what to look at**: one checkbox item per risk the reviewer would otherwise miss: behaviour that changed for existing callers, edge cases handled or skipped, what the tests leave unproven, migration or rollout concerns. Each item names a file or function.
 
 ### 5. Prose
 
-- Prose in the page language; identifiers, paths, commands, and error text in English inside `<code>` or a `shj-lang-*` block.
+- Prose in the page language; identifiers, paths, commands, and error text in English inside `<code>` or a `language-*` block.
 - Short sentences, one idea each, plain punctuation.
 - Lists for parallel things, prose for an argument.
 - A callout (`<blockquote>`) for an edge case or a rule that changes how the reader judges the code. At most one per screen.
 - Every claim about behaviour points at the code that shows it.
-- An editor pass at the end: a term the reader would have to look up (invariant, idempotency, grant, migration, predicate, backfill) is either replaced by what it means here or defined once at first use, as `<dfn data-tooltip="…">` for a phrase or a callout for a paragraph.
+- An editor pass at the end: a term the reader would have to look up (invariant, idempotency, grant, migration, predicate, backfill) is either replaced by what it means here or defined once at first use, as `<dfn title="…">` for a phrase or a callout for a paragraph.
 
 ### 6. Diagrams
 
 Rendered diagrams only, from these families:
 
-- **Frames** from step 3 for anything the user sees; a `.ui` mock only as the labelled fallback there.
-- **Data flow with example data** (`.flow` classes): every box carries a concrete value from the toy examples, not a type name.
-- **Sequence or state**: a `<pre class="mermaid">` block, rendered by the kit's Mermaid loader.
+- **Frames** from step 3 for anything the user sees; a screen is never drawn.
+- **Data flow with example data**: a `<pre class="mermaid">` flowchart whose every node carries a concrete value from the toy examples, not a type name.
+- **Sequence or state**: a `<pre class="mermaid">` block too, rendered by the kit's Mermaid loader.
 
-The content picks the family: a frame for what the user sees, a `.flow` for data changing shape, a sequence diagram for the order of calls between parties, a state diagram for a lifecycle. A before and an after case use the same family so the reader compares like with like.
+The content picks the family: a frame for what the user sees, a flowchart for data changing shape, a sequence diagram for the order of calls between parties, a state diagram for a lifecycle. A before and an after case use the same family so the reader compares like with like.
 
 ### 7. Save, check, open
 
@@ -92,13 +92,13 @@ Path: `/tmp/YYYY-MM-DD-explanation-<slug>.html`, today's date, slug from the bra
 
 Before assembling, confirm in the draft:
 
-- every code block is a `<div class="shj-lang-…">` with `<`, `>` and `&` escaped as entities; sketches are `shj-lang-diff` with raw `+` and `-` lines and no spans of your own;
-- the page adds no external resource of its own; the kit adds Pico, the highlighter theme and its loader, and the Mermaid loader when the page has a diagram;
+- every code block is a `<pre><code class="language-…">` with `<`, `>` and `&` escaped as entities; sketches are `language-diff` with raw `+` and `-` lines and no spans of your own;
+- the page adds no external resource and no class beyond `language-x` and `mermaid`; the kit adds the highlighter and its loader, and the Mermaid loader when the page has a diagram;
 - absolute paths from this machine appear only inside diff snippets.
 
 On macOS without `--no-open`, run `open "$file"`.
 
-To publish the page as a Claude Artifact, publish the copy that `python3 ~/.claude/shared/render-kit/inject-styles.py "$file" -o <copy>` writes: Artifacts block external stylesheets, so the copy carries the CSS inside the file. The `/tmp` file itself keeps its links.
+To publish the page as a Claude Artifact, publish the `/tmp` file as it is: the kit loads no external stylesheet, which Artifacts would block.
 
 Finish with exactly one final line:
 
