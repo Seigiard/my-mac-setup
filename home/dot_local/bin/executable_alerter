@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+
+# alerter 26.5 leaks memory for as long as a notification waits for a click
+# (https://github.com/vjeantet/alerter/issues/77): its dismissal-polling loop
+# never drains its autorelease pool, so RSS grows ~1 MB/s on a busy system.
+# herdr-focus-notify waits up to an hour per notification, and a dozen
+# unattended ones reached ~50 GB. Cap every wait until a release ships the fix
+# (https://github.com/vjeantet/alerter/pull/78), then restore the plain symlink.
+
+set -euo pipefail
+
+max_timeout=300
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+alerter_bin="$script_dir/../lib/alerter/alerter"
+
+capped() {
+  if [[ "$1" =~ ^[0-9]+$ ]] && (( $1 > 0 && $1 <= max_timeout )); then
+    printf '%s' "$1"
+  else
+    printf '%s' "$max_timeout"
+  fi
+}
+
+args=()
+saw_timeout=0
+blocks=1
+while (( $# > 0 )); do
+  case "$1" in
+    --timeout)
+      saw_timeout=1
+      args+=(--timeout "$(capped "${2:-}")")
+      shift $(( $# > 1 ? 2 : 1 ))
+      continue
+      ;;
+    --timeout=*)
+      saw_timeout=1
+      args+=("--timeout=$(capped "${1#--timeout=}")")
+      ;;
+    --version | -h | --help | --remove | --remove=* | --list | --list=*)
+      blocks=0
+      args+=("$1")
+      ;;
+    *)
+      args+=("$1")
+      ;;
+  esac
+  shift
+done
+
+# alerter's own default timeout is 0, which waits forever.
+if (( blocks && ! saw_timeout )); then
+  args+=(--timeout "$max_timeout")
+fi
+
+exec "$alerter_bin" ${args[@]+"${args[@]}"}
