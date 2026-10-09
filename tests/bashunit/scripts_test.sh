@@ -2567,7 +2567,8 @@ if [ "$*" = "plugin list --json" ]; then
   "result": {
     "plugins": [
       { "plugin_id": "herdr-wakeup", "source": { "kind": "github" } },
-      { "plugin_id": "seigi.command-palette", "source": { "kind": "local" } }
+      { "plugin_id": "seigi.command-palette", "source": { "kind": "local" } },
+      { "plugin_id": "herdr-focus-notify", "source": { "kind": "github" } }
     ]
   }
 }
@@ -2603,12 +2604,12 @@ SH
   assert_success
   run grep -Ex "plugin install usrivastava92/herdr-wakeup/plugin --ref [0-9a-f]{40} -y" "$calls"
   assert_success
-  # The Darwin-only positive control for the refutation in 08511: this render
-  # installs and enables focus-notify, the Linux render must not.
-  run grep -Ex "plugin install yankewei/herdr-focus-notify --ref [0-9a-f]{40} -y" "$calls"
+  # The retired focus-notify install is removed and never reinstalled; 08511
+  # is the control where it is absent and nothing touches it.
+  run grep -Fx "plugin uninstall herdr-focus-notify" "$calls"
   assert_success
-  run grep -Fx "plugin enable herdr-focus-notify" "$calls"
-  assert_success
+  run grep -F "plugin install yankewei/herdr-focus-notify" "$calls"
+  assert_failure
   run grep -Fx "plugin action invoke stop --plugin herdr-wakeup" "$calls"
   assert_success
   run grep -Fx "plugin enable herdr-wakeup" "$calls"
@@ -2653,7 +2654,7 @@ SH
   assert_success
   run grep -Ex "plugin install Seigiard/herdr-worktree-setup --ref [0-9a-f]{40} -y" "$calls"
   assert_success
-  # Controlled by the Darwin install assertions in 0851.
+  # Absent from the registry, so the retired-plugin uninstall in 0851 must not run.
   run grep -F "herdr-focus-notify" "$calls"
   assert_failure
   run grep -F "herdr-auto-update" "$calls"

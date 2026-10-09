@@ -644,25 +644,6 @@ function test_smoke_030_lazygit_config_keeps_russian_layout_keybindings() {
 }
 
 # ===========================================
-# Hard tool dependencies
-# ===========================================
-
-function test_smoke_037_alerter_is_installed_for_focus_notify() {
-  _bats_test_init 37 'alerter is installed for focus notify (macOS only)'
-  is_macos || skip "Not on macOS"
-
-  run command -v alerter
-  assert_success
-
-  # The pinned version is not asserted: 26.5 is the number in
-  # home/.chezmoiexternal.toml, so matching it here would compare the install
-  # config against itself, and '26.5' as a substring also accepts '126.5x'.
-  # What the consumer needs is a binary that runs and answers with a version.
-  run alerter --version
-  assert_success
-  assert_output --regexp '^[0-9]+\.[0-9]+(\.[0-9]+)?$'
-}
-
 # herdr alias presentation (engine, native integrations, sidebar)
 # ===========================================
 

@@ -160,9 +160,7 @@ rows = [
   ],
 ]
 
-# Native agent-status toasts are off: the pinned yankewei/herdr-focus-notify
-# plugin sends its own clickable notification, and the two would otherwise
-# stack for every status change.
+# Agent-status notifications are not wanted on this machine.
 [ui.toast]
 delivery = "off" # off | herdr | terminal | system
 delay_seconds = 1
