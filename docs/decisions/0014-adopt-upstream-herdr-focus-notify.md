@@ -1,11 +1,19 @@
 ---
 title: Adopt upstream Herdr Focus Notify
-status: accepted
+status: withdrawn
 date: 2026-09-16
 supersedes: []
 ---
 
 # ADR-0014: Adopt upstream Herdr Focus Notify
+
+> **Withdrawn 2026-10-09.** The plugin is uninstalled and its `alerter` and
+> Rust dependencies are removed. alerter 26.5 leaks memory for as long as a
+> notification waits for a click
+> ([vjeantet/alerter#77](https://github.com/vjeantet/alerter/issues/77)), and
+> unattended notifications exhausted memory on the host (#443). The
+> notifications were not in use, so removal beats carrying a workaround. The
+> text below records the original decision.
 
 ## Context
 

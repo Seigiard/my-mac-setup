@@ -92,10 +92,20 @@ plugins=(
   "Seigiard/herdr-worktree-setup|seigi.worktree-setup|70048c616979719aa592df36f37ec076227b2ac8"
 )
 
+# Focus Notify is retired: its alerter dependency leaks memory while a
+# notification waits. Remove an earlier install so its hooks stop spawning it.
+retired_plugin_id="herdr-focus-notify"
+if [[ -n "$plugin_json" ]] && plugin_matches "$retired_plugin_id"; then
+  if herdr plugin uninstall "$retired_plugin_id" </dev/null; then
+    echo "Uninstalled retired Herdr plugin $retired_plugin_id"
+  else
+    failed+=("$retired_plugin_id (uninstall: herdr plugin uninstall $retired_plugin_id)")
+  fi
+fi
+
 if [[ "$(uname -s)" == "Darwin" ]]; then
   plugins=("dio16/herdr-auto-update|herdr-auto-update|" "${plugins[@]}")
   plugins+=("$HERDR_WAKEUP_REPO|$HERDR_WAKEUP_PLUGIN_ID|$HERDR_WAKEUP_REF")
-  plugins+=("yankewei/herdr-focus-notify|herdr-focus-notify|c2c0b835acda27dcc76666368000fe36ce6e0348")
 fi
 
 for entry in "${plugins[@]}"; do
