@@ -21,5 +21,6 @@ echo "$existing" | jq \
     "deepwiki": { "type": "http", "url": "https://mcp.deepwiki.com/mcp" },
     "fff": { "type": "stdio", "command": ($home + "/.local/bin/fff-mcp"), "args": [], "env": {} },
     "executor": { "type": "stdio", "command": ($home + "/.local/bin/executor"), "args": ["mcp"], "env": {} },
+    "memex": { "type": "stdio", "command": "memex", "args": ["mcp", "--transport", "stdio"], "env": {} },
     "tavily-mcp": { "type": "http", "url": "https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}" }
   }'

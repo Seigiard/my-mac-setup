@@ -7829,7 +7829,7 @@ function test_scripts_245_claude_settings_modifier_replaces_the_server_set() {
 
   assert_success
   run jq -e '
-    ((.mcpServers | keys | sort) == ["deepwiki","executor","fff","tavily-mcp"])
+    ((.mcpServers | keys | sort) == ["deepwiki","executor","fff","memex","tavily-mcp"])
     and (.mcpServers["tavily-mcp"] == {"type":"http","url":"https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}"})
     and (.mcpServers.executor == {"type":"stdio","command":"/stub/home/.local/bin/executor","args":["mcp"],"env":{}})
     and (.other == {"preserved":true})
