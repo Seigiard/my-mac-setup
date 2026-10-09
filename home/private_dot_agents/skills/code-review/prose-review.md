@@ -40,7 +40,9 @@ without a citation. Problems in unchanged text belong in `pre_existing`.
 Write the report atomically: write `<report-path>.tmp`, then rename it to `<report-path>`. Use:
 
 ```json
-{"findings": [{"id": "p<n>", "file": "...", "line": 1, "end_line": 1, "severity": "minor", "confidence": "high", "title": "...", "body": "...", "fix": "...", "verdict": ""}], "open_questions": [], "pre_existing": [], "immaterial": []}
+{"findings": [{"id": "p<n>", "file": "...", "line": 1, "end_line": 1, "severity": "minor", "confidence": 90, "title": "...", "body": "...", "fix": "...", "verdict": ""}], "open_questions": [{"id": "q<n>", "file": "...", "line": 1, "end_line": 1, "severity": "minor", "confidence": 90, "title": "...", "body": "...", "fix": "", "verdict": ""}], "pre_existing": [], "immaterial": []}
 ```
+
+Put questions for the author in `open_questions`.
 
 Finish only after every changed file was read in full and every rubric item was applied.
