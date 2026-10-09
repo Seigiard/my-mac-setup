@@ -134,6 +134,27 @@ class CodeReviewProjection(unittest.TestCase):
             "pre_existing: 0, immaterial: 0\n",
         )
 
+    def test_projects_distinct_pre_existing_and_immaterial_counts(self):
+        # #given a report whose separate non-actionable lists have distinct counts
+        report = {
+            "pre_existing": [{"title": "old one"}, {"title": "old two"}],
+            "immaterial": [
+                {"title": "dismissed one"},
+                {"title": "dismissed two"},
+                {"title": "dismissed three"},
+            ],
+        }
+        # #when
+        result = project(report)
+        # #then
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout,
+            "findings: 0\n"
+            "open_questions: 0\n"
+            "pre_existing: 2, immaterial: 3\n",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
