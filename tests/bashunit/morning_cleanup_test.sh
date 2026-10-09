@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # post-apply: 25 host-safe
 # morning-cleanup destructive legs (trash purge, platform worktree/branch
-# cleanup), run against the SOURCE script under a disposable $HOME — both
-# roots the script touches derive from $HOME, so the override isolates them.
-# Oracle: resulting filesystem state and git's own reports (worktree list,
-# branch --list); no assertion inspects the script's source.
+# cleanup, agent sessions, opencode.db compaction), run against the SOURCE
+# script under a disposable $HOME — every root the script touches derives from
+# $HOME, so the override isolates them.
+# Oracle: resulting filesystem state, git's own reports (worktree list,
+# branch --list) and sqlite3 queries; no assertion inspects the script's source.
 source "$(dirname "${BASH_SOURCE[0]}")/test-dsl.bash"
 _bats_file_init "${BASH_SOURCE[0]}"
 
@@ -213,6 +214,80 @@ function test_morning_cleanup_006_opencode_leg_skips_a_database_in_use() {
   run sqlite3 "$OC_DB" 'select id from session order by id'
   assert_success
   assert_output $'ses_aged\nses_agedchild\nses_recent'
+}
+
+# A WAL-mode opencode.db with two tables of 2560 rows of 4000 bytes, one page
+# per row at a 4096-byte page size. One table stays live; the other is deleted
+# and leaves 10510336 bytes of free pages. The file is 21032960 bytes (20 MB);
+# compacted it is 10522624 (10 MB). These sizes were measured with sqlite3 3.54
+# and stay fixed because the page size and the row layout are fixed. The
+# free-page total sits between the 10 MB and 11 MB thresholds, while the file
+# is above both, so the two thresholds tell a free-page gate from a size gate.
+build_opencode_db_fixture() {
+  command -v sqlite3 >/dev/null || skip 'sqlite3 not installed'
+  command -v lsof >/dev/null || skip 'lsof not installed'
+  OC_DB="$FAKE_HOME/.local/share/opencode/opencode.db"
+  mkdir -p "$(dirname "$OC_DB")"
+  sqlite3 "$OC_DB" "pragma page_size = 4096; pragma journal_mode = wal;
+    create table keep (v blob); create table gone (v blob);
+    with recursive n(i) as (select 1 union all select i + 1 from n where i < 2560)
+      insert into keep select zeroblob(4000) from n;
+    with recursive n(i) as (select 1 union all select i + 1 from n where i < 2560)
+      insert into gone select zeroblob(4000) from n;
+    delete from gone;" >/dev/null
+}
+
+db_bytes() { stat -c %s "$1" 2>/dev/null || stat -f %z "$1"; }
+
+function test_morning_cleanup_007_opencode_db_free_pages_past_threshold_are_reclaimed() {
+  _bats_test_init 7 'opencode.db is vacuumed when its free pages reach the threshold, with a backup in the trash'
+  build_opencode_db_fixture
+
+  run_cleanup MORNING_CLEANUP_OPENCODE_DB_RECLAIM_MB=10
+  assert_success
+
+  run db_bytes "$OC_DB"
+  assert_output '10522624'
+  run sqlite3 "$OC_DB" 'select count(*) from keep'
+  assert_success
+  assert_output '2560'
+  run sqlite3 "$FAKE_HOME"/.scratchpad/opencode-db-backup-*.db 'select count(*) from keep'
+  assert_success
+  assert_output '2560'
+  run last_summary
+  assert_output 'omc: 0, worktrees: 0, branches: 0, trash: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0, opencode-db: 20 MB -> 10 MB'
+}
+
+function test_morning_cleanup_008_opencode_db_free_pages_below_threshold_stay() {
+  _bats_test_init 8 'opencode.db stays untouched and unreported while its free pages are below the threshold'
+  build_opencode_db_fixture
+
+  run_cleanup MORNING_CLEANUP_OPENCODE_DB_RECLAIM_MB=11
+  assert_success
+
+  run db_bytes "$OC_DB"
+  assert_output '21032960'
+  run find "$FAKE_HOME/.scratchpad" -name 'opencode-db-backup-*'
+  assert_success
+  assert_output ''
+  run last_summary
+  assert_output 'omc: 0, worktrees: 0, branches: 0, trash: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0'
+}
+
+function test_morning_cleanup_009_opencode_db_in_use_is_not_vacuumed() {
+  _bats_test_init 9 'opencode.db is not vacuumed while a process holds it open'
+  build_opencode_db_fixture
+  sleep 60 3<"$OC_DB" &
+  local holder=$!
+
+  run_cleanup MORNING_CLEANUP_OPENCODE_DB_RECLAIM_MB=10
+  kill "$holder"
+  assert_success
+
+  run db_bytes "$OC_DB"
+  assert_output '21032960'
+  run last_summary
+  assert_output 'omc: 0, worktrees: 0, branches: 0, trash: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0'
 }
 
 function set_up_before_script() {
