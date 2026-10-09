@@ -8,6 +8,16 @@
       "*": "allow"
     }
   },
+  "compaction": {
+    "prune": true,
+    "reserved": 500000
+  },
+  "agent": {
+    "build": {
+      "model": "openai/gpt-6.1-sol",
+      "variant": "medium"
+    }
+  },
   "mcp": {
     "fff": {
       "type": "local",
