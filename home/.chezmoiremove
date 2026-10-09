@@ -8,6 +8,3 @@
 # caller that still finds it on PATH.
 .local/bin/alerter
 .local/lib/alerter
-
-# elio is no longer installed, so its managed theme has no reader.
-Library/Application Support/elio/theme.toml
