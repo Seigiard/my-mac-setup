@@ -24,9 +24,9 @@ Communication to and from subagents should be sparse. Communicate primarily thro
 3. Create the integration branch. If the issue tracker closes work through PRs, or the user asks for one, open a draft PR after the first merge in step 5 (a branch with no commits ahead of main can't open one), marked as closing the spec and tickets.
 
 4. Use **implementer subagents** to implement each ticket, each in its own worktree on its own branch. Each implementer subagent:
-    - confirms its worktree is based on the integration branch before starting, and resets onto it if not;
-    - calls the Skill tool with `tdd` to build the ticket;
-    - merges the integration branch tip into its own branch before reporting done
+   - confirms its worktree is based on the integration branch before starting, and resets onto it if not;
+   - calls the Skill tool with `tdd` to build the ticket;
+   - merges the integration branch tip into its own branch before reporting done
 
 5. Once an **implementer subagent** completes, merge its work to the integration branch with a **merger subagent**.
 

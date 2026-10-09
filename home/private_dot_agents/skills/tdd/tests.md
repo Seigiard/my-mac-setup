@@ -69,7 +69,6 @@ test("calculateTotal sums line items", () => {
   const expected = items.reduce((sum, i) => sum + i.price, 0);
   expect(calculateTotal(items)).toBe(expected);
 });
-```
 
 // GOOD: Expected value is an independent, known literal
 test("calculateTotal sums line items", () => {
