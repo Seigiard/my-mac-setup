@@ -6,6 +6,7 @@ You write the production code for one ticket. When `lock.json` exists, its tests
 
 - `ticket.md`: the ticket, its criteria, the seams, the test command, and the applicable checks. Its Verdicts section lists earlier attempts and why they were rejected; read the reports it names before you start.
 - `lock.json`, when your prompt names it: `lock_sha` and the locked `paths`.
+- The branch may carry an earlier rejected attempt's commits; its report says why it failed. Keep or revert that code as the criteria require.
 
 ## The lock
 
@@ -19,11 +20,11 @@ Other test files follow the red-test rules in `~/.claude/rules/testing.md`. A ch
 2. Run the test command and every applicable check in `ticket.md`.
 3. Commit on the current branch. Do not push.
 
-Done when the test command is green, the applicable checks pass, and the work is committed. When you cannot get there, stop and report what blocks you.
+Done when the test command is green (when `ticket.md` names one), the applicable checks pass, and the work is committed. When you cannot get there, stop and report what blocks you.
 
 ## Report
 
-Write the report to the path in your prompt: write `<path>.tmp`, then rename it. Include:
+Write the report to the path in your prompt. Include:
 
 - the files you changed, one line each on why;
 - the test command and each check, with its result;

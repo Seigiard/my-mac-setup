@@ -5,41 +5,47 @@ description: Test-first implementation of one ticket through a delegated chain �
 
 # Test-driven development
 
-You are the **orchestrator** of one ticket. You decide what is tested, start one fresh child per phase, and verify each result. Children write every test and every line of production code. You write only the run directory, the lock record, and the restore of locked files.
+You are the **orchestrator** of one ticket. You decide what is tested, start one fresh child per phase, and verify each result. Children write every test and every line of production code. You write only the run directory, the lock record, and the reset or restore after a rejection.
 
 ## Before the chain
 
-- Work on the ticket branch the caller gave, or the current branch. Start from a clean worktree (`git status --porcelain` is empty), so every diff belongs to one child.
+- Record the checkout (`git rev-parse --show-toplevel`) and the branch: the ticket branch the caller gave, or the current branch.
+- The worktree must be clean (`git status --porcelain` is empty), so every diff belongs to one child. When it is not, report the dirty paths to the caller and stop.
 - Use the caller's run directory, or create `~/.claude/artifacts/tdd-<YYYYMMDD-HHMMSS>/<ticket>/`, where `<ticket>` is the issue number or a short slug. It holds:
   - `ticket.md`: the ticket and every decision about it ([layout](#ticketmd)).
   - `lock.json`: the lock record ([layout](#the-lock)).
   - `<role>-<n>.prompt.md` and `<role>-<n>.report.md`: one prompt and one report per child, numbered per role from 1.
 - Write every file there atomically: write `<file>.tmp`, then rename it.
+- Write `ticket.md` with the ticket text, verbatim, and its validation criteria. The ticket is the issue the caller named, or the caller's request when there is none. When the ticket states no criteria, write them from its text.
+
+Done when the worktree is clean and `ticket.md` holds the ticket and its criteria.
 
 ## The chain
 
-1. **Oracle gate.** For each validation criterion, decide whether a permanent test is warranted. Apply the repository's test-oracle gate when it has one (in my-mac-setup: `docs/solutions/design-patterns/semantic-regression-tests-over-source-shape.md`) and the oracle rule in `~/.claude/rules/testing.md`. Each criterion gets one of two verdicts, and both are complete paths:
+1. **Oracle gate.** For each criterion, decide whether a permanent test is warranted. Apply the repository's test-oracle gate when it has one (in my-mac-setup: `docs/solutions/design-patterns/semantic-regression-tests-over-source-shape.md`) and the oracle rule in `~/.claude/rules/testing.md`. Each criterion gets one of two verdicts, and both are complete paths:
    - **test**: the consumer, the observable failure, and the independent oracle, on one line.
-   - **no test**: the reason. The usual cases are agent-facing text (skills, instruction docs), a verbatim copy or move, config with no observable behavior, and behavior owned by an upstream system; `~/.claude/rules/testing.md` carries the reasoning.
+   - **no test**: the reason. The usual cases are agent-facing text (skills, instruction docs), a verbatim copy or move, config with no observable behavior, and behavior owned by an upstream system; the two gate documents carry the reasoning.
 
-   Done when every criterion in `ticket.md` carries a verdict. When no criterion is marked **test**, step 2 records only the checks, step 3 is skipped, and validation rests on the applicable checks alone.
-2. **Criteria and seams.** For each **test** criterion, write the seam: the public boundary the test drives, the test file paths and fixtures the test writer may touch, and the command that runs the tests. Read `GLOSSARY.md` and the ADRs in the area when they exist. When the shape of the interface is itself in question, call the Skill tool with "codebase-design" for the seam vocabulary. Ask the user only when a seam needs a product decision. Done when `ticket.md` names the seam, the allowed paths, and the test command for every **test** criterion, plus the applicable checks for the whole ticket.
-3. **Test writer.** Record `base_sha` (`git rev-parse HEAD`) and start a test-writer child ([dispatch](#dispatch), brief: `test-writer.md` in this skill's directory). When it settles, accept its work only if:
-   - `git diff --name-only <base_sha> HEAD` lists only the allowed test paths and fixtures, and the worktree is clean;
-   - the test command fails, and each new test fails on an assertion about the missing behavior, not on a setup, import, or syntax error;
-   - each test matches its oracle line and passes the false-green rules in `~/.claude/rules/testing.md`.
+   Done when every criterion in `ticket.md` carries a verdict. When no criterion is marked **test**, the ticket is on the **checks-only path**: step 2 records only the checks, and step 3 is skipped.
+2. **Seams and checks.** For each **test** criterion, write the seam: the public boundary the test drives, the test file paths and fixtures the test writer may touch, and the command that runs the tests. Read `GLOSSARY.md` and the ADRs in the area when they exist. When the shape of the interface is itself in question, call the Skill tool with "codebase-design" for the seam vocabulary. Ask the user only when a seam needs a product decision. Take the applicable checks from the repository's verification rules (in my-mac-setup: `docs/agent-verification.md`, classified by the paths the ticket changes); when the repository has none, ask the caller. Done when `ticket.md` names the seam, the allowed paths, and the test command for every **test** criterion, plus the applicable checks for the whole ticket.
+3. **Test writer.** Record `base_sha` (`git rev-parse HEAD`) and start a test-writer child ([dispatch](#dispatch), brief: `test-writer.md` in this skill's directory). When it settles:
+   - **Zero tests.** When the report gives zero tests with a reason for every criterion and the branch has not moved from `base_sha`, move each criterion to **no test** with that reason. No lock is written, and the ticket is on the checks-only path.
+   - **Otherwise** accept the work only if:
+     - `git diff --name-only <base_sha> HEAD` lists only the allowed test paths and fixtures, and the worktree is clean;
+     - on a first lock or a behavior gap, the test command fails, and each new test fails on an assertion about the missing behavior, not on a setup, import, or syntax error. On a re-lock over a suspect test, a corrected test may already pass against the existing code;
+     - each test matches the oracle line in the report, that line holds against the gate, and the test passes the false-green rules in `~/.claude/rules/testing.md`.
 
-   A failed condition is a **rejection**. Restore the changed paths (`git restore --source=<base_sha> --staged --worktree -- <changed paths>`, then commit), record the verdict, and start a fresh test writer one tier up the [ladder](#escalation-ladder).
+   A failed condition is a **rejection**. Reset the branch (`git reset --hard <base_sha>`, then `git clean -fd`), record the verdict, and start a fresh test writer one tier up the [ladder](#escalation-ladder).
 
-   On acceptance, write the [lock](#the-lock): the branch tip becomes `lock_sha`, and the changed files become the locked paths. A criterion the test writer returned with zero tests moves to **no test**, with its reason. When none of the tests survive, no lock exists and the ticket follows the checks-only path.
-4. **Implementer.** Start an implementer child (brief: `implementer.md` in this skill's directory). It writes code until the locked tests pass and the criteria hold.
-5. **Validation.** When the implementer settles, all of these must hold:
+   On acceptance, write the [lock](#the-lock): the branch tip becomes `lock_sha`, and the changed files become the locked paths. A criterion with zero tests moves to **no test**, with its reason. Done when the work is locked, or the ticket is on the checks-only path.
+4. **Implementer.** Start an implementer child (brief: `implementer.md` in this skill's directory). It writes code until the locked tests pass and the criteria hold. Done when the child settles.
+5. **Validation.** All of these must hold:
    - `git diff --exit-code <lock_sha> -- <locked paths>` exits 0 (skip on the checks-only path);
-   - the test command is green;
+   - the test command is green (skip when `ticket.md` names none);
    - every applicable check in `ticket.md` passes, run by you, not taken from the report;
-   - any change to an unlocked test file is justified in the report under the red-test rules of `~/.claude/rules/testing.md`.
+   - the worktree is clean, and the branch tip has moved past `lock_sha`, or past `base_sha` on the checks-only path.
 
-   A failed condition is a **rejection**. Restore the locked files (`git restore --source=<lock_sha> --staged --worktree -- <locked paths>`, then commit), record the verdict, and start a fresh implementer one tier up the [ladder](#escalation-ladder). Done when all conditions hold on one implementer's result.
+   A failed condition is a **rejection**. Restore the locked files (`git restore --source=<lock_sha> --staged --worktree -- <locked paths>`, then commit), record the verdict, and start a fresh implementer one tier up the [ladder](#escalation-ladder). The rejected attempt's other commits stay on the branch, and the next implementer builds on them. Done when all conditions hold on one implementer's result.
 
 Report to the caller: `lock_sha` or the checks-only verdict, the final branch tip, each check with its result, and the run directory.
 
@@ -47,14 +53,14 @@ Report to the caller: `lock_sha` or the checks-only verdict, the final branch ti
 
 A caller with review findings for a ticket that already ran the chain enters at a later step, with a fresh child per role per round:
 
-- A **behavior gap** (a criterion the tests do not cover): add the criterion and its verdict to `ticket.md`, run step 3 to extend the lock, then steps 4 and 5.
-- A **code-only finding**: record it in `ticket.md`, then run steps 4 and 5 against the existing lock.
+- A **behavior gap** (the code is wrong and no test catches it): add the criterion and its verdict to `ticket.md`, run step 3 to extend the lock, then steps 4 and 5.
+- A **code-only finding**: add it to the criteria in `ticket.md`, then run steps 4 and 5 against the existing lock.
 
-Review-fix implementers climb the same ladder.
+Each review round's implementer starts on low and climbs the same ladder.
 
 ## Dispatch
 
-Every child runs on OpenCode with an `openai/*` model. The tier picks the model: use the OpenCode column of `~/.claude/shared/model-tiers.md`. The ceiling is **high**; never xhigh.
+Every child runs on OpenCode with an `openai/*` model. The tier picks the model: use the OpenCode column of `~/.claude/shared/model-tiers.md`.
 
 Write the child's prompt to `<role>-<n>.prompt.md`. It carries pointers only, never pasted history:
 
@@ -62,14 +68,15 @@ Write the child's prompt to `<role>-<n>.prompt.md`. It carries pointers only, ne
 Role: <test writer | implementer>, attempt <n>.
 Read your brief first and follow it: <absolute path to test-writer.md or implementer.md>.
 Ticket: <run-dir>/ticket.md (its Verdicts section lists earlier attempts and why they were rejected).
-Lock: <run-dir>/lock.json   <- implementer only, when a lock exists
+Lock: <run-dir>/lock.json   <- when a lock exists: implementer, or a test writer that re-locks or extends it
+Exclusive file scope: <allowed test paths and fixtures | the whole checkout>   <- test writer | implementer
 Report: write <run-dir>/<role>-<n>.report.md atomically (write .tmp, then rename).
 Work in <checkout> on branch <branch>. Commit your work. Do not push.
 ```
 
 Choose the mode in this order:
 
-1. `HERDR_ENV=1`: start a visible pane with `herdr-child start --kind opencode --posture rw --model <model> --cwd <checkout> --prompt-file <prompt> --detach`. Follow the parent duties in `~/.claude/shared/child-agent-contract.md`; the supervision marker wakes you.
+1. `HERDR_ENV=1`: start a visible pane with `herdr-child start --kind opencode --posture rw --model <model> --cwd <checkout> --prompt-file <prompt> --detach`. Follow the parent duties in `~/.claude/shared/child-agent-contract.md`; the supervision marker wakes you. Answer a child's `herdr-child ask` from `ticket.md`; pass it to the user only when it needs a product decision.
 2. `opencode` is on `PATH`: run `opencode run --dir <checkout> -m <model> --auto --format json "$(cat <prompt>)" > <run-dir>/<role>-<n>.jsonl 2>&1` as a background process that re-invokes you on exit (in Claude Code, the Bash tool's `run_in_background`). `~/.claude/shared/long-running-work.md` owns its supervision.
 3. Otherwise no child can start. Stop.
 
@@ -79,10 +86,10 @@ The child's answer is its report file. Pane text and the JSONL log are evidence 
 
 ## Escalation ladder
 
-One rule: a failed attempt, whether a rejection or a child that settles without a report, gets a line in the Verdicts section of `ticket.md` and a fresh child of the same role one tier up: low → medium → high.
+One rule: a failed attempt, whether a rejection or a child that settles without a report, gets a line in the Verdicts section of `ticket.md` and a fresh child of the same role one tier up, capped at high: low → medium → high. Never xhigh.
 
 - The test writer starts on medium. The implementer starts on low.
-- Before an implementer goes to high, read the locked tests once. A suspect test (wrong oracle, false green, unreachable seam, or a contradiction with the ticket) goes to a fresh test writer one tier up and is re-locked; then the implementer runs on high.
+- When a lock exists, read the locked tests once before an implementer goes to high. Record a suspect test (wrong oracle, false green, unreachable seam, or a contradiction with the ticket) in Verdicts, send it to a fresh test writer on high, and re-lock; then the implementer runs on high.
 - A failure on high ends the chain. Stop and ask the user.
 
 ## ticket.md
@@ -108,8 +115,8 @@ One rule: a failed attempt, whether a rejection or a child that settles without 
 - Checks: <each applicable check from the repository's verification rules>
 
 ## Verdicts
-- test-writer-1 (medium): accepted, lock <sha>
-- implementer-1 (low): rejected, <reason>
+- test-writer-1 (medium): accepted, lock <sha>; report test-writer-1.report.md
+- implementer-1 (low): rejected, <reason>; report implementer-1.report.md
 ```
 
 ## The lock

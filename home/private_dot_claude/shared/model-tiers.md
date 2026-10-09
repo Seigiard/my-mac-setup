@@ -1,6 +1,6 @@
 # Model tiers
 
-A skill that starts a child picks its model by tier, never by name. This table is the one place a tier becomes a model. Read by the `tdd` skill, which also sets which tiers a role may use.
+A skill that starts a child picks its model by tier, never by name. This table is where a tier becomes a model; the calling skill sets which tiers a role may use.
 
 | Tier | Claude model | OpenCode model |
 |---|---|---|
