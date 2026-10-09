@@ -3718,6 +3718,8 @@ case "${1:-} ${2:-}" in
   "pane get")
     if [ "${STUB_PANE_GET_MALFORMED:-0}" = 1 ]; then
       printf 'not json\n'
+    elif [ "${STUB_STATUS_ICON_MAP:-0}" = 1 ]; then
+      printf '%s\n' '{"result":{"pane":{"pane_id":"'"${3:-wT:p9}"'","terminal_id":"term-child","state_labels":{"blocked":"\udb80\udc26","done":"\udb81\udde0","idle":"\udb81\udf66","unknown":"\udb80\uddd8","working":"\udb82\udea1"}}}}'
     elif [ "${STUB_LABEL:-0}" = 1 ]; then
       printf '{"result":{"pane":{"pane_id":"%s","terminal_id":"term-child","state_labels":{"blocked":"waiting for parent"}}}}\n' "${3:-wT:p9}"
     elif [ -n "${STUB_PANE_TAB_ID:-}" ]; then
@@ -7238,6 +7240,21 @@ function test_scripts_087_herdr_child_reap_preserves_a_settled_pane_with_a() {
   assert_output --partial "has a waiting state label"
   run grep -q '^pane close' "$CHILD_STUB/calls.log"
   assert_failure
+}
+
+function test_scripts_438_herdr_child_reap_closes_a_settled_pane_with_only() {
+  _bats_test_init 438 'herdr-child reap closes a settled pane with only status icon labels'
+  child_stub_herdr
+  local agents='{"result":{"agents":[{"name":"status-icons-a","pane_id":"wT:p1","terminal_id":"term-child","agent_status":"done","focused":false}]}}'
+
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" STUB_STATUS_ICON_MAP=1 \
+    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$HERDR_CHILD" reap --to status-icons-a --pane wT:p1
+
+  assert_success
+  assert_output 'status-icons-a: closed pane wT:p1'
+  run grep -c '^pane close wT:p1' "$CHILD_STUB/calls.log"
+  assert_success
+  assert_output 1
 }
 
 function test_scripts_088_herdr_child_reap_preserves_a_settled_pane_when_p() {
