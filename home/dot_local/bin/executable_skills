@@ -327,7 +327,7 @@ remove_pi_links() {
     link="$HOME/.pi/agent/skills/$skill"
     [ -L "$link" ] && [ ! -e "$link" ] || continue
     case "$(readlink "$link")" in
-      */.agents/skills/"$skill") rm -f "$link" ;;
+      ../../../.agents/skills/"$skill"|"$CANONICAL_ROOT/$skill") rm -f "$link" ;;
     esac
   done
 }

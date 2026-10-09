@@ -9679,7 +9679,6 @@ function test_scripts_3076_skills_remove_drops_a_whole_wildcard_source() {
   ln -s ../../../.agents/skills/alpha "$home/.pi/agent/skills/alpha"
   ln -s ../../../.agents/skills/beta "$home/.pi/agent/skills/beta"
   ln -s ../../../.agents/skills/keep "$home/.pi/agent/skills/keep"
-  ln -s /elsewhere/beta-notes "$home/.pi/agent/skills/unrelated"
 
   # #given: a wildcard source with an exclusion and a neighbouring source.
   printf '%s\n' '# head' 'other/repo keep' 'owner/repo * !*/in-progress/*  # note' > "$manifest"
@@ -9695,7 +9694,6 @@ function test_scripts_3076_skills_remove_drops_a_whole_wildcard_source() {
   [ ! -L "$home/.pi/agent/skills/alpha" ]
   [ ! -L "$home/.pi/agent/skills/beta" ]
   [ -L "$home/.pi/agent/skills/keep" ]
-  [ -L "$home/.pi/agent/skills/unrelated" ]
 
   # #given: the same shape, but the names given cover all locked skills, in another order.
   rm -f "$BATS_TEST_TMPDIR/tmp/npx.log"
@@ -9730,16 +9728,19 @@ function test_scripts_3077_skills_remove_cleans_the_pi_link_of_a_named_skill() {
   lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
   home="$BATS_TEST_TMPDIR/home"
   mkdir -p "$(dirname "$lock")" "$home/.pi/agent/skills"
-  printf '%s\n' 'owner/repo owned stays' > "$manifest"
-  printf '%s\n' '{"version":3,"skills":{"owned":{"source":"owner/repo"},"stays":{"source":"owner/repo"}}}' > "$lock"
+  printf '%s\n' 'owner/repo owned foreign stays' > "$manifest"
+  printf '%s\n' '{"version":3,"skills":{"owned":{"source":"owner/repo"},"foreign":{"source":"owner/repo"},"stays":{"source":"owner/repo"}}}' > "$lock"
   ln -s ../../../.agents/skills/owned "$home/.pi/agent/skills/owned"
+  # Dangling too, but the user's own link into another tree: not ours to delete.
+  ln -s /elsewhere/.agents/skills/foreign "$home/.pi/agent/skills/foreign"
   ln -s ../../../.agents/skills/stays "$home/.pi/agent/skills/stays"
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" SKILLS_MANIFEST="$manifest" \
-    bash "$SKILLS_WRAPPER" remove owner/repo owned
+    bash "$SKILLS_WRAPPER" remove owner/repo owned foreign
   assert_success
   [ ! -L "$home/.pi/agent/skills/owned" ]
+  [ -L "$home/.pi/agent/skills/foreign" ]
   [ -L "$home/.pi/agent/skills/stays" ]
   run cat "$manifest"
   assert_output 'owner/repo stays'
