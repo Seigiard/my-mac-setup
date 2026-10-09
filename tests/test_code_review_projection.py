@@ -35,6 +35,7 @@ class CodeReviewProjection(unittest.TestCase):
                 "agents": [
                     {"name": "bugs", "raised": 0, "degraded": False},
                     {"name": "docs", "raised": 0, "degraded": True},
+                    {"name": "quality", "raised": 1, "degraded": False},
                 ],
             },
             "findings": [
@@ -61,7 +62,7 @@ class CodeReviewProjection(unittest.TestCase):
             ],
             "open_questions": [],
             "pre_existing": [{"title": "old"}],
-            "immaterial": [],
+            "immaterial": [{"title": "not actionable"}],
         }
         # #when
         result = project(report)
@@ -78,7 +79,7 @@ class CodeReviewProjection(unittest.TestCase):
                 f2 [minor, confirmed] a.sh:3 \u2014 Small
                   One.
                 open_questions: 0
-                pre_existing: 1, immaterial: 0
+                pre_existing: 1, immaterial: 1
                 """
             ),
         )
