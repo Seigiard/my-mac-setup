@@ -399,6 +399,9 @@ PY
     }
   done
   EXCLUSION_RECOVERY_REQUIRED=0
+  # After the restore loop: a repository-owned skill is back in place, so its
+  # Pi link resolves again and is skipped as not dangling.
+  remove_pi_links "${excluded[@]}"
   [ "$remove_status" -eq 0 ] || return "$remove_status"
   printf 'Excluded skills from %s: %s\n' "$source" "${excluded[*]}"
 }

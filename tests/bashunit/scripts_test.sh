@@ -9574,12 +9574,16 @@ function test_scripts_307_skills_sync_removes_wildcard_path_exclusions() {
   : > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
   printf '%s\n' 'example/upstream-skills * !*/in-progress/*' > "$manifest"
   printf '%s\n' '{"version":3,"skills":{}}' > "$lock"
+  # Upstream's add links the excluded skill into Pi and its remove leaves that link dangling.
+  mkdir -p "$BATS_TEST_TMPDIR/home/.pi/agent/skills"
+  ln -s ../../../.agents/skills/draft "$BATS_TEST_TMPDIR/home/.pi/agent/skills/draft"
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
     SKILLS_MANIFEST="$manifest" bash "$SKILLS_WRAPPER" sync
   assert_success
   assert_output --partial 'Excluded skills from example/upstream-skills: draft'
+  [ ! -L "$BATS_TEST_TMPDIR/home/.pi/agent/skills/draft" ]
   assert_dir_exists "$canonical/stable"
   assert_dir_not_exists "$canonical/draft"
   run python3 - "$lock" <<'PY'
@@ -9606,6 +9610,9 @@ function test_scripts_3071_skills_add_persists_and_applies_wildcard_path_exclusi
   printf '%s\n' original > "$canonical/draft/SKILL.md"
   printf '%s\n' 'other/repo other-skill' > "$manifest"
   printf '%s\n' '{"version":3,"skills":{}}' > "$lock"
+  # The repository's own link: valid again once the exclusion restores the skill.
+  mkdir -p "$BATS_TEST_TMPDIR/home/.pi/agent/skills"
+  ln -s ../../../.agents/skills/draft "$BATS_TEST_TMPDIR/home/.pi/agent/skills/draft"
 
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
     XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
@@ -9627,6 +9634,7 @@ PY
   run cat "$canonical/draft/SKILL.md"
   assert_success
   assert_output original
+  [ -e "$BATS_TEST_TMPDIR/home/.pi/agent/skills/draft" ]
 
   : > "$BATS_TEST_TMPDIR/tmp/fail-remove"
   run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
