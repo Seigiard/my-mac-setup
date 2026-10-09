@@ -6,9 +6,9 @@
 Replaces three markers with the kit's files from this directory, so a page
 carries the kit inside itself and works from disk, by mail, or on a host:
 
-    <!-- kit: head -->        head.html: charset, viewport, stylesheet links, base layer
+    <!-- kit: head -->        head.html: charset, viewport, base layer (tokens and bare-element rules)
     <!-- kit: components -->  components.css wrapped in a <style>
-    <!-- kit: scripts -->     scripts.html: the highlighter, Mermaid and lightbox loaders
+    <!-- kit: scripts -->     scripts.html: the highlighter, Mermaid, term, contents and lightbox scripts
 
 An <img src> that names a local file, relative to the draft, becomes a data
 URI, so the draft stays small enough to read and edit while the page carries

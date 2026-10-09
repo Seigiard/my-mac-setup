@@ -8,13 +8,13 @@
 <!-- kit: components -->
 </head>
 <body>
-<main class="container" lang="en">
+<main lang="en">
   <hgroup>
     <h1><!-- slot: title, the product change --></h1>
     <p><!-- slot: meta (artifact id, branch or epic, date) --></p>
   </hgroup>
 
-  <nav class="toc" aria-label="Contents">
+  <nav aria-label="Contents">
     <ul>
       <li><a href="#is">What is</a></li>
       <li><a href="#gap">The gap</a></li>
@@ -30,7 +30,7 @@
 
   <details id="frame">
     <summary>Frame</summary>
-    <dl class="rows">
+    <dl>
       <dt>Question</dt><dd><!-- slot: the decision this research must settle --></dd>
       <dt>Governing rule</dt><dd><!-- slot: the contract lines that define the rule, quoted with <code>file:line</code> --></dd>
       <dt>Required evidence</dt><dd><!-- slot: <ul> of claims, each settled below by a claim card --></dd>
@@ -39,22 +39,23 @@
   </details>
 
   <h2 id="is">What is</h2>
-  <!-- slot: the current state in product order, one <h3> per surface with its status (<small>today</small>), 1 to 3 sentences, and its frames: <figure><img src="frames/<name>.jpg" alt="…"><figcaption>what to see <small>story or route · <code>file path</code></small></figcaption></figure>; two compared states side by side in <div class="grid"> -->
+  <!-- slot: the current state in product order, one <h3> per surface with its status (<small>today</small>), 1 to 3 sentences, and its frames: <figure><img src="frames/<name>.jpg" alt="…"><figcaption>what to see <small>story or route · <code>file path</code></small></figcaption></figure>; two compared states side by side in a bare <div> that holds both figures -->
 
   <h2 id="gap">The gap</h2>
-  <!-- slot: headline figures as <dl class="rows">, each with its population ("156 of 245 SKUs"); then one claim card per required claim:
-  <article><header><strong>claim</strong> <span class="chip good|bad|new">verdict</span></header><p>1 to 3 sentences</p>optional table<footer><small>Sources: <code>file:line</code>, query, issue id</small></footer></article> -->
+  <!-- slot: headline figures as <dl>, each with its population ("156 of 245 SKUs"); then one claim card per required claim:
+  <article><header><strong>claim</strong> <ins>verdict</ins></header><p>1 to 3 sentences</p>optional table<footer><small>Sources: <code>file:line</code>, query, issue id</small></footer></article>
+  The verdict is <ins> for corroborates, <del> for contradicts, <mark> for a new capability or an overturned assumption -->
 
   <h2 id="become">What should become</h2>
-  <!-- slot: the change as the user will experience it, flow by flow: <h3> per step with its status (<small class="new">new</small>), 1 to 3 sentences, its sketch frames (pf-cycle-narratives → Screenshot mechanics), and a <pre class="mermaid"> flowchart for a flow between screens or data changing shape; a rule the reader must hold goes in one <blockquote> -->
+  <!-- slot: the change as the user will experience it, flow by flow: <h3> per step with its status (<mark>new</mark>), 1 to 3 sentences, its sketch frames (pf-cycle-narratives → Screenshot mechanics), and a <pre class="mermaid"> flowchart for a flow between screens or data changing shape; a rule the reader must hold goes in one <blockquote> -->
 
   <h2 id="surfaces">Surfaces it will touch</h2>
-  <!-- slot: a forecast table per contract (IA, API, UX, AI): contract, expected delta, expected impact label as a chip; a forecast, not the deltas -->
+  <!-- slot: a forecast table per contract (IA, API, UX, AI): contract, expected delta, expected impact label as a <small>; a forecast, not the deltas -->
 
   <h2 id="decisions">Decisions and open questions</h2>
   <article>
     <header><strong>Decisions</strong></header>
-    <dl class="rows">
+    <dl>
       <!-- slot: one <dt>choice</dt><dd>the chosen answer and why</dd> per decision the user could make differently -->
     </dl>
   </article>
@@ -72,19 +73,17 @@
   </details>
 
   <h2 id="risks">Risks and constraints</h2>
-  <ul class="checklist">
+  <ul>
     <!-- slot: one <li><label><input type="checkbox"> …</label></li> per risk: migrations, breaking labels, deploy shape, anything expensive -->
   </ul>
 
   <h2 id="log">Iteration log</h2>
-  <div class="overflow-auto">
-    <table class="striped">
-      <thead><tr><th>Date</th><th>Feedback</th><th>Classification</th><th>Change</th></tr></thead>
-      <tbody>
-        <!-- slot: one row per feedback item: date, feedback, under-specified or missing prior, what changed and where any prior landed -->
-      </tbody>
-    </table>
-  </div>
+  <table>
+    <thead><tr><th>Date</th><th>Feedback</th><th>Classification</th><th>Change</th></tr></thead>
+    <tbody>
+      <!-- slot: one row per feedback item: date, feedback, under-specified or missing prior, what changed and where any prior landed -->
+    </tbody>
+  </table>
 
   <footer><small><!-- slot: the sources and the run or commit the figures came from --></small></footer>
 </main>

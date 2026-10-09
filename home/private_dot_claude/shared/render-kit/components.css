@@ -1,75 +1,63 @@
-/* Render kit components, see ~/.claude/shared/render-kit.md. Placed by assemble.py at the kit components marker, after the head's base layer. Pico variables only, so both themes follow. */
+/* Render kit components, see ~/.claude/shared/render-kit.md. Placed by assemble.py at the kit components marker, after the head's base layer. Variables from the base layer only, so both themes follow. */
 
-/* Labelled rows: a dl as a two-column grid, labels in the accent colour, one column on phones. */
-dl.rows { display: grid; grid-template-columns: fit-content(40%) minmax(0, 1fr); gap: .35rem 1rem; margin: 0; }
-dl.rows dt { font-weight: 600; color: var(--pico-primary); }
-dl.rows dd { margin: 0; }
-@media (max-width: 480px) { dl.rows { grid-template-columns: 1fr; } dl.rows dd { margin-bottom: .5rem; } }
-
-/* A frame is a card: the image, then a numbered caption under a rule, so the caption belongs to its frame and not to the prose around it. */
-main { counter-reset: frame; }
-figure { counter-increment: frame; margin: var(--pico-typography-spacing-vertical) 0; padding: .5rem; background: var(--pico-card-background-color); border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius); }
+/* A frame sits bare: the image, then a muted caption numbered by a CSS counter, so the caption belongs to its frame and not to the prose around it. */
+figure { counter-increment: frame; margin: 1.25rem 0; }
 /* A tall frame stops at three quarters of the screen, centred, so it does not bury the page; the lightbox shows it whole. */
-figure img { display: block; max-width: 100%; max-height: 75vh; width: auto; margin-inline: auto; border-radius: calc(var(--pico-border-radius) - 2px); }
-figcaption { margin-top: .5rem; padding-top: .5rem; border-top: 1px solid var(--pico-muted-border-color); font-size: .9rem; }
-figcaption::before { content: "Frame " counter(frame) ". "; font-weight: 600; color: var(--pico-primary); }
+figure img { display: block; max-inline-size: 100%; max-block-size: 75vh; inline-size: auto; block-size: auto; margin-inline: auto; border: 1px solid var(--line); border-radius: var(--radius); cursor: zoom-in; }
+figcaption { margin-block-start: .5rem; padding-block-start: .5rem; font-size: .9em; color: var(--muted); }
+figcaption::before { content: "Frame " counter(frame) ". "; font-weight: 600; color: var(--accent); }
 :lang(ru) figcaption::before { content: "Кадр " counter(frame) ". "; }
-.grid figure { margin: 0; }
+/* Two frames side by side, to compare states: a bare div that holds two figures. */
+div:has(> figure + figure) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+div:has(> figure + figure) > figure { margin: 0; }
+@media (max-width: 612px) { div:has(> figure + figure) { grid-template-columns: 1fr; } }
 
 /* Lightbox: frames are downscaled inline and reviewers need the pixels. A click on a frame opens it at natural size in a dialog that scrolls when the frame is wider than the screen; auto margins centre a smaller frame without clipping a larger one. */
-figure img { cursor: zoom-in; }
-dialog.lightbox { align-items: flex-start; justify-content: flex-start; overflow: auto; cursor: zoom-out; padding: var(--pico-spacing); }
-dialog.lightbox img { max-width: none; margin: auto; border-radius: var(--pico-border-radius); }
+dialog.lightbox { inline-size: 100%; block-size: 100%; max-inline-size: none; max-block-size: none; margin: 0; padding: 1rem; border: 0; background: color-mix(in oklch, var(--bg) 94%, transparent); overflow: auto; cursor: zoom-out; }
+dialog.lightbox[open] { display: flex; align-items: flex-start; justify-content: flex-start; }
+dialog.lightbox img { flex: none; max-inline-size: none; max-block-size: none; margin: auto; cursor: inherit; }
 
-/* Chip: a verdict or status label next to a heading. Colour carries meaning only: good and bad take Pico's ins and del colours, new the accent, a bare chip stays muted. */
-.chip { display: inline-block; vertical-align: middle; padding: .05rem .55rem; border: 1px solid currentColor; border-radius: 1rem; font-size: .7rem; font-weight: 600; line-height: 1.6; letter-spacing: .06em; text-transform: uppercase; max-width: 100%; color: var(--pico-muted-color); }
-.chip.good { color: var(--pico-ins-color); }
-.chip.bad { color: var(--pico-del-color); }
-.chip.new { color: var(--pico-primary); }
+/* Code: a pre holding <code class="language-x">. The kit script hands the code to the highlighter, which wraps tokens in shj-syn-* spans; the six colour variables of the base layer paint them. */
+pre { margin: 1rem 0; padding: .9rem 1.1rem; overflow-x: auto; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--radius); font: .875em / 1.65 var(--mono); tab-size: 4; }
+pre code { padding: 0; background: none; font: inherit; }
+.shj-syn-cmnt { color: var(--c-cmnt); font-style: italic; }
+:is(.shj-syn-kwd, .shj-syn-err) { color: var(--c-kwd); }
+.shj-syn-str { color: var(--c-str); }
+:is(.shj-syn-num, .shj-syn-bool, .shj-syn-class) { color: var(--c-num); }
+:is(.shj-syn-func, .shj-syn-section) { color: var(--c-fn); }
+:is(.shj-syn-type, .shj-syn-oper, .shj-syn-var) { color: var(--c-type); }
+/* A diff line is tinted across the whole block width, the tint bleeding into the block's padding; a hunk header is muted. */
+code.language-diff :is(.shj-syn-insert, .shj-syn-deleted) { display: inline-block; min-inline-size: calc(100% + 1.1rem); padding-inline: .55rem; margin-inline: -.55rem; }
+code.language-diff .shj-syn-insert { color: var(--good); background: var(--good-fill); }
+code.language-diff .shj-syn-deleted { color: var(--bad); background: var(--bad-fill); }
+code.language-diff .shj-syn-section { color: var(--muted); }
 
-/* Status beside a heading: <h3>Step <small>today</small></h3>. Muted uppercase so a scan finds it without it competing with the heading; class new takes the accent. It is a label, not part of the title, so it keeps the text face whatever stack the heading uses. */
-:is(h2, h3, h4) > small { font-family: var(--pico-font-family); margin-left: .5rem; font-size: .6em; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; vertical-align: middle; color: var(--pico-muted-color); }
-:is(h2, h3, h4) > small.new { color: var(--pico-primary); }
+/* Mermaid block: <pre class="mermaid"> rendered by the kit's Mermaid loader. Diagrams keep their natural size and scroll when wider than the column: scaled down to a phone, a wide flowchart's text becomes unreadable. */
+pre.mermaid { background: var(--surface); text-align: center; font-family: var(--sans); padding: 1rem; }
+/* A host that draws the diagram itself (Claude Artifacts) ignores the loader's theme, but the svg sits in this page, so the page recolours it from the variables, in both themes. Mermaid scopes its own colours by the diagram's id, which only !important outweighs. */
+pre.mermaid :is(.node, .cluster) :is(rect, polygon, circle, ellipse, path), pre.mermaid :is(rect.actor, .note) { fill: var(--tint) !important; stroke: var(--accent) !important; }
+pre.mermaid .state-start, pre.mermaid .node.end circle { fill: var(--fg) !important; stroke: var(--fg) !important; }
+pre.mermaid :is(.flowchart-link, .transition, .actor-line, .messageLine0, .messageLine1) { stroke: var(--muted) !important; }
+pre.mermaid :is(.arrowMarkerPath, marker path) { fill: var(--muted) !important; stroke: var(--muted) !important; }
+pre.mermaid :is(.nodeLabel, .edgeLabel, .labelBkg, .label) { color: var(--fg) !important; }
+pre.mermaid :is(.edgeLabel, .labelBkg, .edgeLabel p) { background-color: var(--surface) !important; }
+pre.mermaid :is(text, tspan) { fill: var(--fg) !important; stroke: none !important; }
 
-/* Checklist: items the reader can tick; each li holds <label><input type="checkbox"> …</label>. */
-ul.checklist { list-style: none; padding-left: 0; }
-ul.checklist li { list-style: none; margin: .4rem 0; }
-ul.checklist label { font-weight: normal; }
+/* Term: <dfn title="…"> as the author writes it. The kit script moves the title to data-tooltip, so the browser's own tooltip does not double the bubble, and makes the term focusable. Without the script the browser's tooltip still shows. */
+dfn[data-tooltip] { position: relative; font-style: normal; border-block-end: 1px dotted var(--muted); cursor: help; }
+dfn[data-tooltip]::after { content: attr(data-tooltip); position: absolute; inset-inline-start: 0; inset-block-end: calc(100% + .4rem); inline-size: max-content; max-inline-size: min(20rem, 70vw); padding: .5rem .7rem; background: var(--fg); color: var(--bg); border-radius: var(--radius); font: 400 .875rem / 1.4 var(--sans); white-space: normal; opacity: 0; pointer-events: none; z-index: 10; }
+@media (prefers-reduced-motion: no-preference) { dfn[data-tooltip]::after { transition: opacity 120ms ease-out; } }
+dfn[data-tooltip]:is(:hover, :focus)::after { opacity: 1; }
+/* Where the browser supports anchor positioning, the bubble is anchored to its own term (a pseudo-element's implicit anchor is the element it belongs to) and flips below or sideways at the edge of the screen, so it never clips. */
+@supports (position-area: block-start) {
+  dfn[data-tooltip]::after { position: fixed; inset: auto; margin: 0; margin-block-end: .4rem; position-area: block-start span-inline-end; position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline; }
+}
 
-/* Table of contents: Pico's nav keeps one row and squeezes each link onto two lines; a long contents list wraps between links instead. */
-nav.toc ul { flex-wrap: wrap; }
-
-/* Tooltip: Pico keeps the text on one line, and the hidden bubble alone widens a phone page; it wraps within a bounded width instead. */
-[data-tooltip]::before { white-space: normal; width: max-content; max-width: min(20rem, 70vw); }
-
-/* Mermaid block: <pre class="mermaid"> rendered by the kit's Mermaid loader. */
-/* Diagrams keep their natural size and scroll when wider than the column: scaled down to a phone, a wide flowchart's text becomes unreadable. */
-pre.mermaid { background: var(--pico-card-background-color); text-align: center; overflow-x: auto; }
-
-/* Diagram family: data flow with example data. Boxes in a row with arrows between, stacked on phones; <b> is a box's label, <code> its example value. */
-.flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: .5rem; margin: var(--pico-typography-spacing-vertical) 0; }
-.flow .box { flex: 1 1 9rem; min-width: min(9rem, 100%); background: var(--pico-card-background-color); border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius); padding: .5rem .7rem; font-size: .9rem; }
-.flow .box b { display: block; font-size: .75rem; color: var(--pico-muted-color); text-transform: uppercase; letter-spacing: .03em; }
-.flow .box code { display: block; margin-top: .3rem; white-space: pre-wrap; }
-.flow .arrow { align-self: center; color: var(--pico-muted-color); font-size: 1.4rem; padding: 0 .2rem; }
-/* Stacked, a box's 9rem basis would become its height, so the basis goes back to the content. */
-@media (max-width: 480px) { .flow { flex-direction: column; } .flow .box { flex-basis: auto; } .flow .arrow { transform: rotate(90deg); text-align: center; } }
-
-/* Diagram family: simplified UI sketch, the labelled fallback when no frame exists. A title bar, rows, buttons, and an accent outline on what is new. */
-.ui { background: var(--pico-card-background-color); border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius); padding: .75rem; margin: var(--pico-typography-spacing-vertical) 0; font-size: .9rem; max-width: 26rem; }
-.ui .bar { border-bottom: 1px solid var(--pico-muted-border-color); padding-bottom: .4rem; margin-bottom: .6rem; color: var(--pico-muted-color); font-size: .8rem; }
-.ui .row { display: flex; justify-content: space-between; gap: .5rem; min-width: 0; padding: .3rem 0; border-bottom: 1px dashed var(--pico-muted-border-color); }
-.ui .row:last-child { border-bottom: 0; }
-/* The label takes the room left and breaks a long word; the value keeps its words whole, so "Paid" never splits into two lines. */
-.ui .row > :first-child { flex: 1 1 0; min-width: 0; }
-.ui .row > :last-child { overflow-wrap: normal; text-align: right; }
-.ui .btn { display: inline-block; border: 1px solid var(--pico-primary); color: var(--pico-primary); border-radius: 6px; padding: .1rem .5rem; }
-.ui .new { outline: 2px solid var(--pico-primary); outline-offset: 2px; border-radius: 4px; }
-
-/* Print: the table of contents (nav.toc) is navigation only; blocks stay whole; external links show their address. */
+/* Print: the contents is navigation only; blocks stay whole; external links show their address. */
 @media print {
-  nav.toc { display: none; }
-  pre, figure, article, .flow, .ui, [class*="shj-lang-"] { break-inside: avoid; }
+  nav { display: none; }
+  main { display: block; }
+  pre, figure, article { break-inside: avoid; }
   dialog.lightbox { display: none; }
   a[href^="http"]::after { content: " (" attr(href) ")"; font-size: .8em; }
 }
