@@ -220,15 +220,17 @@ function test_morning_cleanup_006_opencode_leg_skips_a_database_in_use() {
 # per row at a 4096-byte page size. One table stays live; the other is deleted
 # and leaves 10510336 bytes of free pages. The file is 21032960 bytes (20 MB);
 # compacted it is 10522624 (10 MB). These sizes were measured with sqlite3 3.54
-# and stay fixed because the page size and the row layout are fixed. The
-# free-page total sits between the 10 MB and 11 MB thresholds, while the file
-# is above both, so the two thresholds tell a free-page gate from a size gate.
+# and stay fixed because the page size and the row layout are fixed. auto_vacuum
+# is pinned off, as in opencode.db: the macOS CI runner's sqlite3 defaults it on,
+# which shrinks the file on delete and adds pointer-map pages. The free-page
+# total sits between the 10 MB and 11 MB thresholds, while the file is above
+# both, so the two thresholds tell a free-page gate from a size gate.
 build_opencode_db_fixture() {
   command -v sqlite3 >/dev/null || skip 'sqlite3 not installed'
   command -v lsof >/dev/null || skip 'lsof not installed'
   OC_DB="$FAKE_HOME/.local/share/opencode/opencode.db"
   mkdir -p "$(dirname "$OC_DB")"
-  sqlite3 "$OC_DB" "pragma page_size = 4096; pragma journal_mode = wal;
+  sqlite3 "$OC_DB" "pragma page_size = 4096; pragma auto_vacuum = none; pragma journal_mode = wal;
     create table keep (v blob); create table gone (v blob);
     with recursive n(i) as (select 1 union all select i + 1 from n where i < 2560)
       insert into keep select zeroblob(4000) from n;
