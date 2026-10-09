@@ -1,0 +1,33 @@
+{{- $herdr := printf "%s/bin/herdr" (ternary "/opt/homebrew" "/usr/local" (eq .chezmoi.arch "arm64")) -}}
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Start the herdr server at login from the local session. Otherwise the first
+  client to connect starts it, and when that client is another Mac attaching
+  over SSH, every pane inherits SSH_CONNECTION and acts as a remote shell.
+
+  A login zsh gives the server the same environment a terminal would. There is
+  no KeepAlive: `herdr server` exits 1 while a server already runs, so a
+  restart policy would loop. After `herdr server stop`, start it again with
+  `launchctl kickstart gui/$(id -u)/com.seigiard.herdr-server`.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.seigiard.herdr-server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>exec {{ $herdr }} server</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>StandardOutPath</key>
+  <string>/dev/null</string>
+  <key>StandardErrorPath</key>
+  <string>{{ .chezmoi.homeDir }}/Library/Logs/herdr-server.log</string>
+</dict>
+</plist>
