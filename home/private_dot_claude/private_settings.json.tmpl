@@ -30,6 +30,7 @@
   },
   "disableClaudeAiConnectors": true,
   "disableBundledSkills": true,
+  "syncClaudeAiPlugins": false,
   "hooks": {
     "PreToolUse": [
       {
@@ -128,7 +129,7 @@
   },
   "enabledPlugins": {
     "playwright@claude-plugins-official": true,
-    "plugin-dev@claude-plugins-official": true,
+    "plugin-dev@claude-plugins-official": false,
     "security-guidance@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true{{ if eq $machineRole "mbp2026" }},
     "membrane-operator@membrane.private": true,
