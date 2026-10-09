@@ -6,25 +6,16 @@
     "lint:frontmatter": "remark-lint-frontmatter-validation --frontmatter yaml '**/*.md' '!**/node_modules/**' '!.worktrees/**' '!.claude/worktrees/**' '!.context/**' '!archive/**'",
     "lint:yaml-files": "eslint '**/*.{yaml,yml}'",
     "lint:yaml": "npm run lint:frontmatter && npm run lint:yaml-files",
-    "lint:staged": "nano-staged --allow-empty",
-    "hooks:install": "simple-git-hooks"
-  },
-  "nano-staged": {
-    "*.md": "remark-lint-frontmatter-validation --frontmatter yaml",
-    "*.{yaml,yml}": "eslint"
-  },
-  "simple-git-hooks": {
-    "pre-commit": "npm run lint:staged",
-    "pre-push": "npm run lint:yaml",
-    "preserveUnused": true
+    "lint:staged": "lefthook run pre-commit",
+    "hooks:install": "lefthook install",
+    "prepare": "if git rev-parse --git-dir >/dev/null 2>&1; then lefthook install; fi"
   },
   "devDependencies": {
     "@oxlint/plugins": "1.87.0",
     "eslint": "10.12.0",
     "eslint-plugin-yml": "3.8.1",
-    "nano-staged": "1.0.2",
+    "lefthook": "2.2.1",
     "remark-lint-frontmatter-validation": "1.0.4",
-    "simple-git-hooks": "2.14.0",
     "oxlint": "1.87.0",
     "zod": "4.3.6"
   }
