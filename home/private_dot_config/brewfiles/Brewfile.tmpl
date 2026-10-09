@@ -24,7 +24,12 @@
 tap "oven-sh/bun", trusted: true
 {{ if $full -}}
 tap "lazywalker/tap", trusted: true
+{{/* Linuxbrew rejects the whole tap: gmx and ghostreelite have no URL outside on_macos
+     (https://github.com/nicosuave/homebrew-tap/issues/5). The memex entry below taps it implicitly
+     and carries its own formula-level trust, so it installs without this line. */ -}}
+{{ if ne .chezmoi.os "linux" -}}
 tap "nicosuave/tap", trusted: true
+{{ end -}}
 {{ end -}}
 
 # Shell & prompt
@@ -80,7 +85,7 @@ brew "agent-browser"
 brew "pi-coding-agent"
 brew "herdr"        # agent multiplexer
 brew "nono"
-brew "nicosuave/tap/memex"  # memex, local history search for Claude and Codex logs
+brew "nicosuave/tap/memex", trusted: true  # memex, local history search for Claude and Codex logs
 
 # Dev tools
 brew "act"          # run GitHub Actions locally
