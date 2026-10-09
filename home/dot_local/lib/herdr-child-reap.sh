@@ -66,8 +66,16 @@ labels=pane.get("state_labels")
 if labels is None or labels == {}:
  raise SystemExit(1)
 if isinstance(labels, dict):
- blocking=[key for key in labels if key not in ("supervised","supervision failed")]
- raise SystemExit(0 if blocking else 1)
+  status_icon_keys={"blocked","done","idle","unknown","working"}
+  def is_status_icon(value):
+   if not isinstance(value,str) or len(value)!=1:
+    return False
+   codepoint=ord(value)
+   return 0xe000<=codepoint<=0xf8ff or 0xf0000<=codepoint<=0xffffd
+  blocking=[key for key,value in labels.items()
+            if key not in ("supervised","supervision failed")
+            and not (key in status_icon_keys and is_status_icon(value))]
+  raise SystemExit(0 if blocking else 1)
 raise SystemExit(2)' "$pane" "$terminal"
     label_status=$?
     set -e
