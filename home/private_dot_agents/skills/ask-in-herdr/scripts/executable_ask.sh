@@ -65,9 +65,7 @@ posture=ro
 [ "$RW" -eq 0 ] || posture=rw
 
 # The transport directory must exist before the question is composed, so the
-# question can name the report path. Mirrors PEER_REPORT_DIR in
-# ~/.claude/shared/herdr-peer-launch.md, the only file-backed answer path
-# in this repository that works today.
+# question can name the report path.
 report_dir="$(mktemp -d "${TMPDIR:-/tmp}/ask-in-herdr.XXXXXX")"
 chmod 700 "$report_dir"
 report_path="$report_dir/answer.report"
@@ -223,8 +221,7 @@ case "$agent_status" in
     set -e
     recovery_scan_refused=0
     if [ "$report_state" -eq 3 ] || [ "$report_state" -eq 4 ]; then
-      # One bounded request to persist an answer the child already produced,
-      # mirroring recover_peer_report in ~/.claude/shared/herdr-peer-launch.md.
+      # One bounded request to persist an answer the child already produced.
       recovery_prompt="The report transport file at $report_path is missing or empty. Write your exact complete previous answer, byte-for-byte, using your shell: write it to $report_path.tmp and then rename that file to $report_path. Do not use a file-editing tool. Then reply with only the path."
       printf '%s\n' "$recovery_prompt" > "$question_file"
       if pre-external-secret-scan "${scan_paths[@]}"; then

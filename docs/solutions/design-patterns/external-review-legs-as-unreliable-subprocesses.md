@@ -37,7 +37,8 @@ tags:
 
 > **Where this evidence lives now.** The Smithers runtime and both `se-pipeline` executors were
 > removed on 2026-09-01 (`docs/decisions/0001-se-pipeline-architecture-redirection.md`), so every
-> `dot_smithers/**` path cited below is readable only in git history. The leg contract was re-implemented in prose rather than abandoned: `home/private_dot_claude/shared/herdr-peer-launch.md` carries the report-file transport, the symlink refusal and the degrade ladder. See **Successor gap** below for the one rule that did not survive.
+> `dot_smithers/**` path cited below is readable only in git history. The report-file transport,
+> symlink refusal, and degrade ladder remain useful requirements for any replacement launcher.
 
 The se-pipeline dispatches **external legs** — a single review pass executed by a separate, headless agent CLI process (claude or opencode) that returns a report and nothing else — whose JSON reports are merged deterministically before a gate counts P0/P1 findings. Each leg is a subprocess running a full multi-persona review inside another agent harness, and the pipeline has accumulated hard-won rules about how such legs die: silently, partially, or while wearing a valid-looking report.
 
@@ -74,7 +75,7 @@ The surrounding comment (`agents.ts:128-141`) records two layers: a system-promp
 > **Successor note — narrowed by measurement, and unimplemented as written.** No live launcher
 > pins an execution-mode env var; `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` appears nowhere in the
 > tree outside this document. The peer path relies on permission-bypass flags
-> (`home/private_dot_claude/shared/herdr-peer-launch.md` at lines 67 and 80), and `herdr-child` reaches the
+> A peer path may rely on permission-bypass flags, and `herdr-child` reaches the
 > same end one class harder, by removing the capability instead of requesting its disuse:
 > `--disallowed-tools … AskUserQuestion` for claude
 > (`home/dot_local/lib/herdr-child-launch.sh` at lines 306 and 309), `OPENCODE_PERMISSION={"question":"deny"}`
@@ -93,9 +94,8 @@ The surrounding comment (`agents.ts:128-141`) records two layers: a system-promp
 
 The `work` profile deliberately has no idle timeout — long locally-silent commands (installs, test suites) are legitimate there.
 
-> **Successor gap — this rule has no implementation today.** The peer launch that replaced the
-> Smithers legs waits with a single flat wall clock: `herdr agent wait "$PANE" --timeout 1800000`
-> (`home/private_dot_claude/shared/herdr-peer-launch.md:119-120`), 30 minutes, with no idle-timeout
+> **Successor gap — this rule has no implementation today.** A replacement peer launch that waits
+> with a single flat wall clock has no idle-timeout
 > equivalent anywhere. Against the healthy-leg distribution measured above (median 13.7 min, p75
 > 23.7, max 80.8), a flat 30-minute cap does both things this rule exists to prevent: it kills
 > healthy long legs, and it lets a silent one burn the entire budget instead of dying at an idle
@@ -140,10 +140,9 @@ A review leg that dies quietly and reads as "zero findings" defeats the entire p
 
 - `2026-08-14-002` — the false-fail bug: measured cost of fail-closed on free text, the three candidate directions, and why payload-based health won (status: done, commit `186b6a8`).
 - `docs/plans/2026-07-24-003-fix-review-leg-stall-and-unwrap-plan.md` — the original stall/unwrap fix (status: done).
-- `home/private_dot_claude/shared/herdr-peer-launch.md` — the successor contract: report-file transport,
-  symlink refusal, "a settled state is only a wake-up signal", and the degrade ladder its callers
-  (`se-code-review`, `se-doc-review`, `se-simplify`) restate. It replaced `docs/se-pipeline.md`, which
-  was removed with the Smithers runtime.
+- The replacement launcher contract should preserve report-file transport, symlink refusal, the rule
+  that a settled state is only a wake-up signal, and an explicit degrade ladder. It replaced
+  `docs/se-pipeline.md`, which was removed with the Smithers runtime.
 - `docs/solutions/design-patterns/protected-slot-signal-extraction.md` — the full development of the severity-layer paragraph above: protected-slot extraction (decoys inert by position), cross-field consistency, and why the additive layer may fail open to advisory while leg availability stays fail-closed.
 - `docs/solutions/design-patterns/completion-is-not-a-verdict.md` — sibling pattern one layer later: here a dead leg misled the *machine*, there a failed gate misled the *human* reading the log. Same false-green family, different reader.
 - `docs/solutions/design-patterns/capturing-child-output-hides-the-prompt.md` — the measured

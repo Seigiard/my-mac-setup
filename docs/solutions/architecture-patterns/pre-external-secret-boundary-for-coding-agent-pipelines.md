@@ -36,7 +36,9 @@ tags:
 
 > **Where this evidence lives now.** The Smithers runtime and both `se-pipeline` executors were
 > removed on 2026-09-01 (`docs/decisions/0001-se-pipeline-architecture-redirection.md`), so every
-> `dot_smithers/**` path cited below is readable only in git history. The boundary itself did not go away: `home/private_dot_claude/shared/herdr-peer-launch.md` still ships checkout content to two third-party model providers, and `se-doc-review/SKILL.md:27` still runs the fail-closed `gitleaks` scan. See **Coverage regression** below for what no longer holds.
+> `dot_smithers/**` path cited below is readable only in git history. The boundary remains relevant
+> to any workflow that ships checkout content to third-party model providers. See **Coverage
+> regression** below for what no longer holds.
 
 The se-pipeline (the durable Smithers pipeline under `home/private_dot_claude/dot_smithers/workflows/`) ships repo content to external LLM legs: the simplify stage and verify-code each dispatch full independent claude/opencode runs that read the staged worktree. Anything committed on the run branch — including an accidentally committed credential — would leave the machine with them.
 
@@ -136,10 +138,10 @@ Smithers runtime and nothing replaced it until the work preserved in the
 [frozen `2026-09-04-001` source record](https://github.com/Seigiard/my-mac-setup/blob/27f33a235548f19422b94565f6a14613219b5d5b/docs/issues/2026-09-04-001-pre-external-secret-scan-covers-one-of-five-external-peer-launch-paths.md).**
 
 Current state: `pre-external-secret-scan` is the shared scanner primitive. It pins gitleaks exit
-codes, redacts output, uses a trusted default-rule configuration instead of target or environment
-configuration, rejects directory symlinks escaping a scan root, and fails closed on missing tools
-or unexpected results. `herdr-peer-launch.md` scans the live checkout and both prompts before tab
-creation, once per review pair. `se-doc-review` freezes the document peers receive before entering
+ codes, redacts output, uses a trusted default-rule configuration instead of target or environment
+ configuration, rejects directory symlinks escaping a scan root, and fails closed on missing tools
+ or unexpected results. A multi-agent launcher must scan the live checkout and every prompt before
+ creation. `se-doc-review` freezes the document peers receive before entering
 that lifecycle. `ask-in-herdr` scans its working directory, complete prompt, and added skill paths
 once before each standalone launch; its recovery, ordinary follow-up, and blocked-reply paths scan
 before sending another peer turn.

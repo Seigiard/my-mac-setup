@@ -126,22 +126,6 @@ A handoff built relative to the goal the next session must finish, rather than a
 
 Delivery is the half that silently fails. A handoff rendered to the operator's screen has not been handed off: only the hook field that injects into model context completes the transfer, and the two fields are easy to confuse because both surface text somewhere.
 
-### External leg
-A single review or analysis pass executed by a separate, headless agent-CLI process that returns a report and nothing else. A leg is a subprocess, not a collaborator: it can die silently, return partially, or return a well-formed report describing work it never did, so its output is judged by payload rather than by any status word it reports about itself. Absence of a well-formed result is failure, never a clean pass.
-
-One failed leg degrades a review's coverage; losing every leg fails it.
-
-A leg never launches agents of its own: work it would delegate to another pair or child agent it does itself.
-
-### External leg pair
-Two fresh External legs given the same review scope through separate agents and classified together. The pair provides paired coverage only when both reports are independently attributable, valid, and distinct; one failed or invalid leg degrades it to single-source coverage, as does a byte-identical pair. Pair classification describes coverage, never agreement or corroboration between findings.
-
-### External-leg complexity
-A provider-neutral declaration of the model capability a paired task requires: `low`, `medium`, `high`, or `xhigh`. The caller names the task's complexity rather than either provider's model.
-
-### External-leg effort
-A provider-neutral declaration of how much reasoning budget each model should spend, independent of External-leg complexity. The shared launcher translates it into each provider's supported effort or variant control.
-
 ### Captured child
 A subprocess whose output the caller captures instead of passing through, which makes the caller responsible for the child's input as well. Capturing is itself what hides a prompt: the question renders into a buffer nobody is reading while the child waits on an input channel it still holds. So a captured child is denied that channel, and a flag or environment variable asking the child not to prompt counts as a request the callee may decline, never as the guarantee.
 
