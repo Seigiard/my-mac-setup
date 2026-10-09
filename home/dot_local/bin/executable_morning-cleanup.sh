@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Daily cleanup, run by launchd (com.andrew.morning-cleanup): stale .omc
 # runtime state, platform worktrees/branches fully merged into origin/main,
-# and Claude Code, Pi and OpenCode sessions idle past one shared retention
-# threshold.
+# Claude Code, Pi and OpenCode sessions idle past one shared retention
+# threshold, and the space those OpenCode deletions free in opencode.db.
 # Idempotent per calendar day via a stamp file, so RunAtLoad + wake coalescing
 # can all fire without triple-running.
 set -uo pipefail
@@ -13,6 +13,7 @@ LOG="$STATE_DIR/cleanup.log"
 TRASH="$HOME/.scratchpad"
 TRASH_MAX_AGE_DAYS="${MORNING_CLEANUP_TRASH_MAX_AGE_DAYS:-2}"
 SESSION_MAX_AGE_DAYS="${MORNING_CLEANUP_SESSION_MAX_AGE_DAYS:-90}"
+OPENCODE_DB_RECLAIM_MB="${MORNING_CLEANUP_OPENCODE_DB_RECLAIM_MB:-1024}"
 PLATFORM="$HOME/Projects/platform"
 CLAUDE_PROJECTS="$HOME/.claude/projects"
 PI_SESSIONS="$HOME/.pi/agent/sessions"
@@ -34,6 +35,7 @@ trash_count=0
 claude_count=0
 pi_count=0
 oc_count=0
+oc_db_report=""
 
 # 0) Purge trash entries older than the age threshold (default 2 days). ctime
 # is keyed to the moment the entry was moved into the trash (rename updates
@@ -165,11 +167,74 @@ opencode_sessions() {
 }
 opencode_sessions
 
+# 6) Give the pages freed in opencode.db back to the filesystem. SQLite reuses
+# free pages but never releases them; VACUUM rewrites the file without them.
+# Gated on free pages, not on file size: under the retention above the file
+# settles at 90 days of live data, so a size gate would rewrite all of it daily
+# to return one day's deletions. VACUUM needs an exclusive lock, so the leg
+# skips a database in use. Free space must hold the backup (the whole file)
+# and VACUUM's temporary copy (up to twice the file).
+# The backup goes to the trash, so the purge above keeps it two days. `.backup`
+# folds committed WAL frames into one self-contained file. Restore: quit every
+# OpenCode client, delete opencode.db-wal and opencode.db-shm, then copy the
+# backup over opencode.db.
+file_bytes() { stat -c %s "$1" 2>/dev/null || stat -f %z "$1"; }
+compact_opencode_db() {
+  [[ -f "$OPENCODE_DB" ]] || return 0
+  local tool
+  for tool in sqlite3 lsof; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      log "skip opencode-db: $tool not found"
+      return 0
+    fi
+  done
+
+  # No -readonly here: a read-only connection cannot open a WAL database whose
+  # -shm sidecar is gone, and Linux sqlite removes it on the last close.
+  local free_bytes
+  if ! free_bytes=$(sqlite3 "$OPENCODE_DB" \
+    "select freelist_count * page_size from pragma_freelist_count(), pragma_page_size()" 2>>"$LOG"); then
+    log "skip opencode-db: database read failed"
+    return 0
+  fi
+  ((free_bytes >= OPENCODE_DB_RECLAIM_MB * 1048576)) || return 0
+  if [[ -n "$(lsof -t "$OPENCODE_DB" 2>/dev/null)" ]]; then
+    log "skip opencode-db: database in use"
+    return 0
+  fi
+
+  local before after avail_kb backup
+  before=$(file_bytes "$OPENCODE_DB")
+  avail_kb=$(df -Pk "$(dirname "$OPENCODE_DB")" | awk 'NR == 2 { print $4 }')
+  if ((avail_kb * 1024 < 3 * before)); then
+    log "skip opencode-db: needs $((3 * before / 1048576)) MB free, has $((avail_kb / 1024)) MB"
+    return 0
+  fi
+  backup="$TRASH/opencode-db-backup-$(date +%s)-$RANDOM.db"
+  if ! sqlite3 "$OPENCODE_DB" ".backup '$backup'" 2>>"$LOG"; then
+    log "skip opencode-db: backup failed"
+    rm -f "$backup"
+    return 0
+  fi
+  # In WAL mode the rewritten pages land in the WAL; the checkpoint moves them
+  # into the file and truncates it.
+  if ! sqlite3 "$OPENCODE_DB" "vacuum; pragma wal_checkpoint(truncate);" >/dev/null 2>>"$LOG"; then
+    log "opencode-db vacuum failed, backup kept: $backup"
+    return 0
+  fi
+  after=$(file_bytes "$OPENCODE_DB")
+  oc_db_report="opencode-db: $((before / 1048576)) MB -> $((after / 1048576)) MB"
+  log "$oc_db_report (backup: $backup)"
+}
+compact_opencode_db
+
 echo "$today" >"$STAMP"
 summary="omc: $omc_count, worktrees: $wt_count, branches: $br_count, trash: $trash_count, claude sessions: $claude_count, pi sessions: $pi_count, opencode sessions: $oc_count"
+[[ -n "$oc_db_report" ]] && summary+=", $oc_db_report"
 log "done — $summary"
 
-if [[ $((omc_count + wt_count + br_count + trash_count + claude_count + pi_count + oc_count)) -gt 0 && -z "${MORNING_CLEANUP_NO_NOTIFY:-}" ]] &&
+if [[ ( $((omc_count + wt_count + br_count + trash_count + claude_count + pi_count + oc_count)) -gt 0 || -n "$oc_db_report" ) &&
+  -z "${MORNING_CLEANUP_NO_NOTIFY:-}" ]] &&
   command -v osascript >/dev/null 2>&1; then
   osascript -e "display notification \"$summary\" with title \"Morning cleanup\"" 2>>"$LOG" || true
 fi
