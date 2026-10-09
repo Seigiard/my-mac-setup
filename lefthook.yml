@@ -1,0 +1,15 @@
+glob_matcher: doublestar
+
+pre-commit:
+  jobs:
+    - name: frontmatter
+      glob: '**/*.md'
+      run: ./node_modules/.bin/remark-lint-frontmatter-validation --frontmatter yaml {staged_files}
+    - name: yaml
+      glob: '**/*.{yaml,yml}'
+      run: ./node_modules/.bin/eslint {staged_files}
+
+pre-push:
+  jobs:
+    - name: yaml
+      run: npm run lint:yaml
