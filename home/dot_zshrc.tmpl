@@ -171,6 +171,22 @@ if [[ -n "$HERDR_PANE_ID" ]]; then
   }
   _herdr_report_machine &!
 fi
+{{- if .is_darwin }}
+
+# Restart the herdr server under the com.seigiard.herdr-server LaunchAgent, so
+# it runs in the local session rather than inside an SSH client's sshd. The
+# work is detached: stopping the server closes the pane this runs from.
+herdr-restart() {
+  nohup zsh -c '
+    label=com.seigiard.herdr-server
+    herdr server stop
+    sleep 1
+    launchctl print "gui/$UID/$label" >/dev/null 2>&1 ||
+      launchctl bootstrap "gui/$UID" "$HOME/Library/LaunchAgents/$label.plist"
+    launchctl kickstart "gui/$UID/$label"
+  ' >/dev/null 2>&1 &!
+}
+{{- end }}
 
 # -------------------------------------------
 # Deferred plugin loading — activates after the first prompt is drawn so
