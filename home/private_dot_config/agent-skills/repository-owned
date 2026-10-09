@@ -5,6 +5,8 @@ ask-in-herdr
 code-review
 grill-design
 herdr
+implement
+implement-spec
 markdown-new
 open-questions
 pf-build
@@ -12,5 +14,6 @@ pf-issue
 pf-research
 pf-spec
 se-orchestrator
+tdd
 vector-prime
 work-summary
