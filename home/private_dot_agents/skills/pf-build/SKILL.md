@@ -132,7 +132,7 @@ Wake and stuck checks follow the launch mode `tdd` → Dispatch chose. In headle
 
 7. **Report.** Post a short status only when something changed — dispatch, new PR, review, fix, merge, or a new blocker/assumption/throttle event. A no-change pass stays silent.
 
-When no active task can advance — every task is Done, Canceled, Duplicate, `Blocked` (ladder exhausted, or a flagged decision holds its merge), or waiting directly or transitively on a `Blocked` task — and no chain child is running, stop the loop's autonomous work, report what has merged, and ask each directly `Blocked` item one per turn as a decision brief in the same shape as the End condition describes. Resume the passes after the user decides. Set a task to `Blocked` when a `decision` finding holds its merge. The epic-branch review and the demo wait until no task is `Blocked`.
+When at least one task is `Blocked` and no active task can advance — every task is Done, Canceled, Duplicate, `Blocked` (ladder exhausted, or a flagged decision holds its merge), or waiting directly or transitively on a `Blocked` task — and no chain child is running, stop the loop's autonomous work, report what has merged, and ask each directly `Blocked` item one per turn as a decision brief in the same shape as the End condition describes. Resume the passes after the user decides. Set a task to `Blocked` when a `decision` finding holds its merge. The epic-branch review and the demo wait until no task is `Blocked`.
 
 ## Epic-branch review
 
