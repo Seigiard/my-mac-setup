@@ -136,7 +136,7 @@ When at least one task is `Blocked` and no active task can advance — every tas
 
 ## Epic-branch review
 
-When every child is merged and the big PR is green, call the Skill tool with `code-review` once on the epic branch. Its step 1 picks the route: prose-only diffs get the `writing-for-agents` prose review; anything else gets revmux. Its fixes go through its own chain delegation and commit on the epic branch. Wait for the big PR's CI to go green again; then run the demo.
+When every child is merged and the big PR is green, call the Skill tool with `code-review` once on the epic branch. Its step 1 picks the review route; defer route selection to it. Its fixes go through its own chain delegation and commit on the epic branch. Wait for the big PR's CI to go green again; then run the demo.
 
 ## The demo — proof it works live
 
