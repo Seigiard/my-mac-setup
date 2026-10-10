@@ -26,8 +26,8 @@ Done when the worktree is clean and `ticket.md` holds the ticket and its criteri
    - **test**: the consumer, the observable failure, and the independent oracle, on one line.
    - **no test**: the reason. The usual cases are agent-facing text (skills, instruction docs), a verbatim copy or move, config with no observable behavior, and behavior owned by an upstream system; the two gate documents carry the reasoning.
 
-   Done when every criterion in `ticket.md` carries a verdict. When no criterion is marked **test**, the ticket is on the **checks-only path**: step 2 records only the checks, and step 3 is skipped.
-2. **Seams and checks.** For each **test** criterion, write the seam: the public boundary the test drives, the test file paths and fixtures the test writer may touch, and the command that runs the tests. Read `GLOSSARY.md` and the ADRs in the area when they exist. When the shape of the interface is itself in question, call the Skill tool with "codebase-design" for the seam vocabulary. Ask the user only when a seam needs a product decision. Take the applicable checks from the repository's verification rules (in my-mac-setup: `docs/agent-verification.md`, classified by the paths the ticket changes); when the repository has none, ask the caller. Pick the implementer's [starting tier](#escalation-ladder). Done when `ticket.md` names the seam, the allowed paths, and the test command for every **test** criterion, plus the applicable checks and the implementer's starting tier for the whole ticket.
+    Done when every criterion in `ticket.md` carries a verdict. When no criterion is marked **test**, the ticket is on the **checks-only path**: step 2 records the checks plus the implementer's starting tier and its reason, and step 3 is skipped.
+2. **Seams and checks.** For each **test** criterion, write the seam: the public boundary the test drives, the test file paths and fixtures the test writer may touch, and the command that runs the tests. Read `GLOSSARY.md` and the ADRs in the area when they exist. When the shape of the interface is itself in question, call the Skill tool with "codebase-design" for the seam vocabulary. Ask the user only when a seam needs a product decision. Take the applicable checks from the repository's verification rules (in my-mac-setup: `docs/agent-verification.md`, classified by the paths the ticket changes); when the repository has none, ask the caller. Pick the implementer's [starting tier](#escalation-ladder) and record why that tier applies. Done when `ticket.md` names the seam, the allowed paths, and the test command for every **test** criterion, plus the applicable checks and the implementer's starting tier and its reason for the whole ticket.
 3. **Test writer.** Record `base_sha` (`git rev-parse HEAD`) and start a test-writer child ([dispatch](#dispatch), brief: `test-writer.md` in this skill's directory). When it settles:
    - **Zero tests.** When the report gives zero tests with a reason for every criterion and the branch has not moved from `base_sha`, move each criterion to **no test** with that reason. No lock is written, and the ticket is on the checks-only path.
    - **Otherwise** accept the work only if:
@@ -89,7 +89,7 @@ The child's answer is its report file. Pane text and the JSONL log are evidence 
 One rule: a failed attempt, whether a rejection or a child that settles without a report, gets a line in the Verdicts section of `ticket.md` and a fresh child of the same role one tier up, capped at high: low → medium → high. Never xhigh.
 
 - The test writer starts on medium.
-- The implementer starts on low when the ticket's production change touches one file. Every other ticket starts the implementer on medium, prose-only tickets included. Record the tier and its reason under Implementer start in `ticket.md`.
+- The implementer starts on low when the ticket's production change touches one file. Every other ticket starts the implementer on medium. Count only production files; tests and fixtures written by the test writer do not count. Record the tier and its reason under Implementer start in `ticket.md`.
 - When a lock exists, read the locked tests once before an implementer goes to high. Record a suspect test (wrong oracle, false green, unreachable seam, or a contradiction with the ticket) in Verdicts, send it to a fresh test writer on high, and re-lock; then the implementer runs on high.
 - A failure on high ends the chain. Stop and ask the user.
 
@@ -116,7 +116,7 @@ One rule: a failed attempt, whether a rejection or a child that settles without 
 - Checks: <each applicable check from the repository's verification rules>
 
 ## Implementer start
-- <low | medium>: <the one file | the files the change touches>
+- <low | medium>: <the one production file | the production files the change touches>; reason: <why this tier applies>
 
 ## Verdicts
 - test-writer-1 (medium): accepted, lock <sha>; report test-writer-1.report.md
