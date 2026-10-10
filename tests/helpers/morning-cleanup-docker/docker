@@ -220,6 +220,11 @@ case "$mode:$resource" in
   legacy-zero-space-deletion:builder)
     printf 'Deleted build cache objects:\ncache-zero\n\nTotal reclaimed space: 0B\n'
     ;;
+  zero-space-deletion:image|legacy-zero-space-deletion:image)
+    printf 'Total reclaimed space: 0B\n'
+    ;;
+  zero-space-deletion:network|legacy-zero-space-deletion:network)
+    ;;
   *:builder)
     printf 'ID\tRECLAIMABLE\tSIZE\tLAST ACCESSED\ncache-old\ttrue\t1.25GB\t15 days ago\nTotal:\t1.25GB\n'
     ;;
