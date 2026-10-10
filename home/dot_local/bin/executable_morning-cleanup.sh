@@ -248,7 +248,9 @@ docker_cleanup() {
     return 0
   fi
 
-  if [[ -n "$configured_context" ]]; then
+  if [[ -n "$configured_host" ]]; then
+    endpoint=$configured_host
+  elif [[ -n "$configured_context" ]]; then
     context=$configured_context
     endpoint=$(
       "$docker_cli" context inspect "$context" \
@@ -257,8 +259,6 @@ docker_cleanup() {
       log "skip docker cleanup: cannot inspect context: $context"
       return 0
     }
-  elif [[ -n "$configured_host" ]]; then
-    endpoint=$configured_host
   else
     context=$("$docker_cli" context show 2>>"$LOG") || {
       log "skip docker cleanup: cannot determine current context"
@@ -291,7 +291,7 @@ docker_cleanup() {
   docker_prune_failure() {
     local label=$1 output=$2
     case "$output" in
-      *[Cc]onnect*|*[Dd]aemon*)
+      *[Cc]onnect*)
         log "docker cleanup unavailable (cannot connect to Docker daemon) during $label prune: $output"
         ;;
       *)
@@ -304,7 +304,7 @@ docker_cleanup() {
     local resource=$1 label=$2 output space count
     case "$resource" in
       builder)
-        if output=$(DOCKER_CONTEXT='' DOCKER_HOST='' BUILDX_BUILDER='' \
+        if output=$(DOCKER_CONTEXT='' DOCKER_HOST='' BUILDX_BUILDER=default \
           "$docker_cli" --host "$docker_endpoint" builder prune \
           --all --force --filter until=336h 2>&1); then
           space=$(docker_reclaimed_space "$output")
@@ -390,8 +390,8 @@ docker_cleanup() {
     '
   }
 
-  # `docker builder prune` delegates to Buildx. With its endpoint explicitly
-  # selected, an empty BUILDX_BUILDER leaves Docker's built-in default builder.
+  # `docker builder prune` delegates to Buildx. Pin the default builder while
+  # the explicit host keeps this command on the resolved daemon.
   docker_prune builder cache
   docker_prune image images
   docker_prune network networks
