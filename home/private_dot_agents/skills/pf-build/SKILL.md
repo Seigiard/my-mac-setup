@@ -1,154 +1,128 @@
 ---
 name: pf-build
-description: Implement an approved contract spec in real code by dispatching a headless opencode session per sub-task, then prove it live with a demo. Third step of the /pf-research → /pf-spec → /pf-build cycle. Use when the user says "pf-build <epic-or-topic>" or wants an approved contract spec implemented.
+description: Implement an approved contract spec in real code by running each sub-task through the tdd chain, then prove it live with a demo. Third step of the /pf-research -> /pf-spec -> /pf-build cycle. Use when the user says "pf-build <epic-or-topic>" or wants an approved contract spec implemented.
 argument-hint: "<epic-or-topic>"
 ---
 
-# /pf-build — implement the contract spec and prove it live
+# /pf-build - implement the contract spec and prove it live
 
-Implement the open **epic PR**'s contract deltas in real code — slice the work into local sub-task files, dispatch a headless opencode session per sub-task, review each PR against its deltas and validation criteria, fix or feed back corrections, and auto-merge each implementation PR **into the epic branch** (never to main). The build ends with a **demo**: a walkthrough of the new functionality in the real product, validated live, with a discrepancy report against the contract spec — and one big PR the user reviews and merges as the cycle's single merge to main. Third step of the `/pf-research` → `/pf-spec` → `/pf-build` cycle (shared mechanics: read `~/.claude/shared/pf-cycle.md` first; for screenshots and narrative pages also `~/.claude/shared/pf-cycle-narratives.md`). You are the orchestrator and the only human-facing party; task management stays in the artifact directory's `tasks/` files (pf-cycle → Linear is opt-in — mirror to Linear sub-issues only when the user explicitly asks).
+Implement the open **epic PR**'s contract deltas in real code. Slice the work into local sub-task files, run every sub-task through the `tdd` chain, validate and open each sub-task PR, and merge each implementation PR into the epic branch. The orchestrator pushes and opens a sub-task PR only after chain validation. The build ends with a **demo**: a walkthrough of the new functionality in the real product, validated live, with a discrepancy report against the contract spec. The user reviews and merges the one big PR into main. Third step of the `/pf-research` -> `/pf-spec` -> `/pf-build` cycle. Read `~/.claude/shared/pf-cycle.md` first; for screenshots and narrative pages also read `~/.claude/shared/pf-cycle-narratives.md`. You are the orchestrator and the only human-facing party. Task management stays in the artifact directory's `tasks/` files.
 
 Invoked as `/pf-build <epic-or-topic>` (the artifact directory's id: a topic slug, or a Linear identifier like PRD-1234 when an epic exists). If none is given, use the one from the current conversation.
 
-**Fresh context.** When this conversation already ran `/pf-research` or `/pf-spec`, say in one line that the artifact directory and the epic PR carry everything and `/clear` then `/pf-build <id>` runs leaner; then continue unless the user clears. This step spends the most tokens of the cycle, so it gains most from a clean start.
+**Fresh context.** When this conversation already ran `/pf-research` or `/pf-spec`, say in one line that the artifact directory and the epic PR carry everything and `/clear` then `/pf-build <id>` runs leaner; then continue unless the user clears.
 
 ## Two ways to build
 
-**Epic-PR-based (the default, everything below).** The full cycle: an open epic PR is the target, children merge into its branch, local task files track the sub-tasks, and the child-CI caveat, watcher, and heartbeat all apply. Every section after this one assumes this mode.
+**Epic-PR-based (the default, everything below).** The full cycle: an open epic PR is the target, children merge into its branch, local task files track the sub-tasks, and the child-CI caveat, watcher, and heartbeat apply.
 
-**Direct build (no epic PR)** — when the user asks to skip the spec step, or the change is small and self-contained enough that the ceremony is pure overhead. Follow `references/direct-build.md` instead of the sections below.
+**Direct build (no epic PR)** - when the user skips the spec step, or the change is small and self-contained enough that the ceremony is pure overhead. Follow `references/direct-build.md` instead of the sections below.
 
-**No epic PR yet, epic-PR-based mode? Spec first, in this same run.** `/pf-build` can be invoked directly on an approved research narrative, or on a change the user simply described. Begin by doing `/pf-spec`'s job (read `~/.claude/skills/pf-spec/SKILL.md` and follow it): author the contract deltas, open the epic PR with base `main`, and keep it open — no Linear epic unless the user explicitly asked for one. Then continue with Step 0 below. Two adjustments when spec'ing inside a build run:
+**No epic PR yet, epic-PR-based mode? Spec first, in this same run.** Follow `pf-spec` to author the contract deltas and open the epic PR. The user is away, so record judgement calls as assumptions in the status report and continue. Scale the spec to the change. Never invent contract surface.
 
-- **The user is away, so the spec's iterate-until-confirmed loop does not apply.** Author it, verify the gates are green, and record every judgement call you made in your status report as an assumption the user should check at final review — instead of blocking on their confirmation.
-- **Scale the spec to the change.** A change with genuine contract surface (new entities, commands, pages, agent tools) gets the full treatment. A change with almost none — dev tooling, scripts, docs, a single behavior tweak — gets a correspondingly small spec; if it turns out there is *no* contract delta at all, say so plainly in the report and carry on with a plain feature branch as the base the children merge into. Everything downstream (children merge into that branch, one final user merge to main) is unchanged either way. Never invent contract surface to satisfy the ceremony.
+**Prerequisite - epic PR open.** Once the spec exists, the epic PR must exist and be open with base `main`. If its CI is red, fix it in parallel as an epic-branch ticket through the `tdd` chain. Slicing and dispatching sub-tasks continue while that fix runs. A red epic PR gates merging children, not dispatch. If the branch is behind main, update it and rebuild committed contract artifacts before slicing. Never merge the epic PR itself.
 
-**Prerequisite — epic PR open.** Once the spec exists (from `/pf-spec` earlier or from you just now), the epic PR must exist and be open with base `main`. Ideally its CI is green; if it's red, **fix it in parallel — a red epic PR does not block the build.** Slicing and dispatching sub-tasks proceed concurrently with the fix: a red epic PR is almost always an isolated gate miss (a stale allowlist, an unbuilt artifact) that children don't inherit into their implementation, and serializing the whole build behind it idles the first wave for nothing. Open the fix as its own commit on the epic branch right away and let its CI run alongside the first wave. The one thing a red big PR genuinely gates is **merging children** (step 5) — don't compound a red base — but even that is "fix immediately, in parallel," never "halt dispatch and review." If it's `DIRTY` against main, update the branch (merge `origin/main` into it, rebuild committed contract artifacts — never trust a text-merged generated JSON) before slicing. Its branch is `<epic-branch>` everywhere below. **Never merge the epic PR itself** — that final merge to main is the user's, after the demo.
-
-**Prerequisite — opencode ready.** `opencode --version` runs and `opencode models` lists the `openai/` provider (auth check: `opencode auth list`). If unavailable, say so and implement the sub-tasks yourself this run instead of blocking.
+**Prerequisite - opencode ready.** `opencode --version` must run and `opencode models` must list the `openai/` provider. When no chain child can start (see `tdd` -> Dispatch), stop and report; never write the work yourself.
 
 ## Autonomy
 
-Run the whole loop autonomously — the user is away and will not answer mid-run. Never ask, never pause, never wait for input. Slicing, dispatching, reviewing, fixing, verifying, merging into the epic branch, and closing tasks are all yours. When something would normally prompt a question, make the most reasonable call and record the assumption in your status report. Genuinely-user decisions (scope changes, contract-spec changes, an approach contradicting the epic's goal, human-only override labels, the final merge to main) get **flagged and routed around** — a clear note for later, never a blocked loop.
+Run the whole loop autonomously. Never ask, pause, or wait for input. Slicing, dispatching, validating, rebasing, pushing, opening PRs, triaging, merging into the epic branch, and closing tasks are yours. Genuinely user-owned decisions get flagged and routed around as assumptions for final review.
 
-## Step 0 — Slice the work into sub-tasks
+## Step 0 - Slice the work into sub-tasks
 
-Derive the implementation work from the contract spec: the epic PR's diff plus the spec narrative's **deferred deltas** section (`~/.claude/artifacts/<id>/spec.html`, or the older cycle's file pf-cycle → Artifact storage names). **Author each sub-task as a local markdown file in `~/.claude/artifacts/<id>/tasks/<TASK-ID>.md`** — the files are the tracker, canonical for both content and status. Task ids are `<id>-1`, `<id>-2`, … (when a Linear epic exists and the user asked for Linear tracking, use the real PRD ids instead). Each file's first line is `Status: Ready | In progress | In review | Blocked | Done`, updated as the build proceeds. Task bodies get pasted verbatim into opencode prompts and quoted in PRs — write them for a zero-context reader and follow pf-cycle → Naming on public surfaces.
-
-**No Linear issues.** Only when the user explicitly asks for Linear tracking, mirror the task files as sub-issues under the epic via GraphQL (`linear issue create/update --assignee` silently no-ops — set `assigneeId`/`parentId` via `issueCreate`/`issueUpdate`, raw `linear auth token` in the `Authorization` header, no `Bearer`; re-fetch to verify; renderer caveat in pf-cycle → Linear is opt-in) — the local files stay canonical either way.
+Derive implementation work from the contract spec: the epic PR's diff plus the spec narrative's deferred deltas. Author each sub-task as `~/.claude/artifacts/<id>/tasks/<TASK-ID>.md`. The first line is `Status: Ready | In progress | In review | Blocked | Done`, updated as work proceeds. Task bodies are written for a zero-context reader.
 
 Each sub-task carries:
 
-- **Goal** — one sentence: what becomes true.
-- **Contract deltas** — which pieces of the contract spec this issue fulfills (link the stories/declarations), plus any deferred deltas it must itself produce: the artifact file and the precise entries/fields/values expected in its diff.
-- **Validation criteria** — numbered; each pairs an outcome that is plainly true or false with the named, committed, re-runnable check that decides it (test file, benchmark assertion, gate expectation, artifact diff). No vibes — a reader runs the checks and says "achieved" or "not yet".
-- **Deploy note** — required when the issue carries a migration or a flag: the big PR's merge is deploying, so state the rollout shape (expand-contract vs accepted transient errors, flag default).
-- **Out of scope** — one line.
-- **Dependencies** — which sibling(s) it builds on, if any.
-- **Overlaps** — which siblings touch the same files or shared surfaces (whole-repo generated artifacts, `all-commands`, the same service) even with no logical dependency — unmarked overlap is how sibling PRs grind each other down in rebase conflicts.
+- **Goal** - one sentence describing what becomes true.
+- **Contract deltas** - the contract pieces it fulfills and every deferred artifact delta it must produce.
+- **Validation criteria** - numbered outcomes with named, committed, re-runnable checks.
+- **Deploy note** - required for a migration or flag.
+- **Out of scope** - one line.
+- **Dependencies** - sibling tasks it needs.
+- **Overlaps** - siblings that touch the same files or shared surfaces.
 
-Slicing rules:
+Keep the fewest reviewable PRs. Slice vertical user-visible increments. The contract spec decides outcomes; task text removes implementation ambiguity.
 
-- **The contract spec decides outcomes; sub-tasks leave only implementation judgement.** Every decision about what the product becomes lives in the spec or the task text, never in the implementer's discretion. Audit each sub-task: "where could the implementer choose between two different observable outcomes?" — decide it there. A decision that genuinely can't be made yet is a flag for the user, not a buried ambiguity.
-- **Every sub-task must be independently implementable by a cold opencode session.** Full context in the file — file paths, commands, API surfaces, known gotchas, links to the epic PR and relevant stories. opencode cannot see this conversation and cannot ask questions. Don't restate what repo `CLAUDE.md`/`AGENTS.md` already documents.
-- **Slice vertical.** Each sub-task delivers a user-visible increment end-to-end (data + API + UI for a subset of functionality), never backend-now-UI-later. Standalone non-vertical tasks only for: deliberate no-UI contract/SDK work, cleanup/migration/tooling, or a genuinely shared foundation — and prefer folding a foundation into the first slice that uses it. A UI-visible sub-task's validation includes a user-facing check (play-function/VRT assertion or screenshot), not just backend tests.
-- **Fewest reviewable PRs.** Plan the minimum PR count where each stays one coherent concern.
+## Running a sub-task through the chain
 
-## Role boundaries
+For each ready sub-task, in order:
 
-- **Every public surface you write — PR titles and bodies, GitHub review comments, commit messages, Linear text — follows pf-cycle → Naming on public surfaces**: name the product change, don't narrate the cycle. All of it is English (pf-cycle → Language).
-- **You originate implementation by dispatching opencode — never by hand-writing the first draft.** A ready sub-task with no PR and no running session is work to dispatch. Reviewing, fixing, finishing, and merging into the epic branch are yours.
-- **Every finding is yours to resolve — two ways, your call which is faster:** (a) resume that sub-task's opencode session with the specific correction (best for real implementation rework the session has context for), or (b) fix it yourself on the PR branch (best for small/mechanical fixes). Either way, verify the result yourself (typecheck + relevant tests) and document it in a PR comment. A finding is never left as an unanswered request.
-- **The contract spec is binding.** Implementation PRs must conform to it. A sub-task that carries deferred deltas must produce exactly those artifact diffs — verify against the task file. An *unexpected* contract delta (an unplanned Breaking/Notable label, an artifact change no task called for) is a finding: either the PR is wrong (fix it) or the spec missed something (flag for the user). Breaking overrides are human-only — flag, continue with everything else.
-- Don't invent scope: only this run's sub-tasks, nothing else, however green it looks.
-
-## CI reality of building into a branch
-
-`pr.yml` fires only on PRs whose base is `main`. Consequences you build the whole loop around:
-
-- **Child PRs (base = `<epic-branch>`) get ZERO CI.** Their `CLEAN` status is *unverified*, not green. The merge gate for every child is your local verification: full diff review, package typechecks, the tests its validation criteria name, contract artifact diffs matching the issue.
-- **The big PR is the real gate — for merges, not for dispatch.** Every merge into the epic branch re-triggers the epic PR's own CI. After **every** child merge, watch that run to a terminal state; a red big PR blocks further *merges* (don't stack merges on a red base) — diagnose and fix immediately, in parallel with continued dispatch and review of other children. A red big PR never halts slicing, dispatching, or reviewing. Impact labels recompute there too — check them against the contract spec's expectations.
-- A red **non-required** workflow on the big PR (e.g. VRT "Capture stories") never blocks — note it and move on; "runner lost communication" or a run with no failed step is an infra flake → `gh run rerun --failed`.
-
-## Dispatching opencode
-
-opencode runs as headless `opencode run` in an isolated git worktree per sub-task. There is no dispatch helper script — you create the worktree and capture the session yourself. Dispatch with the **balanced tier: `-m openai/gpt-5.6-terra`; never the frontier tier (`openai/gpt-5.6-sol`), never an upward override** — if a sub-task seems too hard for balanced, the fix is a sharper prompt, not a bigger model.
-
-1. Build the self-contained implementer prompt (`references/implementer-prompt.md`) — paste the full task file verbatim; opencode sees nothing else. Write it to a scratchpad file.
-2. Create the worktree and branch — the base is **always** the epic branch (or `oc/<DEP-ID>` to stack on an unmerged dependency — rare; prefer waiting for the merge and dispatching off the fresh tip):
+1. Create its worktree and branch from the current epic branch tip:
    ```bash
    git -C <main-checkout> worktree add .claude/worktrees/oc-<TASK-ID> -b oc/<TASK-ID> origin/<epic-branch>
    ```
-   Seed what a fresh worktree needs per the repo's `AGENTS.md` (env files, dependency install) before dispatching — opencode starts cold.
-3. Launch as a **background** Bash task (`run_in_background: true`), logging JSONL. Close stdin because an open stdin makes `opencode run` wait for EOF:
-   ```bash
-   opencode run --dir <worktree> -m openai/gpt-5.6-terra --auto --format json < /dev/null \
-     "$(cat <prompt-file>)" > <scratchpad>/oc-<TASK-ID>.jsonl 2>&1
-   ```
-4. On completion, extract the session id from the log and **record `sessionID` + worktree per issue** — the session id is how you send feedback (`opencode run -s <id>`), the worktree how you inspect locally:
-   ```bash
-   jq -r '.sessionID // empty' <scratchpad>/oc-<TASK-ID>.jsonl | head -1
-   ```
-5. **Session ended with no PR but a dirty worktree? Recover, don't re-dispatch.** First `git fetch && git rev-parse origin/oc/<TASK-ID>` — origin may be AHEAD of the local branch (a partial push), and committing blindly on the local state would wipe it. Reconcile against origin, commit + push opencode's edits yourself, open the PR yourself. Re-dispatch only when the log shows the implementation itself went wrong.
+   Seed what a fresh worktree needs per the repo's `AGENTS.md`. A rare dependency may stack from `oc/<DEP-ID>` instead of waiting for its merge.
+2. Call the Skill tool with `tdd` in that worktree as the sub-task's orchestrator. Give it caller run directory `~/.claude/artifacts/<id>/runs/<TASK-ID>/` and build its ticket from `references/chain-ticket.md`.
+3. Children commit every test and every line of code only on `oc/<TASK-ID>` inside that worktree. They never push. Models and tiers come from `tdd`'s ladder.
+4. When the chain stops because the ladder is exhausted on high, set the task file's Status to `Blocked`. Dependents wait; independent tasks continue. Report the blocker in the next status report at once and keep the loop running.
 
-## Scheduling: waves onto a moving tip
+The chain owns launch, logs, reports, and escalation. The orchestrator never resumes an earlier child session and never writes a fix itself.
 
-Children merge into the epic branch as they're accepted, so the branch tip advances throughout the build:
+### Push and PR after validation
 
-- **Dispatch in small waves off the current tip.** A child dispatched before its overlap-partner merged will need a rebase onto the new tip — sub-tasks the plan marks as overlapping (same files, same service, shared generated artifacts) go in one wave-slot serially, never racing. **Artifact-touching sub-tasks land serially, one per quiet window.**
-- **A dependent sub-task waits for its dependency to merge** into the epic branch, then dispatches off the tip — stacking on `oc/<DEP-ID>` is the fallback when waiting would idle the whole build, and its base must be a PR you've already reviewed.
-- **Rebasing children onto the advanced tip is yours** — `git rebase --onto origin/<epic-branch> <old-base-tip> oc/<TASK-ID>`, `git push --force-with-lease`, rebuild any committed contract artifacts. When a rebase becomes archaeology (conflicts piling), don't grind: **re-dispatch fresh against the current tip with every review decision baked into the prompt** — routinely cheaper than surgical rebasing.
-- **Keep the epic branch current with main between waves.** Being behind main is mergeable (only real conflicts, `DIRTY`, block), but don't let drift compound: when main moves significantly or the big PR goes `DIRTY`, merge `origin/main` into the epic branch between waves (no open children mid-flight), rebuild artifacts, wait for the big PR's CI.
+Only after `tdd` step 5 passes for the sub-task and the contract-delta check passes, push `oc/<TASK-ID>` and run `gh pr create --base <epic-branch> --head oc/<TASK-ID>`. Follow `references/chain-ticket.md` -> PR. A PR is never opened earlier, so no PR carries a lock commit without its code.
 
-## Dispatch throttle
+## Scheduling and dispatch throttle
 
-There is no local usage meter for opencode. Throttle by policy instead:
+Run at most 2 chain children at once across all sub-tasks. The cap counts running children, not sub-tasks or chains. A chain between phases or in validation holds no slot. Do not expand the cap. If a dispatch reports HTTP 429, quota, or rate-limit errors, PAUSE dispatching and resume only after a one-child probe succeeds. Sum each `step_finish` event's `tokens` object from the children's JSONL logs in their run directories when reporting usage.
 
-- **Cap ~2 sub-task sessions in flight**; go to ~3 only after several waves have landed cleanly. Small steady waves beat a fan-out.
-- New sessions and resumes (`opencode run -s <id>`) consume provider quota; your own reviews/fixes/merges don't — shift mechanical work to yourself when dispatch feels expensive.
-- If a dispatch log shows provider throttling (HTTP 429, quota or rate-limit errors), **PAUSE** dispatching, report it as a blocker, and resume only after a one-session probe succeeds.
-- Each `step_finish` JSONL event carries a `tokens` object — sum them per session when the user asks what a build run consumed.
+Dispatch in small waves from the current epic tip. Do not run overlapping tasks in parallel. A dependent task waits for its dependency to merge unless stacking is necessary. Rebase children onto a newly advanced epic tip as described below.
 
-## Feeding feedback back to opencode
+## Findings routing
 
-```bash
-opencode run --dir <worktree> --auto -s <session-id> < /dev/null \
-  "Address this PR review on branch oc/<TASK-ID>: <exact findings, one per line>. Re-run the package typecheck + tests you touched, then amend the branch and push."
-```
+Every finding on a sub-task, including the orchestrator's contract-delta check and a Greptile P1/P2 on a child PR, gets a verdict as in `code-review` step 4: `test`, `code`, `decision`, or `reject`. Fix it through `tdd` -> `Entering mid-chain` in that sub-task's run directory:
 
-After opencode pushes, **re-review the new commits from the diff** — never take the reply's word for it.
+- A behavior gap goes to a fresh test writer, then re-lock, then a fresh implementer.
+- A code-only finding goes to a fresh implementer.
+- Use one child per role per round. Never resume an earlier child.
 
-**All rebases are yours.** Never resume opencode to rebase — do all rebases and cross-PR conflict resolution yourself: a session asked to rebase burns quota on archaeology and races your view of the tip. Before committing a manual fix in an opencode worktree, run `git fetch && git reset --hard origin/oc/<TASK-ID>` first so you build on the real pushed PR — the session may have pushed after your last look at the worktree.
+After the fix passes step 5 again, push and answer Greptile with a body block and inline comments per the repo's AI PR Review rules. Greptile P1/P2 findings on the big PR use the same route as a ticket on the epic branch.
 
-## Watch + heartbeat
+## Rebases
 
-Two things wake you: each opencode background task on completion, and a bash watcher on PR-state changes. A 30-minute loop catches what both miss.
+All rebases are yours. Run clean rebases, then confirm every locked path still matches its `lock_sha` content and the test command is green. On a conflict, abort the rebase and start a fresh medium-tier child to redo the rebase and resolve it, then repeat the lock and green checks as `implement-spec` steps 7-8 require. Alternatively, run the sub-task's chain fresh against the current tip.
 
-1. **First pass:** run one full pass (below) immediately.
-2. **Arm the watcher** over the full child-id set from Sync — every not-yet-Done child, never a subset. No helper script exists — run an inline poller as a background Bash task: every ~60s snapshot each child PR and the big PR (`gh pr view <N> --json state,commits,statusCheckRollup,reviews,body`), hash the combined output, and exit when the hash changes (new/closed PRs, commits, checks, reviews, PR-body edits — how Greptile reports). Bound it: exit after 6h of quiet; on repeated `gh` API failures, check `gh auth status` before re-arming.
-3. **On wake:** run a pass, then re-derive the child list from the `tasks/` directory and re-arm the watcher from that fresh set — after the pass, never from memory.
-4. **Heartbeat — mandatory:** arm `/loop 30m /pf-build <epic-or-topic>` in the first pass; verify it exists on every pass and re-arm if missing; never cancel it while the build is open. On a loop-invoked pass, run the stuck-detection checklist instead of full work: watcher alive? opencode sessions *progressing* (dispatch-log mtime — alive-but-stale ≥ 20 min = stuck: read the tail, then resume with a nudge (`-s <id>`), re-dispatch, or take over)? every believed-in-flight sub-task has a live background task or a recorded `sessionID`? armed id set matches a fresh `tasks/` read? throttling errors in dispatch logs? big PR CI green? Then one light pass. Healthy and quiet → stay silent, keep the loop.
+## Role boundaries
+
+- Children write every test and every line of code.
+- The orchestrator slices, decides, validates, rebases, pushes, opens PRs, triages, and merges into the epic branch.
+- Findings follow the routing above.
+- The contract spec is binding. An unplanned contract change is a finding or a flag for the user.
+- Do not invent scope.
+
+## CI reality of building into a branch
+
+Child PRs based on the epic branch get no CI. Local validation is the gate: full diff review, package typechecks, named tests, and contract artifact checks. The big PR is the real gate for merges. After every child merge, watch its CI to a terminal state. A red big PR blocks further merges, but not slicing, dispatch, or review of other children. Re-run failed infrastructure jobs when appropriate.
+
+## Prerequisite - epic PR open and red fixes
+
+When the big PR is red, run the fix as its own ticket through the `tdd` chain in the epic branch worktree with run directory `~/.claude/artifacts/<id>/runs/epic-fix-<n>/`. Dispatch it in parallel with the first wave. Its timing stays parallel to normal dispatch.
+
+## Watch and heartbeat
+
+Wake sources are each chain child's background-process exit and the PR watcher. Run a full pass immediately, arm the watcher over every active task and the big PR, and maintain the 30-minute heartbeat.
+
+The stuck-detection checklist reads child JSONL log mtimes under `~/.claude/artifacts/<id>/runs/`. A child that is alive but stale for at least 20 minutes is terminated and counted as a failed attempt in that chain under `tdd`'s Escalation ladder. A live chain child or a recorded run directory must exist for every believed-in-flight task. Never take over a child.
 
 ## Each pass
 
-1. **Sync.** Re-read the **complete** child list from `~/.claude/artifacts/<id>/tasks/` — the single source of truth, never a remembered list. Enumerate every task file in every status and account for the total count. Non-active children (a task file marked Canceled/Duplicate in its Status line) count as resolved, explicitly. For each active child, find its PR: `gh pr list --search "<TASK-ID>"` (branches are `oc/<TASK-ID>`). (When mirroring to Linear on explicit request, also reconcile issue states there — `linear issue view <ID> --json`, read `state.name`, never `grep -i state`; the local files remain canonical.)
+1. **Sync.** Re-read the complete `tasks/` directory. Account for every task and find each active task's PR or recorded run directory.
+2. **Dispatch.** Start chains for ready tasks under the cap. Mark blocked dependents and continue independent work.
+3. **Validate and open the PR.** Per sub-task, run only `tdd` step 5. Run the contract-delta check: artifact diffs match the task file and no unplanned contract change exists. Then push and open the PR under the rule above.
+4. **Triage findings.** Apply the findings route above to Greptile and contract-delta findings.
+5. **Merge.** Merge a fully validated child PR into the epic branch and watch the big PR CI to a terminal state.
+6. **Close out.** Mark the task Done after merge, remove its worktree, and rebase in-flight children onto the new tip.
+7. **Report.** Report dispatches, PRs, fixes, merges, blockers, assumptions, and throttle events.
 
-2. **Dispatch.** Apply the throttle policy (Dispatch throttle) → this pass's concurrency cap. Then for each active child with no PR and no running session, apply the wave rules (Scheduling): non-overlapping ready issues dispatch off the current epic-branch tip; a child whose dependency or overlap-partner hasn't merged yet is blocked — report it as blocked-on-`<DEP-ID>`. Record `sessionID` + worktree from each completed dispatch log.
+## Epic-branch review
 
-3. **Review and fix.** For each open child PR with unreviewed commits: read the full diff (`gh pr diff`; checkout when you need to run things) and judge it against the sub-task's validation criteria, its contract deltas (artifact diffs match the task text; no unplanned contract changes), correctness, and the repo PR-body format. **Run the verification yourself** — children get no CI, so your local typecheck + tests are the only gate. Resolve every finding now — resume opencode or fix it yourself — verify, and post one GitHub review documenting what was found and which commit fixed it.
+When every child is merged and the big PR is green, call the Skill tool with `code-review` once on the epic branch. Its step 1 chooses the route: prose-only changes use the `writing-for-agents` prose review; any script, template, config, or test uses revmux. Its fixes use their own chain delegation and commit on the epic branch. Wait for the big PR CI to become green again, then run **The demo**.
 
-4. **Verify follow-ups.** Re-check open threads against new commits — confirm fixes in the diff, never from a reply. If Greptile reviewed the child PR, triage every P1/P2: fix or answer why not (body block + inline comments per repo `CLAUDE.md` → AI PR Review). The big PR gets fresh Greptile passes as merges land — triage there continuously too.
+## The demo - proof it works live
 
-5. **Merge into the epic branch.** When a child PR is fully reviewed (your findings resolved, local verification green, Greptile triaged, contract deltas verified): `gh pr merge <N> --squash` (its base is the epic branch, so this never touches main). Then **watch the big PR's CI run to a terminal state** — that run is the real gate; red blocks further merges until fixed. Never `--delete-branch` while any sibling still stacks on the branch; never enable GitHub auto-merge; **never merge the epic PR**.
-
-6. **Close out.** Right after each child merge: flip the task file's Status to Done (as you go, never batched; mirror to Linear only when tracking there on explicit request), remove its worktree (`git -C <main-checkout> worktree remove .claude/worktrees/oc-<TASK-ID>`, `--force` if needed), and rebase any in-flight children onto the new tip (Scheduling) so they stay current.
-
-7. **Report.** Post a short status only when something changed — dispatch, new PR, review, fix, merge, or a new blocker/assumption/throttle event. A no-change pass stays silent.
-
-## The demo — proof it works live
-
-When every child is merged and the big PR is green, prove the change in the real product, publish the demo, and refresh the big PR: `references/demo.md`. Every PR whose base is `main` gets one, no exceptions and no waiting to be asked.
+When every child is merged, the big PR is green, and the epic-branch review is finished, prove the change in the real product and publish `references/demo.md`. Refresh the big PR with the demo and discrepancy report.
 
 ## End condition
 
-Against a **fresh** read of the `tasks/` directory, never a remembered list: every child terminal (Done, or Canceled/Duplicate), no open child PR, no opencode session running, big PR green, demo published, big PR title and body refreshed to describe the full shipped change (see "The demo"). Then: remove leftover `oc/*` worktrees, kill the watcher, cancel the loop, and present the final report to the user — the big PR link, the demo link, the discrepancy summary. Items flagged for the user's judgement do NOT go inside the report: ask them after it, one per turn, each as a self-contained decision brief (the thing in plain words with no task IDs or session labels, what is being decided, options with consequences, your recommendation). **The user reviews and performs the final merge to main** (or explicitly asks you to after their review). When a Linear epic exists, it goes Done when the big PR merges — not before.
+Against a fresh read of `tasks/`, every child is terminal, no child PR or chain child is running, the big PR is green, the demo is published, and the epic-branch review is finished. Remove leftover worktrees, stop the watcher and heartbeat, and present the final report. The user reviews and performs the final merge to main.

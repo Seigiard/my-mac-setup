@@ -48,7 +48,7 @@ Fill the spec template into `~/.claude/artifacts/<id>/spec.html` (pf-cycle → a
 
 ## Step 4 — Frontier review pass (opencode)
 
-Before presenting each substantive revision to the user, run the contract spec past opencode on the **frontier tier** and fold in what survives your judgement. This is the deliberate, user-mandated exception to the terra-only opencode rule (implementation dispatches stay on `openai/gpt-5.6-terra`): frontier is allowed for exactly this review, never for implementation dispatches.
+Before presenting each substantive revision to the user, run the contract spec past opencode on the **frontier tier** and fold in what survives your judgement. This review remains user-mandated on the frontier tier. Implementation runs through the `tdd` chain, which owns its model tiers.
 
 The stdin redirect prevents `opencode run` from waiting for EOF.
 
