@@ -9423,6 +9423,52 @@ PY
   skills_collision_recovery_cases "$stub" "$canonical" "$lock" "$manifest"
 }
 
+function test_scripts_2771_skills_sync_restores_repository_owned_skills_once_for_two_wildcard_sources() {
+  _bats_test_init 2771 'skills sync restores each repository-owned skill without self-nesting across two wildcard sources'
+  local stub manifest lock canonical original
+  stub="$(skills_stub_npx)"
+  cat > "$stub/npx" <<'SH'
+#!/usr/bin/env bash
+case "$3" in
+  add)
+    mkdir -p "$HOME/.agents/skills/local-skill"
+    printf '%s\n' upstream > "$HOME/.agents/skills/local-skill/SKILL.md"
+    python3 - "$XDG_STATE_HOME/skills/.skill-lock.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+with open(path, encoding="utf-8") as stream:
+    data = json.load(stream)
+data["skills"]["local-skill"] = {"source": "example/first-source"}
+with open(path, "w", encoding="utf-8") as stream:
+    json.dump(data, stream)
+PY
+    ;;
+esac
+SH
+  chmod +x "$stub/npx"
+  manifest="$BATS_TEST_TMPDIR/manifest"
+  lock="$BATS_TEST_TMPDIR/state/skills/.skill-lock.json"
+  canonical="$BATS_TEST_TMPDIR/home/.agents/skills"
+  original="$BATS_TEST_TMPDIR/original"
+  mkdir -p "$(dirname "$lock")" "$canonical/local-skill/docs" "$BATS_TEST_TMPDIR/config/agent-skills" "$original/docs"
+  printf '%s\n' 'example/first-source *' 'example/second-source *' > "$manifest"
+  printf '%s\n' local-skill > "$BATS_TEST_TMPDIR/config/agent-skills/repository-owned"
+  printf '%s\n' '{"version":3,"skills":{}}' > "$lock"
+  printf '%s\n' original > "$canonical/local-skill/SKILL.md"
+  printf '%s\n' guide > "$canonical/local-skill/docs/guide.md"
+  cp -pR "$canonical/local-skill/." "$original"
+
+  # #when two wildcard installations overwrite the repository-owned skill
+  run env PATH="$stub:/usr/bin:/bin" HOME="$BATS_TEST_TMPDIR/home" TMPDIR="$BATS_TEST_TMPDIR/tmp" \
+    XDG_CONFIG_HOME="$BATS_TEST_TMPDIR/config" XDG_STATE_HOME="$BATS_TEST_TMPDIR/state" \
+    SKILLS_MANIFEST="$manifest" bash "$SKILLS_WRAPPER" sync
+
+  # #then collision recovery restores exactly the tree the consumer had before sync
+  assert_failure 1
+  run diff -ru "$original" "$canonical/local-skill"
+  assert_success
+}
+
 skills_collision_recovery_cases() {
   local stub="$1" canonical="$2" lock="$3" manifest="$4" mode diagnostic snapshot
   [ "$(id -u)" != 0 ] || skip 'collision recovery permission failure requires a non-root user'
