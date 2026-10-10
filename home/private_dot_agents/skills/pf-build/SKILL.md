@@ -80,9 +80,9 @@ opencode runs as headless `opencode run` in an isolated git worktree per sub-tas
    git -C <main-checkout> worktree add .claude/worktrees/oc-<TASK-ID> -b oc/<TASK-ID> origin/<epic-branch>
    ```
    Seed what a fresh worktree needs per the repo's `AGENTS.md` (env files, dependency install) before dispatching — opencode starts cold.
-3. Launch as a **background** Bash task (`run_in_background: true`), logging JSONL:
+3. Launch as a **background** Bash task (`run_in_background: true`), logging JSONL. Close stdin because an open stdin makes `opencode run` wait for EOF:
    ```bash
-   opencode run --dir <worktree> -m openai/gpt-5.6-terra --auto --format json \
+   opencode run --dir <worktree> -m openai/gpt-5.6-terra --auto --format json < /dev/null \
      "$(cat <prompt-file>)" > <scratchpad>/oc-<TASK-ID>.jsonl 2>&1
    ```
 4. On completion, extract the session id from the log and **record `sessionID` + worktree per issue** — the session id is how you send feedback (`opencode run -s <id>`), the worktree how you inspect locally:
@@ -112,7 +112,7 @@ There is no local usage meter for opencode. Throttle by policy instead:
 ## Feeding feedback back to opencode
 
 ```bash
-opencode run --dir <worktree> --auto -s <session-id> \
+opencode run --dir <worktree> --auto -s <session-id> < /dev/null \
   "Address this PR review on branch oc/<TASK-ID>: <exact findings, one per line>. Re-run the package typecheck + tests you touched, then amend the branch and push."
 ```
 

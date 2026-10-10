@@ -50,8 +50,10 @@ Fill the spec template into `~/.claude/artifacts/<id>/spec.html` (pf-cycle → a
 
 Before presenting each substantive revision to the user, run the contract spec past opencode on the **frontier tier** and fold in what survives your judgement. This is the deliberate, user-mandated exception to the terra-only opencode rule (implementation dispatches stay on `openai/gpt-5.6-terra`): frontier is allowed for exactly this review, never for implementation dispatches.
 
+The stdin redirect prevents `opencode run` from waiting for EOF.
+
 ```bash
-opencode run --dir <epic worktree> \
+opencode run --dir <epic worktree> < /dev/null \
   -m openai/gpt-5.6-sol \
   -f <screenshot1.png> -f <screenshot2.png> ... \
   "<review prompt>"
