@@ -34,6 +34,8 @@ fi
     : [];
 
   settings.theme = "terminal";
+  settings.defaultProvider = "openai-codex";
+  settings.defaultModel = "gpt-6.1-sol";
   settings.packages = extensions;
   settings.skills = skills;
   process.stdout.write(`${JSON.stringify(settings, null, 2)}\n`);
