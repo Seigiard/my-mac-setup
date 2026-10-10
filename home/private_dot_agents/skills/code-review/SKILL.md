@@ -7,7 +7,8 @@ argument-hint: "[scope | PR URL/number | base:<ref>] [plan:<path>] [--profile <n
 # Code review loop
 
 Use the route in step 1 for scope resolution, round preparation, review execution, and
-report interpretation. On the revmux route, use the `revmux` skill for those operations.
+report interpretation. Settle the route in step 1 before loading the `revmux` or `herdr`
+skill. On the revmux route, use the `revmux` skill for those operations.
 This skill owns the apply and repeat policy below; it replaces revmux's interactive fix
 choice and its stock `references/loop.md` policy.
 
@@ -34,6 +35,9 @@ Preserve existing user edits. Apply only to the local checkout being reviewed. A
 PR in a temporary worktree is report-only unless the user explicitly authorizes editing
 that branch. `mode:agent` also requests one report-only round, with no apply loop.
 
+Name the project's gates: lint, types, tests, and CI jobs. Ask what part of the diff no gate
+verifies. When nothing is left, take the no-review route.
+
 Decide the review route once per round from `git diff --name-status -M100% -C100% <base>` plus
 untracked files:
 
@@ -47,9 +51,13 @@ untracked files:
 - Otherwise use the revmux route, including any script, template, config, or test, alone or mixed
   with prose.
 
-Read `revmux config` and record the resolved starting profile. Use that default for the
-first round, omitting `--profile`, unless the user names another. A user-selected profile
-stays in effect across rounds unless the user authorizes a change.
+Read `revmux config` and record the resolved default profile. On the revmux route, the
+starting profile is that default, with `--profile` omitted, unless the user names another or
+the gap is small and nameable. For a small gap, take the narrowest profile whose `description`
+covers it; the length of its `roster` is its cost. When the gap is broad or unclear, keep the
+default. Go wider than the default only when the user names the profile. State the profile and
+the reason before launch. A user-selected profile stays in effect across rounds unless the user
+authorizes a change.
 
 ## 2. Run one review round
 
@@ -78,8 +86,8 @@ coverage explicitly instead of claiming that a final round proves there are no m
 
 Choose the route before preparing the round:
 
-- On the no-review route, end the loop and state that the changes are verbatim moves, copies,
-  or pure renames.
+- On the no-review route, end the loop and state the reason: the gates that cover the diff,
+  or that the changes are verbatim moves, copies, or pure renames.
 - On the prose route, skip revmux preparation and launch. Dispatch one fresh prose child as
   described below.
 - On the revmux route, follow the `revmux` skill's round preparation and launch procedure.
