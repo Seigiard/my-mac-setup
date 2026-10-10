@@ -279,6 +279,15 @@ docker_cleanup() {
   fi
   docker_endpoint=$endpoint
 
+  # Probe the frozen daemon before prune. Some Docker clients fail while
+  # initializing prune against an unavailable Unix socket without reporting a
+  # connection error, but `info` reports the unavailable daemon without changing it.
+  if ! output=$(DOCKER_CONTEXT='' DOCKER_HOST='' BUILDX_BUILDER='' \
+    "$docker_cli" --host "$docker_endpoint" info --format '{{.ServerVersion}}' 2>&1); then
+    log "skip docker cleanup: Docker daemon unavailable: $output"
+    return 0
+  fi
+
   docker_prune_failure() {
     local label=$1 output=$2
     case "$output" in
@@ -301,7 +310,7 @@ docker_cleanup() {
           space=$(docker_reclaimed_space "$output")
           docker_cache_report=$space
           docker_success_count=$((docker_success_count + 1))
-          [[ "$output" == *'Deleted build cache objects:'* ]] && docker_deleted=1
+          docker_deleted_cache "$output" && docker_deleted=1
           log "docker cache: $space"
         else
           docker_prune_failure cache "$output"
@@ -314,7 +323,7 @@ docker_cleanup() {
           space=$(docker_reclaimed_space "$output")
           docker_image_report=$space
           docker_success_count=$((docker_success_count + 1))
-          [[ "$output" == *'Deleted Images:'* ]] && docker_deleted=1
+          docker_has_deletion_listing "$output" 'Deleted Images:' && docker_deleted=1
           log "docker images: $space"
         else
           docker_prune_failure images "$output"
@@ -327,7 +336,7 @@ docker_cleanup() {
           count=$(docker_deleted_networks "$output")
           docker_network_report=$count
           docker_success_count=$((docker_success_count + 1))
-          [[ "$output" == *'Deleted Networks:'* ]] && docker_deleted=1
+          ((count > 0)) && docker_deleted=1
           log "docker networks: $count"
         else
           docker_prune_failure networks "$output"
@@ -338,8 +347,38 @@ docker_cleanup() {
 
   docker_reclaimed_space() {
     local value
-    value=$(printf '%s\n' "$1" | awk -F': ' '/^Total reclaimed space:/ { value=$2 } END { print value }')
+    value=$(printf '%s\n' "$1" | awk '
+      /^Total reclaimed space:[[:space:]]*/ {
+        sub(/^Total reclaimed space:[[:space:]]*/, "")
+        value = $0
+      }
+      /^Total:[[:space:]]*/ {
+        sub(/^Total:[[:space:]]*/, "")
+        value = $0
+      }
+      END { print value }
+    ')
     [[ -n "$value" ]] && printf '%s\n' "$value" || printf '0B\n'
+  }
+
+  docker_has_deletion_listing() {
+    local output=$1 header=$2
+    printf '%s\n' "$output" | awk -v header="$header" '
+      $0 == header { listing = 1; next }
+      listing && NF { deleted = 1; exit }
+      END { exit deleted ? 0 : 1 }
+    '
+  }
+
+  docker_deleted_cache() {
+    printf '%s\n' "$1" | awk '
+      /^Deleted build cache objects:$/ { legacy_listing = 1; next }
+      legacy_listing && NF { deleted = 1; exit }
+      /^ID([[:space:]]|$)/ && /RECLAIMABLE/ && /SIZE/ { buildx_table = 1; next }
+      buildx_table && /^Total:[[:space:]]*/ { exit }
+      buildx_table && NF { deleted = 1; exit }
+      END { exit deleted ? 0 : 1 }
+    '
   }
 
   docker_deleted_networks() {
@@ -351,8 +390,8 @@ docker_cleanup() {
     '
   }
 
-  # An empty BUILDX_BUILDER selects Docker's built-in default builder. The
-  # explicit host keeps this Buildx-backed command on the resolved daemon.
+  # `docker builder prune` delegates to Buildx. With its endpoint explicitly
+  # selected, an empty BUILDX_BUILDER leaves Docker's built-in default builder.
   docker_prune builder cache
   docker_prune image images
   docker_prune network networks
