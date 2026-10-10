@@ -6545,7 +6545,7 @@ function test_scripts_0641_herdr_child_uses_a_tab_by_default() {
   assert_success
   run grep -E '^(tab create|pane split)' "$CHILD_STUB/calls.log"
   assert_success
-  assert_output --regexp '^tab create --workspace w1 .*$'
+  assert_output --regexp '^tab create --workspace w1 [[:print:][:blank:]]+$'
 }
 
 function test_scripts_065_herdr_child_tab_mode_records_ownership_before_st() {
