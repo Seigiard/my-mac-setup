@@ -19,7 +19,9 @@ context_endpoint() {
 }
 
 selected_context() {
-  if [[ -n "${DOCKER_CONTEXT:-}" ]]; then
+  if [[ -n "${DOCKER_HOST:-}" || -n "$host" ]]; then
+    printf 'default\n'
+  elif [[ -n "${DOCKER_CONTEXT:-}" ]]; then
     printf '%s\n' "$DOCKER_CONTEXT"
   else
     cat "$current"
@@ -111,14 +113,14 @@ if [[ "$command $subcommand" == "context inspect" ]]; then
   exit
 fi
 
-if [[ -n "$context" ]]; then
-  endpoint=$(context_endpoint "$context") || exit 1
-elif [[ -n "$host" ]]; then
+if [[ -n "$host" ]]; then
   endpoint=$host
-elif [[ -n "${DOCKER_CONTEXT:-}" ]]; then
-  endpoint=$(context_endpoint "$DOCKER_CONTEXT") || exit 1
+elif [[ -n "$context" ]]; then
+  endpoint=$(context_endpoint "$context") || exit 1
 elif [[ -n "${DOCKER_HOST:-}" ]]; then
   endpoint=$DOCKER_HOST
+elif [[ -n "${DOCKER_CONTEXT:-}" ]]; then
+  endpoint=$(context_endpoint "$DOCKER_CONTEXT") || exit 1
 else
   endpoint=$(context_endpoint "$(cat "$current")") || exit 1
 fi
@@ -195,13 +197,17 @@ if [[ -n "${MORNING_CLEANUP_DOCKER_SWITCH_TO:-}" && ! -f "${current}.switched" ]
 fi
 
 if [[ "$mode" == "fail-$resource" || "$mode" == "error-only-$resource" ]]; then
-  printf '%s prune failed\n' "$resource" >&2
+  if [[ "$mode" == "error-only-$resource" ]]; then
+    printf 'Error response from daemon: prune rejected by daemon\n' >&2
+  else
+    printf '%s prune failed\n' "$resource" >&2
+  fi
   exit 17
 fi
 
 case "$mode:$resource" in
-  noop:builder|zero-space-deletion:image|zero-space-deletion:network|error-only-*:builder)
-    printf 'Total reclaimed space: 0B\n'
+  noop:builder)
+    printf 'Total:\t0B\n'
     ;;
   noop:image|error-only-*:image)
     printf 'Total reclaimed space: 0B\n'
@@ -209,10 +215,13 @@ case "$mode:$resource" in
   noop:network|error-only-*:network)
     ;;
   zero-space-deletion:builder)
+    printf 'ID\tRECLAIMABLE\tSIZE\tLAST ACCESSED\ncache-zero\ttrue\t0B\t1 hour ago\nTotal:\t0B\n'
+    ;;
+  legacy-zero-space-deletion:builder)
     printf 'Deleted build cache objects:\ncache-zero\n\nTotal reclaimed space: 0B\n'
     ;;
   *:builder)
-    printf 'Deleted build cache objects:\ncache-old\n\nTotal reclaimed space: 1.25GB\n'
+    printf 'ID\tRECLAIMABLE\tSIZE\tLAST ACCESSED\ncache-old\ttrue\t1.25GB\t15 days ago\nTotal:\t1.25GB\n'
     ;;
   *:image)
     printf 'Deleted Images:\ndeleted: sha256:image-old\n\nTotal reclaimed space: 42.5MB\n'
