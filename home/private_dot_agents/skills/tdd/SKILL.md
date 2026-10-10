@@ -89,7 +89,7 @@ The child's answer is its report file. Pane text and the JSONL log are evidence 
 One rule: a failed attempt, whether a rejection or a child that settles without a report, gets a line in the Verdicts section of `ticket.md` and a fresh child of the same role one tier up, capped at high: low → medium → high. Never xhigh.
 
 - The test writer starts on medium.
-- The implementer starts on low when the ticket's production change touches one file, or touches only prose (skills, instruction docs, other agent-facing text). Every other ticket starts the implementer on medium. Record the tier and its reason under Implementer start in `ticket.md`.
+- The implementer starts on low when the ticket's production change touches one file. Every other ticket starts the implementer on medium, prose-only tickets included. Record the tier and its reason under Implementer start in `ticket.md`.
 - When a lock exists, read the locked tests once before an implementer goes to high. Record a suspect test (wrong oracle, false green, unreachable seam, or a contradiction with the ticket) in Verdicts, send it to a fresh test writer on high, and re-lock; then the implementer runs on high.
 - A failure on high ends the chain. Stop and ask the user.
 
@@ -116,7 +116,7 @@ One rule: a failed attempt, whether a rejection or a child that settles without 
 - Checks: <each applicable check from the repository's verification rules>
 
 ## Implementer start
-- <low | medium>: <one file | prose only | reason for medium>
+- <low | medium>: <the one file | the files the change touches>
 
 ## Verdicts
 - test-writer-1 (medium): accepted, lock <sha>; report test-writer-1.report.md
