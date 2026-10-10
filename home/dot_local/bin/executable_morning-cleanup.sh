@@ -358,31 +358,31 @@ docker_cleanup() {
 
   docker_has_deletion_listing() {
     local output=$1 header=$2
-    printf '%s\n' "$output" | awk -v header="$header" '
+    awk -v header="$header" '
       $0 == header { listing = 1; next }
       listing && NF { deleted = 1; exit }
       END { exit deleted ? 0 : 1 }
-    '
+    ' <<<"$output"
   }
 
   docker_deleted_cache() {
-    printf '%s\n' "$1" | awk '
+    awk '
       /^Deleted build cache objects:$/ { legacy_listing = 1; next }
       legacy_listing && NF { deleted = 1; exit }
       /^ID([[:space:]]|$)/ && /RECLAIMABLE/ && /SIZE/ { buildx_table = 1; next }
       buildx_table && /^Total:[[:space:]]*/ { exit }
       buildx_table && NF { deleted = 1; exit }
       END { exit deleted ? 0 : 1 }
-    '
+    ' <<<"$1"
   }
 
   docker_deleted_networks() {
-    printf '%s\n' "$1" | awk '
+    awk '
       /^Deleted Networks:$/ { listing=1; next }
       listing && NF == 0 { exit }
       listing { count++ }
       END { print count + 0 }
-    '
+    ' <<<"$1"
   }
 
   # `docker builder prune` delegates to Buildx. Pin the default builder while
