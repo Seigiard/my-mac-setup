@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"${MORNING_CLEANUP_OSASCRIPT_CALLS:?}"

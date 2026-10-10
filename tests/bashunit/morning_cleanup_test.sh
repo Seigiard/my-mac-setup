@@ -18,11 +18,131 @@ setup() {
   # Resolved path: git prints worktrees resolved, and the script compares the
   # main checkout by string equality against $HOME-derived paths.
   FAKE_HOME="$(cd "$FAKE_HOME" && pwd -P)"
+  install_docker_fixture
 }
 
 # Extra VAR=VALUE arguments are forwarded into the script's environment.
 run_cleanup() {
-  run env HOME="$FAKE_HOME" MORNING_CLEANUP_NO_NOTIFY=1 "$@" bash "$SCRIPT"
+  run env HOME="$FAKE_HOME" MORNING_CLEANUP_NO_NOTIFY=1 \
+    MORNING_CLEANUP_DOCKER_CALLS="$DOCKER_CALLS" \
+    MORNING_CLEANUP_DOCKER_OBSERVED="$DOCKER_OBSERVED" \
+    MORNING_CLEANUP_DOCKER_CONTEXTS="$DOCKER_CONTEXTS" \
+    MORNING_CLEANUP_DOCKER_CURRENT="$DOCKER_CURRENT" \
+    DOCKER_CONFIG="$FAKE_HOME/.docker" \
+    DOCKER_HOST="unix://$FAKE_HOME/no-host-daemon.sock" \
+    DOCKER_CONTEXT= \
+    PATH="$FAKE_HOME/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+    "$@" bash "$SCRIPT"
+}
+
+run_cleanup_with_notifications() {
+  run env HOME="$FAKE_HOME" \
+    MORNING_CLEANUP_DOCKER_CALLS="$DOCKER_CALLS" \
+    MORNING_CLEANUP_DOCKER_OBSERVED="$DOCKER_OBSERVED" \
+    MORNING_CLEANUP_DOCKER_CONTEXTS="$DOCKER_CONTEXTS" \
+    MORNING_CLEANUP_DOCKER_CURRENT="$DOCKER_CURRENT" \
+    MORNING_CLEANUP_OSASCRIPT_CALLS="$DOCKER_NOTIFICATIONS" \
+    DOCKER_CONFIG="$FAKE_HOME/.docker" \
+    DOCKER_HOST="unix://$FAKE_HOME/no-host-daemon.sock" \
+    DOCKER_CONTEXT= \
+    PATH="$FAKE_HOME/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+    "$@" bash "$SCRIPT"
+}
+
+install_docker_fixture() {
+  local fixtures="$BATS_TEST_DIRNAME/helpers/morning-cleanup-docker"
+  # Every script run also clears DOCKER_CONTEXT and supplies an inert Unix
+  # DOCKER_HOST. If production adds Homebrew or Docker.app to PATH, even a real
+  # CLI found there cannot fall through to the developer's current daemon.
+  DOCKER_CALLS="$FAKE_HOME/docker-destructive-calls"
+  DOCKER_OBSERVED="$FAKE_HOME/docker-observed-calls"
+  DOCKER_CONTEXTS="$FAKE_HOME/docker-contexts"
+  DOCKER_CURRENT="$FAKE_HOME/docker-current"
+  DOCKER_NOTIFICATIONS="$FAKE_HOME/osascript-calls"
+  mkdir -p "$FAKE_HOME/bin" "$FAKE_HOME/.docker"
+  cp "$fixtures/docker" "$FAKE_HOME/bin/docker"
+  cp "$fixtures/osascript" "$FAKE_HOME/bin/osascript"
+  chmod +x "$FAKE_HOME/bin/docker" "$FAKE_HOME/bin/osascript"
+  : >"$DOCKER_CALLS"
+  : >"$DOCKER_OBSERVED"
+  : >"$DOCKER_NOTIFICATIONS"
+  printf '%s\n' \
+    'orbstack|unix:///tmp/orbstack.sock' \
+    'desktop-linux|unix:///tmp/docker-desktop.sock' \
+    'remote|ssh://docker.example.invalid' >"$DOCKER_CONTEXTS"
+  printf 'orbstack\n' >"$DOCKER_CURRENT"
+}
+
+expected_docker_trace() {
+  local endpoint=$1
+  printf '%s\n' \
+    "$endpoint|builder|all=true|force=true|until=336h|builder=builtin" \
+    "$endpoint|image|all=true|force=true|until=336h|builder=builtin" \
+    "$endpoint|network|all=false|force=true|until=336h|builder=builtin"
+}
+
+docker_trace() {
+  LC_ALL=C sort "$DOCKER_CALLS"
+}
+
+docker_summary_value() {
+  local summary key pattern value
+  summary=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  key=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
+  case "$key" in
+    cache)
+      pattern='(^|[,;][[:space:]]*)docker[[:space:]]+cache:[[:space:]]+([0-9]+([.][0-9]+)?(b|kb|mb|gb|tb))([,;]|$)'
+      ;;
+    image)
+      pattern='(^|[,;][[:space:]]*)docker[[:space:]]+images:[[:space:]]+([0-9]+([.][0-9]+)?(b|kb|mb|gb|tb))([,;]|$)'
+      ;;
+    network)
+      pattern='(^|[,;][[:space:]]*)docker[[:space:]]+networks:[[:space:]]+([0-9]+)([,;]|$)'
+      ;;
+    claude-sessions)
+      pattern='(^|[,;][[:space:]]*)claude[[:space:]]+sessions:[[:space:]]+([0-9]+)([,;]|$)'
+      ;;
+    *) return 2 ;;
+  esac
+  [[ "$summary" =~ $pattern ]] || return 1
+  value=${BASH_REMATCH[2]}
+  printf '%s=%s\n' "$key" "$value"
+}
+
+notification_semantics() {
+  local summary=$1 script count
+  count=$(awk 'END { print NR + 0 }' "$DOCKER_NOTIFICATIONS")
+  script=$(cat "$DOCKER_NOTIFICATIONS")
+  printf 'calls=%s\n' "$count"
+  case "$script" in
+    *"$summary"*) printf 'message=summary\n' ;;
+    *) printf 'message=other\n' ;;
+  esac
+  case "$script" in
+    *'Morning cleanup'*) printf 'title=Morning cleanup\n' ;;
+    *) printf 'title=other\n' ;;
+  esac
+}
+
+log_has_docker_failure() {
+  local resource=$1 log="$FAKE_HOME/.local/state/morning-cleanup/cleanup.log"
+  grep -Ei "($resource.*(fail|error)|(fail|error).*$resource)" "$log" >/dev/null
+}
+
+prune_output_shape() {
+  local builder=$1 image=$2 network=$3
+  case "$builder" in
+    *'Total reclaimed space:'*) printf 'builder=reclaimed-space\n' ;;
+    *) printf 'builder=unknown\n' ;;
+  esac
+  case "$image" in
+    *'Total reclaimed space:'*) printf 'image=reclaimed-space\n' ;;
+    *) printf 'image=unknown\n' ;;
+  esac
+  case "$network" in
+    *'Deleted Networks:'*) printf 'network=deleted-list\n' ;;
+    *) printf 'network=unknown\n' ;;
+  esac
 }
 
 # Fixture git must not read the invoking user's real ~/.gitconfig (gpg
@@ -290,6 +410,355 @@ function test_morning_cleanup_009_opencode_db_in_use_is_not_vacuumed() {
   assert_output '21032960'
   run last_summary
   assert_output 'omc: 0, worktrees: 0, branches: 0, trash: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0'
+}
+
+function test_morning_cleanup_010_scheduled_path_reaches_an_installed_docker_cli() {
+  _bats_test_init 10 'the launchd PATH reaches an installed Docker CLI without an interactive shell'
+  local docker_bin=""
+  for candidate in /usr/local/bin/docker /opt/homebrew/bin/docker /Applications/Docker.app/Contents/Resources/bin/docker; do
+    if [[ -x "$candidate" ]]; then
+      docker_bin=$candidate
+      break
+    fi
+  done
+  [[ -n "$docker_bin" ]] || skip 'Docker CLI is not installed in a scheduled-job discovery directory'
+  rm "$FAKE_HOME/bin/docker"
+
+  run env HOME="$FAKE_HOME" MORNING_CLEANUP_NO_NOTIFY=1 \
+    DOCKER_CONFIG="$FAKE_HOME/.docker" \
+    DOCKER_HOST="unix://$FAKE_HOME/no-host-daemon.sock" \
+    DOCKER_CONTEXT= \
+    PATH='/usr/bin:/bin:/usr/sbin:/sbin' bash "$SCRIPT"
+  assert_success
+  run grep -Ei 'docker.*(unavailable|cannot connect)|cannot connect.*docker' \
+    "$FAKE_HOME/.local/state/morning-cleanup/cleanup.log"
+  assert_success
+}
+
+function test_morning_cleanup_011_missing_docker_cli_is_logged_when_no_discovery_path_has_it() {
+  _bats_test_init 11 'a missing Docker CLI is logged and does not abort the existing cleanup'
+  local candidate
+  for candidate in /usr/local/bin/docker /opt/homebrew/bin/docker /Applications/Docker.app/Contents/Resources/bin/docker; do
+    [[ ! -x "$candidate" ]] || skip "Docker CLI exists at $candidate"
+  done
+  rm "$FAKE_HOME/bin/docker"
+  build_platform_fixture
+
+  run env HOME="$FAKE_HOME" MORNING_CLEANUP_NO_NOTIFY=1 \
+    DOCKER_CONFIG="$FAKE_HOME/.docker" \
+    DOCKER_HOST="unix://$FAKE_HOME/no-host-daemon.sock" \
+    DOCKER_CONTEXT= \
+    PATH='/usr/bin:/bin:/usr/sbin:/sbin' bash "$SCRIPT"
+  assert_success
+  run grep -Ei 'docker.*(not found|missing)' "$FAKE_HOME/.local/state/morning-cleanup/cleanup.log"
+  assert_success
+  assert_dir_not_exists "$WT_MERGED"
+}
+
+function test_morning_cleanup_012_current_context_changes_the_local_target() {
+  _bats_test_init 12 'changing the current local context changes the cleanup target'
+
+  run_cleanup MORNING_CLEANUP_DOCKER_FIXTURE=success DOCKER_HOST= DOCKER_CONTEXT= \
+    BUILDX_BUILDER=external-cache
+  assert_success
+  run docker_trace
+  assert_success
+  assert_output "$(expected_docker_trace unix:///tmp/orbstack.sock)"
+
+  printf 'desktop-linux\n' >"$DOCKER_CURRENT"
+  printf '1999-12-31\n' >"$FAKE_HOME/.local/state/morning-cleanup/last-run"
+  : >"$DOCKER_CALLS"
+  run_cleanup MORNING_CLEANUP_DOCKER_FIXTURE=success DOCKER_HOST= DOCKER_CONTEXT= \
+    BUILDX_BUILDER=external-cache
+  assert_success
+  run docker_trace
+  assert_success
+  assert_output "$(expected_docker_trace unix:///tmp/docker-desktop.sock)"
+}
+
+function test_morning_cleanup_013_docker_context_overrides_docker_host() {
+  _bats_test_init 13 'DOCKER_CONTEXT overrides DOCKER_HOST when selecting the cleanup daemon'
+
+  run_cleanup MORNING_CLEANUP_DOCKER_FIXTURE=success \
+    DOCKER_HOST='ssh://wrong.example.invalid' DOCKER_CONTEXT=desktop-linux
+  assert_success
+  run docker_trace
+  assert_success
+  assert_output "$(expected_docker_trace unix:///tmp/docker-desktop.sock)"
+}
+
+function test_morning_cleanup_014_explicit_docker_host_does_not_require_context_inspection() {
+  _bats_test_init 14 'an explicit local DOCKER_HOST can be used without inspecting a context'
+
+  run_cleanup MORNING_CLEANUP_DOCKER_FIXTURE=context-unavailable \
+    DOCKER_HOST='unix:///tmp/explicit.sock' DOCKER_CONTEXT=
+  assert_success
+  run docker_trace
+  assert_success
+  assert_output "$(expected_docker_trace unix:///tmp/explicit.sock)"
+}
+
+function test_morning_cleanup_015_remote_effective_context_is_logged_and_skipped() {
+  _bats_test_init 15 'a remote DOCKER_CONTEXT wins over a local DOCKER_HOST and is skipped'
+
+  run_cleanup_with_notifications MORNING_CLEANUP_DOCKER_FIXTURE=success \
+    DOCKER_HOST='unix:///tmp/wrong-local.sock' DOCKER_CONTEXT=remote
+  assert_success
+  run docker_trace
+  assert_success
+  assert_output ''
+  run grep -F 'ssh://docker.example.invalid' "$FAKE_HOME/.local/state/morning-cleanup/cleanup.log"
+  assert_success
+  run cat "$DOCKER_NOTIFICATIONS"
+  assert_success
+  assert_output ''
+}
+
+function test_morning_cleanup_016_one_daemon_stays_fixed_when_current_context_changes_mid_stage() {
+  _bats_test_init 16 'all Docker cleanup steps keep one target when the current context changes mid-stage'
+
+  run_cleanup MORNING_CLEANUP_DOCKER_FIXTURE=success DOCKER_HOST= DOCKER_CONTEXT= \
+    MORNING_CLEANUP_DOCKER_SWITCH_TO=desktop-linux
+  assert_success
+  run docker_trace
+  assert_success
+  assert_output "$(expected_docker_trace unix:///tmp/orbstack.sock)"
+  run cat "$DOCKER_CURRENT"
+  assert_success
+  assert_output 'desktop-linux'
+}
+
+function test_morning_cleanup_017_unavailable_daemon_is_logged_while_other_cleanup_continues() {
+  _bats_test_init 17 'an unavailable Docker daemon is logged while existing cleanup continues'
+  build_platform_fixture
+
+  run_cleanup MORNING_CLEANUP_DOCKER_FIXTURE=unavailable
+  assert_success
+  run grep -Ei 'docker.*(unavailable|cannot connect)|cannot connect.*docker' \
+    "$FAKE_HOME/.local/state/morning-cleanup/cleanup.log"
+  assert_success
+  assert_dir_not_exists "$WT_MERGED"
+  run docker_trace
+  assert_success
+  assert_output ''
+}
+
+function test_morning_cleanup_018_failed_builder_prune_does_not_stop_later_steps() {
+  _bats_test_init 18 'a failed builder prune is logged and image and network pruning continue'
+
+  run_cleanup MORNING_CLEANUP_DOCKER_FIXTURE=fail-builder
+  assert_success
+  run docker_trace
+  assert_success
+  assert_output "$(expected_docker_trace "unix://$FAKE_HOME/no-host-daemon.sock")"
+  run log_has_docker_failure builder
+  assert_success
+}
+
+function test_morning_cleanup_019_failed_image_prune_does_not_stop_network_cleanup() {
+  _bats_test_init 19 'a failed image prune is logged and network pruning continues'
+
+  run_cleanup MORNING_CLEANUP_DOCKER_FIXTURE=fail-image
+  assert_success
+  run docker_trace
+  assert_success
+  assert_output "$(expected_docker_trace "unix://$FAKE_HOME/no-host-daemon.sock")"
+  run log_has_docker_failure image
+  assert_success
+}
+
+function test_morning_cleanup_020_failed_network_prune_keeps_the_completed_prior_steps() {
+  _bats_test_init 20 'a failed network prune is logged after builder and image pruning complete'
+
+  run_cleanup MORNING_CLEANUP_DOCKER_FIXTURE=fail-network
+  assert_success
+  run docker_trace
+  assert_success
+  assert_output "$(expected_docker_trace "unix://$FAKE_HOME/no-host-daemon.sock")"
+  run log_has_docker_failure network
+  assert_success
+}
+
+function test_morning_cleanup_021_failure_stamp_uses_date_content_and_retries_next_day() {
+  _bats_test_init 21 'a failed Docker step stamps today, skips the same day, and retries after old stamp content'
+  local first_trace expected_twice today
+  today=$(date +%Y-%m-%d)
+
+  run_cleanup MORNING_CLEANUP_DOCKER_FIXTURE=fail-image
+  assert_success
+  first_trace=$(docker_trace)
+  assert_equal "$first_trace" "$(expected_docker_trace "unix://$FAKE_HOME/no-host-daemon.sock")"
+  run cat "$FAKE_HOME/.local/state/morning-cleanup/last-run"
+  assert_success
+  assert_output "$today"
+
+  run_cleanup MORNING_CLEANUP_DOCKER_FIXTURE=fail-image
+  assert_success
+  run docker_trace
+  assert_success
+  assert_output "$first_trace"
+
+  printf '1999-12-31\n' >"$FAKE_HOME/.local/state/morning-cleanup/last-run"
+  run_cleanup MORNING_CLEANUP_DOCKER_FIXTURE=fail-image
+  assert_success
+  expected_twice=$(printf '%s\n%s\n' "$first_trace" "$first_trace" | LC_ALL=C sort)
+  run docker_trace
+  assert_success
+  assert_output "$expected_twice"
+}
+
+function test_morning_cleanup_022_docker_deletions_are_reported_in_summary_and_notification() {
+  _bats_test_init 22 'Docker reclaimed space and deleted-network count enter the summary and notification'
+  local summary
+
+  run_cleanup_with_notifications MORNING_CLEANUP_DOCKER_FIXTURE=success
+  assert_success
+  run last_summary
+  assert_success
+  summary=$output
+  run docker_summary_value "$summary" cache
+  assert_success
+  assert_output 'cache=1.25gb'
+  run docker_summary_value "$summary" image
+  assert_success
+  assert_output 'image=42.5mb'
+  run docker_summary_value "$summary" network
+  assert_success
+  assert_output 'network=2'
+  run notification_semantics "$summary"
+  assert_success
+  assert_output $'calls=1\nmessage=summary\ntitle=Morning cleanup'
+}
+
+function test_morning_cleanup_023_docker_noop_reports_zero_without_notifying() {
+  _bats_test_init 23 'a Docker no-op reports zero reclamation and does not notify by itself'
+  local summary
+
+  run_cleanup_with_notifications MORNING_CLEANUP_DOCKER_FIXTURE=noop
+  assert_success
+  run last_summary
+  assert_success
+  summary=$output
+  run docker_summary_value "$summary" cache
+  assert_success
+  assert_output 'cache=0b'
+  run docker_summary_value "$summary" image
+  assert_success
+  assert_output 'image=0b'
+  run docker_summary_value "$summary" network
+  assert_success
+  assert_output 'network=0'
+  run cat "$DOCKER_NOTIFICATIONS"
+  assert_success
+  assert_output ''
+}
+
+function test_morning_cleanup_024_zero_space_deletion_still_notifies() {
+  _bats_test_init 24 'a Docker deletion that reports zero reclaimed space still notifies'
+  local summary
+
+  run_cleanup_with_notifications MORNING_CLEANUP_DOCKER_FIXTURE=zero-space-deletion
+  assert_success
+  run last_summary
+  assert_success
+  summary=$output
+  run docker_summary_value "$summary" cache
+  assert_success
+  assert_output 'cache=0b'
+  run notification_semantics "$summary"
+  assert_success
+  assert_output $'calls=1\nmessage=summary\ntitle=Morning cleanup'
+}
+
+function test_morning_cleanup_025_notification_switch_suppresses_docker_deletion_notice() {
+  _bats_test_init 25 'the existing notification switch suppresses a Docker deletion notification'
+
+  run_cleanup MORNING_CLEANUP_DOCKER_FIXTURE=success
+  assert_success
+  run docker_trace
+  assert_success
+  assert_output "$(expected_docker_trace "unix://$FAKE_HOME/no-host-daemon.sock")"
+  run cat "$DOCKER_NOTIFICATIONS"
+  assert_success
+  assert_output ''
+}
+
+function test_morning_cleanup_026_docker_error_alone_does_not_notify() {
+  _bats_test_init 26 'a Docker error alone does not send a deletion notification'
+
+  run_cleanup_with_notifications MORNING_CLEANUP_DOCKER_FIXTURE=error-only-image
+  assert_success
+  run docker_trace
+  assert_success
+  assert_output "$(expected_docker_trace "unix://$FAKE_HOME/no-host-daemon.sock")"
+  run log_has_docker_failure image
+  assert_success
+  run cat "$DOCKER_NOTIFICATIONS"
+  assert_success
+  assert_output ''
+}
+
+function test_morning_cleanup_027_docker_noop_preserves_existing_cleanup_notification() {
+  _bats_test_init 27 'a Docker no-op does not suppress a notification for another cleanup stage'
+  local claude="$FAKE_HOME/.claude/projects/-project-/aged" summary
+  mkdir -p "$claude"
+  printf 'aged\n' >"$claude.jsonl"
+  backdate_days 92 "$claude.jsonl"
+
+  run_cleanup_with_notifications MORNING_CLEANUP_DOCKER_FIXTURE=noop
+  assert_success
+  run last_summary
+  assert_success
+  summary=$output
+  run docker_trace
+  assert_success
+  assert_output "$(expected_docker_trace "unix://$FAKE_HOME/no-host-daemon.sock")"
+  run docker_summary_value "$summary" cache
+  assert_success
+  assert_output 'cache=0b'
+  run docker_summary_value "$summary" claude-sessions
+  assert_success
+  assert_output 'claude-sessions=1'
+  run notification_semantics "$summary"
+  assert_success
+  assert_output $'calls=1\nmessage=summary\ntitle=Morning cleanup'
+}
+
+function test_morning_cleanup_028_fake_prune_output_matches_a_prepared_disposable_daemon() {
+  _bats_test_init 28 'Docker fake output markers match a prepared disposable daemon'
+  [[ "${MORNING_CLEANUP_DOCKER_CALIBRATION_CONFIRM:-}" == disposable ]] ||
+    skip 'prepared disposable Docker daemon not confirmed for output calibration'
+  [[ "${MORNING_CLEANUP_DISPOSABLE_DOCKER_HOST:-}" == unix://* ]] ||
+    skip 'disposable Docker Unix socket not provided for output calibration'
+  command -v docker >/dev/null || skip 'real Docker CLI not installed for output calibration'
+  local real_builder real_image real_network fake_builder fake_image fake_network real_shape
+
+  real_builder=$(docker --host "$MORNING_CLEANUP_DISPOSABLE_DOCKER_HOST" builder prune \
+    --all --force --filter until=336h) || fail 'real builder prune failed on disposable daemon'
+  real_image=$(docker --host "$MORNING_CLEANUP_DISPOSABLE_DOCKER_HOST" image prune \
+    --all --force --filter until=336h) || fail 'real image prune failed on disposable daemon'
+  real_network=$(docker --host "$MORNING_CLEANUP_DISPOSABLE_DOCKER_HOST" network prune \
+    --force --filter until=336h) || fail 'real network prune failed on disposable daemon'
+  real_shape=$(prune_output_shape "$real_builder" "$real_image" "$real_network")
+
+  fake_builder=$(env MORNING_CLEANUP_DOCKER_FIXTURE=success \
+    MORNING_CLEANUP_DOCKER_CALLS="$DOCKER_CALLS" MORNING_CLEANUP_DOCKER_OBSERVED="$DOCKER_OBSERVED" \
+    MORNING_CLEANUP_DOCKER_CONTEXTS="$DOCKER_CONTEXTS" MORNING_CLEANUP_DOCKER_CURRENT="$DOCKER_CURRENT" \
+    DOCKER_HOST='unix:///tmp/calibration.sock' "$FAKE_HOME/bin/docker" builder prune \
+    --all --force --filter until=336h)
+  fake_image=$(env MORNING_CLEANUP_DOCKER_FIXTURE=success \
+    MORNING_CLEANUP_DOCKER_CALLS="$DOCKER_CALLS" MORNING_CLEANUP_DOCKER_OBSERVED="$DOCKER_OBSERVED" \
+    MORNING_CLEANUP_DOCKER_CONTEXTS="$DOCKER_CONTEXTS" MORNING_CLEANUP_DOCKER_CURRENT="$DOCKER_CURRENT" \
+    DOCKER_HOST='unix:///tmp/calibration.sock' "$FAKE_HOME/bin/docker" image prune \
+    --all --force --filter until=336h)
+  fake_network=$(env MORNING_CLEANUP_DOCKER_FIXTURE=success \
+    MORNING_CLEANUP_DOCKER_CALLS="$DOCKER_CALLS" MORNING_CLEANUP_DOCKER_OBSERVED="$DOCKER_OBSERVED" \
+    MORNING_CLEANUP_DOCKER_CONTEXTS="$DOCKER_CONTEXTS" MORNING_CLEANUP_DOCKER_CURRENT="$DOCKER_CURRENT" \
+    DOCKER_HOST='unix:///tmp/calibration.sock' "$FAKE_HOME/bin/docker" network prune \
+    --force --filter until=336h)
+  run prune_output_shape "$fake_builder" "$fake_image" "$fake_network"
+  assert_success
+  assert_output "$real_shape"
 }
 
 function set_up_before_script() {

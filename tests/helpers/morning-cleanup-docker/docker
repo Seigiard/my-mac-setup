@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+set -u
+
+calls=${MORNING_CLEANUP_DOCKER_CALLS:?}
+observed=${MORNING_CLEANUP_DOCKER_OBSERVED:?}
+contexts=${MORNING_CLEANUP_DOCKER_CONTEXTS:?}
+current=${MORNING_CLEANUP_DOCKER_CURRENT:?}
+mode=${MORNING_CLEANUP_DOCKER_FIXTURE:-unavailable}
+
+context_endpoint() {
+  local wanted=$1 name endpoint
+  while IFS='|' read -r name endpoint; do
+    if [[ "$name" == "$wanted" ]]; then
+      printf '%s\n' "$endpoint"
+      return 0
+    fi
+  done <"$contexts"
+  return 1
+}
+
+selected_context() {
+  if [[ -n "${DOCKER_CONTEXT:-}" ]]; then
+    printf '%s\n' "$DOCKER_CONTEXT"
+  else
+    cat "$current"
+  fi
+}
+
+host=""
+context=""
+while (($#)); do
+  case "$1" in
+    --host|-H)
+      host=$2
+      shift 2
+      ;;
+    --host=*)
+      host=${1#*=}
+      shift
+      ;;
+    -H*)
+      host=${1#-H}
+      shift
+      ;;
+    --context|-c)
+      context=$2
+      shift 2
+      ;;
+    --context=*)
+      context=${1#*=}
+      shift
+      ;;
+    -c*)
+      context=${1#-c}
+      shift
+      ;;
+    --config)
+      shift 2
+      ;;
+    --config=*)
+      shift
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+command=${1:-}
+subcommand=${2:-}
+printf '%s|%s|%s|%s\n' "${DOCKER_CONTEXT:-}" "${DOCKER_HOST:-}" "$context" "$*" >>"$observed"
+
+if [[ "$command $subcommand" == "context show" ]]; then
+  selected_context
+  exit
+fi
+
+if [[ "$command $subcommand" == "context inspect" ]]; then
+  if [[ "$mode" == context-unavailable ]]; then
+    printf 'context inspection disabled by fixture\n' >&2
+    exit 64
+  fi
+  inspected=""
+  format=""
+  shift 2
+  while (($#)); do
+    case "$1" in
+      --format|-f)
+        format=$2
+        shift 2
+        ;;
+      --format=*|-f=*)
+        format=${1#*=}
+        shift
+        ;;
+      *)
+        inspected=$1
+        shift
+        ;;
+    esac
+  done
+  if [[ -z "$inspected" ]]; then
+    inspected=$(selected_context)
+  fi
+  inspected_endpoint=$(context_endpoint "$inspected") || exit 1
+  case "$format" in
+    *'json .Endpoints.docker.Host'*) printf '"%s"\n' "$inspected_endpoint" ;;
+    json) printf '[{"Name":"%s","Endpoints":{"docker":{"Host":"%s"}}}]\n' "$inspected" "$inspected_endpoint" ;;
+    *) printf '%s\n' "$inspected_endpoint" ;;
+  esac
+  exit
+fi
+
+if [[ -n "$context" ]]; then
+  endpoint=$(context_endpoint "$context") || exit 1
+elif [[ -n "$host" ]]; then
+  endpoint=$host
+elif [[ -n "${DOCKER_CONTEXT:-}" ]]; then
+  endpoint=$(context_endpoint "$DOCKER_CONTEXT") || exit 1
+elif [[ -n "${DOCKER_HOST:-}" ]]; then
+  endpoint=$DOCKER_HOST
+else
+  endpoint=$(context_endpoint "$(cat "$current")") || exit 1
+fi
+
+case "$mode" in
+  unavailable)
+    printf 'Cannot connect to the Docker daemon at %s\n' "$endpoint" >&2
+    exit 1
+    ;;
+  cli-missing)
+    printf 'docker: command not found\n' >&2
+    exit 127
+    ;;
+esac
+
+case "$command $subcommand" in
+  info\ *|version\ *|"system info")
+    printf 'Server endpoint: %s\n' "$endpoint"
+    exit
+    ;;
+esac
+
+resource=""
+case "$command $subcommand" in
+  "builder prune") resource=builder ;;
+  "image prune") resource=image ;;
+  "network prune") resource=network ;;
+  "buildx prune"|"container prune"|"volume prune"|"system prune")
+    printf '%s|unsafe:%s-%s\n' "$endpoint" "$command" "$subcommand" >>"$calls"
+    exit 65
+    ;;
+  *)
+    printf 'unsupported Docker command: %s\n' "$*" >&2
+    exit 64
+    ;;
+esac
+
+shift 2
+all=false
+force=false
+until=""
+builder=builtin
+if [[ "$resource" == builder && -n "${BUILDX_BUILDER:-}" ]]; then
+  builder=$BUILDX_BUILDER
+fi
+while (($#)); do
+  case "$1" in
+    --all|-a|--all=true|-a=true) all=true; shift ;;
+    --force|-f|--force=true|-f=true) force=true; shift ;;
+    -af|-fa) all=true; force=true; shift ;;
+    --filter)
+      [[ ${2:-} == until=* ]] && until=${2#until=}
+      shift 2
+      ;;
+    --filter=until=*) until=${1#--filter=until=}; shift ;;
+    --builder)
+      builder=$2
+      shift 2
+      ;;
+    --builder=*) builder=${1#*=}; shift ;;
+    *)
+      printf '%s|invalid-%s-argument:%s\n' "$endpoint" "$resource" "$1" >>"$calls"
+      exit 65
+      ;;
+  esac
+done
+
+printf '%s|%s|all=%s|force=%s|until=%s|builder=%s\n' \
+  "$endpoint" "$resource" "$all" "$force" "$until" "$builder" >>"$calls"
+
+if [[ -n "${MORNING_CLEANUP_DOCKER_SWITCH_TO:-}" && ! -f "${current}.switched" ]]; then
+  printf '%s\n' "$MORNING_CLEANUP_DOCKER_SWITCH_TO" >"$current"
+  : >"${current}.switched"
+fi
+
+if [[ "$mode" == "fail-$resource" || "$mode" == "error-only-$resource" ]]; then
+  printf '%s prune failed\n' "$resource" >&2
+  exit 17
+fi
+
+case "$mode:$resource" in
+  noop:builder|zero-space-deletion:image|zero-space-deletion:network|error-only-*:builder)
+    printf 'Total reclaimed space: 0B\n'
+    ;;
+  noop:image|error-only-*:image)
+    printf 'Total reclaimed space: 0B\n'
+    ;;
+  noop:network|error-only-*:network)
+    ;;
+  zero-space-deletion:builder)
+    printf 'Deleted build cache objects:\ncache-zero\n\nTotal reclaimed space: 0B\n'
+    ;;
+  *:builder)
+    printf 'Deleted build cache objects:\ncache-old\n\nTotal reclaimed space: 1.25GB\n'
+    ;;
+  *:image)
+    printf 'Deleted Images:\ndeleted: sha256:image-old\n\nTotal reclaimed space: 42.5MB\n'
+    ;;
+  *:network)
+    printf 'Deleted Networks:\nold-network-a\nold-network-b\n'
+    ;;
+esac
