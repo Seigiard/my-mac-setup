@@ -9429,6 +9429,9 @@ function test_scripts_2771_skills_sync_restores_repository_owned_skills_once_for
   stub="$(skills_stub_npx)"
   cat > "$stub/npx" <<'SH'
 #!/usr/bin/env bash
+printf 'ARGS=' >> "$TMPDIR/npx.log"
+printf '<%s>' "$@" >> "$TMPDIR/npx.log"
+printf '\n' >> "$TMPDIR/npx.log"
 case "$3" in
   add)
     mkdir -p "$HOME/.agents/skills/local-skill"
@@ -9465,6 +9468,9 @@ SH
 
   # #then collision recovery restores exactly the tree the consumer had before sync
   assert_failure 1
+  assert_output --partial 'skills: canonical skill collides with repository-owned skill: local-skill'
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<add><example/first-source><--skill><\*><--global>'
+  assert_file_contains "$BATS_TEST_TMPDIR/tmp/npx.log" '<add><example/second-source><--skill><\*><--global>'
   run diff -ru "$original" "$canonical/local-skill"
   assert_success
 }
