@@ -9,7 +9,7 @@ Not a command. This file holds the mechanics shared by the development cycle so 
 | `/pf-issue`    | Audit a tracker issue against the contracts and the code; validate the top options with subagents. No repo changes.       | The **issue audit** — a markdown report the user decides on          |
 | `/pf-research` | Frame the change, gather what the frame needs; narrate what is and what should become. No repo changes.                  | The **research narrative** — an HTML page the user confirms          |
 | `/pf-spec`     | Write the approved research into the product contracts; open the **epic PR**; iterate until it matches theory.            | Contract deltas in the epic PR + the **spec narrative**              |
-| `/pf-build`    | Implement the contract spec in real code via opencode sub-issue PRs auto-merged into the epic branch; prove it live.      | The **demo** — walkthrough + discrepancy report vs the contract spec |
+| `/pf-build`    | Implement the contract spec in real code via `tdd`-chain sub-task PRs merged into the epic branch; prove it live.         | The **demo** — walkthrough + discrepancy report vs the contract spec |
 
 **The epic PR lifecycle:** `/pf-spec` opens it (base `main`, contracts only, green) and it **stays open**. `/pf-build` merges implementation PRs into its branch, so it grows into the single big PR carrying contracts + code. The **user** reviews that final PR with the demo and merges it — the only merge to `main` in the whole cycle. Merging to main deploys to prod; the cycle deliberately batches that into one reviewed moment.
 
