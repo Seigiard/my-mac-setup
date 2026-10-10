@@ -250,20 +250,15 @@ docker_cleanup() {
 
   if [[ -n "$configured_host" ]]; then
     endpoint=$configured_host
-  elif [[ -n "$configured_context" ]]; then
-    context=$configured_context
-    endpoint=$(
-      "$docker_cli" context inspect "$context" \
-        --format '{{.Endpoints.docker.Host}}' 2>>"$LOG"
-    ) || {
-      log "skip docker cleanup: cannot inspect context: $context"
-      return 0
-    }
   else
-    context=$("$docker_cli" context show 2>>"$LOG") || {
-      log "skip docker cleanup: cannot determine current context"
-      return 0
-    }
+    if [[ -n "$configured_context" ]]; then
+      context=$configured_context
+    else
+      context=$("$docker_cli" context show 2>>"$LOG") || {
+        log "skip docker cleanup: cannot determine current context"
+        return 0
+      }
+    fi
     endpoint=$(
       "$docker_cli" context inspect "$context" \
         --format '{{.Endpoints.docker.Host}}' 2>>"$LOG"
