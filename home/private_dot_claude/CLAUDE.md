@@ -15,7 +15,7 @@ That English is plain English: short sentences, common words, one idea per sente
 
 <important if="you are reviewing code or running a pre-PR review">
 
-Use `code-review` by default; it runs the revmux review-fix loop. When the user or calling workflow supplies a review rubric or names another skill, follow that choice directly.
+Use `code-review` by default; it runs the review loop and delegates fixes. When the user or calling workflow supplies a review rubric or names another skill, follow that choice directly.
 
 For follow-up revmux rounds, use the **Follow-up profile selection** policy in `code-review` without a separate approval question. It preserves an explicit user profile choice.
 

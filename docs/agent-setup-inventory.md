@@ -19,8 +19,8 @@ receives symlink adapters under `~/.claude/skills`; OpenCode and Pi discover
 adapter, while OpenCode receives a command adapter only.
 
 `code-review` is the default code-review skill for all three clients. This
-repository-owned workflow runs revmux, fixes supported
-critical and major findings plus unambiguous minors, and repeats after any fixes.
+repository-owned workflow picks a review route, delegates accepted fixes to
+fresh `tdd` chain children, and keeps verification with the caller.
 The upstream `mattpocock/skills` skill with the same name is excluded from wildcard
 installation.
 

@@ -1,25 +1,31 @@
 ---
 name: code-review
-description: Default code review and pre-PR review. Run revmux, fix confirmed critical and major findings plus unambiguous minor findings, and repeat after any fixes. Use when asked to review code, a diff, a branch, or a PR.
+description: Default code review and pre-PR review. Choose the review route, delegate confirmed fixes to fresh tdd chain children, and repeat after fixes. Use when asked to review code, a diff, a branch, or a PR.
 argument-hint: "[scope | PR URL/number | base:<ref>] [plan:<path>] [--profile <name>] [mode:agent]"
 ---
 
 # Code review loop
 
-Use the `revmux` skill for scope resolution, round preparation, preflight, supervised
-execution, and report interpretation. This skill owns the apply and repeat policy below;
-it replaces revmux's interactive fix choice and its stock `references/loop.md` policy.
+Use the route in step 1 for scope resolution, round preparation, review execution, and
+report interpretation. On the revmux route, use the `revmux` skill for those operations.
+This skill owns the apply and repeat policy below; it replaces revmux's interactive fix
+choice and its stock `references/loop.md` policy.
 
 When already acting as a reviewer inside revmux or another report-only review job, follow
 that job's supplied rubric and return findings directly. Do not launch a nested review.
 
 ## 1. Establish the review scope
 
-Resolve the user's scope through `revmux`. Record the checkout, fixed base commit, paths,
-explicit exclusions, and initial working-tree state. Include the in-scope committed,
+Resolve the user's scope through the applicable review route. Record the checkout, fixed base
+commit, paths, explicit exclusions, and initial working-tree state. Include the in-scope committed,
 staged, unstaged, and untracked work. List untracked files for reviewers to read because
 git diff omits them. Every later round covers this same cumulative scope plus its fixes,
 against the same base; the base is not reset to the commit at which the loop started.
+
+Reuse the caller's run directory when one is supplied. Otherwise create
+`~/.claude/artifacts/review-<task-id>/` in the first round. Create the directory only;
+the clean-tree requirement belongs to step 4. Use this directory for every round's
+report and verdict files, and for the tdd chain when delegation starts.
 
 Resolve an explicit `base:<ref>` to a full commit SHA once and use it for every round.
 Treat `plan:<path>` as goal context, not a path filter on the reviewed changes.
@@ -28,11 +34,24 @@ Preserve existing user edits. Apply only to the local checkout being reviewed. A
 PR in a temporary worktree is report-only unless the user explicitly authorizes editing
 that branch. `mode:agent` also requests one report-only round, with no apply loop.
 
+Decide the review route once per round from `git diff --name-status -M100% -C100% <base>` plus
+untracked files:
+
+- If every entry is `R100` or `C100` and each path keeps its meaning to the tools that read it
+  (including chezmoi prefixes, suffixes, significant parent directories, and skill names), skip
+  review. The final report, and the PR when there is one, state why. A rename that changes such
+  meaning takes the revmux route.
+- If every changed path is agent-facing text, use the prose route. This includes skills and their
+  reference files, `AGENTS.md`, `CLAUDE.md`, agent rules and shared instruction docs. A `.tmpl`
+  file counts as a template.
+- Otherwise use the revmux route, including any script, template, config, or test, alone or mixed
+  with prose.
+
 Read `revmux config` and record the resolved starting profile. Use that default for the
 first round, omitting `--profile`, unless the user names another. A user-selected profile
 stays in effect across rounds unless the user authorizes a change.
 
-## 2. Run one revmux round
+## 2. Run one review round
 
 Choose the profile before preparing each round. Use the selection from step 1 for the first
 round; apply the follow-up policy below on every return to this step.
@@ -57,24 +76,51 @@ coverage explicitly instead of claiming that a final round proves there are no m
 
 ### Prepare and collect the round
 
-Follow the `revmux` skill's round preparation and launch procedure. Reuse the task ID and
-create a new round each time. Carry the original goal and exclusions forward. Let revmux
-inject prior findings; describe the current scope rather than copying old reports into it.
+Choose the route before preparing the round:
+
+- On the no-review route, end the loop and state that the changes are verbatim moves, copies,
+  or pure renames.
+- On the prose route, skip revmux preparation and launch. Dispatch one fresh prose child as
+  described below.
+- On the revmux route, follow the `revmux` skill's round preparation and launch procedure.
+
+Reuse the task ID and create a new round each time. Carry the original goal and exclusions
+forward. On the revmux route, let revmux inject prior findings and describe the current
+scope rather than copying old reports into it. Later rounds reuse the same run directory
+and its lock and Verdicts.
 Pass the caller's report-only constraint to reviewers: inspect the checkout without editing
-it or running tests. The parent owns fixes and their verification.
+it or running tests. Reviewers stay report-only; fixes are delegated to fresh `tdd` chain
+children and verification stays with the caller.
 
 Include available verification results in the round context, naming their commands and the
 state they cover. Mark checks without current evidence as unknown.
 
-Wait for a terminal result under the host's long-running-work rules. Keep report JSON and
-progress logs separate. Exit `0` and `1` are completed reviews; `1` is findings, not a tool
-failure. A tool or launcher error, malformed output, missing sources, or non-empty
-`sources.degraded` means incomplete coverage: report the failure and stop rather than
-claiming convergence.
+On the revmux route, wait for a terminal result under the host's long-running-work rules.
+Keep report JSON and progress logs separate. Exit `0` and `1` are completed reviews; `1`
+is findings, not a tool failure. A tool or launcher error, malformed output, missing
+sources, or non-empty `sources.degraded` means incomplete coverage: report the failure and
+stop rather than claiming convergence. For a healthy `raised 0` source, name the source
+and inspect its `agents/<name>.*` tee; treat it as incomplete only when the tee shows that
+the agent could not work.
 
-Read the complete report, including `open_questions`, `pre_existing`, and `immaterial`.
-In report-only mode, return here; for `mode:agent`, return the revmux JSON without wrapping
-it in a CE report or adding prose.
+On the prose route, the fresh child must produce a parseable report with the required keys;
+an absent or malformed report is incomplete coverage, so report the failure and stop.
+
+Run `jq -r -f <this skill's directory>/projection.jq <report.json>` and read its output instead of
+the full report. The projection includes source coverage, findings, open questions, and the
+`pre_existing`/`immaterial` counts. Open one finding's full entry, for example
+`jq '.findings[] | select(.id == "<id>")' <report.json>`, only when the projection cannot settle
+that finding's verdict. In report-only mode, return here; for `mode:agent`, return the
+route's report JSON without wrapping it in a CE report or adding prose.
+
+For a prose route, dispatch one fresh child per round using only the tier and launch mode from
+the `tdd` skill's Dispatch section, on tier high. Give it its own prompt: pointers to
+`prose-review.md`, the checkout, base SHA, changed paths, the source decisions named by the
+caller, the original goal, explicit exclusions, paths of earlier prose-review reports, and
+`<run-dir>/prose-review-<round>.json`; give it no `Role` or commit instruction.
+Use the narrowest posture that can still write the report outside the checkout. Its report uses
+the same keys, so the same projection applies. The follow-up profile policy does not apply to
+prose rounds; the repeat and stop rules do.
 
 ## 3. Check styles
 
@@ -93,43 +139,67 @@ styling then counts as unchecked.
 
 ## 4. Fix and verify
 
+Write `<run-dir>/review-<round>.md` with one verdict per finding and open question: `test`,
+`code`, `decision`, or `reject` with the reason, using the eligibility rules below.
+
 Confirm the in-scope tree still matches what was reviewed. If it changed during the
-round, review the new state before applying stale findings. Report the round's findings
+round, review the new state before routing stale findings. Report the round's findings
 and the `good-css` results briefly, then act without another approval prompt:
 
-- Fix supported `critical` and `major` findings in the agreed scope.
-- Fix a `minor` when its defect and remedy are clear, the edit is local and reversible,
-  and it needs no product decision, design choice, or taste judgment.
+- Fix supported `critical` and `major` findings in the agreed scope through fresh `tdd` chain
+  children.
+- Fix a `minor` through a fresh child when its defect and remedy are clear, the edit is local and
+  reversible, and it needs no product decision, design choice, or taste judgment.
 - Use `confirmed` and `refined` findings as candidates, checking each against the current
   source. Establish an `unverified` finding yourself before acting on it.
 - Keep false positives, disputed fixes, decisions, and ambiguous minors out of the apply
   batch and explain why. Keep `pre_existing` and `immaterial` separate. An unresolved
   critical or major remains a blocker; skipping it does not make the review clean.
 
-Fix the mechanism, including matching in-scope occurrences, rather than only the quoted
-example. Follow the repository's test-oracle gate before adding or changing tests. Run
-the applicable checks after each coherent fix batch. Resolve failures caused by the fix
-or revert only that fix; preserve the original work and report remaining failures.
+Before delegation, run `tdd`'s "Before the chain" in the run directory when it has no
+`ticket.md`; this performs the clean-tree check and defines the review scope and goal. For
+this round's routed findings, run `tdd` steps 1-2 in that same directory: apply the oracle
+gate, record seams, allowed test paths, test command, and applicable checks. Run these steps
+for every round, whether the directory is new or reused. For a code-only route, record
+`base_sha`; when `lock.json` exists, use its existing lock for steps 4 and 5, otherwise use
+the checks-only path.
 
-Leave changes uncommitted unless the user or calling workflow explicitly authorizes a
-commit. A dirty tree does not by itself block this loop. Pushes and PR creation remain
-separate requests.
+Fix the mechanism, including matching in-scope occurrences, rather than only the quoted
+example. Follow the repository's test-oracle gate before adding or changing tests. Route a
+behavior gap to one fresh test writer, re-lock, then one fresh implementer. Route a code-only
+finding to one fresh implementer. Use one child per role per round, never one per finding; enter
+through the `tdd` skill's "Entering mid-chain" section and use its roles, tiers, and escalation
+ladder. Run the applicable checks after each coherent fix batch. A failed check is a `tdd` step
+5 rejection: use its restore and escalation ladder, and report what remains after a failure on
+high.
+
+Children commit fixes on the reviewed branch. Before the first delegation, require a clean
+worktree; when in-scope work is uncommitted, report the dirty paths and stop. Pushes and PR
+creation remain separate requests. A fetched PR in a temporary worktree and `mode:agent` stay
+report-only.
+
+When no child can start, report the reason and stop. The caller never writes a fix itself.
+
+The caller verifies the result: when `lock.json` exists, run the `tdd` step 5 lock diff check
+against its existing lock; otherwise use the checks-only validation. Then run the green test
+command, applicable checks from repository verification rules, and the clean-worktree check. A
+child's report is not evidence. The caller still checks styling in step 3.
 
 ## 5. Repeat or finish
 
 Apply these rules in order:
 
 1. If checks fail or coverage is incomplete, stop as blocked.
-2. If this round left any new fixes in the tree and verification passed, return to step 2. This
+2. If this round produced fix commits and caller verification passed, return to step 2. This
    includes minor-only fixes and edits to docs, prompts, or skills: every fix gets a
    confirming round, even when another finding still needs a decision.
 3. Otherwise finish: this complete round needs no further eligible fixes. Unresolved
    critical or major findings leave the review blocked. Report ambiguous minors and
    open decisions as remaining work, not as an empty findings list.
 
-If the same defect returns after its attempted fix, diagnose the failed remedy before
-editing again. Repeated fixes that make no progress need a decision and remain blocked;
-they are not a reason to silently lower the review bar.
+If the same defect returns after its attempted fix, diagnose the failed remedy before routing it
+again. Repeated fixes that make no progress need a decision and remain blocked; they are not a
+reason to silently lower the review bar.
 
 Report the task and rounds, actual profile and source coverage, applied fixes, check
 results, remaining findings and decisions, commit status, and why the loop stopped.
