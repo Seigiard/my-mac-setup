@@ -1,11 +1,11 @@
 ---
 name: ask-in-herdr
-description: "Start a live claude, opencode, or pi peer in a herdr pane and return its answer. Use for second opinions, cross-checks, or review when HERDR_ENV=1. The pane remains available for follow-up and can call the parent through the child-agent contract."
+description: "Start a live claude, opencode, or pi peer in a herdr tab and return its answer. Use for second opinions, cross-checks, or review when HERDR_ENV=1. The tab remains available for follow-up and can call the parent through the child-agent contract."
 ---
 
 # ask-in-herdr — consult a live peer agent
 
-This skill works only inside herdr. It starts a live child through the attached `herdr-child start ... --wait` path, waits for the initial answer, prints the answer on stdout, and leaves the pane open for follow-up. It does not use detached supervision or change timeout classification. After a settled answer is read, it queues a `[child-settled v1 ...]` reminder to the parent so an unneeded pane is reaped instead of forgotten.
+This skill works only inside herdr. It starts a live child in a new tab through the attached `herdr-child start ... --wait` path, waits for the initial answer, prints the answer on stdout, and leaves the tab open for follow-up. Tabs avoid the narrow-pane OpenCode hang. It does not use detached supervision or change timeout classification. After a settled answer is read, it queues a `[child-settled v1 ...]` reminder to the parent so an unneeded tab is reaped instead of forgotten.
 
 Read `~/.claude/shared/child-agent-contract.md` before handling a callback from the child.
 

@@ -7,7 +7,7 @@ start_child() {
 
   local -a original_args=("$@")
   local kind="" name="" posture="ro" cwd="$PWD" model="" effort=""
-  local configured_agent="" prompt="" prompt_file="" direction="right" direction_explicit=0
+  local configured_agent="" prompt="" prompt_file="" direction="" direction_explicit=0
   local mode="" mode_count=0 timeout="30000" supervision_timeout="$DEFAULT_SUPERVISION_TIMEOUT"
   local supervision_timeout_set=0
   local pane="" list_json="" split_json="" parent_identity="" child_identity=""
@@ -56,10 +56,14 @@ start_child() {
   [ "$mode_count" -eq 1 ] || fail_usage 'start requires exactly one of --wait or --detach'
   case "$kind" in claude|opencode|pi) ;; *) fail_usage '--kind must be claude, opencode, or pi' ;; esac
   case "$posture" in ro|rw) ;; *) fail_usage '--posture must be ro or rw' ;; esac
-  case "$direction" in right|down) ;; *) fail_usage '--direction must be right or down' ;; esac
+  if [ "$direction_explicit" -eq 1 ]; then
+    case "$direction" in right|down) ;; *) fail_usage '--direction must be right or down' ;; esac
+  else
+    tab_mode=1
+  fi
   if [ "$tab_mode" -eq 1 ] && [ "$direction_explicit" -eq 1 ]; then fail_usage '--tab cannot be combined with --direction'; fi
-  if [ -n "$label" ] && [ "$tab_mode" -ne 1 ]; then fail_usage '--label is only valid with --tab'; fi
-  if [ "$tab_mode" -eq 1 ] && [ -z "${HERDR_WORKSPACE_ID:-}" ]; then fail_usage '--tab requires HERDR_WORKSPACE_ID'; fi
+  if [ -n "$label" ] && [ "$direction_explicit" -eq 1 ]; then fail_usage '--label cannot be combined with --direction'; fi
+  if [ "$tab_mode" -eq 1 ] && [ -z "${HERDR_WORKSPACE_ID:-}" ]; then fail_usage 'default tab placement requires HERDR_WORKSPACE_ID'; fi
   case "$timeout" in '' | 0 | *[!0-9]*) fail_usage '--timeout must be a positive integer' ;; esac
   case "$COLD_INITIAL_PROMPT_DELAY" in
     '' | *[!0-9]*) fail_usage 'HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY must be between 0 and 30 seconds' ;;

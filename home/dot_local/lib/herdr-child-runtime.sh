@@ -23,8 +23,9 @@ Start options:
   --prompt <text>         Initial task
   --prompt-file <file>    Read the initial task from a file
   --direction <right|down>
-  --tab                   Launch in a new tab instead of a split pane (requires HERDR_WORKSPACE_ID)
-  --label <text>          Initial tab label; valid only with --tab
+                           Explicitly launch in a split pane (escape hatch)
+  --tab                   Launch in a new tab (the default; requires HERDR_WORKSPACE_ID)
+  --label <text>          Initial tab label
   --wait                  Wait for the initial turn to settle (required mode)
   --detach                Arm detached supervision (required mode)
   --timeout <ms>          Start and prompt timeout (default: 30000)

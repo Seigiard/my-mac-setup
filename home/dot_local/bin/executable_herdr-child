@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# herdr-child — launch and coordinate child agents in sibling herdr panes.
+# herdr-child — launch and coordinate child agents in sibling herdr tabs.
 # Cross-module configuration is initialized here and consumed by sourced modules.
 # shellcheck disable=SC2034
 
