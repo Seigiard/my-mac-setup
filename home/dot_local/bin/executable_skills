@@ -537,7 +537,7 @@ report_drift() {
 }
 
 sync() {
-  local source entry skill workdir name collision=0 status
+  local source entry skill workdir name collision=0 status has_wildcard=0
   parse_manifest || return 1
   load_repository_owned || return 1
   validate_manifest_collisions || return 1
@@ -547,14 +547,15 @@ sync() {
   mkdir -p "$workdir/repository-owned" || { rm -rf "$workdir"; return 1; }
   for entry in "${MANIFEST_SKILLS[@]}"; do
     source="${entry%%:*}"; skill="${entry#*:}"
-    [ "$skill" != '*' ] || continue
+    if [ "$skill" = '*' ]; then
+      has_wildcard=1
+      continue
+    fi
     repository_owns "$skill" && { rm -rf "$workdir"; fail "manifest skill collides with repository-owned skill: $skill"; return 1; }
   done
-  for entry in "${MANIFEST_SKILLS[@]}"; do
-    [ "${entry#*:}" != '*' ] || snapshot_repository_trees "$workdir/repository-owned" || {
-      rm -rf "$workdir"; return 1
-    }
-  done
+  [ "$has_wildcard" -eq 0 ] || snapshot_repository_trees "$workdir/repository-owned" || {
+    rm -rf "$workdir"; return 1
+  }
   for source in "${MANIFEST_SOURCES[@]}"; do
     set --
     local exclusions=()
