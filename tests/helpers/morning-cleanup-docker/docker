@@ -206,7 +206,7 @@ if [[ "$mode" == "fail-$resource" || "$mode" == "error-only-$resource" ]]; then
 fi
 
 case "$mode:$resource" in
-  noop:builder)
+  noop:builder|error-only-*:builder)
     printf 'Total:\t0B\n'
     ;;
   noop:image|error-only-*:image)
