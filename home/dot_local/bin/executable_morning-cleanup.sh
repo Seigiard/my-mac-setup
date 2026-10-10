@@ -18,9 +18,9 @@ PLATFORM="$HOME/Projects/platform"
 CLAUDE_PROJECTS="$HOME/.claude/projects"
 PI_SESSIONS="$HOME/.pi/agent/sessions"
 OPENCODE_DB="$HOME/.local/share/opencode/opencode.db"
-# launchd starts this with /usr/bin:/bin:/usr/sbin:/sbin; opencode comes from
-# mise. Appended, so an opencode already on PATH wins.
-PATH="$PATH:$HOME/.local/share/mise/shims"
+# launchd starts this with /usr/bin:/bin:/usr/sbin:/sbin. Appended, so tools
+# already on PATH win while scheduled jobs can still find installed CLIs.
+PATH="$PATH:$HOME/.local/share/mise/shims:/usr/local/bin:/opt/homebrew/bin:/Applications/Docker.app/Contents/Resources/bin"
 today=$(date +%Y-%m-%d)
 
 mkdir -p "$STATE_DIR" "$TRASH"
@@ -228,12 +228,146 @@ compact_opencode_db() {
 }
 compact_opencode_db
 
+# 7) Docker keeps its own age and in-use rules. Resolve one local endpoint
+# once, then pass it explicitly so context changes cannot split the stage.
+docker_cache_report=""
+docker_image_report=""
+docker_network_report=""
+docker_success_count=0
+docker_deleted=0
+docker_endpoint=""
+docker_cli=""
+docker_cleanup() {
+  local configured_host configured_context context endpoint output space count
+  configured_host=${DOCKER_HOST:-}
+  configured_context=${DOCKER_CONTEXT:-}
+
+  docker_cli=$(command -v docker 2>/dev/null || true)
+  if [[ -z "$docker_cli" ]]; then
+    log "skip docker cleanup: Docker CLI not found"
+    return 0
+  fi
+
+  if [[ -n "$configured_context" ]]; then
+    context=$configured_context
+    endpoint=$(
+      "$docker_cli" context inspect "$context" \
+        --format '{{.Endpoints.docker.Host}}' 2>>"$LOG"
+    ) || {
+      log "skip docker cleanup: cannot inspect context: $context"
+      return 0
+    }
+  elif [[ -n "$configured_host" ]]; then
+    endpoint=$configured_host
+  else
+    context=$("$docker_cli" context show 2>>"$LOG") || {
+      log "skip docker cleanup: cannot determine current context"
+      return 0
+    }
+    endpoint=$(
+      "$docker_cli" context inspect "$context" \
+        --format '{{.Endpoints.docker.Host}}' 2>>"$LOG"
+    ) || {
+      log "skip docker cleanup: cannot inspect context: $context"
+      return 0
+    }
+  fi
+
+  if [[ "$endpoint" != unix://* ]]; then
+    log "skip docker cleanup: non-Unix endpoint: $endpoint"
+    return 0
+  fi
+  docker_endpoint=$endpoint
+
+  docker_prune_failure() {
+    local label=$1 output=$2
+    case "$output" in
+      *[Cc]onnect*|*[Dd]aemon*)
+        log "docker cleanup unavailable (cannot connect to Docker daemon) during $label prune: $output"
+        ;;
+      *)
+        log "docker $label prune failed: $output"
+        ;;
+    esac
+  }
+
+  docker_prune() {
+    local resource=$1 label=$2 output space count
+    case "$resource" in
+      builder)
+        if output=$(DOCKER_CONTEXT='' DOCKER_HOST='' BUILDX_BUILDER='' \
+          "$docker_cli" --host "$docker_endpoint" builder prune \
+          --all --force --filter until=336h 2>&1); then
+          space=$(docker_reclaimed_space "$output")
+          docker_cache_report=$space
+          docker_success_count=$((docker_success_count + 1))
+          [[ "$output" == *'Deleted build cache objects:'* ]] && docker_deleted=1
+          log "docker cache: $space"
+        else
+          docker_prune_failure cache "$output"
+        fi
+        ;;
+      image)
+        if output=$(DOCKER_CONTEXT='' DOCKER_HOST='' BUILDX_BUILDER='' \
+          "$docker_cli" --host "$docker_endpoint" image prune \
+          --all --force --filter until=336h 2>&1); then
+          space=$(docker_reclaimed_space "$output")
+          docker_image_report=$space
+          docker_success_count=$((docker_success_count + 1))
+          [[ "$output" == *'Deleted Images:'* ]] && docker_deleted=1
+          log "docker images: $space"
+        else
+          docker_prune_failure images "$output"
+        fi
+        ;;
+      network)
+        if output=$(DOCKER_CONTEXT='' DOCKER_HOST='' BUILDX_BUILDER='' \
+          "$docker_cli" --host "$docker_endpoint" network prune \
+          --force --filter until=336h 2>&1); then
+          count=$(docker_deleted_networks "$output")
+          docker_network_report=$count
+          docker_success_count=$((docker_success_count + 1))
+          [[ "$output" == *'Deleted Networks:'* ]] && docker_deleted=1
+          log "docker networks: $count"
+        else
+          docker_prune_failure networks "$output"
+        fi
+        ;;
+    esac
+  }
+
+  docker_reclaimed_space() {
+    local value
+    value=$(printf '%s\n' "$1" | awk -F': ' '/^Total reclaimed space:/ { value=$2 } END { print value }')
+    [[ -n "$value" ]] && printf '%s\n' "$value" || printf '0B\n'
+  }
+
+  docker_deleted_networks() {
+    printf '%s\n' "$1" | awk '
+      /^Deleted Networks:$/ { listing=1; next }
+      listing && NF == 0 { exit }
+      listing { count++ }
+      END { print count + 0 }
+    '
+  }
+
+  # An empty BUILDX_BUILDER selects Docker's built-in default builder. The
+  # explicit host keeps this Buildx-backed command on the resolved daemon.
+  docker_prune builder cache
+  docker_prune image images
+  docker_prune network networks
+}
+docker_cleanup
+
 echo "$today" >"$STAMP"
 summary="omc: $omc_count, worktrees: $wt_count, branches: $br_count, trash: $trash_count, claude sessions: $claude_count, pi sessions: $pi_count, opencode sessions: $oc_count"
 [[ -n "$oc_db_report" ]] && summary+=", $oc_db_report"
+if ((docker_success_count > 0)); then
+  summary+=", Docker cache: ${docker_cache_report:-error}, Docker images: ${docker_image_report:-error}, Docker networks: ${docker_network_report:-error}"
+fi
 log "done — $summary"
 
-if [[ ( $((omc_count + wt_count + br_count + trash_count + claude_count + pi_count + oc_count)) -gt 0 || -n "$oc_db_report" ) &&
+if [[ ( $((omc_count + wt_count + br_count + trash_count + claude_count + pi_count + oc_count)) -gt 0 || -n "$oc_db_report" || "$docker_deleted" == 1 ) &&
   -z "${MORNING_CLEANUP_NO_NOTIFY:-}" ]] &&
   command -v osascript >/dev/null 2>&1; then
   osascript -e "display notification \"$summary\" with title \"Morning cleanup\"" 2>>"$LOG" || true
