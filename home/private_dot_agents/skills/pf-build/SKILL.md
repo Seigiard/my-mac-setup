@@ -29,7 +29,7 @@ Invoked as `/pf-build <epic-or-topic>` (the artifact directory's id: a topic slu
 
 ## Autonomy
 
-Run the whole loop autonomously — the user is away and will not answer mid-run. Never ask, never pause, never wait for input. Slicing, dispatching, validating, routing fixes to chain children, merging into the epic branch, and closing tasks are all yours. When something would normally prompt a question, make the most reasonable call and record the assumption in your status report. Genuinely-user decisions (scope changes, contract-spec changes, an approach contradicting the epic's goal, human-only override labels, the final merge to main) get **flagged and routed around** — a clear note for later, never a blocked loop.
+Run the whole loop autonomously — the user is away and will not answer mid-run. Never ask, never pause, never wait for input. Slicing, dispatching, validating, routing fixes to chain children, merging into the epic branch, and closing tasks are all yours. When something would normally prompt a question, make the most reasonable call and record the assumption in your status report. Genuinely-user decisions (scope changes, contract-spec changes, an approach contradicting the epic's goal, human-only override labels, the final merge to main) get **flagged and routed around** while independent work can advance; when none can, the blocked phase in Each pass takes over.
 
 ## Step 0 — Slice the work into sub-tasks
 
