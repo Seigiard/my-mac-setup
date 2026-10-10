@@ -33,6 +33,7 @@ context=""
 while (($#)); do
   case "$1" in
     --host|-H)
+      [[ $# -ge 2 ]] || exit 125
       host=$2
       shift 2
       ;;
@@ -45,6 +46,7 @@ while (($#)); do
       shift
       ;;
     --context|-c)
+      [[ $# -ge 2 ]] || exit 125
       context=$2
       shift 2
       ;;
@@ -57,6 +59,7 @@ while (($#)); do
       shift
       ;;
     --config)
+      [[ $# -ge 2 ]] || exit 125
       shift 2
       ;;
     --config=*)
@@ -88,6 +91,7 @@ if [[ "$command $subcommand" == "context inspect" ]]; then
   while (($#)); do
     case "$1" in
       --format|-f)
+        [[ $# -ge 2 ]] || exit 125
         format=$2
         shift 2
         ;;
@@ -172,11 +176,13 @@ while (($#)); do
     --force|-f|--force=true|-f=true) force=true; shift ;;
     -af|-fa) all=true; force=true; shift ;;
     --filter)
+      [[ $# -ge 2 ]] || exit 125
       [[ ${2:-} == until=* ]] && until=${2#until=}
       shift 2
       ;;
     --filter=until=*) until=${1#--filter=until=}; shift ;;
     --builder)
+      [[ $# -ge 2 ]] || exit 125
       builder=$2
       shift 2
       ;;

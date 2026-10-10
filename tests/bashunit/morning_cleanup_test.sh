@@ -50,6 +50,37 @@ run_cleanup_with_notifications() {
     "$@" bash "$SCRIPT"
 }
 
+run_docker_fixture() {
+  local timeout_seconds=10
+  # The parent turns a non-returning fixture process into status 124, which the
+  # callers reject explicitly instead of accepting as an arbitrary CLI error.
+  run perl -e '
+    my $seconds = shift @ARGV;
+    my $pid = fork;
+    die "fork failed: $!\n" unless defined $pid;
+    if ($pid == 0) {
+      exec @ARGV or exit 127;
+    }
+    $SIG{ALRM} = sub {
+      kill "TERM", $pid;
+      waitpid $pid, 0;
+      print STDERR "fixture command timed out\n";
+      exit 124;
+    };
+    alarm $seconds;
+    waitpid $pid, 0;
+    exit($? >> 8);
+  ' "$timeout_seconds" env \
+    MORNING_CLEANUP_DOCKER_FIXTURE=success \
+    MORNING_CLEANUP_DOCKER_CALLS="$DOCKER_CALLS" \
+    MORNING_CLEANUP_DOCKER_OBSERVED="$DOCKER_OBSERVED" \
+    MORNING_CLEANUP_DOCKER_CONTEXTS="$DOCKER_CONTEXTS" \
+    MORNING_CLEANUP_DOCKER_CURRENT="$DOCKER_CURRENT" \
+    DOCKER_HOST='unix:///tmp/morning-cleanup-fixture.sock' \
+    DOCKER_CONTEXT= BUILDX_BUILDER= \
+    "$FAKE_HOME/bin/docker" "$@"
+}
+
 install_docker_fixture() {
   local fixtures="$BATS_TEST_DIRNAME/helpers/morning-cleanup-docker"
   # Every script run also clears DOCKER_CONTEXT and supplies an inert Unix
@@ -809,6 +840,38 @@ function test_morning_cleanup_031_large_image_listing_still_notifies() {
   run cat "$DOCKER_NOTIFICATIONS"
   assert_success
   assert_output '-e display notification "omc: 0, worktrees: 0, branches: 0, trash: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0, Docker cache: 0B, Docker images: 42.5MB, Docker networks: 0" with title "Morning cleanup"'
+}
+
+function test_morning_cleanup_032_docker_fixture_rejects_a_missing_filter_value() {
+  _bats_test_init 32 'the Docker fixture rejects a missing --filter value and accepts its valid control'
+
+  # #given
+  run_docker_fixture builder prune --filter until=336h
+  # #when
+  assert_success
+  run cat "$DOCKER_CALLS"
+  assert_success
+  # #then
+  assert_output 'unix:///tmp/morning-cleanup-fixture.sock|builder|all=false|force=false|until=336h|builder=builtin'
+
+  run_docker_fixture builder prune --filter
+  assert_failure 125
+}
+
+function test_morning_cleanup_033_docker_fixture_rejects_a_missing_config_value() {
+  _bats_test_init 33 'the Docker fixture rejects a missing --config value and accepts its valid control'
+
+  # #given
+  run_docker_fixture --config "$FAKE_HOME/.docker" builder prune --filter until=336h
+  # #when
+  assert_success
+  run cat "$DOCKER_CALLS"
+  assert_success
+  # #then
+  assert_output 'unix:///tmp/morning-cleanup-fixture.sock|builder|all=false|force=false|until=336h|builder=builtin'
+
+  run_docker_fixture --config
+  assert_failure 125
 }
 
 function set_up_before_script() {
