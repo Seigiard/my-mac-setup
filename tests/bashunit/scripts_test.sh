@@ -3768,6 +3768,11 @@ SH
 }
 
 child_start() {
+  local -a start_args=("$@")
+  case " ${start_args[*]} " in
+    *" --tab "*|*" --label "*) ;;
+    *) start_args+=(--direction right) ;;
+  esac
   # The pane-busy tests assert how many start attempts happen, never how far
   # apart they are, so the shipped one-second spacing is pure scaffolding here.
   env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -3777,17 +3782,22 @@ child_start() {
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
     HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
     HERDR_CHILD_TEST_WATCHER_RELEASE="$CHILD_STUB/release-watcher" \
-    bash "$HERDR_CHILD" start "$@" --prompt "test task"
+    bash "$HERDR_CHILD" start "${start_args[@]}" --prompt "test task"
 }
 
 child_start_with_default_initial_delay() {
+  local -a start_args=("$@")
+  case " ${start_args[*]} " in
+    *" --tab "*|*" --label "*) ;;
+    *) start_args+=(--direction right) ;;
+  esac
   env -u HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY PATH="$CHILD_STUB:$PATH" \
     HERDR_ENV=1 HERDR_PANE_ID=wT:p0 STUB_START_CONTEXT=1 \
     HERDR_CHILD_PANE_BUSY_RETRY_DELAY=0.01 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
     HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
     HERDR_CHILD_TEST_WATCHER_RELEASE="$CHILD_STUB/release-watcher" \
-    bash "$HERDR_CHILD" start "$@" --prompt "test task"
+    bash "$HERDR_CHILD" start "${start_args[@]}" --prompt "test task"
 }
 
 child_started_name() {
@@ -4189,13 +4199,18 @@ SH
 }
 
 child_lifecycle_start() {
+  local -a start_args=("$@")
+  case " ${start_args[*]} " in
+    *" --tab "*|*" --label "*) ;;
+    *) start_args+=(--direction right) ;;
+  esac
   env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
     HERDR_CHILD_TEST_REAP_OWNER_VERIFIED="${HERDR_CHILD_TEST_REAP_OWNER_VERIFIED:-}" \
     HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
     HERDR_CHILD_POLL_INTERVAL=0.01 HERDR_CHILD_TEST_SKIP_RETRY_SLEEP=1 \
     bash "$HERDR_CHILD" start --kind claude --detach \
-    --prompt "test task" "$@"
+    --prompt "test task" "${start_args[@]}"
 }
 
 child_wait_for_log() {
@@ -4240,7 +4255,7 @@ function test_scripts_021_herdr_child_requires_a_subcommand_and_herdr_envi() {
 
   child_stub_herdr
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV= HERDR_PANE_ID=wT:p0 \
-    bash "$HERDR_CHILD" start --kind claude --wait --prompt task
+    bash "$HERDR_CHILD" start --kind claude --direction right --wait --prompt task
   # Any non-zero status also accepts an argument-parse crash or the mode guard,
   # and then the absent calls.log proves nothing about which guard fired.
   assert_failure 1
@@ -4290,15 +4305,51 @@ function test_scripts_024_herdr_child_validates_tab_placement_before_herdr() {
   assert_failure 2
   assert_output --partial "--tab cannot be combined with --direction"
   assert_file_not_exists "$CHILD_STUB/calls.log"
+}
 
-  run child_start --kind claude --label mylabel --wait
+function test_scripts_0241_herdr_child_allows_a_label_with_default_tab_placement() {
+  _bats_test_init 241 'herdr-child allows a tab label without an explicit tab flag'
+  # #given
+  child_stub_herdr
+
+  # #when
+  HERDR_WORKSPACE_ID=w1 run child_start --kind claude --label mylabel --wait
+
+  # #then
+  assert_success
+  assert_file_contains "$CHILD_STUB/calls.log" '^tab create --workspace w1.*--label mylabel'
+}
+
+function test_scripts_0242_herdr_child_rejects_a_label_with_explicit_pane_placement() {
+  _bats_test_init 242 'herdr-child rejects a tab label combined with explicit pane placement'
+  # #given
+  child_stub_herdr
+
+  # #when
+  HERDR_WORKSPACE_ID=w1 run child_start --kind claude --label mylabel --direction right --wait
+
+  # #then
   assert_failure 2
-  assert_output --partial "--label is only valid with --tab"
+  assert_output --partial "--label cannot be combined with --direction"
   assert_file_not_exists "$CHILD_STUB/calls.log"
+}
 
-  run child_start --kind claude --tab --wait
+function test_scripts_0243_herdr_child_requires_a_workspace_for_default_tab_placement() {
+  _bats_test_init 243 'herdr-child rejects default tab placement without a workspace before Herdr mutation'
+  # #given
+  child_stub_herdr
+
+  # #when
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 STUB_START_CONTEXT=1 \
+    HERDR_CHILD_PANE_BUSY_RETRY_DELAY=0.01 HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+    HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
+    HERDR_CHILD_TEST_WATCHER_RELEASE="$CHILD_STUB/release-watcher" \
+    bash "$HERDR_CHILD" start --kind claude --wait --prompt "test task"
+
+  # #then
   assert_failure 2
-  assert_output --partial "--tab requires HERDR_WORKSPACE_ID"
+  assert_output --partial "default tab placement requires HERDR_WORKSPACE_ID"
   assert_file_not_exists "$CHILD_STUB/calls.log"
 }
 
@@ -4338,7 +4389,7 @@ function test_scripts_025_herdr_child_validates_launch_and_supervision_tim() {
 
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$HERDR_CHILD" start --kind claude --detach \
-    --prompt "test task" --supervision-timeout
+    --direction right --prompt "test task" --supervision-timeout
   assert_failure 2
   assert_output --partial "--supervision-timeout needs a value"
   assert_file_not_exists "$CHILD_STUB/calls.log"
@@ -4444,7 +4495,7 @@ function test_scripts_1244_herdr_child_creates_through_the_wrapper_beside_it() {
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
     HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
     HERDR_CHILD_TEST_WATCHER_RELEASE="$CHILD_STUB/release-watcher" \
-    bash "$deployed" start --kind claude --wait --prompt "test task"
+    bash "$deployed" start --kind claude --direction right --wait --prompt "test task"
   assert_success
 
   # The creation reached the sibling wrapper even though PATH resolves a
@@ -4675,7 +4726,7 @@ import time
 stub = Path(os.environ['CHILD_STUB'])
 proc = subprocess.Popen(
     ['bash', os.environ['CHILD_SCRIPT'], 'start', '--kind', 'opencode',
-     '--detach', '--timeout', '60000', '--prompt', 'test task'],
+     '--detach', '--direction', 'right', '--timeout', '60000', '--prompt', 'test task'],
     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
 )
 try:
@@ -4722,7 +4773,7 @@ import time
 stub = Path(os.environ['CHILD_STUB'])
 script = os.environ['CHILD_SCRIPT']
 launcher = subprocess.Popen(
-    ['bash', script, 'start', '--kind', 'opencode', '--detach', '--timeout', '5000', '--prompt', 'test task'],
+    ['bash', script, 'start', '--kind', 'opencode', '--detach', '--direction', 'right', '--timeout', '5000', '--prompt', 'test task'],
     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
 )
 processes = [launcher]
@@ -4813,7 +4864,7 @@ function test_scripts_030_herdr_child_detached_arm_failure_preserves_the_c() {
     HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
     HERDR_CHILD_TEST_ARM_BARRIER="$CHILD_STUB/arm" \
     bash "$HERDR_CHILD" start --kind claude --detach \
-    --prompt "test task" >"$CHILD_STUB/start.out" 2>"$CHILD_STUB/start.err" &
+    --direction right --prompt "test task" >"$CHILD_STUB/start.out" 2>"$CHILD_STUB/start.err" &
   local launcher_pid=$!
   child_wait_for_file "$CHILD_STUB/arm.ready"
   set -- "$CHILD_STUB/state/runs/"*
@@ -4858,7 +4909,7 @@ import time
 
 stub = Path(os.environ["CHILD_STUB"])
 proc = subprocess.Popen(
-    ["bash", os.environ["CHILD_SCRIPT"], "start", "--kind", "claude", "--detach", "--prompt", "test task"],
+    ["bash", os.environ["CHILD_SCRIPT"], "start", "--kind", "claude", "--detach", "--direction", "right", "--prompt", "test task"],
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
     text=True,
@@ -4921,7 +4972,7 @@ child_signal = getattr(signal, "SIG" + os.environ["CHILD_SIGNAL"])
 previous_handler = signal.signal(child_signal, signal.SIG_DFL)
 try:
     proc = subprocess.Popen(
-        ["bash", os.environ["CHILD_SCRIPT"], "start", "--kind", "claude", "--detach", "--prompt", "test task"],
+        ["bash", os.environ["CHILD_SCRIPT"], "start", "--kind", "claude", "--detach", "--direction", "right", "--prompt", "test task"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -4978,7 +5029,7 @@ import time
 
 stub = Path(os.environ["CHILD_STUB"])
 proc = subprocess.Popen(
-    ["bash", os.environ["CHILD_SCRIPT"], "start", "--kind", "claude", "--detach", "--prompt", "test task"],
+    ["bash", os.environ["CHILD_SCRIPT"], "start", "--kind", "claude", "--detach", "--direction", "right", "--prompt", "test task"],
     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=os.environ.copy())
 for _ in range(1000):
     if (stub / "arm.ready").exists():
@@ -5016,7 +5067,7 @@ import time
 
 stub = Path(os.environ["CHILD_STUB"])
 proc = subprocess.Popen(
-    ["bash", os.environ["CHILD_SCRIPT"], "start", "--kind", "claude", "--detach", "--prompt", "test task"],
+    ["bash", os.environ["CHILD_SCRIPT"], "start", "--kind", "claude", "--detach", "--direction", "right", "--prompt", "test task"],
     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=os.environ.copy())
 for _ in range(1000):
     if (stub / "post-arm.ready").exists():
@@ -5049,7 +5100,7 @@ function test_scripts_0331_herdr_child_post_arm_barrier_is_bounded() {
     HERDR_CHILD_TEST_WATCHER_RELEASE="$CHILD_STUB/release-watcher" \
     HERDR_CHILD_TEST_LAUNCH_POST_ARM_BARRIER="$CHILD_STUB/post-arm" \
     HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS=1 \
-    bash "$HERDR_CHILD" start --kind claude --detach --prompt "test task" \
+    bash "$HERDR_CHILD" start --kind claude --detach --direction right --prompt "test task" \
     >"$CHILD_STUB/post-arm.out" 2>"$CHILD_STUB/post-arm.err" &
   launcher_pid=$!
   child_wait_for_file "$CHILD_STUB/post-arm.ready"
@@ -6457,9 +6508,9 @@ function test_scripts_063_herdr_child_rejects_native_options_that_the_sele() {
 }
 
 function test_scripts_064_herdr_child_splits_starts_and_prompts_in_order_w() {
-  _bats_test_init 64 'herdr-child splits, starts, and prompts in order with both coordinates'
+  _bats_test_init 64 'herdr-child explicitly splits, starts, and prompts in order with both coordinates'
   child_stub_herdr
-  STUB_REQUIRE_SPLIT=1 run child_start --kind claude --wait --timeout 5000
+  STUB_REQUIRE_SPLIT=1 run child_start --kind claude --direction right --wait --timeout 5000
   assert_success
   local child_name call1 call2 call3 call4 call5 call6
   child_name="$(child_started_name)"
@@ -6475,6 +6526,26 @@ function test_scripts_064_herdr_child_splits_starts_and_prompts_in_order_w() {
   [[ "$call4" == agent\ list* ]] || fail "unexpected fourth herdr-child call: $call4"
   [[ "$call5" == pane\ get*wT:p9* ]] || fail "unexpected fifth herdr-child call: $call5"
   [[ "$call6" == agent\ prompt*"$child_name"*wT:p9*wT:p0*--wait*--timeout\ 5000* ]] || fail "unexpected sixth herdr-child call: $call6"
+}
+
+function test_scripts_0641_herdr_child_uses_a_tab_by_default() {
+  _bats_test_init 641 'herdr-child creates a tab rather than a pane split when no placement is selected'
+  # #given
+  child_stub_herdr
+
+  # #when
+  HERDR_WORKSPACE_ID=w1 run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    STUB_START_CONTEXT=1 HERDR_CHILD_PANE_BUSY_RETRY_DELAY=0.01 \
+    HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
+    HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
+    HERDR_CHILD_TEST_WATCHER_RELEASE="$CHILD_STUB/release-watcher" \
+    bash "$HERDR_CHILD" start --kind claude --wait --prompt "test task"
+
+  # #then
+  assert_success
+  run grep -E '^(tab create|pane split)' "$CHILD_STUB/calls.log"
+  assert_success
+  assert_output --regexp '^tab create --workspace w1 .*$'
 }
 
 function test_scripts_065_herdr_child_tab_mode_records_ownership_before_st() {
@@ -6558,9 +6629,10 @@ import time
 
 stub = Path(os.environ["CHILD_STUB"])
 extra = shlex.split(os.environ["CHILD_EXTRA_ARGS"])
+placement = [] if "--tab" in extra else ["--direction", "right"]
 proc = subprocess.Popen(
     ["bash", os.environ["CHILD_SCRIPT"], "start", "--kind", "claude", "--wait",
-     "--prompt", "test task"] + extra,
+     "--prompt", "test task"] + placement + extra,
     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=os.environ.copy())
 for _ in range(1000):
     if (stub / "split-captured.ready").exists():
@@ -7463,7 +7535,7 @@ herdr_child_alias_launch() {
     HERDR_CHILD_STATE_DIR="$work/state" HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 \
     HERDR_CHILD_TEST_WATCHER_PID_FILE="$work/watcher.pid" \
     HERDR_CHILD_TEST_WATCHER_RELEASE="$work/release-watcher" \
-    bash "$HERDR_CHILD" start --kind claude --detach --prompt 'alias degradation task'
+    bash "$HERDR_CHILD" start --kind claude --detach --direction right --prompt 'alias degradation task'
 }
 
 # A silent allocator is the common state, not the rare one: chezmoi deploys this
@@ -8093,7 +8165,7 @@ function test_scripts_261_herdr_child_watcher_at_arm_barrier_exits_when_la() {
     HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
     HERDR_CHILD_TEST_ARM_BARRIER="$CHILD_STUB/arm" \
     bash "$HERDR_CHILD" start --kind claude --detach \
-    --prompt "test task" > /dev/null 2>&1 &
+    --direction right --prompt "test task" > /dev/null 2>&1 &
   local launcher_pid=$!
   local attempt=0
   while [ ! -e "$CHILD_STUB/arm.ready" ] && [ "$attempt" -lt 500 ]; do
@@ -8153,7 +8225,7 @@ function test_scripts_263_herdr_child_watcher_release_hold_is_bounded() {
     HERDR_CHILD_TEST_WATCHER_RELEASE="$CHILD_STUB/release-watcher" \
     HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS=1 \
     bash "$HERDR_CHILD" start --kind claude --detach \
-    --prompt "test task"
+    --direction right --prompt "test task"
   assert_success
   local watcher_pid
   watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
