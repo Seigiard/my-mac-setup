@@ -10,7 +10,7 @@ Count the readers, and note when they read it.
 |---|---|---|
 | Every session, unconditionally | `~/.claude/CLAUDE.md`, the writing-style output style | global instructions, language and reply style |
 | Two or more skills, or one pointer from an always-loaded document | **here**, `~/.claude/shared/<name>.md` | `pf-cycle.md`, `child-agent-contract.md`, `long-running-work.md`, `testing.md`, `comments.md` |
-| Exactly one skill | that skill's own `references/` | `pf-build/references/chain-ticket.md`, `pf-build/references/demo.md` |
+| Exactly one skill | that skill's own `references/` | `pf-build/references/implementer-prompt.md`, `pf-build/references/demo.md` |
 
 The writing-style output style is listed above as a home, not as content. `dfd01db` stripped its body and kept the wiring, so it currently carries nothing in any of the three clients that include it. That is deliberate, not a missing file.
 
