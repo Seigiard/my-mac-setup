@@ -15,9 +15,6 @@ reserves names managed from `home/private_dot_agents/skills/`. Claude Code
 receives symlink adapters under `~/.claude/skills`; OpenCode and Pi discover
 `~/.agents/skills` natively. No effective skill name may have both owners.
 
-`open-questions` is explicit-only: Claude and Pi receive a manual skill
-adapter, while OpenCode receives a command adapter only.
-
 `code-review` is the default code-review skill for all three clients. This
 repository-owned workflow picks a review route, delegates accepted fixes to
 fresh `tdd` chain children, and keeps verification with the caller.

@@ -127,7 +127,7 @@ Adding a managed config, step by step:
 
 - `home/private_dot_config/agent-skills/manifest` is the source of truth for selected upstream skills. Use `~/.local/bin/skills {add|remove|update|sync}` to manage the live global installation; `sync` applies declared wildcard exclusions but never removes other drift automatically.
 - `home/private_dot_agents/skills/` is chezmoi's canonical storage for repository-owned model-invocable skills. The Skills CLI owns separate children in `~/.agents/skills` and records their ownership in its global lock; do not let either owner claim the same effective skill name.
-- `open-questions` is an explicit-only Claude/Pi adapter with an OpenCode command adapter. Client plugins retain non-skill functionality only. Restart Claude Code, OpenCode, and Pi after deployment or discovery changes.
+- Client plugins retain non-skill functionality only. Restart Claude Code, OpenCode, and Pi after deployment or discovery changes.
 
 </important>
 
@@ -143,7 +143,7 @@ Package the canonical content through three thin adapters:
 
 Use raw `include` with the explicit `.chezmoitemplates/<file>` path so literal Markdown and Go-template syntax remain data. Do not use `includeTemplate`, which executes the included content. Treat `$ARGUMENTS`, `$<digits>`, and unquoted `@path` as reserved OpenCode command syntax; a workflow that must preserve these sequences literally needs client-specific content instead.
 
-Keep `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` in `home/dot_zshenv.tmpl` so OpenCode cannot discover the Claude-only adapters. Do not set `OPENCODE_DISABLE_EXTERNAL_SKILLS`; OpenCode must discover shared `~/.agents/skills` natively. After deployment, restart each client from the managed zsh environment before checking discovery. Add the workflow name to the `explicit-only workflows keep manual invocation boundaries` case in `tests/bashunit/smoke_test.sh`. These template and managed-path changes are deployment-sensitive; follow `docs/agent-verification.md`.
+Keep `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` in `home/dot_zshenv.tmpl` so OpenCode cannot discover the Claude-only adapters. Do not set `OPENCODE_DISABLE_EXTERNAL_SKILLS`; OpenCode must discover shared `~/.agents/skills` natively. After deployment, restart each client from the managed zsh environment before checking discovery. Add a workflow-specific smoke check for each new workflow's manual invocation boundary. Keep the OpenCode skill-discovery boundary check in `tests/bashunit/smoke_test.sh`. These template and managed-path changes are deployment-sensitive; follow `docs/agent-verification.md`.
 
 </important>
 

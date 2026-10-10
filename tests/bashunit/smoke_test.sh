@@ -394,46 +394,8 @@ function test_smoke_019_clients_resolve_model_invocable_skills_from_agents() {
   assert test "$skill_count" -gt 0
 }
 
-function test_smoke_020_explicit_only_workflow_keeps_manual_invocation_b() {
-  _bats_test_init 20 'explicit-only workflow keeps manual invocation boundaries'
-  local workflow claude_skill pi_skill opencode_command opencode_skill
-
-  for workflow in open-questions; do
-    claude_skill="$HOME/.claude/skills/$workflow/SKILL.md"
-    pi_skill="$HOME/.pi/agent/skills/$workflow"
-    opencode_command="$HOME/.config/opencode/commands/$workflow.md"
-    opencode_skill="$HOME/.config/opencode/skills/$workflow"
-
-    assert_file_exists "$claude_skill"
-    run awk '
-      NR == 1 { if ($0 != "---") exit 1; frontmatter = 1; next }
-      frontmatter && $0 == "---" { frontmatter = 0; closed = 1; next }
-      frontmatter && /^disable-model-invocation:/ { keys++ }
-      frontmatter && $0 == "disable-model-invocation: true" { valid++ }
-      END { exit !(closed && keys == 1 && valid == 1) }
-    ' "$claude_skill"
-    assert_success
-
-    run readlink "$pi_skill"
-    assert_success
-    assert_output "$HOME/.claude/skills/$workflow"
-    assert_file_exists "$pi_skill/SKILL.md"
-
-    assert_file_exists "$opencode_command"
-    run awk '
-      NR == 1 { if ($0 != "---") exit 1; frontmatter = 1; next }
-      frontmatter && $0 == "---" { frontmatter = 0; closed = 1; next }
-      frontmatter && /^description: ".+"$/ { description = 1 }
-      closed && NF { body = 1 }
-      END { exit !(closed && description && body) }
-    ' "$opencode_command"
-    assert_success
-
-    if [[ -e "$opencode_skill" || -L "$opencode_skill" ]]; then
-      fail "explicit-only workflow exposed as native OpenCode skill: $opencode_skill"
-    fi
-  done
-
+function test_smoke_020_opencode_keeps_skill_discovery_boundaries() {
+  _bats_test_init 20 'OpenCode keeps skill discovery boundaries'
   run zsh -dfc 'unset OPENCODE_DISABLE_EXTERNAL_SKILLS OPENCODE_DISABLE_CLAUDE_CODE_SKILLS; source "$1"; zsh -dfc "$2"' _ "$HOME/.zshenv" '[[ -z "${OPENCODE_DISABLE_EXTERNAL_SKILLS:-}" && "$OPENCODE_DISABLE_CLAUDE_CODE_SKILLS" == 1 ]]'
   assert_success
 }
