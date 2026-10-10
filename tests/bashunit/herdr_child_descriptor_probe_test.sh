@@ -96,10 +96,12 @@ env.update({
     "HERDR_CHILD_TEST_WATCHER_PID_FILE": str(work / "watcher.pid"),
     "HERDR_CHILD_TEST_WATCHER_RELEASE": str(work / "release-watcher"),
 })
+# The probe exercises a parent-side launcher even when its test runner is a child.
+env.pop("HERDR_CHILD_PARENT_PANE", None)
 control_read, control_write = os.pipe()
 os.set_inheritable(control_write, True)
 proc = subprocess.Popen(
-    ["bash", os.environ["HCD_CHILD"], "start", "--kind", "claude", "--detach", "--prompt", "descriptor task"],
+    ["bash", os.environ["HCD_CHILD"], "start", "--kind", "claude", "--direction", "right", "--detach", "--prompt", "descriptor task"],
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
     text=True,
