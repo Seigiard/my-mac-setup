@@ -779,6 +779,38 @@ function test_morning_cleanup_029_buildx_zero_space_row_is_a_deletion() {
   assert_output $'calls=1\nmessage=summary\ntitle=Morning cleanup'
 }
 
+function test_morning_cleanup_030_large_cache_listing_still_notifies() {
+  _bats_test_init 30 'a large cache-only Buildx deletion listing still sends its combined notification'
+
+  # #given
+  run_cleanup_with_notifications MORNING_CLEANUP_DOCKER_FIXTURE=large-cache-only
+  # #when
+  assert_success
+  run last_summary
+  assert_success
+  # #then
+  assert_output 'omc: 0, worktrees: 0, branches: 0, trash: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0, Docker cache: 1.25GB, Docker images: 0B, Docker networks: 0'
+  run cat "$DOCKER_NOTIFICATIONS"
+  assert_success
+  assert_output '-e display notification "omc: 0, worktrees: 0, branches: 0, trash: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0, Docker cache: 1.25GB, Docker images: 0B, Docker networks: 0" with title "Morning cleanup"'
+}
+
+function test_morning_cleanup_031_large_image_listing_still_notifies() {
+  _bats_test_init 31 'a large image-only deletion listing still sends its combined notification'
+
+  # #given
+  run_cleanup_with_notifications MORNING_CLEANUP_DOCKER_FIXTURE=large-image-only
+  # #when
+  assert_success
+  run last_summary
+  assert_success
+  # #then
+  assert_output 'omc: 0, worktrees: 0, branches: 0, trash: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0, Docker cache: 0B, Docker images: 42.5MB, Docker networks: 0'
+  run cat "$DOCKER_NOTIFICATIONS"
+  assert_success
+  assert_output '-e display notification "omc: 0, worktrees: 0, branches: 0, trash: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0, Docker cache: 0B, Docker images: 42.5MB, Docker networks: 0" with title "Morning cleanup"'
+}
+
 function set_up_before_script() {
   :
 }

@@ -225,6 +225,30 @@ case "$mode:$resource" in
     ;;
   zero-space-deletion:network|legacy-zero-space-deletion:network)
     ;;
+  large-cache-only:builder)
+    printf 'ID\tRECLAIMABLE\tSIZE\tLAST ACCESSED\n'
+    for ((i = 0; i < 20000; i++)); do
+      printf 'cache-%05d-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\ttrue\t1B\t15 days ago\n' "$i"
+    done
+    printf 'Total:\t1.25GB\n'
+    ;;
+  large-cache-only:image)
+    printf 'Total reclaimed space: 0B\n'
+    ;;
+  large-cache-only:network)
+    ;;
+  large-image-only:builder)
+    printf 'Total:\t0B\n'
+    ;;
+  large-image-only:image)
+    printf 'Deleted Images:\n'
+    for ((i = 0; i < 20000; i++)); do
+      printf 'deleted: sha256:image-%05d-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n' "$i"
+    done
+    printf '\nTotal reclaimed space: 42.5MB\n'
+    ;;
+  large-image-only:network)
+    ;;
   *:builder)
     printf 'ID\tRECLAIMABLE\tSIZE\tLAST ACCESSED\ncache-old\ttrue\t1.25GB\t15 days ago\nTotal:\t1.25GB\n'
     ;;
