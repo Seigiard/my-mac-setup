@@ -168,18 +168,12 @@ Before delegation, run `tdd`'s "Before the chain" in the run directory when it h
 `ticket.md`; this performs the clean-tree check and defines the review scope and goal. For
 this round's routed findings, run `tdd` steps 1-2 in that same directory: apply the oracle
 gate, record seams, allowed test paths, test command, and applicable checks. Run these steps
-for every round, whether the directory is new or reused. For a code-only route, record
-`base_sha`; when `lock.json` exists, use its existing lock for steps 4 and 5, otherwise use
-the checks-only path.
+for every round, whether the directory is new or reused.
 
 Fix the mechanism, including matching in-scope occurrences, rather than only the quoted
-example. Follow the repository's test-oracle gate before adding or changing tests. Route a
-behavior gap to one fresh test writer, re-lock, then one fresh implementer. Route a code-only
-finding to one fresh implementer. Use one child per role per round, never one per finding; enter
-through the `tdd` skill's "Entering mid-chain" section and use its roles, tiers, and escalation
-ladder. Run the applicable checks after each coherent fix batch. A failed check is a `tdd` step
-5 rejection: use its restore and escalation ladder, and report what remains after a failure on
-high.
+example. Route each coherent finding batch through `tdd`'s "Entering mid-chain" section. It owns
+the test-oracle gate, child modes, tiers, repair budgets, calibration, and failure routing. Use a
+fresh child per phase, not one per finding.
 
 Children commit fixes on the reviewed branch. Before the first delegation, require a clean
 worktree; when in-scope work is uncommitted, report the dirty paths and stop. Pushes and PR
@@ -188,10 +182,10 @@ report-only.
 
 When no child can start, report the reason and stop. The caller never writes a fix itself.
 
-The caller verifies the result: when `lock.json` exists, run the `tdd` step 5 lock diff check
-against its existing lock; otherwise use the checks-only validation. Then run the green test
-command, applicable checks from repository verification rules, and the clean-worktree check. A
-child's report is not evidence. The caller still checks styling in step 3.
+The caller verifies the result through the complete `tdd` step 5, including any planned test
+calibration and its routing rules. Use the existing lock when `lock.json` exists; otherwise use
+checks-only validation. A child's report is not evidence. The caller still checks styling in
+code-review's own step 3.
 
 ## 5. Repeat or finish
 
