@@ -2100,14 +2100,14 @@ esac
 SH
   chmod +x "$native_bin/herdr"
 
-  run env PATH="$front_bin:$native_bin:$PATH" HERDR_ENV=1 HERDR_PANE_ID=w1:pA \
+  run env -u HERDR_CHILD_PARENT_PANE PATH="$front_bin:$native_bin:$PATH" HERDR_ENV=1 HERDR_PANE_ID=w1:pA \
     HERDR_BIN_PATH="$native_bin/herdr" HERDR_SOCKET_PATH="$TREE_WORK/herdr.sock" \
     HERDR_RESOURCE_TREE_STATE_DIR="$TREE_WORK/integration-state" \
     HERDR_RESOURCE_TREE_CLI="$front_bin/herdr-resource-tree" \
     HERDR_CHILD_STATE_DIR="$TREE_WORK/child-state" HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 \
     HERDR_ALIAS_TEST_SEED=resource-tree TREE_WRAPPER="$HERDR_WRAPPER" \
     TREE_RESOURCE_CLI="$TREE_CLI" TREE_WORK="$TREE_WORK" TREE_CALLS="$TREE_CALLS" \
-    bash "$HERDR_CHILD" start --kind opencode --wait --prompt 'test task'
+    bash "$HERDR_CHILD" start --kind opencode --direction right --wait --prompt 'test task'
   assert_success
   assert_output --partial '"pane":"w1:pB"'
 
@@ -2150,7 +2150,7 @@ assert tree["branch"]["parent"]["session"]["value"] == "session-A"
 PY
   assert_success
 
-  run env PATH="$front_bin:$native_bin:$PATH" HERDR_ENV=1 HERDR_PANE_ID=w1:pA \
+  run env -u HERDR_CHILD_PARENT_PANE PATH="$front_bin:$native_bin:$PATH" HERDR_ENV=1 HERDR_PANE_ID=w1:pA \
     HERDR_WORKSPACE_ID=w1 HERDR_BIN_PATH="$native_bin/herdr" \
     HERDR_SOCKET_PATH="$TREE_WORK/herdr.sock" TREE_MODE=tab \
     HERDR_RESOURCE_TREE_STATE_DIR="$TREE_WORK/integration-tab-state" \

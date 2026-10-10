@@ -56,7 +56,7 @@ Pick the executor by what the item needs, and default to the middle rung:
 |---|---|
 | Yourself, inline | One or two files, where a worker costs more than the work |
 | A fresh subagent | The default: one worker per item, clean context |
-| A visible pane | Long items, or anything running an observable process — load the `herdr` skill when `HERDR_ENV=1` |
+| A visible tab | Long items, or anything running an observable process — load the `herdr` skill when `HERDR_ENV=1` |
 
 Hand the worker five things and nothing else:
 

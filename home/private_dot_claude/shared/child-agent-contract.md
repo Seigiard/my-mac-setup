@@ -185,6 +185,8 @@ A tab with two panes remained with `pane_count: 1` after one pane closed. Tab re
 
 ## Launch and continuation modes
 
+Managed starts use a new tab by default because narrow panes can make OpenCode hang at 100% CPU. Pass `--direction right|down` only when an explicit pane split is required; `--tab` is accepted as an explicit spelling of the default.
+
 Every managed start and ordinary follow-up chooses exactly one lifecycle mode.
 
 ```bash
@@ -208,7 +210,7 @@ OpenCode and Pi may create their session only after the first prompt. Their deta
 
 After prompt acceptance, detached `start`, `prompt`, or `reply` can return nonzero with recovery JSON instead of closing the child. The child may be preserved even though supervision failed to arm. Do not retry `start`: first inspect the returned alias-plus-pane pair with `herdr agent get <pane-id>` and read its output. Rearm supervision with a managed `herdr-child prompt --detach`, or run `herdr-child reap --to <alias> --pane <pane-id>` when the child is settled and no continuation is needed.
 
-`--tab [--label TEXT]` is orthogonal to `--wait|--detach`: it changes placement, not lifecycle. It creates a new tab in `HERDR_WORKSPACE_ID`, returns its id as `"tab"`, and cannot be combined with `--direction`. The optional label is presentation metadata and may later be reconciled by Herdr's label sweep.
+`--tab [--label TEXT]` is orthogonal to `--wait|--detach`: it changes placement, not lifecycle. It creates a new tab in `HERDR_WORKSPACE_ID`, returns its id as `"tab"`, and cannot be combined with `--direction`. Omitting both placement flags has the same tab behavior. The optional label is presentation metadata and may later be reconciled by Herdr's label sweep.
 
 Use `herdr-child prompt`, not raw `herdr agent prompt`, for ordinary managed follow-ups. `reply` owns decision follow-ups and automatically preserves detached supervision when the child has a live detached generation.
 

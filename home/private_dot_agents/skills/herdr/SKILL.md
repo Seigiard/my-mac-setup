@@ -1,6 +1,6 @@
 ---
 name: herdr
-description: "Drive herdr, the terminal multiplexer, from your pane via the `herdr` CLI. Use when starting a long-running or observable process (dev server, test watcher, log tail, build), reading or waiting on another pane's output, or spawning and steering a peer coding agent. Requires HERDR_ENV=1."
+description: "Drive herdr, the terminal multiplexer, from your pane via the `herdr` CLI. Use when starting a long-running or observable process (dev server, test watcher, log tail, build), reading or waiting on another tab's output, or spawning and steering a peer coding agent. Requires HERDR_ENV=1."
 ---
 
 # herdr — agent control skill
@@ -31,14 +31,14 @@ IDs are opaque strings, not small integers: workspace `w4`, tab `w4:t9`, pane `w
 - `terminal_id` (`term_…`) recognizes the same agent across renumbering. Agent commands do not accept it; they take a unique live agent alias or the hosting pane id.
 - herdr injects your coordinates as `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, `HERDR_PANE_ID`. Target with `--current`, an explicit id, or a unique agent alias. An omitted target may resolve to the UI-focused pane, which can belong to the user or another client.
 
-## Run a command in a sibling pane
+## Run a command in a new tab
 
-Default to a sibling pane in the current tab and the current working directory. Create a workspace, tab, worktree, or different cwd only when the user asks. Split a wide pane right and a narrow or tall pane down; repeated same-direction splits make unusable columns. `--no-focus` keeps the user's focus where it is.
+Default to a new tab in the current workspace and the current working directory. Tabs are the default because narrow panes can make OpenCode hang at 100% CPU. Create a workspace, worktree, or different cwd only when the user asks. Use an explicit pane split only when the user asks for one. `--no-focus` keeps the user's focus where it is.
 
 ```bash
-NEW_PANE=$(herdr pane split --current --direction right --cwd "$PWD" --no-focus \
-  | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
-herdr pane run "$NEW_PANE" "npm run dev"
+NEW_TAB=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" --no-focus \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["result"]["root_pane"]["pane_id"])')
+herdr pane run "$NEW_TAB" "npm run dev"
 ```
 
 `pane run` types the text and a real Enter in one request.
