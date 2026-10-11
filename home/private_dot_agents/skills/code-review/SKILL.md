@@ -164,16 +164,16 @@ and the `good-css` results briefly, then act without another approval prompt:
   batch and explain why. Keep `pre_existing` and `immaterial` separate. An unresolved
   critical or major remains a blocker; skipping it does not make the review clean.
 
-Before delegation, run `tdd`'s "Before the chain" in the run directory when it has no
-`ticket.md`; this performs the clean-tree check and defines the review scope and goal. For
-this round's routed findings, run `tdd` steps 1-2 in that same directory: apply the oracle
-gate, record seams, allowed test paths, test command, and applicable checks. Run these steps
-for every round, whether the directory is new or reused.
+Before the first delegation, run `tdd`'s "Before the chain" in the run directory when it has no
+`ticket.md`; this performs the clean-tree check and defines the review scope and goal.
 
 Fix the mechanism, including matching in-scope occurrences, rather than only the quoted
-example. Route each coherent finding batch through `tdd`'s "Entering mid-chain" section. It owns
-the test-oracle gate, child modes, tiers, repair budgets, calibration, and failure routing. Use a
-fresh child per phase, not one per finding.
+example. Each round's routed findings form one `tdd` batch: run `tdd` steps 1-2 for them in the
+existing run directory, reusing the fields an earlier batch recorded when they are unchanged,
+then enter through `tdd`'s "Entering mid-chain" section. A **behavior gap** or a **suspect
+test** gets a test writer; every other supported finding is **code-only** and goes to one
+implementer against the existing lock, or checks-only when there is none. `tdd` owns the child
+modes, tiers, calibration, turn budget, and the response to a failure.
 
 Children commit fixes on the reviewed branch. Before the first delegation, require a clean
 worktree; when in-scope work is uncommitted, report the dirty paths and stop. Pushes and PR
@@ -183,9 +183,8 @@ report-only.
 When no child can start, report the reason and stop. The caller never writes a fix itself.
 
 The caller verifies the result through the complete `tdd` step 5, including any planned test
-calibration and its routing rules. Use the existing lock when `lock.json` exists; otherwise use
-checks-only validation. A child's report is not evidence. The caller still checks styling in
-code-review's own step 3.
+calibration, on `tdd`'s evidence rules: a child's verdict is not evidence, its logs are. The
+caller still checks styling in code-review's own step 3.
 
 ## 5. Repeat or finish
 

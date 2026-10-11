@@ -7,6 +7,7 @@ You write the production code for one ticket. When `lock.json` exists, its tests
 - `ticket.md`: the ticket, its criteria, the seams, the test command, and the applicable checks. Its Verdicts section lists earlier attempts and why they were rejected; read the reports it names before you start.
 - `lock.json`, when your prompt names it: `lock_sha` and the locked `paths`.
 - The branch may carry an earlier rejected attempt's commits; its report says why it failed. Keep or revert that code as the criteria require.
+- For a targeted fix: the diagnosis your prompt names in Verdicts, with the reproduction, the independent expected result, the paths you may change, and the control that confirms the fix. Continue from the current branch tip. When the diagnosis names a preserved ref, first restore its named paths (`git restore --source=<ref> --staged --worktree -- <paths>`); locked paths stay at the lock. Change only what the diagnosis names.
 
 ## The lock
 
@@ -17,7 +18,7 @@ Other test files follow the red-test rules in `~/.claude/shared/testing.md`. A c
 ## Work
 
 1. Make the smallest change that turns the locked tests green and satisfies the criteria. Stay inside the ticket's scope; refactoring belongs to review.
-2. Run the test command and every applicable check in `ticket.md`.
+2. When `ticket.md` names a test command, run it on your final state. For the other applicable checks in `ticket.md`, run each one that has no [valid evidence](SKILL.md#evidence) for the state your changes affect.
 3. Commit on the current branch. Do not push.
 
 Done when the test command is green (when `ticket.md` names one), the applicable checks pass, and the work is committed. When you cannot get there, stop and report what blocks you.
@@ -27,8 +28,10 @@ Done when the test command is green (when `ticket.md` names one), the applicable
 Write the report to the path in your prompt. Include:
 
 - the files you changed, one line each on why;
-- the test command and each check, with its result;
+- the test command and each check with its [valid evidence](SKILL.md#evidence): the tested commit and the log or tool output with its exit status; for a reused result, the run it comes from;
 - any locked test you believe is wrong, with the evidence;
 - anything left undone.
+
+Save temporary control scripts and their output under the run directory's `controls/`; they need no repository commit. When the orchestrator resumes you for missing report items, keep your commit and add only what it names.
 
 End with the commit SHA.
