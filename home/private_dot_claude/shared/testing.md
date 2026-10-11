@@ -13,6 +13,12 @@ Reached from the testing pointer in `~/.claude/CLAUDE.md` and from the `tdd` ski
 - Behavior owned by an upstream system — a tool you route input to, a library you call — has no valid local oracle. Do not reimplement it locally to make it testable; route to its real interface and leave its semantics untested here.
 - Removing a dependency, command, config entry, or file does not by itself justify an absence assertion. Test the capability that remains, or exercise the real deployment/runtime transition that clears stale state — never a source grep.
 
+### Select checks before execution
+
+- Before running checks, identify the affected behavior each check verifies.
+- Reuse passing results while the state within their coverage is unchanged.
+- If a mandatory check is irrelevant to the affected behavior, surface that conflict before running it and ask for a decision. Do not silently skip it or spend time on a known-irrelevant gate.
+
 ### False green
 
 A **false green** is a test that passes whether the behavior is right or wrong. It costs more than a missing test, because it looks like evidence and stops the next investigation. Every test you leave behind has to be able to go red:
