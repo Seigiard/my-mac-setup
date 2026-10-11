@@ -292,7 +292,7 @@ function test_smoke_016_pi_settings_include_all_managed_packages() {
 
   # Derive the expected set from the modifier itself (the chezmoi source of
   # truth) instead of a hardcoded copy, so this test cannot drift from it.
-  local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
+  local modifier="$SOURCE_ROOT/dot_pi/private_agent/modify_settings.json"
   [[ -f "$modifier" ]] || skip "repository checkout is not mounted"
 
   run bash "$modifier" <<< '{}'
@@ -872,8 +872,8 @@ function test_smoke_1056_pi_brew_auto_updater_is_deployed() {
   local ext="$HOME/.pi/agent/extensions/brew-auto-update/index.ts"
   assert_file_exists "$ext"
   local shim_root="$BATS_TEST_TMPDIR/deployed-pi-source-root"
-  mkdir -p "$shim_root"
-  ln -s "$HOME/.pi" "$shim_root/dot_pi"
+  mkdir -p "$shim_root/dot_pi"
+  ln -s "$HOME/.pi/agent" "$shim_root/dot_pi/private_agent"
   run env SOURCE_ROOT="$shim_root" bun test "$BATS_TEST_DIRNAME/pi-brew-auto-update.test.ts"
   assert_success
 }

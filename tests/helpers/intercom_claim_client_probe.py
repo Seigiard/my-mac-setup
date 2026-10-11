@@ -242,7 +242,7 @@ class ClientProbe:
         allocator.write_text("#!/bin/sh\nprintf '%s\\n' \"$MMS377_ALIAS\"\n", encoding="utf-8")
         allocator.chmod(0o755)
         # Explicit loaders leave the user's Pi and OpenCode configuration untouched.
-        self.pi_loaders = [str(ROOT / "home/dot_pi/agent/extensions/agent-intercom.ts"),
+        self.pi_loaders = [str(ROOT / "home/dot_pi/private_agent/extensions/agent-intercom.ts"),
                            str(pathlib.Path.home() / ".pi/agent/extensions/herdr-agent-state.ts")]
         self.pi_observer = self.scratch / "pi-intercom-observer.ts"
         self.pi_observer.write_text(

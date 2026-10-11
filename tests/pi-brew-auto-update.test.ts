@@ -7,7 +7,7 @@ import { join } from "node:path";
 import type {
   BrewAutoUpdateDependencies,
   UpdateUi,
-} from "../home/dot_pi/agent/extensions/brew-auto-update/index.ts";
+} from "../home/dot_pi/private_agent/extensions/brew-auto-update/index.ts";
 
 const sourceRoot = process.env.SOURCE_ROOT ?? join(import.meta.dir, "../home");
 
@@ -15,7 +15,7 @@ const {
   default: registerBrewAutoUpdater,
   captureExtensionSnapshot,
   runBrewAutoUpdate,
-} = await import(join(sourceRoot, "dot_pi/agent/extensions/brew-auto-update/index.ts"));
+} = await import(join(sourceRoot, "dot_pi/private_agent/extensions/brew-auto-update/index.ts"));
 
 const cleanupPaths: string[] = [];
 
@@ -650,7 +650,7 @@ describe("cross-process update lock", () => {
     await mkdir(lockPath, { recursive: true });
     await writeFile(join(lockPath, "owner.json"), JSON.stringify({ pid: deadOwner.pid, startedAt: Date.now(), token: "dead" }));
     const fixture = join(import.meta.dir, "fixtures/pi-brew-lock-contender.ts");
-    const modulePath = join(sourceRoot, "dot_pi/agent/extensions/brew-auto-update/index.ts");
+    const modulePath = join(sourceRoot, "dot_pi/private_agent/extensions/brew-auto-update/index.ts");
 
     const spawnContender = (label: string) => {
       const child = Bun.spawn([process.execPath, fixture, modulePath, lockPath, root, label, String(deadOwner.pid)], { stdout: "pipe", stderr: "pipe" });
@@ -698,7 +698,7 @@ describe("cross-process update lock", () => {
     await mkdir(lockPath, { recursive: true });
     await writeFile(join(lockPath, "owner.json"), JSON.stringify({ pid: deadOwner.pid, startedAt: Date.now(), token: "dead" }));
     const fixture = join(import.meta.dir, "fixtures/pi-brew-lock-contender.ts");
-    const modulePath = join(sourceRoot, "dot_pi/agent/extensions/brew-auto-update/index.ts");
+    const modulePath = join(sourceRoot, "dot_pi/private_agent/extensions/brew-auto-update/index.ts");
     const paused = Bun.spawn([process.execPath, fixture, modulePath, lockPath, root, "b", String(deadOwner.pid)], { stdout: "pipe", stderr: "pipe" });
     contenderProcesses.push(paused);
     await waitFor(() => existsSync(join(root, "assessment-b")), "the transition owner reached its paused liveness probe");

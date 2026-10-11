@@ -14,7 +14,7 @@ const OPENCODE_LOADER =
 
 const PI_LOADER =
   process.env.AGENT_INTERCOM_PI_LOADER_PATH ??
-  join(import.meta.dir, "../home/dot_pi/agent/extensions/agent-intercom.ts");
+  join(import.meta.dir, "../home/dot_pi/private_agent/extensions/agent-intercom.ts");
 
 const PACKAGE_LOCK = join(
   import.meta.dir,

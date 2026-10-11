@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 const EXTENSION_PATH =
   process.env.HERDR_RESOURCE_CONTEXT_PI_EXTENSION_PATH ??
-  join(import.meta.dir, "../home/dot_pi/agent/extensions/herdr-resource-context.ts");
+  join(import.meta.dir, "../home/dot_pi/private_agent/extensions/herdr-resource-context.ts");
 
 const HEADING = "## Herdr Agent Resource Context (generated)";
 

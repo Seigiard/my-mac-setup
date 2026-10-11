@@ -106,7 +106,7 @@ false positive:
 - Shell must stay **Bash 3.2-compatible** (macOS `/bin/bash`): no `declare -A`, no
   `readarray`, no `${var^^}`. Code avoiding a modern builtin is meeting a constraint, not
   written by someone who did not know it existed.
-- `modify_` scripts (`home/modify_dot_claude.json`, `home/dot_pi/agent/modify_settings.json`)
+- `modify_` scripts (`home/modify_dot_claude.json`, `home/dot_pi/private_agent/modify_settings.json`)
   read the existing file on stdin and emit a replacement. They are not templates and do not
   follow template rules.
 - Filenames under `home/` encode chezmoi semantics — `private_`, `dot_`, `executable_`,

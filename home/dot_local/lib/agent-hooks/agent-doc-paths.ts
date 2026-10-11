@@ -34,7 +34,7 @@ const AGENT_TREES = [
   "/.codex/",
   "/private_dot_codex/",
   "/.pi/agent/",
-  "/dot_pi/agent/",
+  "/dot_pi/private_agent/",
   "/skills/",
   "/opencode/commands/",
   "/opencode/skills/",

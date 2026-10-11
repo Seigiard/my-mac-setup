@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 const EXTENSION_PATH =
   process.env.AGENT_HOOKS_PI_EXTENSION_PATH ??
-  join(import.meta.dir, "../home/dot_pi/agent/extensions/agent-hooks.ts");
+  join(import.meta.dir, "../home/dot_pi/private_agent/extensions/agent-hooks.ts");
 
 const CORE_DIR =
   process.env.AGENT_HOOKS_CORE_PATH ?? join(import.meta.dir, "../home/dot_local/lib/agent-hooks");

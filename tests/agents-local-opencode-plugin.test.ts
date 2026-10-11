@@ -16,7 +16,7 @@ const PLUGIN_PATH =
   join(import.meta.dir, "../home/private_dot_config/opencode/plugins/agents-local.ts");
 
 const PI_EXTENSION_PATH =
-  process.env.PI_AGENTS_LOCAL_EXTENSION_PATH ?? join(import.meta.dir, "../home/dot_pi/agent/extensions/agents-local.ts");
+  process.env.PI_AGENTS_LOCAL_EXTENSION_PATH ?? join(import.meta.dir, "../home/dot_pi/private_agent/extensions/agents-local.ts");
 
 const CORE_DIR = process.env.AGENT_HOOKS_CORE_PATH ?? join(import.meta.dir, "../home/dot_local/lib/agent-hooks");
 

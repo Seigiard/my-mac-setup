@@ -138,7 +138,7 @@ An explicit-only workflow interrupts the current task and must run only after a 
 Package the canonical content through three thin adapters:
 
 - Claude Code: `home/private_dot_claude/skills/<name>/SKILL.md.tmpl`, with `disable-model-invocation: true`. Pi reads this deployed skill through its existing `~/.claude/skills` source and needs no separate adapter.
-- Pi: `home/dot_pi/agent/skills/symlink_<name>.tmpl`, targeting the deployed Claude skill directory so Pi keeps the same explicit-only metadata.
+- Pi: `home/dot_pi/private_agent/skills/symlink_<name>.tmpl`, targeting the deployed Claude skill directory so Pi keeps the same explicit-only metadata.
 - OpenCode: `home/private_dot_config/opencode/commands/<name>.md.tmpl`, which exposes a manual command. Never add the workflow under `home/private_dot_config/opencode/skills/`.
 
 Use raw `include` with the explicit `.chezmoitemplates/<file>` path so literal Markdown and Go-template syntax remain data. Do not use `includeTemplate`, which executes the included content. Treat `$ARGUMENTS`, `$<digits>`, and unquoted `@path` as reserved OpenCode command syntax; a workflow that must preserve these sequences literally needs client-specific content instead.

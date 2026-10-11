@@ -7934,7 +7934,7 @@ function test_scripts_1326_claude_settings_modifier_passes_settings_through_with
 
 function test_scripts_250_pi_settings_modifier_selects_the_terminal_theme() {
   _bats_test_init 250 'Pi settings modifier uses portable skills and the managed package set'
-  local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
+  local modifier="$SOURCE_ROOT/dot_pi/private_agent/modify_settings.json"
   local input='{"theme":"light","lastChangelogVersion":"0.84.2","packages":["git:github.com/EveryInc/compound-engineering-plugin","npm:obsolete-extension"],"skills":["~/.claude/skills","~/custom/skills"]}'
 
   run bash "$modifier" <<< "$input"
@@ -7959,7 +7959,7 @@ function test_scripts_250_pi_settings_modifier_selects_the_terminal_theme() {
 
 function test_scripts_251_pi_settings_modifier_is_idempotent() {
   _bats_test_init 251 'Pi settings modifier is idempotent'
-  local modifier="$SOURCE_ROOT/dot_pi/agent/modify_settings.json"
+  local modifier="$SOURCE_ROOT/dot_pi/private_agent/modify_settings.json"
   local input='{"lastChangelogVersion":"0.84.2","model":"anthropic/claude-sonnet-4-5","packages":["npm:@ff-labs/pi-fff","npm:@howaboua/pi-codex-conversion","npm:pi-subagents","npm:pi-agent-browser-native","git:github.com/EveryInc/compound-engineering-plugin","npm:pi-ask-user","npm:@trevonistrevon/pi-loop","npm:pi-web-access","npm:pi-context-view"],"skills":["~/custom/skills","~/.claude/skills"]}'
   local once
 
@@ -7988,7 +7988,7 @@ function test_scripts_251_pi_settings_modifier_is_idempotent() {
 
 function test_scripts_252_pi_terminal_theme_uses_only_terminal_palette_col() {
   _bats_test_init 252 'Pi terminal theme uses only terminal palette colors'
-  local theme="$SOURCE_ROOT/dot_pi/agent/themes/terminal.json"
+  local theme="$SOURCE_ROOT/dot_pi/private_agent/themes/terminal.json"
 
   # Naming two arbitrary empty slots proved nothing about the palette. The
   # property is structural and cross-references two independently edited

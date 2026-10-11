@@ -3,7 +3,7 @@ import { cp, mkdtemp, mkdir, readdir, rm, symlink, writeFile } from "node:fs/pro
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const extensionPath = join(import.meta.dir, "../home/dot_pi/agent/extensions/herdr-worktree-identity.ts");
+const extensionPath = join(import.meta.dir, "../home/dot_pi/private_agent/extensions/herdr-worktree-identity.ts");
 
 const handoffPath = join(import.meta.dir, "../home/dot_local/lib/agent-hooks/worktree-identity.ts");
 
