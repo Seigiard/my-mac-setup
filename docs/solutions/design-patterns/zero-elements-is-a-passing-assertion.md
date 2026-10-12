@@ -58,8 +58,9 @@ Concrete instances from this repository, all since fixed:
 - The pi adapter's `callToolCall` returned the handler's result, and pi reads `undefined` as allow.
   With no handler registered it returned `undefined` too, so a broken `$HOME` symlink or a renamed
   export left four allow tests green while the extension enforced nothing (#337).
-- The Agent Intercom loader tests asserted `{}` for "no-op without importing the package". A loader
-  that ignored its gate, attempted the import and swallowed the failure returned the same `{}` (#337).
+- A removed agent-message loader test asserted `{}` for "no-op without importing the package". A
+  loader that ignored its gate, attempted the import and swallowed the failure returned the same
+  `{}` (#337).
 - `platform_test.sh` 002 matched darwin-only basenames by substring across the tree and required only
   that the count of matched entries was above zero (#334).
 - `terminal.json`'s theme check ran `[.vars[]] | all(...)` and then required a derived list to be

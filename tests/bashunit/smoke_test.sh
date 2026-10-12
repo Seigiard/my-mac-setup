@@ -119,7 +119,6 @@ _smoke_critical_paths() {
     .claude/CLAUDE.md
     .pi/agent/extensions/agents-local.ts
     .pi/agent/extensions/agent-hooks.ts
-    .pi/agent/extensions/agent-intercom.ts
     .pi/agent/extensions/herdr-resource-context.ts
     .claude/hooks/agent-hooks-dispatch.sh
     .local/lib/agent-hooks/index.ts
@@ -129,7 +128,6 @@ _smoke_critical_paths() {
     .local/lib/agent-hooks/policies/index.ts
     .local/lib/agent-hooks/local-instructions.ts
     .config/opencode/plugins/agent-hooks.ts
-    .config/opencode/plugins/agent-intercom.ts
     .config/opencode/plugins/agents-local.ts
     .config/opencode/plugins/herdr-resource-context.ts
     .config/herdr/config.toml
@@ -142,11 +140,6 @@ _smoke_critical_paths() {
     .local/lib/herdr-child-launch.sh
     .local/lib/herdr-child-continuation.sh
     .local/lib/herdr-child-reap.sh
-    .local/bin/herdr-agent-intercom
-    .local/bin/herdr-agent-intercom-claude
-    .local/bin/herdr-agent-intercom-release
-    .local/share/agent-intercom/package.json
-    .local/share/agent-intercom/package-lock.json
   )
   if is_macos; then
     paths+=(
@@ -971,97 +964,6 @@ function test_smoke_1069_deployed_pi_agent_hooks_extension_enforces_the_core() {
   run env AGENT_HOOKS_PI_EXTENSION_PATH="$extension" AGENT_HOOKS_CORE_PATH="$core" \
     bun test "$BATS_TEST_DIRNAME/agent-hooks-pi-adapter.test.ts"
   assert_success
-}
-
-# The checkout tests exercise thin loaders against fakes. This deployment check
-# proves that chezmoi ran the installer and that those same entrypoints exist in
-# the package tree the real clients resolve.
-function test_smoke_1076_deployed_agent_intercom_package_exposes_each_selected_adapter() {
-  # 1076, not 1073: that id already belongs to the deployed Pi resource-context
-  # test above, and two tests reporting under one id cannot be told apart in a
-  # failure report.
-  _bats_test_init 1076 'deployed Agent Intercom package exposes each selected adapter'
-  local root="$HOME/.local/share/agent-intercom"
-  local claude_plugin="$root/node_modules/@dataforxyz/agent-intercom-claude"
-  assert_file_exists "$HOME/.local/bin/herdr-agent-intercom"
-  assert_file_exists "$HOME/.local/bin/herdr-agent-intercom-claude"
-  assert_file_exists "$HOME/.config/opencode/plugins/agent-intercom.ts"
-  assert_file_exists "$HOME/.pi/agent/extensions/agent-intercom.ts"
-  assert_file_exists "$root/node_modules/.bin/cci"
-  assert_file_exists "$root/node_modules/@dataforxyz/agent-intercom-opencode/dist/plugin.mjs"
-  assert_file_exists "$root/node_modules/@dataforxyz/agent-intercom-pi/index.ts"
-  assert_dir_exists "$claude_plugin"
-
-  run env \
-    AGENT_INTERCOM_OPENCODE_LOADER_PATH="$HOME/.config/opencode/plugins/agent-intercom.ts" \
-    AGENT_INTERCOM_PI_LOADER_PATH="$HOME/.pi/agent/extensions/agent-intercom.ts" \
-    bun test "$BATS_TEST_DIRNAME/agent-intercom-loaders.test.ts"
-  assert_success
-
-  run env HOME="$HOME" bun -e '
-const opencode = await import(process.argv[1])
-const pi = await import(process.argv[2])
-if (typeof opencode.default !== "function") throw new Error("OpenCode adapter is unavailable")
-if (typeof pi.default !== "function") throw new Error("Pi adapter is unavailable")
-' "$root/node_modules/@dataforxyz/agent-intercom-opencode/dist/plugin.mjs" \
-    "$root/node_modules/@dataforxyz/agent-intercom-pi/index.ts"
-  assert_success
-
-  local stub="$BATS_TEST_TMPDIR/claude" log="$BATS_TEST_TMPDIR/agent-intercom-claude.args"
-  cat > "$stub" <<'SH'
-#!/usr/bin/env bash
-printf '<%s>' "$@" > "$MMS_TEST_CLAUDE_LOG"
-SH
-  chmod +x "$stub"
-  # Admission policy has its own engine and live-owner checks. This deployed
-  # caller check supplies a finished decision and runs the real installed cci.
-  local real_python
-  real_python="$(command -v python3)"
-  cat > "$BATS_TEST_TMPDIR/python3" <<'SH'
-#!/usr/bin/env bash
-if [[ "${2:-}" == --admit ]]; then
-  printf 'v1\tenrolled\treused\tsmoke-ibis\t-\tok\n'
-  exit 0
-fi
-exec "$MMS_TEST_REAL_PYTHON" "$@"
-SH
-  chmod +x "$BATS_TEST_TMPDIR/python3"
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ignored HERDR_PANE_ID=smoke:p1 HOME="$HOME" \
-    HERDR_AGENT_INTERCOM_PANE= MMS_TEST_REAL_PYTHON="$real_python" \
-    MMS_TEST_CLAUDE_LOG="$log" PATH="$BATS_TEST_TMPDIR:$PATH" \
-    "$HOME/.local/bin/herdr-agent-intercom" claude \
-    --disallowed-tools 'Edit Write NotebookEdit AskUserQuestion'
-  assert_success
-  assert_file_exists "$log"
-
-  # The stub recorded the whole argv, so each flag's value is knowable. The
-  # append-system-prompt text carries a per-session id and is left alone; the
-  # two flags this wrapper is responsible for are asserted with their values.
-  #
-  # '<--plugin-dir>' on its own passes for a wrapper aimed at a directory that
-  # does not exist, so the value is compared against the adapter actually
-  # installed in the package tree -- two independent sides.
-  run python3 - "$log" <<'ARGV'
-import re
-import sys
-
-argv = re.findall(r"<(.*?)>", open(sys.argv[1], encoding="utf-8").read(), re.S)
-for flag in ("--disallowed-tools", "--plugin-dir"):
-    if flag not in argv:
-        print("%s is absent from: %s" % (flag, argv))
-        raise SystemExit(1)
-    print(argv[argv.index(flag) + 1])
-ARGV
-  assert_success
-  assert_line --index 0 'Edit Write NotebookEdit AskUserQuestion'
-  assert_line --index 1 "$claude_plugin"
-
-  # cci's generated permission selector is dropped by
-  # home/dot_local/lib/executable_herdr-agent-intercom-native-claude, and
-  # scripts_test.sh owns that transform directly: its 'claude bridge' pair
-  # feeds the bridge a generated '--permission-mode manual' beside a caller's
-  # own selector and asserts the exact surviving argv. Repeating it here as a
-  # refute_output proved only that two strings were missing from a log.
 }
 
 # The label-writer contract that used to live here (1059, with its

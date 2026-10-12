@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  printf 'usage: herdr-peer list | herdr-peer <send|ask|reply> <alias> <text>\n' >&2
+}
+
+require_own_alias() {
+  local agents_json="$1"
+  printf '%s' "$agents_json" | python3 -c 'import json,sys
+pane=sys.argv[1]
+payload=sys.stdin.read()
+try: data=json.loads(payload)
+except json.JSONDecodeError:
+    data,end=json.JSONDecoder().raw_decode(payload)
+    if payload[end:].strip()!="}}": raise
+agents=data.get("result",{}).get("agents",[])
+matches=[agent for agent in agents if agent.get("pane_id")==pane and isinstance(agent.get("name"),str) and agent["name"]]
+if len(matches)!=1: raise SystemExit(1)
+print(matches[0]["name"])' "$HERDR_PANE_ID"
+}
+
+list_peers() {
+  local agents_json="$1"
+  printf '%s' "$agents_json" | python3 -c 'import json,sys
+pane=sys.argv[1]
+payload=sys.stdin.read()
+try: data=json.loads(payload)
+except json.JSONDecodeError:
+    data,end=json.JSONDecoder().raw_decode(payload)
+    if payload[end:].strip()!="}}": raise
+agents=data.get("result",{}).get("agents",[])
+for agent in agents:
+    if agent.get("pane_id")==pane: continue
+    name=agent.get("name")
+    kind=agent.get("agent")
+    if not isinstance(name,str) or not name or not isinstance(kind,str): raise SystemExit(1)
+    status=agent.get("agent_status","unknown")
+    if not isinstance(status,str): status="unknown"
+    print(f"{name}\t{kind}\t{status}")' "$HERDR_PANE_ID"
+}
+
+target_exists() {
+  local agents_json="$1" target="$2"
+  printf '%s' "$agents_json" | python3 -c 'import json,sys
+target=sys.argv[1]
+payload=sys.stdin.read()
+try: data=json.loads(payload)
+except json.JSONDecodeError:
+    data,end=json.JSONDecoder().raw_decode(payload)
+    if payload[end:].strip()!="}}": raise
+agents=data.get("result",{}).get("agents",[])
+raise SystemExit(0 if sum(agent.get("name")==target for agent in agents)==1 else 1)' "$target"
+}
+
+[ $# -ge 1 ] || { usage; exit 1; }
+
+agents_json="$(herdr agent list)" || { printf 'herdr-peer: could not list agents\n' >&2; exit 1; }
+[ -n "${HERDR_PANE_ID:-}" ] || { printf 'herdr-peer: HERDR_PANE_ID is required\n' >&2; exit 1; }
+own_alias="$(require_own_alias "$agents_json")" || { printf 'herdr-peer: current pane has no unique agent alias\n' >&2; exit 1; }
+
+case "$1" in
+  list)
+    [ $# -eq 1 ] || { usage; exit 1; }
+    list_peers "$agents_json"
+    ;;
+  send|ask|reply)
+    [ $# -eq 3 ] || { usage; exit 1; }
+    target="$2"
+    target_exists "$agents_json" "$target" || { printf 'herdr-peer: unknown agent alias: %s\n' "$target" >&2; exit 1; }
+    message="[peer-message v1 from=$own_alias pane=$HERDR_PANE_ID kind=$1]"$'\n\n'"$3"
+    herdr agent prompt "$target" "$message"
+    ;;
+  *)
+    usage
+    exit 1
+    ;;
+esac

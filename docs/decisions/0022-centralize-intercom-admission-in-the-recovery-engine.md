@@ -1,11 +1,13 @@
 ---
 title: Centralize Intercom admission in the recovery engine
-status: accepted
+status: superseded
 date: 2026-10-01
 supersedes: []
 ---
 
 # ADR-0022: Centralize Intercom admission in the recovery engine
+
+Superseded by [ADR-0024](0024-replace-agent-intercom-with-herdr-peer.md).
 
 ## Context
 

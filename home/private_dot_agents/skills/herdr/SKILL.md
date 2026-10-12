@@ -63,7 +63,7 @@ herdr pane read <pane_id> --source recent-unwrapped --lines 50
 
 ## Child agents
 
-Start every child agent through `herdr-child`. It owns pane readiness, tool posture, coordinates, and the return channel. Read `~/.claude/shared/child-agent-contract.md` before supervising a child; it owns markers, generations, callbacks, recovery, and the parent duties. For a peer session you did not launch, use Agent intercom: read `~/.claude/shared/agent-intercom-contract.md`.
+Start every child agent through `herdr-child`. It owns pane readiness, tool posture, coordinates, and the return channel. Read `~/.claude/shared/child-agent-contract.md` before supervising a child; it owns markers, generations, callbacks, recovery, and the parent duties. For a peer session you did not launch, use `herdr-peer`: read `~/.claude/shared/peer-message-contract.md`.
 
 Every agent pane or tab you create follows one lifecycle: start → arm a wait → collect and verify the result → close.
 

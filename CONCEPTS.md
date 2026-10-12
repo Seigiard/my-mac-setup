@@ -47,23 +47,11 @@ The handling of an unresolved Supervision interest when delivery or observation 
 ### Supervision event
 A signal for one Supervision interest and generation: a verified lifecycle observation, deadline expiry, or request to inspect uncertain evidence. Retries preserve the signal's identity; distinct recovery occurrences have distinct identities. A confirmed delivery suppresses retries of that signal, while an uncertain delivery may repeat. No signal is a task-success verdict.
 
-### Agent intercom
-The shared communication substrate through which a coding agent can discover or explicitly address another agent, send a message, ask a blocking question, and reply without caring whether either endpoint runs directly on the host, under an agent-confinement backend, or inside an isolated development environment. Connectivity is the primary contract. Broker durability, strict hierarchy authorization, and typed control authority are optional hardening rather than prerequisites for the first useful slice.
+### Peer address
+The Herdr-assigned agent alias by which a person or agent addresses another live agent pane.
 
-### Agent communication profile
-One supported placement and transport combination for Agent intercom, such as host-to-host process communication, host-to-`nono`, or host-to-container. The first communication fabric covers one physical host and containers running on it. Profiles may use different socket exposure or bridging mechanisms while preserving the same agent-facing operations and explicit-name addressing; local VMs and remote hosts require later profiles.
-
-### Agent communication identity
-The Herdr-assigned globally unique agent alias by which a person or agent addresses an Agent intercom participant. Every supported launcher passes that alias into the communication adapter, including `nono` and container profiles. Agent Intercom's session ID remains an internal transport detail. Adapter policy may restrict both discovery and exact-name delivery; unrestricted exact-alias routing is deferred.
-
-### Intercom admission
-The decision about how a starting client may enroll in Agent intercom. It includes whether a new launch claim is safe or an existing communication identity may be reused. Uncertain recovery ownership permits native client startup without enrollment; admission is not permission to run the client or a task-supervision decision.
-
-### Recovery intent
-A durable record of the obligation to resolve a particular Intercom launch claim. It exists before acquisition and may remain unresolved when acquisition was not acknowledged. Possessing its handle does not authorize enrollment or prove that the claim was acquired.
-
-### Recovery settlement and retirement
-Two ways to end a recovery obligation on confirmed evidence. Settlement completes the owned cleanup obligation. Retirement ends the old responsibility without cleaning up a successor or replacement owner. An unresolved obligation remains pending while preserving whether acquisition was acknowledged; a successful release response alone proves neither outcome.
+### Peer message
+A prompt delivered through `herdr-peer` to an already-running peer. Its marker names the sender address, sender pane, and kind: `send`, `ask`, or `reply`. It does not create lifecycle ownership or wait for a reply.
 
 ### Agent confinement backend
 The inner boundary that restricts one agent principal and its subprocesses, such as `nono` or SRT. It controls which host resources that principal can reach but does not define where the development workspace or operating system runs.

@@ -57,9 +57,9 @@ Read `~/.claude/shared/render-kit.md`. It carries the bare-semantic-HTML contrac
 
 </important>
 
-<important if="an intercom message reaches you, or you need to reach an agent session you did not launch">
+<important if="a peer message reaches you, or you need to reach an agent session you did not launch">
 
-Read `~/.claude/shared/agent-intercom-contract.md`. It carries the tool set and the prefixed names Claude sees, who is reachable and who only looks reachable, the blocking window on `intercom_ask` and what expiry leaves behind, and when `herdr-child` owns the exchange instead.
+Read `~/.claude/shared/peer-message-contract.md`. It defines peer addresses, message kinds, recipient duties, and when `herdr-child` owns the exchange instead.
 
 </important>
 
