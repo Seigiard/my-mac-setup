@@ -2872,7 +2872,11 @@ printf '\n' >> "$CHILD_STUB/calls.log"
 case "${1:-} ${2:-}" in
   "agent list")
     [ "${STUB_LIST_FAIL:-0}" != 1 ] || exit 1
-    printf '%s\n' "${STUB_AGENTS_JSON:-{\"result\":{\"agents\":[]}}}"
+    if [ -n "${STUB_AGENTS_JSON:-}" ]; then
+      printf '%s\n' "$STUB_AGENTS_JSON"
+    else
+      printf '%s\n' '{"result":{"agents":[]}}'
+    fi
     ;;
   "agent prompt")
     count="$(cat "$CHILD_STUB/prompt-count" 2>/dev/null || printf 0)"
