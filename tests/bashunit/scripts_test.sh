@@ -3587,6 +3587,131 @@ function test_scripts_1072_ask_sh_retains_the_transport_while_the_child_may_stil
 # ===========================================
 
 # ===========================================
+# herdr-peer prompt contract
+# ===========================================
+
+HERDR_PEER="$SOURCE_ROOT/dot_local/bin/executable_herdr-peer"
+
+peer_stub_herdr() {
+  child_new_stub
+  cat > "$CHILD_STUB/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+
+printf '%q ' "$@" >> "$CHILD_STUB/calls.log"
+printf '\n' >> "$CHILD_STUB/calls.log"
+
+case "${1:-} ${2:-}" in
+  "agent list")
+    [ "${STUB_LIST_FAIL:-0}" != 1 ] || exit 1
+    printf '%s\n' "${STUB_AGENTS_JSON:-{\"result\":{\"agents\":[]}}}"
+    ;;
+  "agent prompt")
+    count="$(cat "$CHILD_STUB/prompt-count" 2>/dev/null || printf 0)"
+    count=$((count + 1))
+    printf '%s' "$count" > "$CHILD_STUB/prompt-count"
+    printf '%s' "${3:-}" > "$CHILD_STUB/prompt-target-$count"
+    printf '%s' "${4:-}" > "$CHILD_STUB/prompt-message-$count"
+    ;;
+  *) exit 2 ;;
+esac
+SH
+  chmod +x "$CHILD_STUB/herdr"
+}
+
+function test_scripts_457_herdr_peer_delivers_each_message_kind_with_the_peer_marker() {
+  _bats_test_init 457 'herdr-peer delivers each message kind with the peer marker'
+  local agents marker
+  agents='{"id":"cli:agent:list","result":{"agents":[{"name":"jade-rabbit","agent":"opencode","pane_id":"wB:pTR","agent_status":"idle"},{"name":"violet-tern","agent":"pi","pane_id":"wB:pTS","agent_status":"working"}]}}'
+  peer_stub_herdr
+
+  # #given
+  marker='[peer-message v1 from=jade-rabbit pane=wB:pTR kind=send]'
+  # #when
+  run env PATH="$CHILD_STUB:$PATH" HERDR_PANE_ID=wB:pTR STUB_AGENTS_JSON="$agents" \
+    bash "$HERDR_PEER" send violet-tern $'first line\nsecond line'
+  # #then
+  assert_success
+  assert_equal "$(cat "$CHILD_STUB/prompt-target-1")" violet-tern
+  assert_equal "$(cat "$CHILD_STUB/prompt-message-1")" "$marker"$'\n\nfirst line\nsecond line'
+
+  marker='[peer-message v1 from=jade-rabbit pane=wB:pTR kind=ask]'
+  run env PATH="$CHILD_STUB:$PATH" HERDR_PANE_ID=wB:pTR STUB_AGENTS_JSON="$agents" \
+    bash "$HERDR_PEER" ask violet-tern 'question body'
+  assert_success
+  assert_equal "$(cat "$CHILD_STUB/prompt-target-2")" violet-tern
+  assert_equal "$(cat "$CHILD_STUB/prompt-message-2")" "$marker"$'\n\nquestion body'
+
+  marker='[peer-message v1 from=jade-rabbit pane=wB:pTR kind=reply]'
+  run env PATH="$CHILD_STUB:$PATH" HERDR_PANE_ID=wB:pTR STUB_AGENTS_JSON="$agents" \
+    bash "$HERDR_PEER" reply violet-tern 'reply body'
+  assert_success
+  assert_equal "$(cat "$CHILD_STUB/prompt-target-3")" violet-tern
+  assert_equal "$(cat "$CHILD_STUB/prompt-message-3")" "$marker"$'\n\nreply body'
+  assert_equal "$(cat "$CHILD_STUB/prompt-count")" 3
+}
+
+function test_scripts_457_herdr_peer_rejects_undeliverable_messages_without_a_prompt() {
+  _bats_test_init 457 'herdr-peer rejects undeliverable messages without a prompt'
+  local agents
+  agents='{"id":"cli:agent:list","result":{"agents":[{"name":"jade-rabbit","agent":"opencode","pane_id":"wB:pTR","agent_status":"idle"},{"name":"violet-tern","agent":"pi","pane_id":"wB:pTS","agent_status":"working"}]}}'
+
+  # #given
+  peer_stub_herdr
+  # #when
+  run env PATH="$CHILD_STUB:$PATH" HERDR_PANE_ID=wB:pTR STUB_AGENTS_JSON="$agents" \
+    bash "$HERDR_PEER" send violet-tern 'delivered control'
+  # #then
+  assert_success
+  assert_equal "$(cat "$CHILD_STUB/prompt-count")" 1
+
+  peer_stub_herdr
+  run env PATH="$CHILD_STUB:$PATH" HERDR_PANE_ID=wB:pTR STUB_AGENTS_JSON="$agents" \
+    bash "$HERDR_PEER" send absent-alias 'must not deliver'
+  assert_failure
+  assert_equal "$(awk '$1 == "agent" && $2 == "prompt" { count++ } END { print count + 0 }' "$CHILD_STUB/calls.log")" 0
+
+  peer_stub_herdr
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" \
+    bash "$HERDR_PEER" ask violet-tern 'must not deliver'
+  assert_failure
+  assert_equal "$(awk '$1 == "agent" && $2 == "prompt" { count++ } END { print count + 0 }' "$CHILD_STUB/calls.log")" 0
+
+  agents='{"id":"cli:agent:list","result":{"agents":[{"name":"jade-rabbit","agent":"opencode","pane_id":"wB:pTR","agent_status":"idle"},{"name":"jade-duck","agent":"claude","pane_id":"wB:pTR","agent_status":"idle"},{"name":"violet-tern","agent":"pi","pane_id":"wB:pTS","agent_status":"working"}]}}'
+  peer_stub_herdr
+  run env PATH="$CHILD_STUB:$PATH" HERDR_PANE_ID=wB:pTR STUB_AGENTS_JSON="$agents" \
+    bash "$HERDR_PEER" reply violet-tern 'must not deliver'
+  assert_failure
+  assert_equal "$(awk '$1 == "agent" && $2 == "prompt" { count++ } END { print count + 0 }' "$CHILD_STUB/calls.log")" 0
+}
+
+function test_scripts_457_herdr_peer_lists_other_agents_in_herdr_order() {
+  _bats_test_init 457 'herdr-peer lists other agents in Herdr order'
+  local agents
+  agents='{"id":"cli:agent:list","result":{"agents":[{"name":"jade-rabbit","agent":"opencode","pane_id":"wB:pTR","agent_status":"idle"},{"name":"violet-tern","agent":"pi","pane_id":"wB:pTS","agent_status":"working"},{"name":"amber-ibis","agent":"codex","pane_id":"wB:pTT"}]}}'
+  peer_stub_herdr
+
+  # #given
+  # #when
+  run env PATH="$CHILD_STUB:$PATH" HERDR_PANE_ID=wB:pTR STUB_AGENTS_JSON="$agents" \
+    bash "$HERDR_PEER" list
+  # #then
+  assert_success
+  assert_output $'violet-tern\tpi\tworking\namber-ibis\tcodex\tunknown'
+
+  peer_stub_herdr
+  run env PATH="$CHILD_STUB:$PATH" HERDR_PANE_ID=wB:pTR STUB_AGENTS_JSON='{"result":{"agents":[{"name":"jade-rabbit","agent":"opencode","pane_id":"wB:pTR","agent_status":"idle"}]}}' \
+    bash "$HERDR_PEER" list
+  assert_success
+  assert_output ''
+
+  peer_stub_herdr
+  run env PATH="$CHILD_STUB:$PATH" HERDR_PANE_ID=wB:pTR STUB_LIST_FAIL=1 \
+    bash "$HERDR_PEER" list
+  assert_failure
+}
+
+# ===========================================
 # herdr-child launch and return contract
 # ===========================================
 
