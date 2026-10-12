@@ -10,10 +10,7 @@ require_own_alias() {
   printf '%s' "$agents_json" | python3 -c 'import json,sys
 pane=sys.argv[1]
 payload=sys.stdin.read()
-try: data=json.loads(payload)
-except json.JSONDecodeError:
-    data,end=json.JSONDecoder().raw_decode(payload)
-    if payload[end:].strip()!="}}": raise
+data=json.loads(payload)
 agents=data.get("result",{}).get("agents",[])
 matches=[agent for agent in agents if agent.get("pane_id")==pane and isinstance(agent.get("name"),str) and agent["name"]]
 if len(matches)!=1: raise SystemExit(1)
@@ -25,10 +22,7 @@ list_peers() {
   printf '%s' "$agents_json" | python3 -c 'import json,sys
 pane=sys.argv[1]
 payload=sys.stdin.read()
-try: data=json.loads(payload)
-except json.JSONDecodeError:
-    data,end=json.JSONDecoder().raw_decode(payload)
-    if payload[end:].strip()!="}}": raise
+data=json.loads(payload)
 agents=data.get("result",{}).get("agents",[])
 for agent in agents:
     if agent.get("pane_id")==pane: continue
@@ -45,10 +39,7 @@ target_exists() {
   printf '%s' "$agents_json" | python3 -c 'import json,sys
 target=sys.argv[1]
 payload=sys.stdin.read()
-try: data=json.loads(payload)
-except json.JSONDecodeError:
-    data,end=json.JSONDecoder().raw_decode(payload)
-    if payload[end:].strip()!="}}": raise
+data=json.loads(payload)
 agents=data.get("result",{}).get("agents",[])
 raise SystemExit(0 if sum(agent.get("name")==target for agent in agents)==1 else 1)' "$target"
 }
