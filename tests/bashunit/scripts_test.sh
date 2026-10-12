@@ -2983,6 +2983,23 @@ function test_scripts_457_herdr_peer_lists_other_agents_in_herdr_order() {
   assert_failure
 }
 
+# Oracle: only non-empty string aliases are addressable peers, so unrelated
+# pane records cannot stop later named peers from reaching the caller.
+function test_scripts_457_herdr_peer_list_skips_unaddressable_records_and_unknown_kinds() {
+  _bats_test_init 457 'herdr-peer list skips unaddressable records and reports unknown kinds'
+  local agents
+  agents='{"id":"cli:agent:list","result":{"agents":[{"name":"jade-rabbit","agent":"opencode","pane_id":"wB:pTR","agent_status":"idle"},{"name":null,"agent":"pi","pane_id":"wB:pTU","agent_status":"idle"},{"name":"","agent":"claude","pane_id":"wB:pTV","agent_status":"idle"},{"agent":"codex","pane_id":"wB:pTW","agent_status":"idle"},{"name":"violet-tern","agent":42,"pane_id":"wB:pTS","agent_status":"working"},{"name":"amber-ibis","agent":"codex","pane_id":"wB:pTT"}]}}'
+  peer_stub_herdr
+
+  # #given
+  # #when
+  run env PATH="$CHILD_STUB:$PATH" HERDR_PANE_ID=wB:pTR STUB_AGENTS_JSON="$agents" \
+    bash "$HERDR_PEER" list
+  # #then
+  assert_success
+  assert_output $'violet-tern\tunknown\tworking\namber-ibis\tcodex\tunknown'
+}
+
 # ===========================================
 # herdr-child launch and return contract
 # ===========================================
