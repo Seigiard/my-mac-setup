@@ -28,7 +28,8 @@ for agent in agents:
     if agent.get("pane_id")==pane: continue
     name=agent.get("name")
     kind=agent.get("agent")
-    if not isinstance(name,str) or not name or not isinstance(kind,str): raise SystemExit(1)
+    if not isinstance(name,str) or not name: continue
+    if not isinstance(kind,str): kind="unknown"
     status=agent.get("agent_status","unknown")
     if not isinstance(status,str): status="unknown"
     print(f"{name}\t{kind}\t{status}")' "$HERDR_PANE_ID"

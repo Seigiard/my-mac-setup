@@ -62,9 +62,6 @@ An optional outer container or VM that hosts a development workspace, toolchain,
 ### Trusted control plane
 The nearest layer outside an agent-controlled boundary that may own communication credentials, socket bridges, network egress, and optional safety policy. It may run on the physical host or inside a trusted development container or VM. The first communication slice does not require every message to be durably owned by this layer.
 
-### Launch relationship graph
-The optional visibility and delivery policy created when one agent launches another. A subagent may discover and address only its parent and siblings when the active adapter enforces the graph. Unrestricted exact-name routing across unrelated branches is deferred.
-
 ### herdr-worktree-identity
 The component that derives one multi-word branch name from a generated worktree session's prompt, renames the authorized branch once with attribution, and gives the workspace the same final name. The alias system exclusively owns pane, tab, and agent identity. A contended claim writes a diagnostic but has no terminal outcome, so the next naming event retries it.
 
