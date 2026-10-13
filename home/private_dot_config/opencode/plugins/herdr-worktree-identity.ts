@@ -108,4 +108,4 @@ const HerdrWorktreeIdentityV2Plugin = {
   },
 } satisfies V2Plugin.Plugin
 
-export default defineV2Plugin?.(HerdrWorktreeIdentityV2Plugin) ?? HerdrWorktreeIdentityV2Plugin
+export default defineV2Plugin?.(HerdrWorktreeIdentityV2Plugin) ?? HerdrWorktreeIdentityPlugin
