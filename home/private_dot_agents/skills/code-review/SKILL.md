@@ -90,7 +90,8 @@ Choose the route before preparing the round:
   or that the changes are verbatim moves, copies, or pure renames.
 - On the prose route, skip revmux preparation and launch. Dispatch one fresh prose child as
   described below.
-- On the revmux route, follow the `revmux` skill's round preparation and launch procedure.
+- On the revmux route, use the `revmux` skill to prepare round 1. For follow-up rounds, run
+  `revmux-round.sh next --task <id> --wait` with the fixed base and selected profile.
 
 Reuse the task ID and create a new round each time. Carry the original goal and exclusions
 forward. On the revmux route, let revmux inject prior findings and describe the current
@@ -114,8 +115,8 @@ the agent could not work.
 On the prose route, the fresh child must produce a parseable report with the required keys;
 an absent or malformed report is incomplete coverage, so report the failure and stop.
 
-Run `jq -r -f <this skill's directory>/projection.jq <report.json>` and read its output instead of
-the full report. The projection includes source coverage, findings, open questions, and the
+Run `revmux-round.sh summary <report.json>` and read its output instead of the full report. The
+projection includes source coverage, findings, open questions, and the
 `pre_existing`/`immaterial` counts. Open one finding's full entry, for example
 `jq '.findings[] | select(.id == "<id>")' <report.json>`, only when the projection cannot settle
 that finding's verdict. In report-only mode, return here; for `mode:agent`, return the
