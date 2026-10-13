@@ -3080,6 +3080,17 @@ case "${1:-} ${2:-}" in
 esac
 SH
   chmod +x "$CHILD_STUB/herdr"
+  cat > "$CHILD_STUB/opencode" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version) printf '%s\n' "${STUB_OPENCODE_VERSION:-opencode v2.0.28}" ;;
+  *)
+    printf 'unexpected fake opencode invocation: %s\n' "$*" >&2
+    exit 2
+    ;;
+esac
+SH
+  chmod +x "$CHILD_STUB/opencode"
   cat > "$CHILD_STUB/herdr-resource-tree" <<'SH'
 #!/usr/bin/env bash
 printf '%q ' "$@" >> "$CHILD_STUB/resource-tree.log"
@@ -5877,7 +5888,22 @@ assert json.loads(value) == {
     "model": "opencode/cat-jam-free",
     "default_agent": "plan",
     "permission": {"question": "deny", "edit": "deny", "shell": "allow"},
+    "agent": {
+        "plan": {
+            "model": "opencode/cat-jam-free",
+            "permission": {"question": "deny", "edit": "deny", "shell": "allow"},
+        },
+    },
 }
+PY
+  assert_success
+  run python3 - "$CHILD_STUB/calls.log" <<'PY'
+import sys
+
+line = next(line for line in open(sys.argv[1], encoding="utf-8") if line.startswith("agent start "))
+assert "--standalone" in line, line
+assert "--model" not in line, line
+assert "--agent" not in line, line
 PY
   assert_success
 }
@@ -5904,7 +5930,76 @@ assert json.loads(value) == {
     "model": "opencode/big-pickle",
     "default_agent": "build",
     "permission": {"question": "deny", "edit": "allow", "shell": "allow"},
+    "agent": {
+        "build": {
+            "model": "opencode/big-pickle",
+            "permission": {"question": "deny", "edit": "allow", "shell": "allow"},
+        },
+    },
 }
+PY
+  assert_success
+}
+
+function test_scripts_0615_herdr_child_preserves_the_configured_agent_when_no_agent_is_requested() {
+  _bats_test_init 615 'herdr-child leaves the configured default agent unchanged without --agent'
+  child_stub_herdr
+
+  # #given — V2 keeps its configured build default, whose own rules conflict.
+
+  # #when
+  run child_start --kind opencode --wait
+
+  # #then
+  assert_success
+  run python3 - "$(child_logged_value OPENCODE_CONFIG_CONTENT)" <<'PY'
+import json
+import sys
+
+name, value = sys.argv[1].split("=", 1)
+assert name == "OPENCODE_CONFIG_CONTENT", repr(name)
+assert json.loads(value) == {
+    "model": "openai/gpt-5.5",
+    "permission": {"question": "deny", "edit": "deny", "shell": "allow"},
+    "agent": {
+        "build": {
+            "model": "openai/gpt-5.5",
+            "permission": {"question": "deny", "edit": "deny", "shell": "allow"},
+        },
+    },
+}
+PY
+  assert_success
+  run python3 - "$CHILD_STUB/calls.log" <<'PY'
+import sys
+
+line = next(line for line in open(sys.argv[1], encoding="utf-8") if line.startswith("agent start "))
+assert "--standalone" in line, line
+assert "--model" not in line, line
+assert "--agent" not in line, line
+PY
+  assert_success
+}
+
+function test_scripts_0616_herdr_child_uses_the_v1_native_model_and_agent_transport() {
+  _bats_test_init 616 'herdr-child keeps native model and agent selectors for OpenCode 1'
+  child_stub_herdr
+
+  # #given — the pinned OpenCode 1.19.0 accepts native model and agent selectors.
+
+  # #when
+  STUB_OPENCODE_VERSION=1.19.0 run child_start \
+    --kind opencode --agent plan --model opencode/cat-jam-free --wait
+
+  # #then
+  assert_success
+  run python3 - "$CHILD_STUB/calls.log" <<'PY'
+import sys
+
+line = next(line for line in open(sys.argv[1], encoding="utf-8") if line.startswith("agent start "))
+assert "--standalone" not in line, line
+assert "--model opencode/cat-jam-free" in line, line
+assert "--agent plan" in line, line
 PY
   assert_success
 }
