@@ -50,6 +50,7 @@ setup() {
   unset HERDR_CHILD_TEST_REAP_OWNER_VERIFIED
   unset HERDR_CHILD_TEST_NOW_SEQ
   unset HERDR_CHILD_TEST_TAKEOVER_METADATA_PUBLISHED
+  unset STUB_CANONICAL_NAME
   unset CHILD_REAP_PID
   CHILD_STUBS=()
   # U2 exercises authorization only. Do not let an installed local model CLI
@@ -2926,7 +2927,7 @@ PY
 # herdr-child launch and return contract
 # ===========================================
 
-HERDR_CHILD="$SOURCE_ROOT/dot_local/bin/executable_herdr-child"
+HERDR_CHILD="${HERDR_CHILD_UNDER_TEST:-$SOURCE_ROOT/dot_local/bin/executable_herdr-child}"
 
 child_stub_herdr() {
   export HERDR_ALIAS_TEST_SEED=tests
@@ -2999,7 +3000,7 @@ case "${1:-} ${2:-}" in
       printf '{"error":{"code":"timeout","message":"startup timed out"}}\n' >&2
       exit 1
     fi
-    printf '%s' "${3:-child}" > "$CHILD_STUB/started-name"
+    printf '%s' "${STUB_CANONICAL_NAME:-${3:-child}}" > "$CHILD_STUB/started-name"
     printf '{"result":{"agent":{"interactive_ready":true}}}\n' ;;
   "agent get")
     child_name="$(cat "$CHILD_STUB/started-name" 2>/dev/null || printf child)"
@@ -3113,6 +3114,7 @@ child_start() {
   # apart they are, so the shipped one-second spacing is pure scaffolding here.
   env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     STUB_START_CONTEXT=1 \
+    STUB_CANONICAL_NAME="${STUB_CANONICAL_NAME:-}" \
     HERDR_CHILD_PANE_BUSY_RETRY_DELAY=0.01 \
     HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY="${HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY:-0}" \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
@@ -5789,6 +5791,68 @@ function test_scripts_060_herdr_child_maps_claude_postures_effort_and_skill_dire
 # reads the string the child process actually receives.
 child_logged_value() {
   grep -o "$1=[^ ]*" "$CHILD_STUB/calls.log" | head -n1 | sed 's/\\\(.\)/\1/g'
+}
+
+function test_scripts_0612_herdr_child_propagates_caller_home_and_path_to_a_split_pane() {
+  _bats_test_init 0612 'herdr-child propagates caller HOME and PATH to a split pane'
+
+  # #given
+  local caller_home="$BATS_TEST_TMPDIR/caller-home" caller_path="/usr/bin:/bin"
+  child_stub_herdr
+  mkdir -p "$caller_home"
+  local expected_path="$CHILD_STUB:$caller_path"
+
+  # #when
+  HOME="$caller_home" PATH="$caller_path" run child_start --kind claude --direction right --wait
+
+  # #then
+  assert_success
+  run child_logged_value HOME
+  assert_success
+  assert_output "HOME=$caller_home"
+  run child_logged_value PATH
+  assert_success
+  assert_output "PATH=$expected_path"
+}
+
+function test_scripts_0613_herdr_child_propagates_caller_home_and_path_to_a_new_tab() {
+  _bats_test_init 0613 'herdr-child propagates caller HOME and PATH to a new tab'
+
+  # #given
+  local caller_home="$BATS_TEST_TMPDIR/caller-home" caller_path="/usr/bin:/bin"
+  child_stub_herdr
+  mkdir -p "$caller_home"
+  local expected_path="$CHILD_STUB:$caller_path"
+
+  # #when
+  HOME="$caller_home" PATH="$caller_path" HERDR_WORKSPACE_ID=w1 \
+    run child_start --kind claude --tab --wait
+
+  # #then
+  assert_success
+  run child_logged_value HOME
+  assert_success
+  assert_output "HOME=$caller_home"
+  run child_logged_value PATH
+  assert_success
+  assert_output "PATH=$expected_path"
+}
+
+function test_scripts_0614_herdr_child_returns_the_canonical_post_start_alias() {
+  _bats_test_init 0614 'herdr-child returns the canonical post-start alias'
+
+  # #given
+  child_stub_herdr
+  local canonical_name=canonical-child
+  export STUB_CANONICAL_NAME="$canonical_name"
+
+  # #when
+  run child_start \
+    --kind opencode --agent plan --model opencode/cat-jam-free --wait
+
+  # #then
+  assert_success
+  assert_output "{\"agent\":\"$canonical_name\",\"pane\":\"wT:p9\"}"
 }
 
 function test_scripts_061_herdr_child_maps_opencode_permissions_model_and() {
