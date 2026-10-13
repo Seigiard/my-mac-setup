@@ -2981,17 +2981,6 @@ case "${1:-} ${2:-}" in
       printf '{"result":{"root_pane":{"pane_id":"wT:p9","terminal_id":"term-child"},"tab":{"tab_id":"wT:tA"}}}\n'
     fi
     exit "${STUB_TAB_CREATE_STATUS:-0}" ;;
-  "pane run")
-    for arg in "$@"; do
-      case "$arg" in
-        HERDR_CHILD_NAME=*) printf '%s' "${arg#*=}" > "$CHILD_STUB/started-name" ;;
-      esac
-    done
-    [[ -s "$CHILD_STUB/started-name" ]] || {
-      printf 'pane run did not carry the requested child identity\n' >&2
-      exit 1
-    }
-    ;;
   "agent start")
     if [ "${STUB_REQUIRE_SPLIT:-0}" = 1 ] && [ ! -f "$CHILD_STUB/split-seen" ]; then
       printf 'agent start before pane split\n' >&2
