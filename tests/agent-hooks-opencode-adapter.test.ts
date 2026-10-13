@@ -69,7 +69,7 @@ async function loadPlugin(coreDir?: string): Promise<Host> {
   }
 }
 
-async function loadV2Plugin(coreDir?: string): Promise<V2Host> {
+async function loadV2Plugin(coreDir?: string, pluginPath = PLUGIN_PATH): Promise<V2Host> {
   const home = temporaryDir("agent-hooks-opencode-v2-home-");
 
   if (coreDir !== undefined) {
@@ -78,7 +78,7 @@ async function loadV2Plugin(coreDir?: string): Promise<V2Host> {
   }
 
   const copy = join(temporaryDir("agent-hooks-opencode-v2-plugin-"), `agent-hooks-${loadCount++}.ts`);
-  cpSync(PLUGIN_PATH, copy);
+  cpSync(pluginPath, copy);
 
   const previousHome = process.env.HOME;
   process.env.HOME = home;
@@ -229,6 +229,25 @@ describe("tool.execute.before deny and allow (R3)", () => {
 });
 
 describe("OpenCode V2 execute.before translation", () => {
+  test("the V2 host control distinguishes a registered allow from a rejection", async () => {
+    // #given a control plugin with one allow input and one rejection input
+    const controlPlugin = join(temporaryDir("agent-hooks-v2-control-plugin-"), "control.ts");
+    await Bun.write(
+      controlPlugin,
+      "export default { async setup(ctx) { await ctx.tool.hook('execute.before', async (event) => {" +
+        " if (event.tool === 'reject') throw new Error('control rejection'); }); } };\n",
+    );
+    const host = await loadV2Plugin(undefined, controlPlugin);
+
+    // #when both inputs reach the fake host callback
+    const allowed = await callBeforeV2(host, { tool: "allow", input: {} });
+    const rejected = await callBeforeV2(host, { tool: "reject", input: {} });
+
+    // #then the helper reports the callback's two distinct outcomes
+    expect(allowed).toBeUndefined();
+    expect(rejected).toBe("control rejection");
+  });
+
   test("missing or broken core imports register no V2 execute handler", async () => {
     // #given one absent core and one core whose import throws
     const broken = temporaryDir("agent-hooks-v2-broken-core-");
