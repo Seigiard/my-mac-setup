@@ -10043,7 +10043,7 @@ function test_scripts_1227_opencode_v1_worktree_identity_loader_registers_the_na
   # still delivering the user's message to a successfully loaded V1 plugin.
   run env HOME="$home" HERDR_ENV=1 HERDR_PANE_ID=pane-opencode-v1 HERDR_WORKSPACE_ID=workspace-opencode-v1 \
     HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" HWI_ADAPTER_TEST_DIR="$root" \
-    "$opencode_v1" --print-logs --log-level DEBUG run --model missing/model "$prompt"
+    "$opencode_v1" --print-logs --log-level DEBUG run --model missing/model "$prompt" < /dev/null
   assert_failure
   assert_output --partial 'Model not found: missing/model.'
   local host_log="$output"
