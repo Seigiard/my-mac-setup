@@ -28,6 +28,7 @@ The `tdd` orchestrator's files for one ticket. Publish `ticket.md`, `lock.json`,
 1. <validation criterion>
 
 ## Non-goals
+- <behavior, file, or area the ticket deliberately leaves unchanged>
 - None explicitly stated
 
 ## Oracle gate
