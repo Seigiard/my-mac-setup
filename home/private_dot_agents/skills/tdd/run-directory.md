@@ -1,6 +1,6 @@
 # Run directory
 
-The `tdd` orchestrator's files for one ticket. Publish `ticket.md`, `lock.json`, prompts, and reports through a temporary file and an atomic rename: write `<file>.tmp`, then rename it. Execution logs may stream while the child runs.
+The `tdd` orchestrator's files for one ticket. The `<run-id>` is the run directory's path relative to `~/.claude/artifacts/` (for example, `tdd-20261013-120000/495`). Publish `ticket.md`, `lock.json`, prompts, and reports through a temporary file and an atomic rename: write `<file>.tmp`, then rename it. Execution logs may stream while the child runs.
 
 | File | Holds |
 |---|---|
