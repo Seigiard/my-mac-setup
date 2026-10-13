@@ -50,19 +50,68 @@ Fill the spec template into `~/.claude/artifacts/<id>/spec.html` (pf-cycle → a
 
 Before presenting each substantive revision to the user, run the contract spec past opencode on the **frontier tier** and fold in what survives your judgement. This review remains user-mandated on the frontier tier. Implementation runs through the `tdd` chain, which owns its tiers.
 
-V2 has no `run --dir`; the subshell makes the process cwd and `PWD` agree on the epic worktree. The stdin redirect prevents `opencode run` from waiting for EOF.
+Commit the revision on `<epic-branch>`, then run the review in a disposable detached worktree. This is the review's mutation boundary: native edit/write and shell writes land only in the disposable copy, which is removed after the run. The review prompt supplies scope, not write protection. Capture the epic worktree's complete porcelain status before and after; a changed status rejects the run even when the review itself returns text.
+
+V2 has no `run --dir`; the subshell makes the process cwd and `PWD` agree on the disposable review worktree. The stdin redirects prevent initial and resumed `opencode run` calls from waiting for EOF.
 
 ```bash
+epic_worktree=<epic worktree>
+epic_branch=<epic-branch>
+artifact_dir=<artifact directory>
+review_log="$artifact_dir/frontier-review.jsonl"
+review_status="$artifact_dir/frontier-review.status"
+review_session="$artifact_dir/frontier-review.session"
+review_text="$artifact_dir/frontier-review.txt"
+epic_status_before="$(git -C "$epic_worktree" status --porcelain=v1)"
+review_worktree="$(mktemp -d "${TMPDIR:-/tmp}/pf-spec-review.XXXXXX")"
+rmdir "$review_worktree"
+git -C "$epic_worktree" worktree add --detach "$review_worktree" "$epic_branch"
+trap 'git -C "$epic_worktree" worktree remove --force "$review_worktree"' EXIT
+
 (
-  cd <epic worktree> || exit
-  exec opencode run \
+  cd "$review_worktree" || exit
+  exec opencode run --format json \
     -m openai/gpt-5.6-sol \
-    -f <screenshot1.png> -f <screenshot2.png> ... \
+    -f <review-worktree/screenshot1.png> -f <review-worktree/screenshot2.png> ... \
     "<review prompt>"
-) < /dev/null
+) < /dev/null > "$review_log" 2>&1
+review_exit=$?
+printf '%s\n' "$review_exit" > "$review_status"
+epic_status_after="$(git -C "$epic_worktree" status --porcelain=v1)"
+test "$epic_status_before" = "$epic_status_after" || exit 1
+test "$review_exit" -eq 0 || exit "$review_exit"
+jq -e 'select(.type == "error")' "$review_log" > /dev/null && exit 1
+session_id="$(jq -r -s '[.[] | .sessionID? | select(type == "string")] | first // empty' "$review_log")"
+test -n "$session_id" || exit 1
+printf '%s\n' "$session_id" > "$review_session"
+jq -r 'select(.type == "text") | .part.text' "$review_log" > "$review_text"
+test -s "$review_text" || exit 1
 ```
 
-Run **without** `--auto`, but do not treat this as a read-only boundary: V2 can still execute a tool when the effective permission policy allows it. The review instruction and the invoking environment must prevent mutations. Pass **every screenshot as a real PNG via repeated `-f` flags** — inlined base64 is opaque to the model. If the frontier slug has rotated off `openai/gpt-5.6-sol`, use the current frontier model and note the new slug in your report.
+Accept initial review text only when `$review_status` is `0`, the JSONL has no `error` event, `$review_text` is nonempty, and the before/after epic status matches. A nonzero result with an `error` event is a command failure. An interrupted process before terminal review text is incomplete work. Neither state is a review result. Parse and triage only `$review_text`, never terminal output.
+
+When the review needs a continuation, use its saved native session ID from the same disposable worktree and consume the resumed text artifact before triage:
+
+```bash
+resume_log="$artifact_dir/frontier-review-resume.jsonl"
+resume_status="$artifact_dir/frontier-review-resume.status"
+resume_text="$artifact_dir/frontier-review-resume.txt"
+(
+  cd "$review_worktree" || exit
+  exec opencode run --format json --session "$session_id" \
+    "Continue the same contract review. Return only the remaining numbered findings."
+) < /dev/null > "$resume_log" 2>&1
+resume_exit=$?
+printf '%s\n' "$resume_exit" > "$resume_status"
+epic_status_after="$(git -C "$epic_worktree" status --porcelain=v1)"
+test "$epic_status_before" = "$epic_status_after" || exit 1
+test "$resume_exit" -eq 0 || exit "$resume_exit"
+jq -e 'select(.type == "error")' "$resume_log" > /dev/null && exit 1
+jq -r 'select(.type == "text") | .part.text' "$resume_log" > "$resume_text"
+test -s "$resume_text" || exit 1
+```
+
+The resumed run is accepted only under the same status, JSONL-error, nonempty-text, and unchanged-epic checks. For a recipe verification, put an unpredictable marker in the initial review prompt and require the continuation, which does not contain that marker, to recall it from `$resume_text`. Pass **every screenshot as a real PNG via repeated `-f` flags** — inlined base64 is opaque to the model. If the frontier slug has rotated off `openai/gpt-5.6-sol`, use the current frontier model and note the new slug in your report.
 
 The review prompt, filled in:
 

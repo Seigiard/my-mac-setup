@@ -166,7 +166,7 @@ Choose the launch mode in this order:
    ) < /dev/null > <run-dir>/<role>-<n>.jsonl 2>&1
    ```
 
-   Keep the process exit status and the final JSONL event separate. Extract `sessionID` from a machine-readable event for a resume. An `error` event or an interrupted log is incomplete work; a zero process exit alone is not a task-success verdict. `~/.claude/shared/long-running-work.md` owns supervision.
+   Keep the process exit status and the final JSONL event separate. Extract `sessionID` from a machine-readable event for a resume. A nonzero process result with an `error` event is a command failure. A process interrupted before a terminal event or answer is incomplete work. Task success requires the report and its required evidence as well as a successful process result; a zero exit alone is not a task-success verdict. Keep the process status and JSONL for every classification. `~/.claude/shared/long-running-work.md` owns supervision.
 3. Otherwise no child can start. Stop.
 
 **Resuming a child** for a handoff gap keeps its session, tier, and attempt number, and counts as one turn. In herdr mode: `herdr-child prompt --to <name> --pane <pane-id> --detach '<the missing items>'`. In headless mode, repeat the same subshell command with `--session <id>`, where `<id>` is the `sessionID` in the attempt's JSONL log, and write a new JSONL file for the resumed turn. Keep stdin closed and verify the continuation in that log.
