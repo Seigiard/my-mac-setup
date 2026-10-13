@@ -602,7 +602,7 @@ function test_smoke_030_lazygit_config_keeps_russian_layout_keybindings() {
 # herdr alias presentation (engine, native integrations, sidebar)
 # ===========================================
 
-function test_smoke_1051_herdr_alias_pane_label_child_and_secret_scan_files_are_deployed() {
+function test_smoke_1051_herdr_alias_pane_label_and_child_files_are_deployed() {
   _bats_test_init 1051 'herdr support files are deployed'
   assert_file_exists "$HOME/.local/lib/herdr-resource-tree.py"
   assert_file_exists "$HOME/.local/bin/herdr-child"
@@ -611,8 +611,6 @@ function test_smoke_1051_herdr_alias_pane_label_child_and_secret_scan_files_are_
   assert_file_executable "$HOME/.local/bin/herdr-resource-tree"
   assert_file_exists "$HOME/.local/bin/herdr"
   assert_file_executable "$HOME/.local/bin/herdr"
-  assert_file_exists "$HOME/.local/bin/pre-external-secret-scan"
-  assert_file_executable "$HOME/.local/bin/pre-external-secret-scan"
   assert_file_exists "$HOME/.agents/skills/ask-in-herdr/scripts/follow-up.sh"
   assert_file_executable "$HOME/.agents/skills/ask-in-herdr/scripts/follow-up.sh"
 }

@@ -137,14 +137,10 @@ pre-`baseSha` exposure on 2026-08-15 (`2026-08-14-009`, done). **That gate was d
 Smithers runtime and nothing replaced it until the work preserved in the
 [frozen `2026-09-04-001` source record](https://github.com/Seigiard/my-mac-setup/blob/27f33a235548f19422b94565f6a14613219b5d5b/docs/issues/2026-09-04-001-pre-external-secret-scan-covers-one-of-five-external-peer-launch-paths.md).**
 
-Current state: `pre-external-secret-scan` is the shared scanner primitive. It pins gitleaks exit
- codes, redacts output, uses a trusted default-rule configuration instead of target or environment
- configuration, rejects directory symlinks escaping a scan root, and fails closed on missing tools
- or unexpected results. A multi-agent launcher must scan the live checkout and every prompt before
- creation. `se-doc-review` freezes the document peers receive before entering
-that lifecycle. `ask-in-herdr` scans its working directory, complete prompt, and added skill paths
-once before each standalone launch; its recovery, ordinary follow-up, and blocked-reply paths scan
-before sending another peer turn.
+Current state: the shared scanner primitive and the `ask-in-herdr` gate were
+removed on 2026-10-13. Full-working-directory scans could match test tokens
+and block peer delivery. The historical scanner details above do not describe
+an active boundary.
 
 The peers still run against a live filesystem rather than an immutable sandbox. A scan attests the
 state it reads and cannot prevent a concurrent same-user process from changing that state afterward;
