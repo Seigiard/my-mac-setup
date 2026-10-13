@@ -2981,6 +2981,17 @@ case "${1:-} ${2:-}" in
       printf '{"result":{"root_pane":{"pane_id":"wT:p9","terminal_id":"term-child"},"tab":{"tab_id":"wT:tA"}}}\n'
     fi
     exit "${STUB_TAB_CREATE_STATUS:-0}" ;;
+  "pane run")
+    for arg in "$@"; do
+      case "$arg" in
+        HERDR_CHILD_NAME=*) printf '%s' "${arg#*=}" > "$CHILD_STUB/started-name" ;;
+      esac
+    done
+    [[ -s "$CHILD_STUB/started-name" ]] || {
+      printf 'pane run did not carry the requested child identity\n' >&2
+      exit 1
+    }
+    ;;
   "agent start")
     if [ "${STUB_REQUIRE_SPLIT:-0}" = 1 ] && [ ! -f "$CHILD_STUB/split-seen" ]; then
       printf 'agent start before pane split\n' >&2
@@ -5792,24 +5803,57 @@ child_logged_value() {
 }
 
 function test_scripts_061_herdr_child_maps_opencode_permissions_model_and() {
-  _bats_test_init 61 'herdr-child maps opencode permissions, model, and configured agent'
+  _bats_test_init 61 'herdr-child launches read-only OpenCode with merged configuration'
   child_stub_herdr
-  # OPENCODE_PERMISSION is a literal opencode parses: a loose match accepts
-  # {"question":"allow",...,"x":"deny"} just as happily, so the key-to-value
-  # pairing only holds if the whole value is asserted.
-  run child_start --kind opencode --agent reviewer --model custom/model --wait
-  assert_success
-  assert_equal "$(child_logged_value OPENCODE_PERMISSION)" \
-    'OPENCODE_PERMISSION={"question":"deny","edit":"deny"}'
-  assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--model custom/model --agent reviewer'
 
-  : > "$CHILD_STUB/calls.log"
-  run child_start --kind opencode --posture rw --wait
+  # #given — the caller selects V2 values that conflict with managed defaults.
+
+  # #when
+  run child_start --kind opencode --agent plan --model opencode/cat-jam-free --wait
+
+  # #then
   assert_success
-  assert_equal "$(child_logged_value OPENCODE_PERMISSION)" \
-    'OPENCODE_PERMISSION={"question":"deny"}'
-  run grep -q 'OPENCODE_PERMISSION=.*edit' "$CHILD_STUB/calls.log"
-  assert_failure
+  assert_output "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
+  run python3 - "$(child_logged_value OPENCODE_CONFIG_CONTENT)" <<'PY'
+import json
+import sys
+
+name, value = sys.argv[1].split("=", 1)
+assert name == "OPENCODE_CONFIG_CONTENT", repr(name)
+assert json.loads(value) == {
+    "model": "opencode/cat-jam-free",
+    "default_agent": "plan",
+    "permission": {"question": "deny", "edit": "deny", "shell": "allow"},
+}
+PY
+  assert_success
+}
+
+function test_scripts_0611_herdr_child_maps_open_read_write_permissions_model_and() {
+  _bats_test_init 611 'herdr-child launches read-write OpenCode with merged configuration'
+  child_stub_herdr
+
+  # #given — a read-write child requests a different supported V2 model and agent.
+
+  # #when
+  run child_start --kind opencode --posture rw --agent build --model opencode/big-pickle --wait
+
+  # #then
+  assert_success
+  assert_output "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
+  run python3 - "$(child_logged_value OPENCODE_CONFIG_CONTENT)" <<'PY'
+import json
+import sys
+
+name, value = sys.argv[1].split("=", 1)
+assert name == "OPENCODE_CONFIG_CONTENT", repr(name)
+assert json.loads(value) == {
+    "model": "opencode/big-pickle",
+    "default_agent": "build",
+    "permission": {"question": "deny", "edit": "allow", "shell": "allow"},
+}
+PY
+  assert_success
 }
 
 function test_scripts_062_herdr_child_maps_pi_model_effort_skills_and_ques() {
