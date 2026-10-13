@@ -24,7 +24,7 @@ make_round_fixture() {
   local task="${2:-fixture}"
 
   FIXTURE_REPO="$BATS_TEST_TMPDIR/repo-$task"
-  TASKS_DIR="$BATS_TEST_TMPDIR/tasks"
+  TASKS_DIR="$(cd "$BATS_TEST_TMPDIR" && pwd)/tasks"
   mkdir -p "$FIXTURE_REPO"
   git -C "$FIXTURE_REPO" init -q
   git -C "$FIXTURE_REPO" config user.email fixture@example.test
@@ -69,22 +69,22 @@ Scale: 2 files changed, 2 insertions(+)
 
 Read the change:
 
-```
+\`\`\`
 git diff $FIXTURE_BASE..HEAD
 git log --oneline $FIXTURE_BASE..HEAD
-```
+\`\`\`
 
 Commits:
 
-```
+\`\`\`
 $FIXTURE_COMMITS
-```
+\`\`\`
 
 Changed files:
 
-```
+\`\`\`
 $FIXTURE_CHANGED
-```
+\`\`\`
 
 ## ROUND 02 UPDATE
 
