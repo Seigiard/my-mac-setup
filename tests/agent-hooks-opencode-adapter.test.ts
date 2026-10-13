@@ -15,6 +15,7 @@ const core: any = await import(join(CORE_DIR, "index.ts"));
 const normalize: any = await import(join(CORE_DIR, "normalize.ts"));
 
 import * as corpus from "./fixtures/agent-hooks/fixtures.ts";
+import { OPENCODE_V2_CAPTURED_EVENTS } from "./fixtures/agent-hooks/opencode-v2.ts";
 
 const REGISTRY = core.CORE_REGISTRY;
 
@@ -42,6 +43,8 @@ afterEach(() => {
 
 type Host = { hooks: Record<string, Function> };
 
+type V2Host = Host & { coreModule?: any };
+
 async function loadPlugin(coreDir?: string): Promise<Host> {
   const home = temporaryDir("agent-hooks-opencode-home-");
 
@@ -66,6 +69,43 @@ async function loadPlugin(coreDir?: string): Promise<Host> {
   }
 }
 
+async function loadV2Plugin(coreDir?: string): Promise<V2Host> {
+  const home = temporaryDir("agent-hooks-opencode-v2-home-");
+
+  if (coreDir !== undefined) {
+    mkdirSync(join(home, ".local", "lib"), { recursive: true });
+    symlinkSync(coreDir, join(home, ".local", "lib", "agent-hooks"));
+  }
+
+  const copy = join(temporaryDir("agent-hooks-opencode-v2-plugin-"), `agent-hooks-${loadCount++}.ts`);
+  cpSync(PLUGIN_PATH, copy);
+
+  const previousHome = process.env.HOME;
+  process.env.HOME = home;
+
+  try {
+    const module: any = await import(copy);
+    const hooks: Record<string, Function> = {};
+    const plugin = module.default;
+
+    expect(plugin?.setup).toBeTypeOf("function");
+    await plugin.setup({
+      location: { directory: home },
+      tool: {
+        hook: async (name: string, handler: Function) => {
+          hooks[name] = handler;
+        },
+      },
+    });
+    const coreModule =
+      coreDir === undefined ? undefined : await import(join(coreDir, "index.ts")).catch(() => undefined);
+
+    return { hooks, coreModule };
+  } finally {
+    process.env.HOME = previousHome;
+  }
+}
+
 /**
  * opencode passes the tool name on `input` and the mutable arguments on
  * `output`; splitting them here keeps the suite honest about which half the
@@ -79,6 +119,18 @@ async function callBefore(host: Host, raw: any): Promise<string | undefined> {
 
   try {
     await host.hooks["tool.execute.before"]({ tool: raw.tool }, { args: raw.args });
+
+    return undefined;
+  } catch (error: any) {
+    return error?.message;
+  }
+}
+
+async function callBeforeV2(host: Host, raw: any): Promise<string | undefined> {
+  expect(host.hooks["execute.before"]).toBeTypeOf("function");
+
+  try {
+    await host.hooks["execute.before"](raw);
 
     return undefined;
   } catch (error: any) {
@@ -173,6 +225,115 @@ describe("tool.execute.before deny and allow (R3)", () => {
 
     // #then no policy claims it
     expect(thrown).toBeUndefined();
+  });
+});
+
+describe("OpenCode V2 execute.before translation", () => {
+  test("missing or broken core imports register no V2 execute handler", async () => {
+    // #given one absent core and one core whose import throws
+    const broken = temporaryDir("agent-hooks-v2-broken-core-");
+    await Bun.write(join(broken, "index.ts"), "throw new Error('core is broken');\n");
+
+    // #when each plugin setup runs
+    const missingHost = await loadV2Plugin(undefined);
+    const brokenHost = await loadV2Plugin(broken);
+
+    // #then both fail open by leaving the execution hook absent
+    expect(Object.keys(missingHost.hooks)).toEqual([]);
+    expect(Object.keys(brokenHost.hooks)).toEqual([]);
+  });
+
+  test("a denied shell command and its renamed control keep the shipped verdicts", async () => {
+    // #given the pre-port deny and allow commands in the V2 shell event shape
+    const denied = corpus
+      .policyFixtures("zsh-reserved-name-guard")
+      .find((candidate: any) => candidate.name === "zsh/flags the status capture idiom");
+    const allowed = corpus
+      .policyFixtures("zsh-reserved-name-guard")
+      .find((candidate: any) => candidate.name === "zsh/an ordinary name zsh accepts is not blocked");
+    const host = await loadV2Plugin(CORE_DIR);
+
+    // #when both commands reach the V2 callback
+    const deniedMessage = await callBeforeV2(host, { tool: "shell", input: denied.payload });
+    const allowedMessage = await callBeforeV2(host, { tool: "shell", input: allowed.payload });
+
+    // #then only the reserved name is refused with the existing reason
+    expect(deniedMessage).toBe(denied.text);
+    expect(allowedMessage).toBeUndefined();
+  });
+
+  test("a nested FFF deny and its single-identifier control keep the shipped verdicts", async () => {
+    // #given the pre-port FFF deny and allow queries under the captured nested tool name
+    const denied = corpus
+      .policyFixtures("fff-grep-guard")
+      .find((candidate: any) => candidate.name === "fff/multi-token bare query is denied");
+    const allowed = corpus
+      .policyFixtures("fff-grep-guard")
+      .find((candidate: any) => candidate.name === "fff/single identifier passes");
+    const host = await loadV2Plugin(CORE_DIR);
+
+    // #when Code Mode's nested events reach the V2 callback
+    const deniedMessage = await callBeforeV2(host, { tool: "fff_grep", input: denied.payload });
+    const allowedMessage = await callBeforeV2(host, { tool: "fff_grep", input: allowed.payload });
+
+    // #then only the multi-token query is refused with the existing reason
+    expect(deniedMessage).toBe(denied.text);
+    expect(allowedMessage).toBeUndefined();
+  });
+
+  test("native write and edit path and content survive transport translation", async () => {
+    // #given a core that records the adapter event without deciding its value
+    const capturing = temporaryDir("agent-hooks-v2-capturing-core-");
+    await Bun.write(
+      join(capturing, "index.ts"),
+      "export const observed = [];\n" +
+        "export function dispatch(client, raw) { observed.push({ client, raw }); return { verdict: 'allow' }; }\n",
+    );
+    const host = await loadV2Plugin(capturing);
+
+    // #when the captured native mutation events reach the adapter
+    await callBeforeV2(host, OPENCODE_V2_CAPTURED_EVENTS.write);
+    await callBeforeV2(host, OPENCODE_V2_CAPTURED_EVENTS.edit);
+
+    // #then the core receives the exact tool, path, and content-bearing V2 inputs
+    expect(host.coreModule.observed).toEqual([
+      { client: "opencode", raw: OPENCODE_V2_CAPTURED_EVENTS.write },
+      { client: "opencode", raw: OPENCODE_V2_CAPTURED_EVENTS.edit },
+    ]);
+  });
+
+  test("a V2 dispatch exception fails open without swallowing an explicit denial", async () => {
+    // #given one throwing core and one real core denial
+    const throwing = temporaryDir("agent-hooks-v2-throwing-core-");
+    await Bun.write(
+      join(throwing, "index.ts"),
+      "export function dispatch() { throw new Error('policy exploded'); }\n",
+    );
+    const throwingHost = await loadV2Plugin(throwing);
+    const denyingHost = await loadV2Plugin(CORE_DIR);
+    const denied = corpus
+      .policyFixtures("zsh-reserved-name-guard")
+      .find((candidate: any) => candidate.name === "zsh/blocks status");
+    const raw = { tool: "shell", input: denied.payload };
+
+    // #when the same valid V2 callback path sees integration failure and policy denial
+    const failureMessage = await callBeforeV2(throwingHost, raw);
+    const denialMessage = await callBeforeV2(denyingHost, raw);
+
+    // #then only the explicit policy verdict rejects the tool call
+    expect(failureMessage).toBeUndefined();
+    expect(denialMessage).toBe(denied.text);
+  });
+
+  test("a malformed V2 event fails open", async () => {
+    // #given a loaded V2 adapter and an event outside the callback contract
+    const host = await loadV2Plugin(CORE_DIR);
+
+    // #when normalization receives no event object
+    const message = await callBeforeV2(host, null);
+
+    // #then the tool path is not converted into an integration denial
+    expect(message).toBeUndefined();
   });
 });
 
