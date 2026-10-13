@@ -10,7 +10,7 @@ start_child() {
   local configured_agent="" prompt="" prompt_file="" direction="" direction_explicit=0
   local mode="" mode_count=0 timeout="30000" supervision_timeout="$DEFAULT_SUPERVISION_TIMEOUT"
   local supervision_timeout_set=0
-  local pane="" list_json="" split_json="" parent_identity="" child_identity=""
+  local pane="" list_json="" split_json="" parent_identity="" child_identity="" opencode_config=""
   local parent_terminal="" parent_session="" child_terminal="" child_session=""
   local verified_terminal="" pre_delay_session="" child_session_json="" child_identity_status=0
   local launch_terminal="" occupied_names="" registered=0
@@ -92,6 +92,27 @@ start_child() {
   if [ -n "$effort" ] && [ "$kind" = opencode ]; then fail_usage "--effort is not supported for $kind"; fi
   if [ "$skills_count" -gt 0 ] && [ "$kind" = opencode ]; then fail_usage '--skills is not supported for opencode'; fi
   if [ -n "$configured_agent" ] && [ "$kind" != opencode ]; then fail_usage "--agent is not supported for $kind"; fi
+  if [ "$kind" = opencode ]; then
+    [ -n "$model" ] || model='openai/gpt-5.5'
+    opencode_config="$(python3 - "$model" "$configured_agent" "$posture" <<'PY'
+import json
+import sys
+
+model, agent, posture = sys.argv[1:]
+permission = {"question": "deny", "edit": "allow", "shell": "allow"}
+if posture == "ro":
+    permission["edit"] = "deny"
+config = {"model": model}
+if agent:
+    config["default_agent"] = agent
+config["permission"] = permission
+print(json.dumps(config, separators=(",", ":")))
+PY
+)" || {
+      printf 'herdr-child: could not prepare OpenCode configuration\n' >&2
+      return 1
+    }
+  fi
 
   list_json="$(herdr agent list)" || {
     printf 'herdr-child: could not list live agents\n' >&2
@@ -183,16 +204,7 @@ EOF
     esac
   fi
 
-  case "$kind:$posture" in
-    opencode:ro)
-      # Deny the interactive question and edit tools; the shell stays available for callbacks.
-      split_args+=(--env 'OPENCODE_PERMISSION={"question":"deny","edit":"deny"}')
-      ;;
-    opencode:rw)
-      # Deny only the interactive question tool in read-write work.
-      split_args+=(--env 'OPENCODE_PERMISSION={"question":"deny"}')
-      ;;
-  esac
+  [ -z "$opencode_config" ] || split_args+=(--env "OPENCODE_CONFIG_CONTENT=$opencode_config")
 
   cleanup_pane() {
     local context="${1:-cleanup}" fresh_json="" current_terminal=""
@@ -379,12 +391,7 @@ EOF
         native_args+=(--disallowed-tools AskUserQuestion)
       fi
       ;;
-    opencode)
-      # Keep the consult's cross-model default when the caller does not select a model.
-      [ -n "$model" ] || model='openai/gpt-5.5'
-      native_args+=(--model "$model")
-      [ -z "$configured_agent" ] || native_args+=(--agent "$configured_agent")
-      ;;
+    opencode) ;;
     pi)
       # Pi cannot provide the callback shell under read-only, so only read-write reaches this branch.
       [ -n "$model" ] || model='openai-codex/gpt-5.5'
@@ -408,7 +415,11 @@ EOF
   start_out="$(mktemp)"
   while [ "$attempt" -le 3 ]; do
     set +e
-    herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout "$start_timeout" -- "${native_args[@]}" >"$start_out" 2>"$start_err"
+    if [ "$kind" = opencode ]; then
+      herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout "$start_timeout" >"$start_out" 2>"$start_err"
+    else
+      herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout "$start_timeout" -- "${native_args[@]}" >"$start_out" 2>"$start_err"
+    fi
     start_status=$?
     set -e
     [ "$start_status" -eq 0 ] && { registered=1; break; }
