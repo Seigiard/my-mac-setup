@@ -95,11 +95,11 @@ async function loadV2Dispatch(home: string): Promise<typeof dispatch> {
   }
 }
 
-// OpenCode 2 plugins use a default definition and execute.before receives the
-// tool name and native input together. Keep this separate from the V1 named
-// export: the pinned V1 loader invokes only AgentHooksPlugin.
+// V1 reads server() from the default definition; V2 reads setup(). Both call
+// one adapter, so each loader registers exactly one Hooks handler.
 export default {
   id: "agent-hooks",
+  server: AgentHooksPlugin,
   async setup(ctx: { tool: { hook: (name: string, handler: (event: unknown) => Promise<void>) => Promise<unknown> } }) {
     const v2Dispatch = await loadV2Dispatch(process.env.HOME ?? "")
 
