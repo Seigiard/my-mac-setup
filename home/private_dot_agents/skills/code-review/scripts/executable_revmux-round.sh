@@ -292,10 +292,12 @@ next() {
 
 summary() {
   local report="${1:-}"
-  local projection="$(dirname "$0")/../projection.jq"
+  local projection
   local critical=0
   local major=0
   local minor=0
+
+  projection="$(dirname "$0")/../projection.jq"
 
   if [ "$#" -ne 1 ] || [ ! -f "$report" ] || ! jq -e . "$report" >/dev/null 2>&1; then
     error "cannot parse report ${report:-<missing>}"
