@@ -1,15 +1,30 @@
 // @ts-nocheck
-// OpenCode model-request adapter for the shared Herdr resource projection.
-import type { Plugin } from "@opencode-ai/plugin"
+// This runs under the pinned V1 host, where the V2 package is absent at runtime.
+// Type-only V2 imports document the upgrade contract without changing that load path.
 import { execFile } from "node:child_process"
 import { homedir } from "node:os"
 import { join } from "node:path"
+import type { SystemPart } from "@opencode/ai"
+import type { Plugin as OpenCodePlugin } from "@opencode/plugin"
+import type { SessionRequest } from "@opencode/plugin/promise/session"
 
 const HEADING = "## Herdr Agent Resource Context (generated)"
+
+const HOOKS = ["context", "compaction", "generate", "title"]
 
 const RESOURCE_CLI =
   process.env.HERDR_RESOURCE_CONTEXT_CLI ??
   join(process.env.HOME || homedir(), ".local", "bin", "herdr-resource-tree")
+
+type V2Plugin = OpenCodePlugin.Plugin
+
+let defineV2: ((plugin: V2Plugin) => V2Plugin) | undefined
+
+try {
+  ;({ Plugin: { define: defineV2 } } = await import("@opencode/plugin"))
+} catch {
+  defineV2 = undefined
+}
 
 function queryContext(sessionID: string): Promise<string | undefined> {
   return new Promise((resolve) => {
@@ -17,55 +32,72 @@ function queryContext(sessionID: string): Promise<string | undefined> {
       RESOURCE_CLI,
       ["--context", "--caller-agent", "opencode", "--caller-session-id", sessionID],
       { encoding: "utf8", maxBuffer: 64 * 1024 },
-      (error, stdout) => {
-        if (error) return resolve(undefined)
-        resolve(stdout.replace(/\r?\n$/, ""))
-      },
+      (error, stdout) => resolve(error ? undefined : stdout.replace(/\r?\n$/, "")),
     )
   })
 }
 
-function generatedContext(entry: string): boolean {
-  return entry === HEADING || entry.startsWith(`${HEADING}\n`)
+function generatedContext(text: string): boolean {
+  return text === HEADING || text.startsWith(`${HEADING}\n`)
 }
 
-export const HerdrResourceContextPlugin: Plugin = async () => {
+function unavailable(reason: string): string {
+  return `${HEADING}\nHerdr resource context unavailable: ${reason}. This must not be treated as an empty resource branch.`
+}
+
+async function resourceContext(sessionID?: string): Promise<string | undefined> {
+  if (!sessionID) return unavailable("OpenCode did not expose a native session identity")
+
+  const context = await queryContext(sessionID)
+
+  if (context === undefined) return unavailable("the shared resource query failed")
+
+  if (context !== "") return `${HEADING}\n${context}`
+}
+
+const v2Plugin = defineV2?.({
+  id: "herdr-resource-context",
+  async setup(ctx) {
+    if (process.env.HERDR_ENV !== "1") return
+
+    const inject = async (request: SessionRequest) => {
+      // Strip before querying so a failed lookup cannot present a prior branch as current.
+      const retained = request.system.filter((part) => !generatedContext(part.text))
+      request.system.length = 0
+      request.system.push(...retained)
+
+      const context = await resourceContext(request.sessionID)
+
+      if (context) request.system.push({ type: "text", text: context } satisfies SystemPart)
+    }
+
+    await Promise.all(HOOKS.map((hook) => ctx.session.hook(hook, inject)))
+  },
+})
+
+// V1 remains the normal pin until the upgrade lands; the dynamic V2 bridge
+// keeps this file loadable in that host while preserving V1 projection coverage.
+export async function HerdrResourceContextPlugin() {
   if (process.env.HERDR_ENV !== "1") return {}
 
   return {
-    "experimental.chat.system.transform": async (input, output) => {
-      const system = output?.system
+    "experimental.chat.system.transform": async (input: { sessionID?: string }, output: { system?: string[] }) => {
+      const system = output.system
 
-      if (!Array.isArray(system)) return
+      if (!system) return
 
-      // Strip our own earlier entry before anything else can return: sessionID
-      // is optional in the plugin API, and leaving a stale entry in place would
-      // present a previous request's branch as the current one.
+      // Strip before querying so a failed lookup cannot present a prior branch as current.
       const retained = system.filter((entry) => !generatedContext(entry))
+
       system.length = 0
+
       system.push(...retained)
 
-      const sessionID = input?.sessionID
+      const context = await resourceContext(input?.sessionID)
 
-      if (!sessionID) {
-        system.push(
-          `${HEADING}\nHerdr resource context unavailable: OpenCode did not expose a native session identity. This must not be treated as an empty resource branch.`,
-        )
-
-        return
-      }
-
-      const context = await queryContext(sessionID)
-
-      if (context === undefined) {
-        system.push(
-          `${HEADING}\nHerdr resource context unavailable: the shared resource query failed. This must not be treated as an empty resource branch.`,
-        )
-
-        return
-      }
-
-      if (context !== "") system.push(`${HEADING}\n${context}`)
+      if (context) system.push(context)
     },
   }
 }
+
+export default v2Plugin ?? HerdrResourceContextPlugin

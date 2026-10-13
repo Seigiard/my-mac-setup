@@ -82,11 +82,8 @@ instinct. The specifics that most often decide whether a claim holds:
 - `make test-local` is a dry-run diff. It applies nothing.
 - `make test-suite` reads the **already-applied** `~/`. It is evidence for deployed state,
   never for an unapplied checkout edit.
-- `make lint` is shellcheck at `--severity=warning` plus `python3 scripts/check_bats_assertions.py tests`.
-  Note that it deliberately excludes `tests/bashunit/*_test.sh` from shellcheck.
-- **There is no typechecker.** Ten `*.test.ts` suites run under `bun test`; there is no
-  `tsconfig.json`, no `package.json`, and no `tsc` invocation in the Makefile or in CI. A
-  type error in TypeScript reaches `main` unchallenged. Do not assume a compiler caught it.
+- Mandatory applicable static gates still block publishing after runtime tests pass.
+- A runnable stub is not proof of SDK contract compatibility.
 
 A "verified" claim naming a target that could not have proven the change is itself a
 finding, and a high one — it converts an unverified change into an apparently verified one.
