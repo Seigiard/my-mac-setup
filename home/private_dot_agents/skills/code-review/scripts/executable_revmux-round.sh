@@ -32,7 +32,7 @@ limit_lines() {
   local line
   local count=0
 
-  [ -n "$content" ] || return
+  [ -n "$content" ] || return 0
 
   while IFS= read -r line || [ -n "$line" ]; do
     count=$((count + 1))
@@ -45,6 +45,61 @@ EOF
 
   if [ "$count" -gt "$limit" ]; then
     printf '… and %s more\n' "$((count - limit))"
+  fi
+}
+
+count_lines() {
+  local content="$1"
+  local line
+  local count=0
+
+  [ -n "$content" ] || {
+    printf '0\n'
+    return 0
+  }
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    count=$((count + 1))
+  done <<EOF
+$content
+EOF
+
+  printf '%s\n' "$count"
+}
+
+build_scope() {
+  local run_name="$1"
+  local task="$2"
+  local base="$3"
+  local tip="$4"
+  local scale="$5"
+  local commits="$6"
+  local changed_files="$7"
+  local round_number="$8"
+  local note_given="$9"
+  local note="${10}"
+  local exclusion
+
+  shift 10
+
+  printf '# Scope\n\n'
+  printf 'Round %s of task %s: review the cumulative change against base %s, including the fixes since the previous round.\n\n' \
+    "$run_name" "$task" "$base"
+  printf 'Tip: %s\n' "$tip"
+  printf 'Scale: %s\n\n' "$scale"
+  printf 'Read the change:\n\n```\n'
+  printf 'git diff %s..HEAD\n' "$base"
+  printf 'git log --oneline %s..HEAD\n' "$base"
+  printf '```\n\nCommits:\n\n```\n%s\n```\n\nChanged files:\n\n```\n%s\n```\n' \
+    "$commits" "$changed_files"
+  if [ "$#" -gt 0 ]; then
+    printf '\nExclusions:\n\n'
+    for exclusion in "$@"; do
+      printf -- '- %s\n' "$exclusion"
+    done
+  fi
+  if [ "$note_given" = true ]; then
+    printf '\n## ROUND %s UPDATE\n\n%s\n' "$round_number" "$note"
   fi
 }
 
@@ -94,6 +149,11 @@ next() {
   local changed_files=""
   local limited_commits=""
   local limited_changed_files=""
+  local commit_count=0
+  local changed_file_count=0
+  local visible_commits=0
+  local visible_changed_files=0
+  local scope_text=""
   local scope_characters=0
   local goal_characters=0
   local round_number=""
@@ -103,6 +163,7 @@ next() {
   local pid=""
   local exit_status=""
   local launch_args=()
+  local launch_wrapper=()
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -196,16 +257,6 @@ next() {
     return 1
   fi
 
-  previous_round=""
-  for candidate in "$task_dir"/*; do
-    [ -d "$candidate" ] || continue
-    candidate_name="${candidate##*/}"
-    [ "$candidate_name" = "$run_name" ] && continue
-    if [ -z "$previous_round" ] || [[ "$candidate_name" > "${previous_round##*/}" ]]; then
-      previous_round="$candidate"
-    fi
-  done
-
   if [ -z "$previous_round" ]; then
     error "task $task has no previous round; author round 1 with the revmux skill"
     return 1
@@ -220,15 +271,56 @@ next() {
     return 1
   fi
 
+  for ((index = 0; index < context_file_count; index++)); do
+    candidate="${context_file_values[$index]}"
+    [ -f "$candidate" ] || {
+      error "context file $candidate not found"
+      return 1
+    }
+  done
+
   tip="$(git -C "$workdir" rev-parse HEAD)"
   scale="$(git -C "$workdir" diff --shortstat "$base..HEAD")"
   scale="${scale#"${scale%%[![:space:]]*}"}"
   [ -n "$scale" ] || scale="no changes"
   commits="$(git -C "$workdir" log --oneline "$base..HEAD")"
   changed_files="$(git -C "$workdir" diff --name-status "$base..HEAD")"
-  limited_commits="$(limit_lines "$commits" 10)"
-  limited_changed_files="$(limit_lines "$changed_files" 20)"
+  commit_count="$(count_lines "$commits")"
+  changed_file_count="$(count_lines "$changed_files")"
+  visible_commits="$commit_count"
+  visible_changed_files="$changed_file_count"
+  if [ "$visible_commits" -gt 10 ]; then
+    visible_commits=10
+  fi
+  if [ "$visible_changed_files" -gt 20 ]; then
+    visible_changed_files=20
+  fi
   round_number="${run_name%%-*}"
+
+  while :; do
+    limited_commits="$(limit_lines "$commits" "$visible_commits")"
+    limited_changed_files="$(limit_lines "$changed_files" "$visible_changed_files")"
+    if [ "$exclusion_count" -gt 0 ]; then
+      scope_text="$(build_scope "$run_name" "$task" "$base" "$tip" "$scale" \
+        "$limited_commits" "$limited_changed_files" "$round_number" "$note_given" "$note" \
+        "${exclude_values[@]}")"
+    else
+      scope_text="$(build_scope "$run_name" "$task" "$base" "$tip" "$scale" \
+        "$limited_commits" "$limited_changed_files" "$round_number" "$note_given" "$note")"
+    fi
+    scope_characters="$(printf '%s\n' "$scope_text" | wc -m)"
+    scope_characters="${scope_characters//[[:space:]]/}"
+    [ "$scope_characters" -le 1500 ] && break
+
+    if [ "$visible_changed_files" -gt 0 ]; then
+      visible_changed_files=$((visible_changed_files - 1))
+    elif [ "$visible_commits" -gt 0 ]; then
+      visible_commits=$((visible_commits - 1))
+    else
+      error "scope.md is $scope_characters characters; the limit is 1500"
+      return 1
+    fi
+  done
 
   if [ "$tasks_dir_given" = true ]; then
     new_result="$(revmux new --task "$task" --run "$run_name" --tasks-dir "$tasks_dir")"
@@ -260,36 +352,7 @@ next() {
     count_files "$context"
   fi
 
-  {
-    printf '# Scope\n\n'
-    printf 'Round %s of task %s: review the cumulative change against base %s, including the fixes since the previous round.\n\n' \
-      "$run_name" "$task" "$base"
-    printf 'Tip: %s\n' "$tip"
-    printf 'Scale: %s\n\n' "$scale"
-    printf 'Read the change:\n\n```\n'
-    printf 'git diff %s..HEAD\n' "$base"
-    printf 'git log --oneline %s..HEAD\n' "$base"
-    printf '```\n\nCommits:\n\n```\n%s\n```\n\nChanged files:\n\n```\n%s\n```\n' \
-      "$limited_commits" "$limited_changed_files"
-    if [ "$exclusion_count" -gt 0 ]; then
-      printf '\nExclusions:\n\n'
-      for ((index = 0; index < exclusion_count; index++)); do
-        candidate="${exclude_values[$index]}"
-        printf -- '- %s\n' "$candidate"
-      done
-    fi
-    if [ "$note_given" = true ]; then
-      printf '\n## ROUND %s UPDATE\n\n%s\n' "$round_number" "$note"
-    fi
-  } > "$scope"
-
-  scope_characters="$(wc -m < "$scope")"
-  scope_characters="${scope_characters//[[:space:]]/}"
-  if [ "$scope_characters" -gt 1500 ]; then
-    error "scope.md is $scope_characters characters; the limit is 1500"
-    remove_created_round
-    return 1
-  fi
+  printf '%s\n' "$scope_text" > "$scope"
 
   if [ "$goal_state" = copied ]; then
     goal_characters="$(wc -m < "$goal")"
@@ -336,13 +399,12 @@ next() {
     launch_args+=(--workdir "$workdir")
   fi
 
+  launch_wrapper=(nohup)
   if command -v setsid >/dev/null 2>&1; then
-    nohup setsid bash -c 'json_file=$1; log_file=$2; exit_file=$3; exit_temp="$exit_file.tmp.$$"; shift 3; "$@" > "$json_file" 2> "$log_file"; status=$?; printf "%s\\n" "$status" > "$exit_temp" && mv "$exit_temp" "$exit_file"' \
-      bash "$json_file" "$log_file" "$exit_file" "${launch_args[@]}" </dev/null >/dev/null 2>&1 &
-  else
-    nohup bash -c 'json_file=$1; log_file=$2; exit_file=$3; exit_temp="$exit_file.tmp.$$"; shift 3; "$@" > "$json_file" 2> "$log_file"; status=$?; printf "%s\\n" "$status" > "$exit_temp" && mv "$exit_temp" "$exit_file"' \
-      bash "$json_file" "$log_file" "$exit_file" "${launch_args[@]}" </dev/null >/dev/null 2>&1 &
+    launch_wrapper+=(setsid)
   fi
+  "${launch_wrapper[@]}" bash -c 'json_file=$1; log_file=$2; exit_file=$3; exit_temp="$exit_file.tmp.$$"; shift 3; "$@" > "$json_file" 2> "$log_file"; status=$?; printf "%s\\n" "$status" > "$exit_temp" && mv "$exit_temp" "$exit_file"' \
+    bash "$json_file" "$log_file" "$exit_file" "${launch_args[@]}" </dev/null >/dev/null 2>&1 &
   pid="$!"
 
   printf 'launched: true\n'

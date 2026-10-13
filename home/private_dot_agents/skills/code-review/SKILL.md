@@ -91,9 +91,10 @@ Choose the route before preparing the round:
 - On the prose route, skip revmux preparation and launch. Dispatch one fresh prose child as
   described below.
 - On the revmux route, prepare round 1 with the `revmux` skill. Every later round is one command:
-  `<this skill's directory>/scripts/revmux-round.sh next --task <id> --base <fixed base sha> --profile <selected profile> --out-dir <run-dir> --exclude "<each round 1 exclusion>" --context-file <fresh verification-evidence file> --note "<what changed since the previous round>" --wait`.
-  Pass one `--exclude` for each exclusion recorded in round 1. Write the current verification
-  evidence to the context file before this command. For a fetched PR, also pass
+  `<this skill's directory>/scripts/revmux-round.sh next --task <id> --base <fixed base sha> --profile <selected profile> --out-dir <run-dir> --exclude "<each exclusion>" --context-file <fresh verification-evidence file> --note "<what changed since the previous round>" --wait`.
+  Pass one `--exclude` for every exclusion recorded so far. Write the current verification
+  evidence to the context file under the same file name in every round, so it replaces the carried
+  copy. For a fetched PR, also pass
   `--workdir <worktree>`.
   It copies goal and context forward, writes `scope.md` from git, checks the scope and goal limits,
   and launches revmux headless into `<run-dir>/<run>.json`, `.log`, and `.exit`. No subagent
