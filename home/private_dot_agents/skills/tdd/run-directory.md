@@ -27,6 +27,9 @@ The `tdd` orchestrator's files for one ticket. Publish `ticket.md`, `lock.json`,
 ## Criteria
 1. <validation criterion>
 
+## Non-goals
+- <behavior, file, or area the ticket deliberately leaves unchanged | None explicitly stated, when the ticket names none>
+
 ## Oracle gate
 1. test: <consumer> / <observable failure> / <independent oracle>
 2. no test: <reason>
@@ -43,7 +46,7 @@ The `tdd` orchestrator's files for one ticket. Publish `ticket.md`, `lock.json`,
 
 ## Batch
 - <number>: <initial ticket | caller-supplied review findings>
-- base_sha: <HEAD before implementation, on the checks-only path>
+- batch_start_sha: <HEAD when this batch opened; preserved across retries and re-locks>
 - turns: <count so far> / <limit, default 8>
 
 ## Calibration
