@@ -4,7 +4,8 @@ set -euo pipefail
 usage() {
   printf '%s\n' \
     'usage: revmux-round.sh next --task <id> [--run <NN-label>] [--base <sha>] [--workdir <path>] [--profile <name>]' \
-    '       [--note <text> | --note -] [--out-dir <dir>] [--tasks-dir <dir>] [--prepare-only] [--wait]' \
+    '       [--note <text> | --note -] [--exclude <text>] [--context-file <path>] [--out-dir <dir>]' \
+    '       [--tasks-dir <dir>] [--prepare-only] [--wait]' \
     '       revmux-round.sh summary <report.json>' >&2
 }
 
@@ -25,6 +26,28 @@ count_files() {
   done
 }
 
+limit_lines() {
+  local content="$1"
+  local limit="$2"
+  local line
+  local count=0
+
+  [ -n "$content" ] || return
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    count=$((count + 1))
+    if [ "$count" -le "$limit" ]; then
+      printf '%s\n' "$line"
+    fi
+  done <<EOF
+$content
+EOF
+
+  if [ "$count" -gt "$limit" ]; then
+    printf '… and %s more\n' "$((count - limit))"
+  fi
+}
+
 remove_created_round() {
   if printf '%s\n' "$new_result" | jq -e --arg round "$round_dir" \
     '.created | index("round_dir") != null' >/dev/null; then
@@ -40,6 +63,10 @@ next() {
   local profile=""
   local note=""
   local note_given=false
+  local exclude_values=()
+  local context_file_values=()
+  local exclusion_count=0
+  local context_file_count=0
   local out_dir=""
   local tasks_dir=""
   local tasks_dir_given=false
@@ -50,6 +77,7 @@ next() {
   local previous_round=""
   local candidate=""
   local candidate_name=""
+  local index=0
   local highest=0
   local prefix=""
   local number=0
@@ -64,6 +92,8 @@ next() {
   local scale=""
   local commits=""
   local changed_files=""
+  local limited_commits=""
+  local limited_changed_files=""
   local scope_characters=0
   local goal_characters=0
   local round_number=""
@@ -76,7 +106,7 @@ next() {
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --task|--run|--base|--workdir|--profile|--out-dir|--tasks-dir)
+      --task|--run|--base|--workdir|--profile|--out-dir|--tasks-dir|--exclude|--context-file)
         [ "$#" -gt 1 ] || { usage; return 1; }
         case "$1" in
           --task) task="$2" ;;
@@ -86,6 +116,14 @@ next() {
           --profile) profile="$2" ;;
           --out-dir) out_dir="$2" ;;
           --tasks-dir) tasks_dir="$2"; tasks_dir_given=true ;;
+          --exclude)
+            exclude_values[$exclusion_count]="$2"
+            exclusion_count=$((exclusion_count + 1))
+            ;;
+          --context-file)
+            context_file_values[$context_file_count]="$2"
+            context_file_count=$((context_file_count + 1))
+            ;;
         esac
         shift 2
         ;;
@@ -132,6 +170,9 @@ next() {
   for candidate in "$task_dir"/*; do
     [ -d "$candidate" ] || continue
     candidate_name="${candidate##*/}"
+    if [ "$candidate_name" = "$run_name" ]; then
+      continue
+    fi
     if [ -z "$previous_round" ] || [[ "$candidate_name" > "${previous_round##*/}" ]]; then
       previous_round="$candidate"
     fi
@@ -146,14 +187,48 @@ next() {
     esac
   done
 
+  if [ -z "$run_name" ]; then
+    run_name="$(printf '%02d-after-fix' $((highest + 1)))"
+  fi
+
+  if [ -d "$task_dir/$run_name" ]; then
+    error "round $run_name already exists in task $task"
+    return 1
+  fi
+
+  previous_round=""
+  for candidate in "$task_dir"/*; do
+    [ -d "$candidate" ] || continue
+    candidate_name="${candidate##*/}"
+    [ "$candidate_name" = "$run_name" ] && continue
+    if [ -z "$previous_round" ] || [[ "$candidate_name" > "${previous_round##*/}" ]]; then
+      previous_round="$candidate"
+    fi
+  done
+
   if [ -z "$previous_round" ]; then
     error "task $task has no previous round; author round 1 with the revmux skill"
     return 1
   fi
 
-  if [ -z "$run_name" ]; then
-    run_name="$(printf '%02d-after-fix' $((highest + 1)))"
+  if [ -z "$base" ]; then
+    base="$(printf '%s\n' "$config_result" | jq -r --arg task "$task" \
+      '.paths.tasks[] | select(.id == $task) | .base')"
   fi
+  if [ -z "$base" ] || [ "$base" = "null" ]; then
+    error "no base for task $task; pass --base"
+    return 1
+  fi
+
+  tip="$(git -C "$workdir" rev-parse HEAD)"
+  scale="$(git -C "$workdir" diff --shortstat "$base..HEAD")"
+  scale="${scale#"${scale%%[![:space:]]*}"}"
+  [ -n "$scale" ] || scale="no changes"
+  commits="$(git -C "$workdir" log --oneline "$base..HEAD")"
+  changed_files="$(git -C "$workdir" diff --name-status "$base..HEAD")"
+  limited_commits="$(limit_lines "$commits" 10)"
+  limited_changed_files="$(limit_lines "$changed_files" 20)"
+  round_number="${run_name%%-*}"
 
   if [ "$tasks_dir_given" = true ]; then
     new_result="$(revmux new --task "$task" --run "$run_name" --tasks-dir "$tasks_dir")"
@@ -173,26 +248,17 @@ next() {
   if [ -d "$previous_round/input/context" ]; then
     mkdir -p "$context"
     cp -R "$previous_round/input/context/." "$context"
+  fi
+
+  for ((index = 0; index < context_file_count; index++)); do
+    candidate="${context_file_values[$index]}"
+    mkdir -p "$context"
+    cp "$candidate" "$context/${candidate##*/}"
+  done
+
+  if [ -d "$context" ]; then
     count_files "$context"
   fi
-
-  if [ -z "$base" ]; then
-    base="$(printf '%s\n' "$config_result" | jq -r --arg task "$task" \
-      '.paths.tasks[] | select(.id == $task) | .base')"
-  fi
-  if [ -z "$base" ] || [ "$base" = "null" ]; then
-    error "no base for task $task; pass --base"
-    remove_created_round
-    return 1
-  fi
-
-  tip="$(git -C "$workdir" rev-parse HEAD)"
-  scale="$(git -C "$workdir" diff --shortstat "$base..HEAD")"
-  scale="${scale#"${scale%%[![:space:]]*}"}"
-  [ -n "$scale" ] || scale="no changes"
-  commits="$(git -C "$workdir" log --oneline "$base..HEAD")"
-  changed_files="$(git -C "$workdir" diff --name-status "$base..HEAD")"
-  round_number="${run_name%%-*}"
 
   {
     printf '# Scope\n\n'
@@ -204,7 +270,14 @@ next() {
     printf 'git diff %s..HEAD\n' "$base"
     printf 'git log --oneline %s..HEAD\n' "$base"
     printf '```\n\nCommits:\n\n```\n%s\n```\n\nChanged files:\n\n```\n%s\n```\n' \
-      "$commits" "$changed_files"
+      "$limited_commits" "$limited_changed_files"
+    if [ "$exclusion_count" -gt 0 ]; then
+      printf '\nExclusions:\n\n'
+      for ((index = 0; index < exclusion_count; index++)); do
+        candidate="${exclude_values[$index]}"
+        printf -- '- %s\n' "$candidate"
+      done
+    fi
     if [ "$note_given" = true ]; then
       printf '\n## ROUND %s UPDATE\n\n%s\n' "$round_number" "$note"
     fi
@@ -250,6 +323,7 @@ next() {
   json_file="$out_dir/$run_name.json"
   log_file="$out_dir/$run_name.log"
   exit_file="$out_dir/$run_name.exit"
+  rm -f "$json_file" "$log_file" "$exit_file"
 
   launch_args=(revmux --task "$task" --run "$run_name" --no-tui)
   if [ "$tasks_dir_given" = true ]; then
@@ -263,10 +337,10 @@ next() {
   fi
 
   if command -v setsid >/dev/null 2>&1; then
-    nohup setsid bash -c 'json_file=$1; log_file=$2; exit_file=$3; shift 3; "$@" > "$json_file" 2> "$log_file"; status=$?; printf "%s\\n" "$status" > "$exit_file"' \
+    nohup setsid bash -c 'json_file=$1; log_file=$2; exit_file=$3; exit_temp="$exit_file.tmp.$$"; shift 3; "$@" > "$json_file" 2> "$log_file"; status=$?; printf "%s\\n" "$status" > "$exit_temp" && mv "$exit_temp" "$exit_file"' \
       bash "$json_file" "$log_file" "$exit_file" "${launch_args[@]}" </dev/null >/dev/null 2>&1 &
   else
-    nohup bash -c 'json_file=$1; log_file=$2; exit_file=$3; shift 3; "$@" > "$json_file" 2> "$log_file"; status=$?; printf "%s\\n" "$status" > "$exit_file"' \
+    nohup bash -c 'json_file=$1; log_file=$2; exit_file=$3; exit_temp="$exit_file.tmp.$$"; shift 3; "$@" > "$json_file" 2> "$log_file"; status=$?; printf "%s\\n" "$status" > "$exit_temp" && mv "$exit_temp" "$exit_file"' \
       bash "$json_file" "$log_file" "$exit_file" "${launch_args[@]}" </dev/null >/dev/null 2>&1 &
   fi
   pid="$!"
@@ -279,6 +353,10 @@ next() {
 
   if [ "$wait_for_exit" = true ]; then
     while [ ! -f "$exit_file" ]; do
+      if ! kill -0 "$pid" 2>/dev/null && [ ! -f "$exit_file" ]; then
+        error "revmux launcher exited without writing $exit_file"
+        return 2
+      fi
       sleep 1
     done
     exit_status="$(< "$exit_file")"

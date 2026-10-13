@@ -91,10 +91,13 @@ Choose the route before preparing the round:
 - On the prose route, skip revmux preparation and launch. Dispatch one fresh prose child as
   described below.
 - On the revmux route, prepare round 1 with the `revmux` skill. Every later round is one command:
-  `<this skill's directory>/scripts/revmux-round.sh next --task <id> --base <fixed base sha> --profile <selected profile> --note "<what changed since the previous round>" --wait`.
+  `<this skill's directory>/scripts/revmux-round.sh next --task <id> --base <fixed base sha> --profile <selected profile> --out-dir <run-dir> --exclude "<each round 1 exclusion>" --context-file <fresh verification-evidence file> --note "<what changed since the previous round>" --wait`.
+  Pass one `--exclude` for each exclusion recorded in round 1. Write the current verification
+  evidence to the context file before this command. For a fetched PR, also pass
+  `--workdir <worktree>`.
   It copies goal and context forward, writes `scope.md` from git, checks the scope and goal limits,
-  and launches revmux headless into `~/.claude/artifacts/review-<task>/<run>.json`, `.log`, and
-  `.exit`. No subagent prepares the round.
+  and launches revmux headless into `<run-dir>/<run>.json`, `.log`, and `.exit`. No subagent
+  prepares the round.
 
 Reuse the task ID and create a new round each time. Carry the original goal and exclusions
 forward. On the revmux route, let revmux inject prior findings and describe the current
@@ -109,9 +112,9 @@ state they cover. Mark checks without current evidence as unknown.
 
 On the revmux route, wait for a terminal result under the host's long-running-work rules.
 With `--wait`, the command blocks until the `.exit` file exists. Run it in the background with
-the Bash tool's `run_in_background`, then read the `.exit` file afterwards. Keep report JSON and
-progress logs separate. `.exit` `0` and `1` are completed reviews; anything else is a tool
-failure. A tool or launcher error, malformed output, missing sources, or non-empty
+the host's background facility, then read the `.exit` file afterwards. Keep report JSON and
+progress logs separate. `.exit` `0` and `1` are completed reviews; anything else is a tool failure.
+A tool or launcher error, malformed output, missing sources, or non-empty
 `sources.degraded` means incomplete coverage: report the failure and stop rather than claiming
 convergence. For a healthy `raised 0` source, name the source and inspect its `agents/<name>.*`
 tee; treat it as incomplete only when the tee shows that the agent could not work.
