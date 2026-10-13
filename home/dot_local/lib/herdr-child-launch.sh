@@ -455,6 +455,11 @@ EOF
     cleanup_pane post-registration-validation || true
     return 1
   }
+  name="$(printf '%s' "$list_json" | json_current_name_for_pane "$pane")" || {
+    printf 'herdr-child: accepted child name could not be resolved after agent start\n' >&2
+    cleanup_pane post-registration-validation || true
+    return 1
+  }
   set +e
   child_identity="$(printf '%s' "$list_json" | json_identity_for_pane "$pane")"
   child_identity_status=$?
