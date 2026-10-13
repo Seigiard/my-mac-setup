@@ -144,7 +144,7 @@ run_verdict() {
   dirty="$(sed -n 's/^dirty=//p' "$meta_file")"
   cwd="$(sed -n 's/^cwd=//p' "$meta_file")"
   ansi_escape="$(printf '\033')"
-  failure_pattern="$(printf '\342\234\227')|Failed"
+  failure_pattern="^[[:space:]]*($(printf '\342\234\227')|Failed)"
   if [ -f "$log_file" ]; then
     failed="$(LC_ALL=C sed "s/${ansi_escape}\\[[0-9;]*[[:alpha:]]//g" "$log_file" | grep -E "$failure_pattern" | wc -l | tr -d '[:space:]')"
   else
