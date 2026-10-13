@@ -44,7 +44,7 @@ Done when the worktree is clean and `ticket.md` holds the ticket, its criteria, 
 2. **Seams and checks.** Record in `ticket.md`, reusing fields an earlier batch recorded when they are unchanged:
    - for every **test** criterion: the public boundary, the allowed test paths and fixtures, and the test command;
    - the applicable checks from the repository's verification rules (in my-mac-setup: `docs/agent-verification.md`; ask the caller when the repository has none);
-   - the implementer's starting tier and its reason ([tiers](#responding-to-a-failure));
+   - the implementer's starting tier and its reason (Starting tiers, below);
    - the batch number, its immutable `batch_start_sha` (`HEAD` when the batch opens and preserved across retries and re-locks), and its turn count and limit ([batches](#batches-and-turns)).
 
    Starting tiers: the test writer starts on `medium`. The implementer starts on `low` when the ticket's production change touches one file, otherwise on `medium`; count only production files and record the reason in `ticket.md`. Tiers map to models through `~/.claude/shared/model-tiers.md`. Never `xhigh`.
