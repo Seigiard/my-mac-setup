@@ -10,7 +10,7 @@ The current GitHub issue body, labels, assignees, state, and comments define the
 
 - List active issues exhaustively: `gh api --paginate 'repos/Seigiard/my-mac-setup/issues?state=open&per_page=100' --jq '.[] | select(has("pull_request") | not) | [.number, .title, .html_url] | @tsv'`
 - Search titles and bodies without a fixed result cap: `gh api --paginate 'repos/Seigiard/my-mac-setup/issues?state=all&per_page=100' --jq '.[] | select(has("pull_request") | not) | {number, state, title, body, url: .html_url}'`, then filter the complete output locally.
-- Read an issue, its metadata, and its history in non-TTY use: `gh issue view <number> --repo Seigiard/my-mac-setup --json number,title,body,labels,state,url,comments`.
+- Read an issue, its metadata, and its history in non-TTY use: `gh issue view <number> --repo Seigiard/my-mac-setup --json number,title,body,labels,assignees,state,url,comments`.
 - Create an issue: apply the `repository-issues` ownership gate, then use `gh issue create` with one category and one state label.
 - Claim work: add yourself as assignee only when work begins.
 - Change triage state: remove the old state label and add the new one without disturbing unrelated labels.
@@ -38,4 +38,4 @@ Keep the issue body current when investigation changes the diagnosis, impact, sc
 
 ## Skill Vocabulary
 
-When a skill says "publish to the issue tracker," create a GitHub issue after applying the ownership gate. When a skill says "fetch the relevant ticket," run `gh issue view <number> --repo Seigiard/my-mac-setup --json number,title,body,labels,state,url,comments`.
+When a skill says "publish to the issue tracker," create a GitHub issue after applying the ownership gate. When a skill says "fetch the relevant ticket," run `gh issue view <number> --repo Seigiard/my-mac-setup --json number,title,body,labels,assignees,state,url,comments`.
