@@ -142,6 +142,7 @@ child_reap_all_stubs() {
 }
 
 teardown() {
+  hwi_adapter_reap_all
   hwi_teardown
   local stub
   for stub in ${CHILD_STUBS[@]+"${CHILD_STUBS[@]}"}; do
@@ -9487,6 +9488,31 @@ function tear_down() {
 HWI_CLAUDE_HOOK="$SOURCE_ROOT/private_dot_claude/hooks/executable_herdr-worktree-identity-hook.sh"
 HWI_OPENCODE_PLUGIN_SOURCE="$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-worktree-identity.ts"
 HRC_CLAUDE_HOOK="$SOURCE_ROOT/private_dot_claude/hooks/executable_herdr-resource-context.sh"
+HWI_ADAPTER_ROOTS=()
+
+hwi_adapter_register_root() {
+  HWI_ADAPTER_ROOTS+=("$1")
+}
+
+hwi_adapter_reap_all() {
+  local root pid_file pid attempt
+  for root in ${HWI_ADAPTER_ROOTS[@]+"${HWI_ADAPTER_ROOTS[@]}"}; do
+    [[ -d "$root" ]] || continue
+    : > "$root/release"
+    for pid_file in "$root"/call-*/recorder.pid; do
+      [[ -s "$pid_file" ]] || continue
+      pid="$(cat "$pid_file")"
+      attempt=0
+      while kill -0 "$pid" 2>/dev/null && [[ "$attempt" -lt 100 ]]; do
+        attempt=$((attempt + 1))
+        sleep 0.01
+      done
+      kill -0 "$pid" 2>/dev/null || continue
+      kill -TERM "$pid" 2>/dev/null || true
+    done
+  done
+  HWI_ADAPTER_ROOTS=()
+}
 
 hwi_adapter_stub_engine() {
   local root="$1"
@@ -9500,9 +9526,18 @@ printf '%s\n' "$@" > "$call/argv"
 cat > "$call/stdin"
 : > "$call/ready"
 (
+  cleanup() {
+    [[ -z "${HWI_ADAPTER_TEST_AUDIT_DIR:-}" ]] || : > "$HWI_ADAPTER_TEST_AUDIT_DIR/recorder-$$.stopped"
+  }
+  trap cleanup EXIT
   while [ ! -e "$HWI_ADAPTER_TEST_DIR/release" ]; do sleep 0.01; done
   : > "$call/released"
 ) &
+printf '%s\n' "$!" > "$call/recorder.pid"
+if [[ -n "${HWI_ADAPTER_TEST_AUDIT_DIR:-}" ]]; then
+  mkdir -p "$HWI_ADAPTER_TEST_AUDIT_DIR"
+  printf '%s\n' "$!" > "$HWI_ADAPTER_TEST_AUDIT_DIR/recorder-$$.pid"
+fi
 exit 0
 SH
   chmod +x "$root/engine"
@@ -9823,6 +9858,7 @@ function test_scripts_1224_opencode_worktree_identity_plugin_uses_deployed_consu
   home="$root/home"
   deployed="$home/.config/opencode/plugins"
   mkdir -p "$deployed/node_modules/@opencode/plugin" "$home/.local/lib"
+  hwi_adapter_register_root "$root"
   hwi_adapter_stub_engine "$root"
   ln -s "$SOURCE_ROOT/dot_local/lib/agent-hooks" "$home/.local/lib/agent-hooks"
   cp "$HWI_OPENCODE_PLUGIN_SOURCE" "$deployed/herdr-worktree-identity.ts"
@@ -9837,6 +9873,11 @@ const { default: plugin } = await import(process.env.HWI_OPENCODE_PLUGIN!);
 let promptHook;
 let nextEvent;
 let stopped = false;
+const sessions = new Map([
+  ["session-root-a", { id: "session-root-a" }],
+  ["session-root-b", { id: "session-root-b" }],
+  ["session-child", { id: "session-child", parentID: "session-root-a" }],
+]);
 const eventStream = {
   async *[Symbol.asyncIterator]() {
     while (!stopped) yield await new Promise((resolve) => (nextEvent = resolve));
@@ -9851,6 +9892,11 @@ if (typeof plugin?.setup === "function") {
         if (name === "prompt") promptHook = hook;
         return { dispose: async () => {} };
       },
+      get: async ({ sessionID }) => {
+        const session = sessions.get(sessionID);
+        if (!session) throw new Error(`missing V2 session ${sessionID}`);
+        return session;
+      },
     },
     event: { subscribe: () => eventStream },
   });
@@ -9864,8 +9910,10 @@ if (process.env.EXPECT_DISABLED === "1") {
     await Promise.resolve();
   }
   if (typeof nextEvent !== "function") throw new Error("OpenCode V2 event subscription did not start");
-  nextEvent({ type: "session.created", data: { sessionID: "session-child", parentID: "session-root-a" } });
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  if (process.env.HWI_TEST_PREOBSERVED_CHILD === "1") {
+    nextEvent({ type: "session.created", data: { sessionID: "session-child", parentID: "session-root-a" } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
   await promptHook({
     sessionID: "session-child",
     messageID: "message-child",
@@ -9919,6 +9967,9 @@ TS
   assert_success
   assert_output $'session-root-a\tOpenCode V2 root A sentinel\nsession-root-b\tOpenCode V2 root B sentinel'
   : > "$root/release"
+  for call in "$root"/call-*; do
+    hwi_wait_for_file "$call/released" || fail "recorder did not stop after release: $call"
+  done
 
   run env EXPECT_DISABLED=1 HOME="$home" HERDR_ENV= HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" \
     HWI_ADAPTER_TEST_DIR="$root/gated" HWI_OPENCODE_PLUGIN="$deployed/herdr-worktree-identity.ts" bun "$root/run.ts"
