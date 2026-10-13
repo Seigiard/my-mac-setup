@@ -3002,11 +3002,45 @@ function test_scripts_457_herdr_peer_list_skips_unaddressable_records_and_unknow
 
 function test_scripts_463_herdr_peer_agent_list_fake_fields_match_real_herdr() {
   _bats_test_init 463 'herdr-peer agent-list fake fields match the real Herdr contract'
-  local payload="$BATS_TEST_TMPDIR/agent-list.json" agent_count
+  local payload="$BATS_TEST_TMPDIR/agent-list.json" schema="$BATS_TEST_TMPDIR/schema.json" agent_count
 
   # #given
   command_exists herdr && herdr --version >/dev/null 2>&1 \
     || skip "no working herdr executable is installed behind PATH"
+  run herdr api schema --json
+  printf '%s\n' "$output" > "$schema"
+  if [[ "$status" -eq 1 ]] && python3 - "$schema" <<'PY'
+import json
+import sys
+
+try:
+    payload = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError):
+    raise SystemExit(1)
+
+raise SystemExit(0 if payload.get("error", {}).get("code") == "unsupported" else 1)
+PY
+  then
+    skip "installed herdr does not support api schema --json (error.code=unsupported)"
+  fi
+  if [[ "$status" -ne 0 ]]; then
+    fail "herdr api schema --json exited $status: $output"
+  fi
+  run python3 - "$schema" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+agent_info = payload["schemas"]["success_response"]["$defs"]["AgentInfo"]
+properties = agent_info["properties"]
+for field in ("name", "agent"):
+    assert set(properties[field]["type"]) == {"string", "null"}, (field, properties[field]["type"])
+for field in ("pane_id", "agent_status"):
+    assert field in agent_info["required"], (field, agent_info["required"])
+PY
+  if [[ "$status" -ne 0 ]]; then
+    fail "herdr api schema --json did not provide the AgentInfo contract herdr-peer consumes: $output"
+  fi
   # #when
   if [[ -n "${MMS_HERDR_AGENT_LIST_SOCKET_PATH:-}" ]]; then
     run env HERDR_SOCKET_PATH="$MMS_HERDR_AGENT_LIST_SOCKET_PATH" herdr agent list
