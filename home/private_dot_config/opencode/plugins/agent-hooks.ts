@@ -25,13 +25,46 @@ const HOME = process.env.HOME ?? ""
 
 const CORE_DIR = join(HOME, ".local", "lib", "agent-hooks")
 
+// Adapter modules can be re-evaluated while their runtime imports keep the
+// prior core resident. Keying by dispatch preserves that loaded identity until
+// the runtime actually resolves a different core module.
+const RESIDENT_CORE_HASHES = Symbol.for("agent-hooks.opencode.resident-core-hashes")
+
+const residentCoreHashes: Map<unknown, string> =
+  (globalThis as any)[RESIDENT_CORE_HASHES] ?? ((globalThis as any)[RESIDENT_CORE_HASHES] = new Map())
+
+function residentCoreHash(dispatch: unknown, coreHash: () => string): string {
+  const known = residentCoreHashes.get(dispatch)
+
+  if (known !== undefined) return known
+
+  const hash = coreHash()
+  residentCoreHashes.set(dispatch, hash)
+
+  return hash
+}
+
 // Load-time import rather than per-call (KTD5): a failure is front-loaded into
 // a plugin that registers nothing, which is the honest fail-open shape — an
 // installed handler that silently allows would look alive to a reader.
 let dispatch: ((client: string, rawEvent: ToolEventValue) => Decision) | undefined
 
 try {
-  ;({ dispatch } = await import(join(CORE_DIR, "index.ts")))
+  const core = await import(join(CORE_DIR, "index.ts"))
+  dispatch = core.dispatch
+
+  if (dispatch && HOME !== "") {
+    try {
+      const { coreHash, writeMarker } = await import(join(CORE_DIR, "selfcheck.ts"))
+      writeMarker(CLIENT, {
+        stateDir: join(HOME, ".local", "state", "agent-hooks"),
+        hash: residentCoreHash(core.dispatch, coreHash),
+      })
+    } catch {
+      // A marker this session cannot write leaves its identity unknown, which is
+      // what selfcheck already reports for a session it has no evidence about.
+    }
+  }
 } catch {
   dispatch = undefined
 }
@@ -40,16 +73,6 @@ try {
 // selfcheck can tell a stale session from a current one after an apply (KTD5).
 // Best-effort and separate from the gate above: no marker is a reporting gap,
 // not a reason to stop enforcing.
-if (dispatch && HOME !== "") {
-  try {
-    const { writeMarker } = await import(join(CORE_DIR, "selfcheck.ts"))
-    writeMarker(CLIENT, { stateDir: join(HOME, ".local", "state", "agent-hooks") })
-  } catch {
-    // A marker this session cannot write leaves its identity unknown, which is
-    // what selfcheck already reports for a session it has no evidence about.
-  }
-}
-
 export const AgentHooksPlugin: Plugin = async () => {
   if (!dispatch) return {}
 
@@ -80,10 +103,13 @@ async function loadV2Dispatch(home: string): Promise<typeof dispatch> {
       : corePath
     const core = await import(join(coreDir, "index.ts"))
 
-    if (home !== "") {
+    if (core.dispatch && home !== "") {
       try {
-        const { writeMarker } = await import(join(coreDir, "selfcheck.ts"))
-        writeMarker(CLIENT, { stateDir: join(home, ".local", "state", "agent-hooks") })
+        const { coreHash, writeMarker } = await import(join(coreDir, "selfcheck.ts"))
+        writeMarker(CLIENT, {
+          stateDir: join(home, ".local", "state", "agent-hooks"),
+          hash: residentCoreHash(core.dispatch, coreHash),
+        })
       } catch {
         // Missing identity evidence is diagnostic only and must not disable policy.
       }

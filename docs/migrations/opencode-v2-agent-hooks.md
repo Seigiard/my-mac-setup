@@ -20,4 +20,9 @@ The verified scope is the pinned standalone V2 server and its root sessions.
 It does not establish OpenCode subagent enforcement. Import, normalization,
 and dispatch failures fail open; an explicit core block is rethrown so OpenCode
 rejects the tool call. A successful V2 setup writes the same resident
-loaded-core marker as V1 for selfcheck.
+loaded-core marker as V1 for selfcheck. Repeated setup and adapter
+re-evaluation retain the identity of a cached enforcing core: after the core on
+disk changes, selfcheck reports the resident session as stale rather than
+claiming it loaded the new deployment. An unchanged deployment remains current.
+This adapter-lifetime behavior is covered locally; runtime source hot reload in
+the V2 server was attempted but not observed.
