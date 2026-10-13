@@ -391,7 +391,9 @@ EOF
         native_args+=(--disallowed-tools AskUserQuestion)
       fi
       ;;
-    opencode) ;;
+    opencode)
+      native_args+=(--standalone)
+      ;;
     pi)
       # Pi cannot provide the callback shell under read-only, so only read-write reaches this branch.
       [ -n "$model" ] || model='openai-codex/gpt-5.5'
@@ -415,11 +417,7 @@ EOF
   start_out="$(mktemp)"
   while [ "$attempt" -le 3 ]; do
     set +e
-    if [ "$kind" = opencode ]; then
-      herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout "$start_timeout" >"$start_out" 2>"$start_err"
-    else
-      herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout "$start_timeout" -- "${native_args[@]}" >"$start_out" 2>"$start_err"
-    fi
+    herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout "$start_timeout" -- "${native_args[@]}" >"$start_out" 2>"$start_err"
     start_status=$?
     set -e
     [ "$start_status" -eq 0 ] && { registered=1; break; }
