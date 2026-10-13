@@ -27,14 +27,17 @@ Evidence stays valid while the covered code, tests, fixtures, generated state, a
 - The worktree must be clean (`git status --porcelain` is empty). When it is not, report the dirty paths to the caller and stop.
 - Use the caller's run directory, or create `~/.claude/artifacts/tdd-<YYYYMMDD-HHMMSS>/<ticket>/`, where `<ticket>` is the issue number or a short slug. Its files, their layouts, and the atomic-write rule are in [`run-directory.md`](run-directory.md).
 - Write `ticket.md` with the ticket text, verbatim, and its validation criteria. The ticket is the issue the caller named, or the caller's request when there is none. When the ticket states no criteria, write them from its text.
+- When the ticket reports a bug (the `bug` label, or its text describes current behavior as wrong), add a `Symptom` section to `ticket.md`: the observed behavior with the command or scenario the ticket gives, the expected behavior, and the criterion that covers it.
 
-Done when the worktree is clean and `ticket.md` holds the ticket and its criteria.
+Done when the worktree is clean and `ticket.md` holds the ticket, its criteria, and its symptom when it reports a bug.
 
 ## The chain
 
 1. **Oracle gate.** For each criterion, decide whether a permanent test is warranted. Apply the repository's test-oracle gate when it has one (in my-mac-setup: `docs/solutions/design-patterns/semantic-regression-tests-over-source-shape.md`) and the oracle rule in `~/.claude/shared/testing.md`. Each criterion gets one verdict, and both are complete paths:
    - **test**: the consumer, the observable failure, and the independent oracle, on one line.
    - **no test**: the reason. The usual cases are agent-facing text, a verbatim copy or move, config with no observable behavior, and behavior owned by an upstream system.
+
+    **Observation gate.** A symptom criterion marked **no test**, at this gate or later in step 3, needs a recorded observation before step 4: the command or scenario from `Symptom`, run on the production base, with its state and output recorded under `Symptom`. This applies per criterion, including in a ticket whose other criteria have locked tests. When the observation shows the reported symptom, continue. When it reaches the expected behavior under the recorded preconditions, the bug is [not reproduced](#responding-to-a-failure). Otherwise classify the incomplete observation under [Responding to a failure](#responding-to-a-failure) before any implementation: an unrunnable command is **Prerequisite**, a missing scenario or expected result is **Decision**.
 
    Done when every criterion in `ticket.md` carries a verdict. When none is marked **test** and no `lock.json` exists, this is the **checks-only path**: record `base_sha` (`git rev-parse HEAD`) and skip step 3. An existing lock and its test command stay in force.
 2. **Seams and checks.** Record in `ticket.md`, reusing fields an earlier batch recorded when they are unchanged:
@@ -46,12 +49,12 @@ Done when the worktree is clean and `ticket.md` holds the ticket and its criteri
    Read the area's glossary and ADRs when present. For an unsettled interface, load `codebase-design`; ask the user when it needs a product decision. Done when these fields are recorded for the batch.
 3. **Test writer.** Record `base_sha` (`git rev-parse HEAD`) and start a test writer in **prepare** mode ([Dispatch](#dispatch), brief: `test-writer.md` in this skill's directory). When it settles, inspect the worktree, the report, and the evidence before changing repository state. A [handoff gap](#responding-to-a-failure) keeps the candidate in place and resumes the child. Otherwise accept the lock only when all of these hold:
    - **Scope:** `git diff --name-only <base_sha> HEAD` lists only allowed test paths and fixtures, and the worktree is clean.
-   - **Results:** each new test is red on its behavior assertion, or is a negative or aggregate case with an [uncalibrated assertion](#calibration). On a first lock or behavior gap, the test command must include red for missing behavior. Setup, import, and syntax failures reject the attempt. Corrected tests on a re-lock may already be green.
+   - **Results:** each new test is red on its behavior assertion, or is a negative or aggregate case with an [uncalibrated assertion](#calibration). On a first lock or behavior gap, the test command must include red for missing behavior, and for a symptom criterion that red shows the symptom; red for another reason rejects the attempt. Setup, import, and syntax failures reject the attempt. Corrected tests on a re-lock may already be green.
    - **Oracle:** each test matches its report's oracle line, and the line holds against the oracle gate and the false-green rules in `~/.claude/shared/testing.md`.
    - **Controls:** every control in the report's table has valid evidence, and its observed result matches the independent expected result. The helpers and fixtures the brief requires are covered. For unavailable live dependencies, follow the repository's verification rules and record the exact unverified boundary.
    - **Plan:** each uncalibrated negative or aggregate assertion has an owner test and a finite regression plan in `ticket.md`.
 
-   A report of zero tests with a reason for every criterion, and no movement from `base_sha`, moves those criteria to **no test**. On acceptance, write the lock: the branch tip becomes `lock_sha`, and the changed files become the locked paths. On rejection, record the diagnosis, [preserve the candidate](#preserving-a-candidate), then reset the branch (`git reset --hard <base_sha>`, then `git clean -fd`) and take the diagnosis's route. Done when the work is locked, or the ticket is on the checks-only path.
+   A report of zero tests with a reason for every criterion, and no movement from `base_sha`, moves those criteria to **no test**; a symptom criterion whose faithful test reached its assertion and passed is [not reproduced](#responding-to-a-failure) instead, and one moved to **no test** for another reason goes through the [observation gate](#the-chain) before step 4. On acceptance, write the lock: the branch tip becomes `lock_sha`, and the changed files become the locked paths. On rejection, record the diagnosis, [preserve the candidate](#preserving-a-candidate), then reset the branch (`git reset --hard <base_sha>`, then `git clean -fd`) and take the diagnosis's route. Done when the work is locked, or the ticket is on the checks-only path.
 4. **Implementer.** Start an implementer (brief: `implementer.md`). It writes code until the locked tests pass and the criteria hold. Done when the child has settled and its report names its commit, the changed paths, the evidence for the test command and each check, and anything left undone.
 5. **Validation.** All of these must hold for the same state:
    - the lock diff exits 0 (skip on the checks-only path);
@@ -69,7 +72,7 @@ Report to the caller: `lock_sha` or the checks-only verdict, the final branch ti
 
 A caller with review findings for a ticket that already ran the chain opens a new [batch](#batches-and-turns), runs steps 1-2 for its findings, and enters at a later step:
 
-- A **behavior gap** (the code is wrong and no test catches it): add the criterion and its verdict, run step 3 to extend the lock, then steps 4 and 5.
+- A **behavior gap** (the code is wrong and no test catches it): add the criterion and its verdict, record its symptom, run step 3 to extend the lock, then steps 4 and 5.
 - A **code-only finding**: add it to the criteria, then run steps 4 and 5 against the existing lock, or checks-only when there is none.
 - A **suspect test** (wrong oracle, false green, or contradictory fixture): record the counterexample, run step 3 to re-lock, then step 4 for every open finding that still needs production work, including code-only findings and any defect the corrected tests expose. Skip step 4 only when no such finding remains. Then step 5.
 
@@ -103,6 +106,7 @@ Every failed or incomplete settlement gets a **diagnosis** in Verdicts before an
 |---|---|
 | **Handoff:** the report, a log, or a control artifact is missing, and the inspected work looks sound | Resume the same child ([Dispatch](#dispatch)) naming the missing items; a check that never ran is named as a check to run now. Report-only corrections need no commit. An item still missing after one resume is a returned diagnosis. When the child's session is gone, a fresh child on the same tier gets the [preserved candidate](#preserving-a-candidate) and the remaining work. |
 | **Test preparation:** a localized defect with a reproduction and a known correct result (a missing `await`, a helper that echoes its input, one wrong fixture) | A **targeted fix** by a test writer on the same tier: its prompt names the preserved candidate ref, the diagnosis, and the paths it may change. It restores those paths from the ref and changes only what the diagnosis names. Full lock acceptance follows. |
+| **Not reproduced:** during the initial investigation of a bug or of a new behavior gap, a symptom criterion's faithful test or its observation reached the expected-behavior assertion and passed on `base_sha`, with valid evidence for its scenario and controls. A suspect-test re-lock follows the existing re-lock and calibration rules | Stop. Report the symptom, the test or command that sought it, and the observed behavior. The ticket may be stale, already fixed, or environment-specific; the caller decides. |
 | **Production:** a localized defect with a reproduction and a known correct result | A **targeted fix** by an implementer on the same tier, continuing from the current branch tip; its prompt names the diagnosis, the paths it may change, and the control that confirms the fix. Full validation follows. |
 | **Locked test:** a test is wrong (false green, wrong oracle, contradictory fixture) | The suspect-test route under [Entering mid-chain](#entering-mid-chain), on the tier of the last accepted lock. The implementer is never asked to satisfy a wrong test. |
 | **Calibration:** a mutation was unfaithful, or restoration failed | Recover and verify the production snapshot at `calibration_sha`, then a fresh calibrate child. The lock stays. |
@@ -118,6 +122,7 @@ The chain **stops**, reporting the diagnoses and the run directory, when:
 
 - the worktree is dirty before the chain, or no child can start;
 - a diagnosis returns;
+- a bug is not reproduced;
 - a capability failure happens on `high`, or a prerequisite cannot be restored;
 - another dispatch is needed and the batch has no turns left;
 - the caller must decide an oracle or a product question.

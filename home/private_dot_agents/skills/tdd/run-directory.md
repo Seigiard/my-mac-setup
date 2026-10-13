@@ -18,6 +18,12 @@ The `tdd` orchestrator's files for one ticket. Publish `ticket.md`, `lock.json`,
 ## Ticket
 <the ticket text, verbatim>
 
+## Symptom
+- observed: <the wrong behavior the ticket reports, and the command or scenario it gives>
+- expected: <the behavior the ticket expects>
+- criterion: <number>
+- observation: <for a symptom criterion marked no test: command or scenario, state, output>
+
 ## Criteria
 1. <validation criterion>
 
@@ -50,6 +56,8 @@ The `tdd` orchestrator's files for one ticket. Publish `ticket.md`, `lock.json`,
 - implementer-1 (low): D2 handoff: <missing items>; resumed; then accepted, tip <sha>; evidence <log paths>
 - test-writer-3 (medium, calibrate): <calibrated | suspect test | blocked>; state <sha>; report test-writer-3.report.md
 ```
+
+`Symptom` exists only when the ticket reports a bug.
 
 A diagnosis ID is never reused. A later entry that cites an earlier ID (`D1 returned`) records a return; a new reproduction gets a new ID.
 
