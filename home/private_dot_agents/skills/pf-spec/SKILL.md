@@ -72,7 +72,12 @@ review_worktree="$(mktemp -d "${TMPDIR:-/tmp}/pf-spec-review.XXXXXX")"
 rmdir "$review_worktree"
 printf '%s\n' "$review_worktree" > "$state_dir/review-worktree"
 if ! git -C "$epic_worktree" worktree add --detach "$review_worktree" "$epic_branch"; then
-  git -C "$epic_worktree" worktree remove --force "$review_worktree" || true
+  if ! git -C "$epic_worktree" worktree remove --force "$review_worktree"; then
+    exit 1
+  fi
+  if test -e "$review_worktree"; then
+    exit 1
+  fi
   rm -rf "$state_dir"
   exit 1
 fi
@@ -94,7 +99,12 @@ fi
 git -C "$epic_worktree" status --porcelain=v1 > "$artifact_dir/frontier-review-epic-after.status"
 cmp -s "$state_dir/epic-status-before" "$artifact_dir/frontier-review-epic-after.status" || exit 1
 if test -z "$session_id"; then
-  git -C "$epic_worktree" worktree remove --force "$review_worktree" || true
+  if ! git -C "$epic_worktree" worktree remove --force "$review_worktree"; then
+    exit 1
+  fi
+  if test -e "$review_worktree"; then
+    exit 1
+  fi
   rm -rf "$state_dir"
   test "$review_exit" -eq 0 && exit 1 || exit "$review_exit"
 fi
@@ -153,8 +163,12 @@ After the final continuation, or when abandoning a failed/incomplete run, clean 
 state_dir=<artifact directory>/frontier-review-state
 epic_worktree="$(cat "$state_dir/epic-worktree")"
 review_worktree="$(cat "$state_dir/review-worktree")"
-git -C "$epic_worktree" worktree remove --force "$review_worktree"
-test ! -e "$review_worktree"
+if ! git -C "$epic_worktree" worktree remove --force "$review_worktree"; then
+  exit 1
+fi
+if test -e "$review_worktree"; then
+  exit 1
+fi
 rm -rf "$state_dir"
 ```
 
