@@ -17,7 +17,7 @@ For a targeted fix, first restore the approved test and fixture paths from the p
 1. Take each criterion marked **test** in `ticket.md`. Before you edit a test file for it, start from its oracle line in `ticket.md` and copy it into your report, or correct it there with the reason: the consumer, the observable failure, and an oracle independent of the code that will make it pass. When you cannot complete the line, the criterion gets zero tests, and the report says why. A test without an oracle line is invented; assert behavior at the seam, never source text.
 2. Search the existing tests for the contract first. Strengthen its current owner when one exists.
 3. Write each test at the seam `ticket.md` names, inside the allowed test paths and fixtures. Production code belongs to the implementer: leave every other path unchanged.
-4. Establish the [controls](#controls), then run the test command. Record each new test's status and behavior assertion. Setup, import, and syntax failures need correction. For an [uncalibrated](SKILL.md#calibration) negative or aggregate assertion, name it and propose its smallest faithful post-green regression. On a re-lock, corrected tests may already be green; say so in the report.
+4. Establish the [controls](#controls), then run the test command. Record each new test's status and behavior assertion. For a symptom criterion, record the scenario and preconditions you established, the assertion the run reached, and whether the red output shows the symptom in `ticket.md`. Setup, import, and syntax failures need correction. For an [uncalibrated](SKILL.md#calibration) negative or aggregate assertion, name it and propose its smallest faithful post-green regression. On a re-lock, corrected tests may already be green; say so in the report.
 5. Commit only the test and fixture changes, on the current branch. Do not push.
 
 Done when every **test** criterion has either tests with observed results, controls, and any required calibration plan, or zero tests with a reason. The orchestrator applies the lock-acceptance conditions of step 3 in [The chain](SKILL.md#the-chain).
@@ -38,7 +38,7 @@ Write the report to the path in your prompt. For each criterion:
 
 - the oracle line, or the reason for zero tests;
 - each test's file and name;
-- the failure output that shows it is red, trimmed to the assertion.
+- the failure output that shows it is red, trimmed to the assertion; for a symptom criterion, the symptom it shows, or the green run that reached the assertion.
 - each already-green or early-failing negative or aggregate test, its protected assertion, and its proposed post-green regression and temporary paths.
 
 Include a **Controls** table:
