@@ -6,11 +6,11 @@ argument-hint: "[scope | PR URL/number | base:<ref>] [plan:<path>] [--profile <n
 
 # Code review loop
 
-Use the route in step 1 for scope resolution, round preparation, review execution, and
-report interpretation. Settle the route in step 1 before loading the `revmux` or `herdr`
-skill. On the revmux route, use the `revmux` skill for those operations.
-This skill owns the apply and repeat policy below; it replaces revmux's interactive fix
-choice and its stock `references/loop.md` policy.
+Settle the route in step 1 before loading the `revmux` or `herdr` skill. On the revmux
+route, use the `revmux` skill for scope resolution and the first round; use the preparation
+and collection procedure in step 2 for follow-up rounds and report summaries. This skill owns
+the apply and repeat policy below; it replaces revmux's interactive fix choice and its stock
+`references/loop.md` policy.
 
 When already acting as a reviewer inside revmux or another report-only review job, follow
 that job's supplied rubric and return findings directly. Do not launch a nested review.
@@ -90,30 +90,34 @@ Choose the route before preparing the round:
   or that the changes are verbatim moves, copies, or pure renames.
 - On the prose route, skip revmux preparation and launch. Dispatch one fresh prose child as
   described below.
-- On the revmux route, prepare round 1 with the `revmux` skill. Every later round is one command:
-  `<this skill's directory>/scripts/revmux-round.sh next --task <id> --base <fixed base sha> --profile <selected profile> --out-dir <run-dir> --exclude "<each exclusion>" --context-file <fresh verification-evidence file> --note "<what changed since the previous round>" --wait`.
-  Pass one `--exclude` for every exclusion recorded so far. Write the current verification
-  evidence to the context file under the same file name in every round, so it replaces the carried
-  copy. For a fetched PR, also pass
-  `--workdir <worktree>`.
-  It copies goal and context forward, writes `scope.md` from git, checks the scope and goal limits,
-  and launches revmux headless into `<run-dir>/<run>.json`, `.log`, and `.exit`. No subagent
-  prepares the round.
+- On the revmux route, the caller prepares round 1 with the `revmux` skill and prepares every
+  later round by running
 
-Reuse the task ID and create a new round each time. Carry the original goal and exclusions
-forward. On the revmux route, let revmux inject prior findings and describe the current
-scope rather than copying old reports into it. Later rounds reuse the same run directory
-and its lock and Verdicts.
+  ```
+  <this skill's directory>/scripts/revmux-round.sh next --task <id> --base <fixed base sha> \
+    --profile <selected profile> --out-dir <run-dir> --exclude "<exclusion>" \
+    --context-file <evidence file> --note "<what changed since the previous round>" --wait
+  ```
+
+  adding `--workdir <worktree>` for a fetched PR. Collect the round's report, progress log, and
+  terminal status from `<run-dir>/<run>.json`, `.log`, and `.exit`.
+
+Reuse the task ID and create a new round each time. Carry the original goal and every exclusion
+recorded so far forward; on the revmux route that is one `--exclude` per exclusion. Let revmux
+inject prior findings and describe the current scope rather than copying old reports into it.
+Later rounds reuse the same run directory and its lock and Verdicts.
 Pass the caller's report-only constraint to reviewers: inspect the checkout without editing
 it or running tests. Reviewers stay report-only; fixes are delegated to fresh `tdd` chain
 children and verification stays with the caller.
 
 Include available verification results in the round context, naming their commands and the
-state they cover. Mark checks without current evidence as unknown.
+state they cover; on the revmux route, write them to the `--context-file` under the same file
+name in every round, so it replaces the carried copy. Mark checks without current evidence as
+unknown.
 
 On the revmux route, wait for a terminal result under the host's long-running-work rules.
-With `--wait`, the command blocks until the `.exit` file exists. Run it in the background with
-the host's background facility, then read the `.exit` file afterwards. Keep report JSON and
+With `--wait`, the command blocks until the `.exit` file exists; run it detached and read
+`.exit` afterwards. Keep report JSON and
 progress logs separate. `.exit` `0` and `1` are completed reviews; anything else is a tool failure.
 A tool or launcher error, malformed output, missing sources, or non-empty
 `sources.degraded` means incomplete coverage: report the failure and stop rather than claiming
