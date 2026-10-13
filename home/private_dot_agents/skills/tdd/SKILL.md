@@ -90,7 +90,7 @@ Every dispatched or resumed child is one **turn** of its batch. Before each disp
 
 ## Calibration
 
-See [calibration.md](calibration.md), reached when a lock has uncalibrated negative or aggregate assertions.
+Before assessing a lock with uncalibrated negative or aggregate assertions or a review that finds a masking helper or fixture, read [calibration.md](calibration.md).
 
 ## Responding to a failure
 
