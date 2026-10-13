@@ -106,11 +106,11 @@ Inspect the saved mutation diffs and command logs. Each named regression needs r
 
 ## Responding to a failure
 
-Before recovering from any failed or incomplete settlement, read `recovery.md`. Record its diagnosis and follow its route before any reset, restore, or dispatch.
+Before recovering from any failed or incomplete settlement, read [recovery.md](recovery.md).
 
 ### Preserving a candidate
 
-Before any reset, restore, or `git clean`, follow Preserving a candidate in `recovery.md`.
+Before any reset, restore, or `git clean`, follow [Preserving a candidate](recovery.md#preserving-a-candidate).
 
 ## Dispatch
 
