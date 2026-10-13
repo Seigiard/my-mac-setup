@@ -1,0 +1,453 @@
+#!/usr/bin/env bash
+
+set -o pipefail
+
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=home/dot_local/lib/herdr-process.sh
+source "$SCRIPT_DIR/../lib/herdr-process.sh"
+
+usage() {
+  printf '%s\n' 'usage: herdr-run <label> [--cwd DIR] [--dir DIR] [--wait] [--timeout SEC] [--stall-minutes N] -- <command...>' >&2
+  printf '%s\n' '       herdr-run verdict <label> [--dir DIR]' >&2
+}
+
+valid_label() {
+  [[ "$1" =~ ^[[:alnum:]][[:alnum:]._-]*$ ]]
+}
+
+resolve_directory() {
+  CDPATH='' cd -- "$1" 2>/dev/null || return 1
+  case "$1" in
+    /*) printf '%s\n' "$1" ;;
+    *) pwd -P ;;
+  esac
+}
+
+prepare_state_directory() {
+  mkdir -p -- "$1" 2>/dev/null || return 1
+  resolve_directory "$1"
+}
+
+compose_project_name() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -c 'abcdefghijklmnopqrstuvwxyz0123456789_-' '-'
+}
+
+write_meta() {
+  local cwd="$1" meta_file="$2" head=none dirty=0 start
+
+  start="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  if git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    head="$(git -C "$cwd" rev-parse HEAD 2>/dev/null || printf '%s' none)"
+    if [ -n "$(git -C "$cwd" status --porcelain --untracked-files=all)" ]; then
+      dirty=1
+    fi
+  fi
+
+  printf 'start=%s\nhead=%s\ndirty=%s\ncwd=%s\n' "$start" "$head" "$dirty" "$cwd" > "$meta_file"
+}
+
+write_launch_script() {
+  local script_file="$1" cwd="$2" log_file="$3" exit_file="$4" pid_file="$5" compose_project="$6" label="$7"
+  shift 7
+  local argument
+
+  ( {
+    printf '%s\n' '#!/usr/bin/env bash'
+    printf '%s\n' 'set -o pipefail'
+    # The launch script owns this record in both launch modes.
+    printf '%s\n' "printf '%s\\n' \"\$\$\" > $(printf '%q' "$pid_file")"
+    printf '%s\n' 'write_status() {'
+    printf '%s\n' '  local status="$1"'
+    printf '%s\n' "  printf '%s\\n' \"\$status\" > $(printf '%q' "$exit_file")"
+    printf '%s\n' "  printf 'herdr-run: $label exit=%s\\n' \"\$status\""
+    printf '%s\n' '}'
+    printf '%s\n' "trap 'write_status 130; exit 130' INT"
+    printf '%s\n' "trap 'write_status 143; exit 143' TERM"
+    printf '%s\n' "trap 'write_status 129; exit 129' HUP"
+    printf '%s\n' "cd -- $(printf '%q' "$cwd") || { write_status 97; exit 97; }"
+    printf '%s\n' "export PWD=$(printf '%q' "$cwd")"
+    printf '%s\n' "export PATH=$(printf '%q' "$HOME/.local/share/mise/shims"):\$PATH"
+    printf '%s\n' "export COMPOSE_PROJECT_NAME=$(printf '%q' "$compose_project")"
+    printf '%s' 'set --'
+    for argument in "$@"; do
+      printf ' %q' "$argument"
+    done
+    printf '\n'
+    printf '%s\n' "\"\$@\" 2>&1 | tee $(printf '%q' "$log_file")"
+    printf '%s\n' 'status=${PIPESTATUS[0]}'
+    printf '%s\n' 'write_status "$status"'
+    printf '%s\n' 'exit "$status"'
+  } > "$script_file" ) 2>/dev/null || return 1
+  chmod +x "$script_file"
+}
+
+report_process_tree() {
+  local pid="$1"
+
+  ps -axo pid=,ppid=,stat=,etime=,pcpu=,command= 2>/dev/null |
+    awk -v root="$pid" '
+      {
+        parent[$1] = $2
+        line[$1] = $0
+        order[++count] = $1
+      }
+      function reaches_root(pid, steps) {
+        for (steps = 0; steps <= count; steps++) {
+          if (pid == root) return 1
+          if (!(pid in parent)) return 0
+          pid = parent[pid]
+        }
+        return 0
+      }
+      END {
+        for (position = 1; position <= count; position++) {
+          pid = order[position]
+          if (reaches_root(pid)) print line[pid]
+        }
+      }
+    ' || true
+}
+
+workload_alive() {
+  local state_dir="$1" label="$2" pid_file pane_file pid pane
+
+  WORKLOAD_LIVENESS_TARGET=''
+  pid_file="$state_dir/$label.pid"
+  pane_file="$state_dir/$label.pane"
+  if [ -e "$pid_file" ]; then
+    pid="$(<"$pid_file")"
+    if [ -z "$pid" ]; then
+      WORKLOAD_LIVENESS_TARGET='pid=starting'
+      return 0
+    fi
+    WORKLOAD_LIVENESS_TARGET="pid=$pid"
+    kill -0 "$pid" 2>/dev/null
+    return
+  fi
+  if [ "${HERDR_ENV:-}" = 1 ] && [ -s "$pane_file" ]; then
+    pane="$(<"$pane_file")"
+    WORKLOAD_LIVENESS_TARGET="pane=$pane"
+    herdr pane get "$pane" >/dev/null 2>&1
+    return
+  fi
+  return 2
+}
+
+wait_for_exit() {
+  local state_dir="$1" label="$2" log_file="$3" exit_file="$4" pid_file="$5" pane_file="$6" timeout="$7" stall_seconds="$8"
+  local start now last_growth last_size size idle_seconds stall_reported=0 pid pane exit_code last_pane_check=0 process_tree liveness
+
+  start="$(date +%s)"
+  last_growth="$start"
+  last_size=0
+  while [ ! -s "$exit_file" ]; do
+    if [ ! -d "$state_dir" ] || [ ! -f "$state_dir/$label.meta" ]; then
+      printf 'herdr-run: %s state directory gone: %s\n' "$label" "$state_dir" >&2
+      return 125
+    fi
+    now="$(date +%s)"
+    if [ -f "$log_file" ]; then
+      size="$(wc -c < "$log_file" | tr -d '[:space:]')"
+      if [ "$size" -gt "$last_size" ]; then
+        last_size="$size"
+        last_growth="$now"
+      fi
+    fi
+
+    idle_seconds=$((now - last_growth))
+    if [ "$stall_reported" -eq 0 ] && [ "$idle_seconds" -ge "$stall_seconds" ]; then
+      if [ -s "$pid_file" ]; then
+        pid="$(<"$pid_file")"
+        process_tree="$(report_process_tree "$pid")"
+        printf 'herdr-run: %s stall: log idle %ss pid=%s\n%s\n' "$label" "$idle_seconds" "$pid" "$process_tree" >&2
+      else
+        pane="$(<"$pane_file")"
+        printf 'herdr-run: %s stall: log idle %ss pane=%s\n' "$label" "$idle_seconds" "$pane" >&2
+      fi
+      stall_reported=1
+    fi
+
+    if [ -e "$pid_file" ]; then
+      workload_alive "$state_dir" "$label"
+      liveness=$?
+      if [ "$liveness" -eq 1 ]; then
+        [ -s "$exit_file" ] && break
+        printf 'herdr-run: %s workload gone without a status (%s)\n' "$label" "$WORKLOAD_LIVENESS_TARGET" >&2
+        return 125
+      fi
+    elif [ "${HERDR_ENV:-}" = 1 ] && [ -s "$pane_file" ] && [ $((now - last_pane_check)) -ge 5 ]; then
+      last_pane_check="$now"
+      workload_alive "$state_dir" "$label"
+      liveness=$?
+      if [ "$liveness" -eq 1 ]; then
+        printf 'herdr-run: %s workload gone without a status (%s)\n' "$label" "$WORKLOAD_LIVENESS_TARGET" >&2
+        return 125
+      fi
+    fi
+
+    if [ -n "$timeout" ] && [ $((now - start)) -ge "$timeout" ]; then
+      printf 'herdr-run: %s timeout after %ss, workload left running\n' "$label" "$timeout" >&2
+      return 124
+    fi
+    sleep 0.1
+  done
+
+  exit_code="$(tr -d '[:space:]' < "$exit_file")"
+  case "$exit_code" in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  return "$exit_code"
+}
+
+run_verdict() {
+  local label state_dir meta_file exit_file log_file pid_file pane_file head dirty cwd exit_code failed ansi_escape failure_pattern liveness
+
+  [ $# -gt 0 ] || {
+    usage
+    return 2
+  }
+  label="$1"
+  shift
+  valid_label "$label" || {
+    usage
+    return 2
+  }
+
+  state_dir="${HERDR_RUN_DIR:-$HOME/.cache/herdr-run}"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dir)
+        [ $# -ge 2 ] || {
+          usage
+          return 2
+        }
+        state_dir="$2"
+        shift 2
+        ;;
+      *)
+        usage
+        return 2
+        ;;
+    esac
+  done
+
+  state_dir="$(resolve_directory "$state_dir")" || return 2
+  meta_file="$state_dir/$label.meta"
+  exit_file="$state_dir/$label.exit"
+  log_file="$state_dir/$label.log"
+  pid_file="$state_dir/$label.pid"
+  pane_file="$state_dir/$label.pane"
+  [ -f "$meta_file" ] || return 2
+
+  head="$(sed -n 's/^head=//p' "$meta_file")"
+  dirty="$(sed -n 's/^dirty=//p' "$meta_file")"
+  cwd="$(sed -n 's/^cwd=//p' "$meta_file")"
+  ansi_escape="$(printf '\033')"
+  failure_pattern="^[[:space:]]*($(printf '\342\234\227')|Failed)"
+  if [ -f "$log_file" ]; then
+    failed="$(LC_ALL=C sed "s/${ansi_escape}\\[[0-9;]*[[:alpha:]]//g" "$log_file" | grep -E "$failure_pattern" | wc -l | tr -d '[:space:]')"
+  else
+    failed=0
+  fi
+
+  if [ -s "$exit_file" ]; then
+    exit_code="$(tr -d '[:space:]' < "$exit_file")"
+    case "$exit_code" in
+      '' | *[!0-9]*) exit_code=none ;;
+    esac
+    printf 'state=complete\nexit=%s\nhead=%s\ndirty=%s\ncwd=%s\nfailed=%s\n' \
+      "$exit_code" "$head" "$dirty" "$cwd" "$failed"
+    [ "$exit_code" = none ] && return 1
+    return "$exit_code"
+  fi
+
+  workload_alive "$state_dir" "$label"
+  liveness=$?
+  if [ "$liveness" -eq 1 ]; then
+    printf 'state=dead\nexit=none\nhead=%s\ndirty=%s\ncwd=%s\nfailed=%s\n' \
+      "$head" "$dirty" "$cwd" "$failed"
+    return 4
+  fi
+
+  printf 'state=running\nexit=none\nhead=%s\ndirty=%s\ncwd=%s\nfailed=%s\n' \
+    "$head" "$dirty" "$cwd" "$failed"
+  return 3
+}
+
+run_workload() {
+  local label="$1" cwd="$PWD" state_dir="${HERDR_RUN_DIR:-$HOME/.cache/herdr-run}" wait=0 timeout='' stall_minutes=5 stall_seconds
+  local script_file log_file exit_file meta_file pid_file pane_file compose_project tab_result pane pane_command liveness
+
+  shift
+  valid_label "$label" || {
+    usage
+    return 2
+  }
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --cwd)
+        [ $# -ge 2 ] || {
+          usage
+          return 2
+        }
+        cwd="$2"
+        shift 2
+        ;;
+      --dir)
+        [ $# -ge 2 ] || {
+          usage
+          return 2
+        }
+        state_dir="$2"
+        shift 2
+        ;;
+      --wait)
+        wait=1
+        shift
+        ;;
+      --timeout)
+        [ $# -ge 2 ] || {
+          usage
+          return 2
+        }
+        timeout="$2"
+        shift 2
+        ;;
+      --stall-minutes)
+        [ $# -ge 2 ] || {
+          usage
+          return 2
+        }
+        stall_minutes="$2"
+        shift 2
+        ;;
+      --)
+        shift
+        break
+        ;;
+      *)
+        usage
+        return 2
+        ;;
+    esac
+  done
+
+  [ $# -gt 0 ] || {
+    usage
+    return 2
+  }
+  [ -z "$timeout" ] || [[ "$timeout" =~ ^[0-9]+$ ]] || {
+    usage
+    return 2
+  }
+  [ "$wait" -eq 1 ] || [ -z "$timeout" ] || {
+    usage
+    return 2
+  }
+  [[ "$stall_minutes" =~ ^[0-9]+$ ]] || {
+    usage
+    return 2
+  }
+  cwd="$(resolve_directory "$cwd")" || {
+    printf 'herdr-run: cwd is not a directory: %s\n' "$cwd" >&2
+    return 2
+  }
+
+  state_dir="$(prepare_state_directory "$state_dir")" || {
+    printf 'herdr-run: cannot prepare state directory: %s\n' "$state_dir" >&2
+    return 2
+  }
+  stall_seconds="${HERDR_RUN_STALL_SECONDS:-$((stall_minutes * 60))}"
+  [[ "$stall_seconds" =~ ^[0-9]+$ ]] || {
+    usage
+    return 2
+  }
+
+  script_file="$state_dir/$label.sh"
+  log_file="$state_dir/$label.log"
+  exit_file="$state_dir/$label.exit"
+  meta_file="$state_dir/$label.meta"
+  pid_file="$state_dir/$label.pid"
+  pane_file="$state_dir/$label.pane"
+
+  if [ ! -s "$exit_file" ]; then
+    workload_alive "$state_dir" "$label"
+    liveness=$?
+    if [ "$liveness" -eq 0 ]; then
+      printf 'herdr-run: %s is still running (%s); wait for it or choose another label\n' \
+        "$label" "$WORKLOAD_LIVENESS_TARGET" >&2
+      return 2
+    fi
+  fi
+
+  rm -f "$log_file" "$exit_file" "$pid_file" "$pane_file"
+
+  compose_project="herdr-run-$(compose_project_name "$label")"
+  write_meta "$cwd" "$meta_file" || {
+    rm -f "$meta_file"
+    printf 'herdr-run: cannot write metadata: %s\n' "$meta_file" >&2
+    return 2
+  }
+  write_launch_script "$script_file" "$cwd" "$log_file" "$exit_file" "$pid_file" "$compose_project" "$label" "$@" || {
+    rm -f "$script_file" "$meta_file" 2>/dev/null
+    printf 'herdr-run: cannot write launch script: %s\n' "$script_file" >&2
+    return 2
+  }
+
+  if [ "${HERDR_ENV:-}" = 1 ]; then
+    tab_result="$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$cwd" --label "$label" --no-focus)" || {
+      rm -f "$script_file" "$meta_file"
+      printf 'herdr-run: failed to create workload tab\n' >&2
+      return 1
+    }
+    pane="$(printf '%s\n' "$tab_result" | sed -n 's/.*"pane_id":"\([^"]*\)".*/\1/p' | sed -n '1p')"
+    [ -n "$pane" ] || {
+      rm -f "$script_file" "$meta_file"
+      printf 'herdr-run: failed to determine workload pane\n' >&2
+      return 1
+    }
+    printf '%s\n' "$pane" > "$pane_file" || {
+      herdr pane close "$pane" >/dev/null 2>&1 || true
+      rm -f "$script_file" "$meta_file" "$pane_file"
+      printf 'herdr-run: cannot record workload pane\n' >&2
+      return 2
+    }
+    pane_command="$(printf 'bash %q' "$script_file")"
+    herdr pane run "$pane" "$pane_command" || {
+      herdr pane close "$pane" >/dev/null 2>&1 || true
+      rm -f "$script_file" "$meta_file" "$pane_file"
+      printf 'herdr-run: failed to start workload pane\n' >&2
+      return 1
+    }
+    printf 'dir=%s\nlabel=%s\npane=%s\n' "$state_dir" "$label" "$pane"
+  else
+    (
+      close_inherited_descriptors
+      # Detached runs ignore INT/HUP so terminal closure cannot stop them; TERM stops inline runs.
+      nohup bash "$script_file" </dev/null >/dev/null 2>&1 &
+    )
+    printf 'dir=%s\nlabel=%s\n' "$state_dir" "$label"
+  fi
+
+  if [ "$wait" -eq 1 ]; then
+    wait_for_exit "$state_dir" "$label" "$log_file" "$exit_file" "$pid_file" "$pane_file" "$timeout" "$stall_seconds"
+    return $?
+  fi
+  return 0
+}
+
+main() {
+  [ $# -gt 0 ] || {
+    usage
+    return 2
+  }
+  if [ "$1" = verdict ]; then
+    shift
+    run_verdict "$@"
+  else
+    run_workload "$@"
+  fi
+}
+
+main "$@"

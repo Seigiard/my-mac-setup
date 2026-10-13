@@ -44,6 +44,7 @@ This is a single-context repository: domain vocabulary lives at the root and arc
 | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
 | `make test-python`                                     | Run general Python contract tests                                                               |
 | `make test-ubuntu`                                     | Full source render, disposable-home apply, and test suite in Docker                             |
+| `make test-ubuntu-herdr`                               | Run the Ubuntu Docker suite through `herdr-run`                                                 |
 | `make test-docker`                                     | Build + run full Docker test suite                                                              |
 | `make test-suite`                                      | Post-apply suite against the already-applied `~/`; excludes `tests/bashunit/idempotent_test.sh` |
 | `make test-templates`                                  | Focused source-render tests in Docker; included in `make test-ubuntu`                           |
@@ -67,7 +68,7 @@ This is a single-context repository: domain vocabulary lives at the root and arc
 <important if="you are about to run make test-templates, make test-ubuntu, make test-docker, or make build-docker">
 
 - Treat these targets as long-running Docker workloads, including cached runs. Read `~/.claude/shared/long-running-work.md` before launch.
-- When `HERDR_ENV=1`, launch the workload in a visible Herdr tab, persist its exit status as a terminal marker, and observe that marker before reporting a verdict.
+- When `HERDR_ENV=1`, use `make test-ubuntu-herdr` for `make test-ubuntu`. It prints `label=<worktree-specific label>`; use that label with `home/dot_local/bin/executable_herdr-run verdict <label>`. For other targets, use `home/dot_local/bin/executable_herdr-run <label> --cwd "$PWD" --wait -- make <target>`.
 - Keep the workload free of the Bash tool's 120-second timeout. A bounded pane observation may stop waiting, but it must leave the workload running for the next check.
 - Before retrying an interrupted workload, verify that its command and Docker children reached a terminal state, then state why a retry is safe.
 
