@@ -59,6 +59,11 @@ EOF
 
 expected_scope() {
   local note="$1"
+  local exclusions="${2:-}"
+  local exclusion_section=""
+  if [ -n "$exclusions" ]; then
+    exclusion_section=$'\n\n'"$exclusions"
+  fi
   cat <<EOF
 # Scope
 
@@ -84,7 +89,7 @@ Changed files:
 
 \`\`\`
 $FIXTURE_CHANGED
-\`\`\`
+\`\`\`${exclusion_section}
 
 ## ROUND 02 UPDATE
 
@@ -177,7 +182,7 @@ function test_revmux_round_005_next_rejects_an_over_limit_scope_without_launchin
   note="$(LC_ALL=C head -c 1400 /dev/zero | tr '\0' x)"
 
   run env PATH="$SHIM_BIN:$PATH" bash "$SCRIPT" next --task fixture --tasks-dir "$TASKS_DIR" \
-    --workdir "$FIXTURE_REPO" --out-dir "$BATS_TEST_TMPDIR/out" --note "$note"
+    --workdir "$FIXTURE_REPO" --out-dir "$BATS_TEST_TMPDIR/out" --note "$note" --wait
   assert_failure 1
   assert_output --regexp '^error: scope\.md is [0-9]+ characters; the limit is 1500$'
   assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
@@ -193,7 +198,7 @@ function test_revmux_round_006_next_rejects_an_over_limit_goal_without_launching
   install_revmux_shim
 
   run env PATH="$SHIM_BIN:$PATH" bash "$SCRIPT" next --task fixture --tasks-dir "$TASKS_DIR" \
-    --workdir "$FIXTURE_REPO" --out-dir "$BATS_TEST_TMPDIR/out" --note 'short update'
+    --workdir "$FIXTURE_REPO" --out-dir "$BATS_TEST_TMPDIR/out" --note 'short update' --wait
   assert_failure 1
   assert_output 'error: goal.md is 1001 characters; the limit is 1000'
   assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
@@ -326,4 +331,142 @@ function test_revmux_round_014_next_requires_a_task_with_usage() {
   run bash "$SCRIPT" next --prepare-only
   assert_failure 1
   assert_output --partial 'usage:'
+}
+
+function test_revmux_round_015_next_renders_repeatable_exclusions_in_scope() {
+  _bats_test_init 15 'next carries round exclusions in their prescribed scope section'
+  require_revmux
+  make_round_fixture
+  local exclusions
+  exclusions=$(cat <<'EOF'
+Exclusions:
+
+- do not review generated files
+- defer documentation polish
+EOF
+)
+
+  run_prepare_only --note 'carry the round decisions' \
+    --exclude 'do not review generated files' \
+    --exclude 'defer documentation polish'
+  assert_success
+
+  run cat "$TASKS_DIR/fixture/02-after-fix/input/scope.md"
+  assert_success
+  assert_output "$(expected_scope 'carry the round decisions' "$exclusions")"
+}
+
+function test_revmux_round_016_next_replaces_carried_context_with_context_file() {
+  _bats_test_init 16 'next replaces carried context with an explicit context file of the same name'
+  require_revmux
+  make_round_fixture
+  local replacement="$BATS_TEST_TMPDIR/review.md"
+  printf 'replacement verification evidence\n' > "$replacement"
+
+  run_prepare_only --note 'use current verification evidence' --context-file "$replacement"
+  assert_success
+  assert_line 'context: 1'
+
+  run cmp "$replacement" "$TASKS_DIR/fixture/02-after-fix/input/context/review.md"
+  assert_success
+}
+
+function test_revmux_round_017_next_refuses_an_existing_explicit_run_without_changing_it() {
+  _bats_test_init 17 'next refuses an explicit name that already identifies a round'
+  require_revmux
+  make_round_fixture
+  local before="$BATS_TEST_TMPDIR/previous-input"
+  cp -R "$PREVIOUS_ROUND/input" "$before"
+
+  run bash "$SCRIPT" next --task fixture --run 01-initial --tasks-dir "$TASKS_DIR" \
+    --workdir "$FIXTURE_REPO" --prepare-only
+  assert_failure 1
+  assert_output 'error: round 01-initial already exists in task fixture'
+
+  run diff -r "$before" "$PREVIOUS_ROUND/input"
+  assert_success
+}
+
+function test_revmux_round_018_next_truncates_long_scope_lists_without_exceeding_the_limit() {
+  _bats_test_init 18 'next limits commit and changed-file scope blocks for a 25-file fixture'
+  require_revmux
+  make_round_fixture
+  git -C "$FIXTURE_REPO" reset --hard -q "$FIXTURE_BASE"
+  local index
+  local scope="$TASKS_DIR/fixture/02-after-fix/input/scope.md"
+  local expected_changed
+  expected_changed=$(cat <<'EOF'
+A	limit-01.txt
+A	limit-02.txt
+A	limit-03.txt
+A	limit-04.txt
+A	limit-05.txt
+A	limit-06.txt
+A	limit-07.txt
+A	limit-08.txt
+A	limit-09.txt
+A	limit-10.txt
+A	limit-11.txt
+A	limit-12.txt
+A	limit-13.txt
+A	limit-14.txt
+A	limit-15.txt
+A	limit-16.txt
+A	limit-17.txt
+A	limit-18.txt
+A	limit-19.txt
+A	limit-20.txt
+… and 5 more
+EOF
+)
+
+  for index in $(seq -w 1 25); do
+    printf 'limit %s\n' "$index" > "$FIXTURE_REPO/limit-$index.txt"
+  done
+  git -C "$FIXTURE_REPO" add limit-*.txt
+  git -C "$FIXTURE_REPO" commit -qm 'add 25 limit files'
+  for index in $(seq -w 1 15); do
+    git -C "$FIXTURE_REPO" commit --allow-empty -qm "limit history $index"
+  done
+
+  run_prepare_only --note 'review the bounded fixture history'
+  assert_success
+
+  run bash -c '
+    in_block=false
+    while IFS= read -r line; do
+      if [ "$line" = "Changed files:" ]; then
+        in_block=awaiting_fence
+      elif [ "$in_block" = awaiting_fence ] && [ "$line" = "\`\`\`" ]; then
+        in_block=inside
+      elif [ "$in_block" = inside ] && [ "$line" = "\`\`\`" ]; then
+        break
+      elif [ "$in_block" = inside ]; then
+        printf "%s\n" "$line"
+      fi
+    done < "$1"
+  ' bash "$scope"
+  assert_success
+  assert_output "$expected_changed"
+
+  run bash -c '
+    in_block=false
+    while IFS= read -r line; do
+      if [ "$line" = "Commits:" ]; then
+        in_block=awaiting_fence
+      elif [ "$in_block" = awaiting_fence ] && [ "$line" = "\`\`\`" ]; then
+        in_block=inside
+      elif [ "$in_block" = inside ] && [ "$line" = "\`\`\`" ]; then
+        break
+      elif [ "$in_block" = inside ]; then
+        printf "%s\n" "$line"
+      fi
+    done < "$1"
+  ' bash "$scope"
+  assert_success
+  assert_equal "${#lines[@]}" '11'
+  assert_line -n 10 '… and 6 more'
+
+  run bash -c '[ "$(wc -m < "$1")" -le 1500 ]' bash "$scope"
+  assert_success
 }
