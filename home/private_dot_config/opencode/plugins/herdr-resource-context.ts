@@ -1,15 +1,24 @@
 // @ts-nocheck
+// This runs under the pinned V1 host, where the V2 package is absent at runtime.
+// Type-only V2 imports document the upgrade contract without changing that load path.
 import { execFile } from "node:child_process"
 import { homedir } from "node:os"
 import { join } from "node:path"
+import type { SystemPart } from "@opencode/ai"
+import type { Plugin as OpenCodePlugin } from "@opencode/plugin"
+import type { SessionRequest } from "@opencode/plugin/promise/session"
 
 const HEADING = "## Herdr Agent Resource Context (generated)"
+
 const HOOKS = ["context", "compaction", "generate", "title"]
+
 const RESOURCE_CLI =
   process.env.HERDR_RESOURCE_CONTEXT_CLI ??
   join(process.env.HOME || homedir(), ".local", "bin", "herdr-resource-tree")
 
-let defineV2: ((plugin: { id: string; setup: (ctx: unknown) => Promise<void> }) => unknown) | undefined
+type V2Plugin = OpenCodePlugin.Plugin
+
+let defineV2: ((plugin: V2Plugin) => V2Plugin) | undefined
 
 try {
   ;({ Plugin: { define: defineV2 } } = await import("@opencode/plugin"))
@@ -28,15 +37,8 @@ function queryContext(sessionID: string): Promise<string | undefined> {
   })
 }
 
-function generatedContext(entry: unknown): boolean {
-  const text =
-    typeof entry === "string"
-      ? entry
-      : typeof entry === "object" && entry !== null && (entry as { type?: unknown }).type === "text"
-        ? (entry as { text?: unknown }).text
-        : undefined
-
-  return typeof text === "string" && (text === HEADING || text.startsWith(`${HEADING}\n`))
+function generatedContext(text: string): boolean {
+  return text === HEADING || text.startsWith(`${HEADING}\n`)
 }
 
 function unavailable(reason: string): string {
@@ -47,7 +49,9 @@ async function resourceContext(sessionID?: string): Promise<string | undefined> 
   if (!sessionID) return unavailable("OpenCode did not expose a native session identity")
 
   const context = await queryContext(sessionID)
+
   if (context === undefined) return unavailable("the shared resource query failed")
+
   if (context !== "") return `${HEADING}\n${context}`
 }
 
@@ -56,34 +60,41 @@ const v2Plugin = defineV2?.({
   async setup(ctx) {
     if (process.env.HERDR_ENV !== "1") return
 
-    const inject = async (request: { sessionID?: string; system: unknown[] }) => {
-      const retained = request.system.filter((entry) => !generatedContext(entry))
+    const inject = async (request: SessionRequest) => {
+      // Strip before querying so a failed lookup cannot present a prior branch as current.
+      const retained = request.system.filter((part) => !generatedContext(part.text))
       request.system.length = 0
       request.system.push(...retained)
 
       const context = await resourceContext(request.sessionID)
-      if (context) request.system.push({ type: "text", text: context })
+
+      if (context) request.system.push({ type: "text", text: context } satisfies SystemPart)
     }
 
     await Promise.all(HOOKS.map((hook) => ctx.session.hook(hook, inject)))
   },
 })
 
-// V1 remains the normal pin until the migration lands. It also remains the
-// existing owner for shared projection regressions; V2 loads `v2Plugin` below.
+// V1 remains the normal pin until the upgrade lands; the dynamic V2 bridge
+// keeps this file loadable in that host while preserving V1 projection coverage.
 export async function HerdrResourceContextPlugin() {
   if (process.env.HERDR_ENV !== "1") return {}
 
   return {
     "experimental.chat.system.transform": async (input: { sessionID?: string }, output: { system?: string[] }) => {
-      const system = output?.system
-      if (!Array.isArray(system)) return
+      const system = output.system
 
+      if (!system) return
+
+      // Strip before querying so a failed lookup cannot present a prior branch as current.
       const retained = system.filter((entry) => !generatedContext(entry))
+
       system.length = 0
+
       system.push(...retained)
 
       const context = await resourceContext(input?.sessionID)
+
       if (context) system.push(context)
     },
   }
