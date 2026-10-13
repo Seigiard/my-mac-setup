@@ -1,6 +1,6 @@
 ---
 name: tdd
-description: Implement one ticket test-first through delegated children. Use for a feature, a bug fix, or a review fix handed off by another skill.
+description: Implement one ticket through delegated children, with an oracle gate before testing. Use for a feature, a bug fix, or a review fix handed off by another skill.
 ---
 
 # Test-driven development
