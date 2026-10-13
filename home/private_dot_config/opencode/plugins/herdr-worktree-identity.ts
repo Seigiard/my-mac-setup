@@ -7,6 +7,7 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 
 let defineV2Plugin: ((plugin: V2Plugin.Plugin) => V2Plugin.Plugin) | undefined
+
 let handoffWorktreeIdentity:
   | ((agent: "opencode", sessionID: string, prompt: string) => Promise<void>)
   | undefined
@@ -92,8 +93,9 @@ const HerdrWorktreeIdentityV2Plugin = {
     const childSessions = new Set<string>()
     const controller = new AbortController()
     const observing = observeChildSessions(event.subscribe({ signal: controller.signal }), childSessions)
+
     const registration = await session.hook("prompt", async ({ prompt, sessionID }) => {
-      if (await isChildSession(session, sessionID, childSessions) || typeof prompt.text !== "string" || prompt.text.trim() === "") return
+      if (await isChildSession(session, sessionID, childSessions) || prompt.text.trim() === "") return
 
       await handoffWorktreeIdentity("opencode", sessionID, prompt.text)
     })
