@@ -72,10 +72,11 @@ export const HerdrResourceContextPlugin: Plugin = async () => {
 
 export default {
   id: "herdr-resource-context",
+  server: HerdrResourceContextPlugin,
   async setup(ctx) {
     if (process.env.HERDR_ENV !== "1") return
 
-    await ctx.session.hook("context", async (event) => {
+    const inject = async (event) => {
       const system = event.system
       const retained = system.filter((part) => !generatedContext(part.text))
       system.splice(0, system.length, ...retained)
@@ -101,6 +102,10 @@ export default {
       }
 
       if (context !== "") system.push({ type: "text", text: `${HEADING}\n${context}` })
-    })
+    }
+
+    for (const hook of ["context", "compaction", "generate", "title"]) {
+      await ctx.session.hook(hook, inject)
+    }
   },
 }

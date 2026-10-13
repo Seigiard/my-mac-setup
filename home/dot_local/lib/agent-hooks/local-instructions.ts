@@ -17,9 +17,8 @@ export const LOCAL_INSTRUCTION_FILE_NAMES = ["AGENTS.local.md", "CLAUDE.local.md
 
 export const MAX_LOCAL_INSTRUCTIONS_BYTES = 50 * 1024;
 
-// Emitted by formatLocalInstructions and read back by the opencode plugin as
-// its idempotence guard, so the marker a consumer looks for is the marker the
-// formatter actually writes.
+// Emitted by formatLocalInstructions and recognized by the OpenCode plugin
+// when it replaces an earlier generated entry.
 export const LOCAL_INSTRUCTIONS_HEADING = "## Local Private Project Instructions";
 
 export type LocalInstructionFileName = (typeof LOCAL_INSTRUCTION_FILE_NAMES)[number];
@@ -246,6 +245,10 @@ Loaded from ${selected.realPath}. These instructions are private and local. Foll
 ### ${selected.name}
 
 ${contents}`;
+}
+
+export function isGeneratedLocalInstructions(block: string): boolean {
+  return block.startsWith(`\n\n${LOCAL_INSTRUCTIONS_HEADING}\n\nLoaded from `);
 }
 
 /**

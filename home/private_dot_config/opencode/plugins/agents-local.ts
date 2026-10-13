@@ -25,16 +25,16 @@ const MODULE_PATH = join(HOME, ".local", "lib", "agent-hooks", "local-instructio
 // registered hook that never appends would look alive to a reader.
 let buildLocalInstructions: ((cwd: string) => Promise<{ block?: string }>) | undefined
 
-let heading: string | undefined
+let isGeneratedLocalInstructions: ((block: string) => boolean) | undefined
 
 try {
-  ;({ buildLocalInstructions, LOCAL_INSTRUCTIONS_HEADING: heading } = await import(MODULE_PATH))
+  ;({ buildLocalInstructions, isGeneratedLocalInstructions } = await import(MODULE_PATH))
 } catch {
   buildLocalInstructions = undefined
 }
 
 export const AgentsLocalPlugin: Plugin = async ({ directory }) => {
-  if (!buildLocalInstructions || !heading || !directory) return {}
+  if (!buildLocalInstructions || !isGeneratedLocalInstructions || !directory) return {}
 
   return {
     "experimental.chat.system.transform": async (_input, output) => {
@@ -42,7 +42,7 @@ export const AgentsLocalPlugin: Plugin = async ({ directory }) => {
 
       if (!Array.isArray(system)) return
 
-      const retained = system.filter((entry: string) => !entry.includes(heading))
+      const retained = system.filter((entry: string) => !isGeneratedLocalInstructions(entry))
       system.length = 0
       system.push(...retained)
 
@@ -63,12 +63,13 @@ export const AgentsLocalPlugin: Plugin = async ({ directory }) => {
 
 export default {
   id: "agents-local",
+  server: AgentsLocalPlugin,
   async setup(ctx) {
-    if (!buildLocalInstructions || !heading) return
+    if (!buildLocalInstructions || !isGeneratedLocalInstructions) return
 
-    await ctx.session.hook("context", async (event) => {
+    const inject = async (event) => {
       const system = event.system
-      const retained = system.filter((part) => !part.text.includes(heading))
+      const retained = system.filter((part) => !isGeneratedLocalInstructions(part.text))
       system.splice(0, system.length, ...retained)
 
       let session
@@ -90,6 +91,10 @@ export default {
       } catch {
         return
       }
-    })
+    }
+
+    for (const hook of ["context", "compaction", "generate", "title"]) {
+      await ctx.session.hook(hook, inject)
+    }
   },
 }
