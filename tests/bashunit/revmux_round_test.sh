@@ -468,22 +468,6 @@ EOF
       elif [ "$in_block" = inside ] && [ "$line" = "\`\`\`" ]; then
         break
       elif [ "$in_block" = inside ]; then
-        printf "%s\n" "$line"
-      fi
-    done < "$1"
-  ' bash "$scope"
-  assert_success
-
-  run bash -c '
-    in_block=false
-    while IFS= read -r line; do
-      if [ "$line" = "Commits:" ]; then
-        in_block=awaiting_fence
-      elif [ "$in_block" = awaiting_fence ] && [ "$line" = "\`\`\`" ]; then
-        in_block=inside
-      elif [ "$in_block" = inside ] && [ "$line" = "\`\`\`" ]; then
-        break
-      elif [ "$in_block" = inside ]; then
         case "$line" in
           [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\ *)
             printf "%s\n" "${line#* }"
@@ -591,8 +575,28 @@ function test_revmux_round_021_next_wait_reports_a_launcher_that_dies_without_an
   install_revmux_kill_parent_shim
   local out="$BATS_TEST_TMPDIR/out"
   local exit_file="$out/02-after-fix.exit"
+  local command_output="$BATS_TEST_TMPDIR/dead-launcher-output"
 
-  run env PATH="$SHIM_BIN:$PATH" bash "$SCRIPT" next --task fixture --tasks-dir "$TASKS_DIR" \
+  run bash -c '
+    command_output=$1
+    shift
+    "$@" > "$command_output" 2>&1 &
+    command_pid=$!
+    attempt=0
+    while kill -0 "$command_pid" 2>/dev/null && [ "$attempt" -lt 200 ]; do
+      attempt=$((attempt + 1))
+      sleep 0.1
+    done
+    if kill -0 "$command_pid" 2>/dev/null; then
+      kill -KILL "$command_pid" 2>/dev/null || true
+      wait "$command_pid" 2>/dev/null || true
+      printf "deadline exceeded while waiting for revmux-round next\n" >&2
+      exit 125
+    fi
+    if wait "$command_pid"; then command_status=0; else command_status=$?; fi
+    cat "$command_output"
+    exit "$command_status"
+  ' bash "$command_output" env PATH="$SHIM_BIN:$PATH" bash "$SCRIPT" next --task fixture --tasks-dir "$TASKS_DIR" \
     --workdir "$FIXTURE_REPO" --out-dir "$out" --wait --note 'observe the dead launcher'
   assert_failure 2
   assert_line "error: revmux launcher exited without writing $exit_file"
@@ -653,4 +657,30 @@ EOF
   run cat "$scope"
   assert_success
   assert_output "$expected"
+}
+
+function test_revmux_round_024_next_accepts_a_goal_at_the_character_limit() {
+  _bats_test_init 24 'next accepts a carried-forward goal of exactly 1000 characters'
+  require_revmux
+  local goal
+  goal="$(LC_ALL=C head -c 1000 /dev/zero | tr '\0' g)"
+  make_round_fixture "$goal"
+
+  run bash -c '[ "$(wc -m < "$1" | tr -d "[:space:]")" = 1000 ]' bash "$PREVIOUS_ROUND/input/goal.md"
+  assert_success
+
+  run_prepare_only --note 'goal at the limit is valid'
+  assert_success
+}
+
+function test_revmux_round_025_next_rejects_a_missing_context_file_without_creating_a_round() {
+  _bats_test_init 25 'next leaves no round behind when an explicit context file is absent'
+  require_revmux
+  make_round_fixture
+  local missing="$BATS_TEST_TMPDIR/missing-context.md"
+
+  run_prepare_only --context-file "$missing"
+  assert_failure 1
+  assert_output "error: context file $missing not found"
+  assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
 }
