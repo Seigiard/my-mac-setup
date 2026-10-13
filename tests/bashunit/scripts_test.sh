@@ -9816,27 +9816,76 @@ function test_scripts_1248_claude_resource_context_states_one_outage_once() {
 }
 
 function test_scripts_1224_opencode_worktree_identity_plugin_uses_deployed_consumer_boundary() {
-  _bats_test_init 1224 'deployed opencode plugin gates and delivers every prompt on stdin'
+  _bats_test_init 1224 'deployed OpenCode V2 plugin hands off only root prompts on stdin'
   command_exists bun || skip 'bun is required'
   local root home deployed
   root="$BATS_TEST_TMPDIR/opencode-adapter"
   home="$root/home"
   deployed="$home/.config/opencode/plugins"
-  mkdir -p "$deployed" "$home/.local/lib"
+  mkdir -p "$deployed/node_modules/@opencode/plugin" "$home/.local/lib"
   hwi_adapter_stub_engine "$root"
   ln -s "$SOURCE_ROOT/dot_local/lib/agent-hooks" "$home/.local/lib/agent-hooks"
-  ln -s "$HWI_OPENCODE_PLUGIN_SOURCE" "$deployed/herdr-worktree-identity.ts"
+  cp "$HWI_OPENCODE_PLUGIN_SOURCE" "$deployed/herdr-worktree-identity.ts"
+  cat > "$deployed/node_modules/@opencode/plugin/package.json" <<'JSON'
+{"name":"@opencode/plugin","type":"module","exports":"./index.js"}
+JSON
+  cat > "$deployed/node_modules/@opencode/plugin/index.js" <<'JS'
+export const Plugin = { define: (plugin) => plugin };
+JS
   cat > "$root/run.ts" <<'TS'
-const { HerdrWorktreeIdentityPlugin } = await import(process.env.HWI_OPENCODE_PLUGIN!);
-const plugin = await HerdrWorktreeIdentityPlugin();
-await plugin["chat.message"]?.(
-  { sessionID: "session-opencode" },
-  { parts: [{ type: "text", text: "OpenCode stdin sentinel" }] },
-);
-await plugin["chat.message"]?.(
-  { sessionID: "session-opencode" },
-  { parts: [{ type: "text", text: "Second OpenCode prompt" }] },
-);
+const { default: plugin } = await import(process.env.HWI_OPENCODE_PLUGIN!);
+let promptHook;
+let nextEvent;
+let stopped = false;
+const eventStream = {
+  async *[Symbol.asyncIterator]() {
+    while (!stopped) yield await new Promise((resolve) => (nextEvent = resolve));
+  },
+};
+// The deployed V1 module must still import. The live V2 probe determines the
+// actual host API; this harness only drives setup when that boundary exists.
+if (typeof plugin?.setup === "function") {
+  await plugin.setup({
+    session: {
+      hook: async (name, hook) => {
+        if (name === "prompt") promptHook = hook;
+        return { dispose: async () => {} };
+      },
+    },
+    event: { subscribe: () => eventStream },
+  });
+}
+if (process.env.EXPECT_DISABLED === "1") {
+  if (promptHook !== undefined) throw new Error("disabled plugin registered a prompt hook");
+  stopped = true;
+  nextEvent?.({ type: "session.deleted", data: { sessionID: "session-root-a" } });
+} else if (typeof promptHook === "function") {
+  for (let attempt = 0; typeof nextEvent !== "function" && attempt < 100; attempt++) {
+    await Promise.resolve();
+  }
+  if (typeof nextEvent !== "function") throw new Error("OpenCode V2 event subscription did not start");
+  nextEvent({ type: "session.created", data: { sessionID: "session-child", parentID: "session-root-a" } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await promptHook({
+    sessionID: "session-child",
+    messageID: "message-child",
+    prompt: { text: "OpenCode V2 child sentinel" },
+  });
+  await Promise.all([
+    promptHook({
+      sessionID: "session-root-a",
+      messageID: "message-root-a",
+      prompt: { text: "OpenCode V2 root A sentinel" },
+    }),
+    promptHook({
+      sessionID: "session-root-b",
+      messageID: "message-root-b",
+      prompt: { text: "OpenCode V2 root B sentinel" },
+    }),
+  ]);
+  stopped = true;
+  nextEvent({ type: "session.deleted", data: { sessionID: "session-root-b" } });
+}
 TS
   run env HOME="$home" HERDR_ENV=1 HERDR_PANE_ID=pane-opencode HERDR_WORKSPACE_ID=workspace-opencode \
     HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" HWI_ADAPTER_TEST_DIR="$root" \
@@ -9845,32 +9894,37 @@ TS
   local calls
   calls="$(find "$root" -mindepth 1 -maxdepth 1 -type d -name 'call-*' | wc -l | tr -d ' ')"
   assert_equal "$calls" 2
-  run sh -c 'cat "$1"/call-*/stdin' _ "$root"
+
+  # Pair each prompt with the session the engine received. Separate prompt and
+  # session assertions would accept the roots if their deliveries were swapped.
+  run sh -c '
+    set -eu
+    records="$1/records"
+    trap "rm -f \"$records\"" EXIT
+    for call in "$1"/call-*; do
+      [ "$(sed -n "1p" "$call/argv")" = "--agent" ] || exit 1
+      [ "$(sed -n "2p" "$call/argv")" = "opencode" ] || exit 1
+      [ "$(sed -n "3p" "$call/argv")" = "--session" ] || exit 1
+      [ "$(sed -n "5p" "$call/argv")" = "--pane" ] || exit 1
+      [ "$(sed -n "6p" "$call/argv")" = "pane-opencode" ] || exit 1
+      [ "$(sed -n "7p" "$call/argv")" = "--workspace" ] || exit 1
+      [ "$(sed -n "8p" "$call/argv")" = "workspace-opencode" ] || exit 1
+      session="$(sed -n "4p" "$call/argv")"
+      prompt="$(cat "$call/stdin")"
+      if grep -Fqx "$prompt" "$call/argv"; then exit 1; fi
+      printf "%s\\t%s\\n" "$session" "$prompt"
+    done > "$records"
+    LC_ALL=C sort "$records"
+  ' _ "$root"
   assert_success
-  assert_output --partial 'OpenCode stdin sentinel'
-  assert_output --partial 'Second OpenCode prompt'
-  # Per-line and in order, as the Claude sibling (1222) asserts it. A bare
-  # `opencode` match would also be satisfied by `pane-opencode`, so a plugin
-  # that dropped `--agent` and passed only the pane id would still pass.
-  run sh -c 'cat "$1"/call-*/argv' _ "$root"
-  assert_success
-  refute_line --partial 'OpenCode stdin sentinel'
-  refute_line --partial 'Second OpenCode prompt'
-  assert_line --index 0 '--agent'
-  assert_line --index 1 'opencode'
-  assert_line --index 2 '--session'
-  assert_line --index 3 'session-opencode'
-  assert_line --index 4 '--pane'
-  assert_line --index 5 'pane-opencode'
-  assert_line --index 6 '--workspace'
-  assert_line --index 7 'workspace-opencode'
+  assert_output $'session-root-a\tOpenCode V2 root A sentinel\nsession-root-b\tOpenCode V2 root B sentinel'
   : > "$root/release"
 
-  run env HOME="$home" HERDR_ENV= HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" \
+  run env EXPECT_DISABLED=1 HOME="$home" HERDR_ENV= HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" \
     HWI_ADAPTER_TEST_DIR="$root/gated" HWI_OPENCODE_PLUGIN="$deployed/herdr-worktree-identity.ts" bun "$root/run.ts"
   assert_success
   assert_file_not_exists "$root/gated"
-  run env HOME="$home" HERDR_ENV=1 HERDR_WORKTREE_IDENTITY_ACTIVE=1 HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" \
+  run env EXPECT_DISABLED=1 HOME="$home" HERDR_ENV=1 HERDR_WORKTREE_IDENTITY_ACTIVE=1 HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" \
     HWI_ADAPTER_TEST_DIR="$root/reentry" HWI_OPENCODE_PLUGIN="$deployed/herdr-worktree-identity.ts" bun "$root/run.ts"
   assert_success
   assert_file_not_exists "$root/reentry"
