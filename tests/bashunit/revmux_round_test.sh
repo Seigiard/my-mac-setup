@@ -311,8 +311,11 @@ function test_revmux_round_012_summary_rejects_an_unparseable_report() {
 
 function test_revmux_round_013_next_rejects_an_unknown_option_with_usage() {
   _bats_test_init 13 'next rejects unknown options instead of selecting a different round'
+  require_revmux
+  make_round_fixture
 
-  run bash "$SCRIPT" next --unknown
+  run bash "$SCRIPT" next --task fixture --tasks-dir "$TASKS_DIR" \
+    --workdir "$FIXTURE_REPO" --prepare-only --unknown
   assert_failure 1
   assert_output --partial 'usage:'
 }
