@@ -3000,6 +3000,71 @@ function test_scripts_457_herdr_peer_list_skips_unaddressable_records_and_unknow
   assert_output $'violet-tern\tunknown\tworking\namber-ibis\tcodex\tunknown'
 }
 
+function test_scripts_463_herdr_peer_agent_list_fake_fields_match_real_herdr() {
+  _bats_test_init 463 'herdr-peer agent-list fake fields match the real Herdr contract'
+  local payload="$BATS_TEST_TMPDIR/agent-list.json" agent_count
+
+  # #given
+  command_exists herdr && herdr --version >/dev/null 2>&1 \
+    || skip "no working herdr executable is installed behind PATH"
+  # #when
+  if [[ -n "${MMS_HERDR_AGENT_LIST_SOCKET_PATH:-}" ]]; then
+    run env HERDR_SOCKET_PATH="$MMS_HERDR_AGENT_LIST_SOCKET_PATH" herdr agent list
+  else
+    run herdr agent list
+  fi
+  printf '%s\n' "$output" > "$payload"
+  if [[ "$status" -eq 1 ]] && python3 - "$payload" <<'PY'
+import json
+import sys
+
+try:
+    payload = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError):
+    raise SystemExit(1)
+
+raise SystemExit(0 if payload.get("error", {}).get("code") == "server_not_running" else 1)
+PY
+  then
+    skip "no Herdr server answers herdr agent list (error.code=server_not_running)"
+  fi
+  if [[ "$status" -ne 0 ]]; then
+    fail "herdr agent list exited $status: $output"
+  fi
+  if ! agent_count="$(python3 - "$payload" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+agents = payload["result"]["agents"]
+if not isinstance(agents, list):
+    raise TypeError("result.agents is not an array")
+print(len(agents))
+PY
+)"; then
+    fail "successful herdr agent list did not provide result.agents: $output"
+  fi
+  if [[ "$agent_count" -eq 0 ]]; then
+    skip "Herdr server returned zero agents to compare"
+  fi
+  # #then
+  run python3 - "$payload" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+agents = payload["result"]["agents"]
+assert isinstance(agents, list), type(agents).__name__
+assert agents, "result.agents is empty"
+for index, agent in enumerate(agents):
+    assert isinstance(agent, dict), (index, type(agent).__name__)
+    for field in ("name", "pane_id", "agent", "agent_status"):
+        assert field in agent, (index, field)
+        assert isinstance(agent[field], str), (index, field, type(agent[field]).__name__)
+PY
+  assert_success
+}
+
 # ===========================================
 # herdr-child launch and return contract
 # ===========================================
