@@ -7,7 +7,7 @@ help:
 	@echo ""
 	@echo "  make test-python      Run general Python contract tests"
 	@echo "  make test-ubuntu      Run tests in Ubuntu Docker container"
-	@echo "  make test-ubuntu-herdr  Run Ubuntu Docker tests through herdr-run"
+	@echo "  make test-ubuntu-herdr  Run Ubuntu Docker tests through the checkout herdr-run"
 	@echo "  make test-suite       Run the post-apply suite in parallel (host-safe files)"
 	@echo "  make test-templates   Run template tests in Docker (may rebuild images)"
 	@echo "  make test-pi-agents-local  Run focused Pi local-instructions extension tests"
@@ -41,7 +41,7 @@ test-ubuntu: test-python build-docker
 	docker compose -f docker/docker-compose.yml run --rm test-ubuntu
 
 test-ubuntu-herdr:
-	herdr-run test-ubuntu --cwd "$(CURDIR)" --wait -- make test-ubuntu
+	home/dot_local/bin/executable_herdr-run test-ubuntu-$(notdir $(CURDIR)) --cwd "$(CURDIR)" --wait -- make test-ubuntu
 
 test-templates: test-python build-docker
 	docker compose -f docker/docker-compose.yml run --rm -T test-ubuntu \
