@@ -527,3 +527,28 @@ function test_herdr_run_4624_rejects_a_directory_where_the_launch_script_must_be
   assert_stderr "herdr-run: cannot write launch script: $HERDR_RUN_DIR/blocked.sh"
   assert [ ! -e "$HERDR_RUN_DIR/blocked.pid" ]
 }
+
+function test_herdr_run_4627_treats_an_empty_pid_as_a_starting_workload() {
+  _bats_test_init 4627 'treats an empty pid as a starting workload'
+  # #given
+  mkdir -p "$HERDR_RUN_DIR"
+  printf '%s\n' 'start=2026-10-13T07:40:24Z' 'head=abc123' 'dirty=0' "cwd=$HERDR_RUN_CWD" > "$HERDR_RUN_DIR/starting.meta"
+  : > "$HERDR_RUN_DIR/starting.pid"
+
+  # #when
+  run herdr_run verdict starting --dir "$HERDR_RUN_DIR"
+  # #then
+  assert_failure 3
+  assert_output "state=running
+exit=none
+head=abc123
+dirty=0
+cwd=$HERDR_RUN_CWD
+failed=0"
+
+  run --separate-stderr herdr_run starting --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" --wait --timeout 1 -- true
+  assert_failure 2
+  assert_stderr 'herdr-run: starting is still running (pid=starting); wait for it or choose another label'
+  assert_equal "$(cat "$HERDR_RUN_DIR/starting.pid")" ''
+  assert [ ! -e "$HERDR_RUN_DIR/starting.sh" ]
+}
