@@ -3000,6 +3000,115 @@ function test_scripts_457_herdr_peer_list_skips_unaddressable_records_and_unknow
   assert_output $'violet-tern\tunknown\tworking\namber-ibis\tcodex\tunknown'
 }
 
+function test_scripts_463_herdr_peer_agent_list_fake_fields_match_real_herdr() {
+  _bats_test_init 463 'herdr-peer agent-list fake fields match the real Herdr contract'
+  local payload="$BATS_TEST_TMPDIR/agent-list.json" schema="$BATS_TEST_TMPDIR/schema.json" agent_count
+
+  # #given
+  command_exists herdr && herdr --version >/dev/null 2>&1 \
+    || skip "no working herdr executable is installed behind PATH"
+  run herdr api schema --json
+  printf '%s\n' "$output" > "$schema"
+  if [[ "$status" -ne 0 ]]; then
+    fail "herdr api schema --json exited $status: $output"
+  fi
+  run python3 - "$schema" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+agent_info = payload["schemas"]["success_response"]["$defs"]["AgentInfo"]
+properties = agent_info["properties"]
+for field in ("name", "agent"):
+    assert set(properties[field]["type"]) == {"string", "null"}, (field, properties[field]["type"])
+for field in ("pane_id", "agent_status"):
+    assert field in agent_info["required"], (field, agent_info["required"])
+PY
+  if [[ "$status" -ne 0 ]]; then
+    fail "herdr api schema --json did not provide the AgentInfo contract herdr-peer consumes: $output"
+  fi
+  # #when
+  if [[ -n "${MMS_HERDR_AGENT_LIST_SOCKET_PATH:-}" ]]; then
+    run env HERDR_SOCKET_PATH="$MMS_HERDR_AGENT_LIST_SOCKET_PATH" herdr agent list
+  else
+    run herdr agent list
+  fi
+  printf '%s\n' "$output" > "$payload"
+  if [[ "$status" -eq 1 ]] && python3 - "$payload" <<'PY'
+import json
+import sys
+
+try:
+    payload = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError):
+    raise SystemExit(1)
+
+raise SystemExit(0 if payload.get("error", {}).get("code") == "server_not_running" else 1)
+PY
+  then
+    skip "no Herdr server answers herdr agent list (error.code=server_not_running)"
+  fi
+  if [[ "$status" -ne 0 ]]; then
+    fail "herdr agent list exited $status: $output"
+  fi
+  if ! agent_count="$(python3 - "$payload" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+agents = payload["result"]["agents"]
+if not isinstance(agents, list):
+    raise TypeError("result.agents is not an array")
+print(len(agents))
+PY
+)"; then
+    fail "successful herdr agent list did not provide result.agents: $output"
+  fi
+  if [[ "$agent_count" -eq 0 ]]; then
+    skip "Herdr server returned zero agents to compare"
+  fi
+  run python3 - "$payload" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+agents = payload["result"]["agents"]
+has_named_agent = False
+for index, agent in enumerate(agents):
+    if not isinstance(agent, dict):
+        raise TypeError((index, type(agent).__name__))
+    if "name" in agent and not isinstance(agent["name"], (str, type(None))):
+        raise TypeError((index, "name", type(agent["name"]).__name__))
+    has_named_agent = has_named_agent or isinstance(agent.get("name"), str) and bool(agent["name"])
+print("named" if has_named_agent else "unnamed")
+PY
+  if [[ "$status" -ne 0 ]]; then
+    fail "successful herdr agent list did not provide a nullable string name: $output"
+  fi
+  if [[ "$output" == unnamed ]]; then
+    skip "no named Herdr agent to compare"
+  fi
+  # #then
+  run python3 - "$payload" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+agents = payload["result"]["agents"]
+assert isinstance(agents, list), type(agents).__name__
+assert agents, "result.agents is empty"
+for index, agent in enumerate(agents):
+    assert isinstance(agent, dict), (index, type(agent).__name__)
+    for field in ("pane_id", "agent_status"):
+        assert field in agent, (index, field)
+        assert isinstance(agent[field], str), (index, field, type(agent[field]).__name__)
+    for field in ("name", "agent"):
+        if field in agent:
+            assert isinstance(agent[field], (str, type(None))), (index, field, type(agent[field]).__name__)
+PY
+  assert_success
+}
+
 # ===========================================
 # herdr-child launch and return contract
 # ===========================================
