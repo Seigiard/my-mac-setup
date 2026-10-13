@@ -52,127 +52,25 @@ Before presenting each substantive revision to the user, run the contract spec p
 
 Commit the revision on `<epic-branch>`, then run the review in a disposable detached worktree. This is a disposable working copy, not a sandbox: changing cwd directs ordinary relative native and shell writes there, but the shell can still access absolute or discovered paths. Linked worktrees share Git refs and configuration with the epic checkout. The review prompt supplies cooperative scope, not write protection. Capture the epic worktree's complete porcelain status before and after; that comparison detects only persistent non-ignored changes in the epic worktree and rejects those changes even when the review itself returns text.
 
-V2 has no `run --dir`; the subshell makes the process cwd and `PWD` agree on the disposable review worktree. The stdin redirects prevent initial and resumed `opencode run` calls from waiting for EOF.
+Run the lifecycle as ordered steps. Keep the state and artifact paths durable so a later shell can continue the same review without reconstructing them.
 
-```bash
-epic_worktree=<epic worktree>
-epic_branch=<epic-branch>
-artifact_dir=<artifact directory>
-review_log="$artifact_dir/frontier-review.jsonl"
-review_status="$artifact_dir/frontier-review.status"
-review_session="$artifact_dir/frontier-review.session"
-review_text="$artifact_dir/frontier-review.txt"
-state_dir="$artifact_dir/frontier-review-state"
-mkdir -p "$state_dir"
-printf '%s\n' "$epic_worktree" > "$state_dir/epic-worktree"
-printf '%s\n' "$artifact_dir" > "$state_dir/artifact-dir"
-printf '%s\n' "$review_log" > "$state_dir/review-log"
-git -C "$epic_worktree" status --porcelain=v1 > "$state_dir/epic-status-before"
-review_worktree="$(mktemp -d "${TMPDIR:-/tmp}/pf-spec-review.XXXXXX")"
-rmdir "$review_worktree"
-printf '%s\n' "$review_worktree" > "$state_dir/review-worktree"
-if ! git -C "$epic_worktree" worktree add --detach "$review_worktree" "$epic_branch"; then
-  if ! git -C "$epic_worktree" worktree remove --force "$review_worktree"; then
-    exit 1
-  fi
-  if test -e "$review_worktree"; then
-    exit 1
-  fi
-  rm -rf "$state_dir"
-  exit 1
-fi
+1. **Prepare.** Create the detached review worktree from `<epic-branch>` and record the epic checkout, review cwd, artifact directory, JSONL/status/text paths, and native session path under `frontier-review-state`. Save the complete `git status --porcelain=v1` baseline for the epic checkout before launching. The step is complete when the review cwd exists and every continuation input, including the baseline, has a saved path.
+2. **Launch.** Use a subshell whose `cd` sets both the process cwd and `PWD`; V2 has no `run --dir`. Request the frontier model, attach every story render as a real PNG with repeated `-f` flags, close stdin, and capture JSONL plus process status. A short launch shape is:
 
-(
-  cd "$review_worktree" || exit
-  exec opencode run --format json \
-    -m openai/gpt-5.6-sol \
-    -f <review-worktree/screenshot1.png> -f <review-worktree/screenshot2.png> ... \
-    "<review prompt>"
-) < /dev/null > "$review_log" 2>&1
-review_exit=$?
-printf '%s\n' "$review_exit" > "$review_status"
-session_id="$(jq -r -s '[.[] | .sessionID? | select(type == "string")] | first // empty' "$review_log")"
-if test -n "$session_id"; then
-  printf '%s\n' "$session_id" > "$state_dir/session-id"
-  printf '%s\n' "$session_id" > "$review_session"
-fi
-git -C "$epic_worktree" status --porcelain=v1 > "$artifact_dir/frontier-review-epic-after.status"
-cmp -s "$state_dir/epic-status-before" "$artifact_dir/frontier-review-epic-after.status" || exit 1
-if test -z "$session_id"; then
-  if ! git -C "$epic_worktree" worktree remove --force "$review_worktree"; then
-    exit 1
-  fi
-  if test -e "$review_worktree"; then
-    exit 1
-  fi
-  rm -rf "$state_dir"
-  test "$review_exit" -eq 0 && exit 1 || exit "$review_exit"
-fi
-test "$review_exit" -eq 0 || exit "$review_exit"
-jq -e 'select(.type == "error")' "$review_log" > /dev/null && exit 1
-jq -r 'select(.type == "text") | .part.text' "$review_log" > "$review_text"
-test -s "$review_text" || exit 1
-```
+   ```bash
+   (
+     cd "$review_worktree" || exit
+     exec opencode run --format json --model openai/gpt-5.6-sol \
+       -f "$story_png_1" -f "$story_png_2" "<review prompt>"
+   ) < /dev/null > "$review_log" 2>&1
+   ```
 
-Accept initial review text only when `$review_status` is `0`, the JSONL has no `error` event, `$review_text` is nonempty, and the before/after epic status matches. A nonzero result with an `error` event is a command failure. An interrupted process before terminal review text is incomplete work. Neither state is a review result. Parse and triage only `$review_text`, never terminal output.
+   Extract the native session ID from that JSONL, persist it with the process status, and extract text events into the review-text artifact. Capture the epic checkout's after-status for comparison. The step is complete only when the launch evidence contains its status, JSONL, native session identity, extracted text artifact, and before/after status.
+3. **Classify.** Accept review text only when process status is `0`, JSONL has no `error` event, extracted text is nonempty, the session identity is present, and the epic before/after status matches. Treat an `error` event or ordinary command failure as command failure. Treat an externally interrupted run that ends before terminal review text as incomplete work. Neither is a review result; parse and triage only the extracted review-text artifact, never terminal output. The step is complete when the run has one of these explicit evidence-backed classifications.
+4. **Continue.** If the review needs another turn, start a separate shell. Read the saved cwd, artifact paths, baseline, and session ID (recover it from the saved initial JSONL when an interrupted shell did not persist it), then resume with that same native session and closed stdin. Capture a new JSONL, status, same-session identity, and extracted text, and repeat the unchanged-epic check. Keep the worktree and state while any continuation can still settle; clean only after all continuations settle or the run is explicitly abandoned. The step is complete when every continuation is either accepted by the same evidence checks or classified as failure/incomplete with recovery state retained.
+5. **Clean up.** From the saved state, remove the disposable worktree only after the final continuation or explicit abandonment, then independently verify that the path is absent before removing `frontier-review-state`. If removal fails or the path remains, retain the recovery state, return nonzero, and do not report completion. The step is complete only when both the disposable cwd and recovery state are confirmed absent.
 
-The initial shell deliberately has no `EXIT` cleanup: a separate shell must be able to resume from the same cwd. The state files under `$state_dir` persist the epic worktree, disposable review cwd, baseline porcelain, artifact directory, initial JSONL path, and native session ID. If the initial launch settles without a session ID, no continuation is possible, so the initial block removes the disposable worktree and state. If it settles with a session ID but has a command failure or incomplete result, keep the worktree and state for diagnosis or an optional continuation. If the shell is interrupted before it records the result, the continuation reads the saved JSONL path and recovers its session ID when the log contains one; otherwise explicitly abandon the run. Do not remove a potentially resumable checkout automatically.
-
-When the review needs a continuation, start a distinct shell invocation. Read the saved state, use its disposable cwd, and consume the resumed text artifact before triage:
-
-```bash
-state_dir=<artifact directory>/frontier-review-state
-epic_worktree="$(cat "$state_dir/epic-worktree")"
-artifact_dir="$(cat "$state_dir/artifact-dir")"
-review_worktree="$(cat "$state_dir/review-worktree")"
-review_log="$(cat "$state_dir/review-log")"
-resume_log="$artifact_dir/frontier-review-resume.jsonl"
-resume_status="$artifact_dir/frontier-review-resume.status"
-resume_text="$artifact_dir/frontier-review-resume.txt"
-test -d "$review_worktree"
-test -s "$state_dir/epic-status-before"
-if test -s "$state_dir/session-id"; then
-  session_id="$(cat "$state_dir/session-id")"
-else
-  session_id="$(jq -r -s '[.[] | .sessionID? | select(type == "string")] | first // empty' "$review_log")"
-  test -n "$session_id"
-  printf '%s\n' "$session_id" > "$state_dir/session-id"
-fi
-(
-  cd "$review_worktree" || exit
-  exec opencode run --format json --session "$session_id" \
-    "Continue the same contract review. Return only the remaining numbered findings."
-) < /dev/null > "$resume_log" 2>&1
-resume_exit=$?
-printf '%s\n' "$resume_exit" > "$resume_status"
-git -C "$epic_worktree" status --porcelain=v1 > "$artifact_dir/frontier-review-epic-after.status"
-cmp -s "$state_dir/epic-status-before" "$artifact_dir/frontier-review-epic-after.status" || exit 1
-test "$resume_exit" -eq 0 || exit "$resume_exit"
-jq -e 'select(.type == "error")' "$resume_log" > /dev/null && exit 1
-resumed_session_id="$(jq -r -s '[.[] | .sessionID? | select(type == "string")] | first // empty' "$resume_log")"
-test "$resumed_session_id" = "$session_id" || exit 1
-jq -r 'select(.type == "text") | .part.text' "$resume_log" > "$resume_text"
-test -s "$resume_text" || exit 1
-```
-
-The resumed run is accepted only under the same status, JSONL-error, nonempty-text, same-session, and unchanged-epic checks. For a recipe verification, put an unpredictable marker in the initial review prompt and require the continuation, which does not contain that marker, to recall it from `$resume_text`. Pass **every screenshot as a real PNG via repeated `-f` flags** — inlined base64 is opaque to the model. If the frontier slug has rotated off `openai/gpt-5.6-sol`, use the current frontier model and note the new slug in your report.
-
-After the final continuation, or when abandoning a failed/incomplete run, clean up explicitly from the saved state. Run this only after all desired continuations have ended; it is also the recovery action when a shell was interrupted before result extraction:
-
-```bash
-state_dir=<artifact directory>/frontier-review-state
-epic_worktree="$(cat "$state_dir/epic-worktree")"
-review_worktree="$(cat "$state_dir/review-worktree")"
-if ! git -C "$epic_worktree" worktree remove --force "$review_worktree"; then
-  exit 1
-fi
-if test -e "$review_worktree"; then
-  exit 1
-fi
-rm -rf "$state_dir"
-```
-
-Do not run cleanup merely because an initial or continuation command returned nonzero while its saved session can still be resumed. This explicit cleanup is the terminal lifecycle step for both successful completion and abandonment.
+Use the current frontier model if the `openai/gpt-5.6-sol` slug has rotated, and record the selected slug in the run report. The prompt's cooperative scope and the limited epic-worktree porcelain comparison are the review boundary; they are not filesystem protection.
 
 The review prompt, filled in:
 
