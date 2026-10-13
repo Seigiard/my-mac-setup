@@ -6,6 +6,8 @@ The tdd orchestrator's diagnosis routes and candidate preservation, reached from
 
 Every failed or incomplete settlement gets a **diagnosis** in Verdicts before any reset, restore, or dispatch. A diagnosis has an ID (`D1`, `D2`, ...), the artifact it concerns, the affected assertion or boundary, a reproduction, and the independent expected result. One settlement can carry several diagnoses; each takes its own route, in the order [Batches and turns](SKILL.md#batches-and-turns) gives for open findings. Take the **smallest action that fixes exactly the diagnosis**; model escalation is for a child that could not do the work, never for a slip.
 
+The diagnosis records the authoritative source that settles the expected result, or the missing decision, before the route is chosen.
+
 | Artifact and diagnosis | Smallest action |
 |---|---|
 | **Handoff:** the report, a log, or a control artifact is missing, including a report mapping to an existing criterion, and the inspected work looks sound | Resume the same child ([Dispatch](SKILL.md#dispatch)) naming the missing items; a check that never ran is named as a check to run now. Report-only corrections need no commit. An item still missing after one resume is a returned diagnosis. When the child's session is gone, a fresh child on the same tier gets the [preserved candidate](#preserving-a-candidate) and the remaining work. |
@@ -15,9 +17,9 @@ Every failed or incomplete settlement gets a **diagnosis** in Verdicts before an
 | **Production:** a changed file or hunk serves no existing criterion | Remove the unrelated change. |
 | **Locked test:** a test is wrong (false green, wrong oracle, contradictory fixture) | The suspect-test route under [Entering mid-chain](SKILL.md#entering-mid-chain), on the tier of the last accepted lock. The implementer is never asked to satisfy a wrong test. |
 | **Calibration:** a mutation was unfaithful, or restoration failed | Recover and verify the production snapshot at `calibration_sha`, then a fresh calibrate child. The lock stays. |
-| **Capability:** the child could not establish the behavior, the oracle, or a faithful regression, with a complete brief | A fresh child one tier up with the diagnosis in its prompt. On `high`, there is no next tier: stop. |
+| **Capability:** an authoritative contract or oracle source already settles the expected result, but the child could not establish the behavior from it, exercise it, or produce a faithful regression | A fresh child one tier up with the diagnosis in its prompt. On `high`, there is no next tier: stop. |
 | **Prerequisite:** the environment or the caller's brief is wrong | Correct it, then retry the same tier. When it cannot be restored with the tools and access you have, stop. |
-| **Decision:** the oracle is unknown, a change needs a product decision, or a necessary change violates a non-goal | Ask the caller. No model change answers this. |
+| **Decision:** the available authority does not settle the expected result, or sources conflict, a change needs a product decision, or a necessary change violates a non-goal | Ask the caller. No model change answers this. |
 
 A diagnosis **returns** when its recorded reproduction still fails after a turn assigned to fix it. A new reproduction is a new diagnosis, which counts against the batch's turns but is not a return.
 
