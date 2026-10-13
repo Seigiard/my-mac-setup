@@ -36,6 +36,8 @@ type Transform = (
   output: { system: string[] },
 ) => Promise<void>;
 
+type V2ContextHook = (event: { sessionID: string; system: Array<{ type: "text"; text: string }> }) => Promise<void> | void;
+
 function installQueryStub(root: string): string {
   const cli = join(root, "herdr-resource-tree");
   writeFileSync(
@@ -65,7 +67,7 @@ fi
 async function loadPlugin(
   root: string,
   herdrEnv = "1",
-): Promise<{ hooks: Record<string, Function>; promptAsyncCalls: () => number }> {
+): Promise<{ hooks: Record<string, Function>; sessionOperations: () => string[] }> {
   const cli = installQueryStub(root);
   const copy = join(temporaryDir("herdr-resource-context-plugin-"), `plugin-${loadCount++}.ts`);
   cpSync(PLUGIN_PATH, copy);
@@ -80,19 +82,53 @@ async function loadPlugin(
   process.env.HERDR_ENV = herdrEnv;
   process.env.HERDR_RESOURCE_CONTEXT_CLI = cli;
 
-  let calls = 0;
+  const operations: string[] = [];
 
   try {
     const module: any = await import(copy);
+
+    if (typeof module.default?.setup === "function") {
+      let contextHook: V2ContextHook | undefined;
+
+      await module.default.setup({
+        session: {
+          hook: async (name: string, hook: V2ContextHook) => {
+            if (name === "context") contextHook = hook;
+            return { dispose: async () => {} };
+          },
+          prompt: async () => {
+            operations.push("prompt");
+          },
+          synthetic: async () => {
+            operations.push("synthetic");
+          },
+        },
+      });
+
+      if (contextHook === undefined) {
+        return { hooks: {}, sessionOperations: () => operations };
+      }
+
+      return {
+        hooks: {
+          "experimental.chat.system.transform": async (input: { sessionID?: string }, output: { system: string[] }) => {
+            const system = output.system.map((text) => ({ type: "text" as const, text }));
+            await contextHook?.({ sessionID: input.sessionID ?? "", system });
+            output.system.splice(0, output.system.length, ...system.map((part) => part.text));
+          },
+        },
+        sessionOperations: () => operations,
+      };
+    }
 
     const hooks: Record<string, Function> =
       (await module.HerdrResourceContextPlugin({
         directory: root,
         worktree: root,
-        client: { session: { promptAsync: async () => calls++ } },
+        client: { session: { promptAsync: async () => operations.push("legacy-promptAsync") } },
       })) ?? {};
 
-    return { hooks, promptAsyncCalls: () => calls };
+    return { hooks, sessionOperations: () => operations };
   } finally {
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key];
@@ -101,12 +137,12 @@ async function loadPlugin(
   }
 }
 
-async function loadTransform(root: string): Promise<{ transform: Transform; promptAsyncCalls: () => number }> {
+async function loadTransform(root: string): Promise<{ transform: Transform; sessionOperations: () => string[] }> {
   const host = await loadPlugin(root);
   const transform = host.hooks["experimental.chat.system.transform"];
   expect(transform).toBeTypeOf("function");
 
-  return { transform, promptAsyncCalls: host.promptAsyncCalls };
+  return { transform, sessionOperations: host.sessionOperations };
 }
 
 describe("OpenCode model-request resource context", () => {
@@ -138,7 +174,7 @@ describe("OpenCode model-request resource context", () => {
       "--caller-session-id",
       "session-B",
     ]);
-    expect(host.promptAsyncCalls()).toBe(0);
+    expect(host.sessionOperations()).toEqual([]);
   });
 
   test("successful refresh replaces duplicates while empty and failed queries stay distinct", async () => {
@@ -204,7 +240,7 @@ describe("OpenCode model-request resource context", () => {
       "new conversation",
       `${HEADING}\nHerdr resource context unavailable: the shared resource query failed. This must not be treated as an empty resource branch.`,
     ]);
-    expect(host.promptAsyncCalls()).toBe(0);
+    expect(host.sessionOperations()).toEqual([]);
   });
 
   test("a request without a session identity retracts the earlier branch", async () => {
@@ -235,7 +271,7 @@ describe("OpenCode model-request resource context", () => {
     const host = await loadPlugin(root, "");
 
     expect(host.hooks).toEqual({});
-    expect(host.promptAsyncCalls()).toBe(0);
+    expect(host.sessionOperations()).toEqual([]);
     expect(() => readFileSync(join(root, "query-argv"), "utf8")).toThrow();
   });
 });

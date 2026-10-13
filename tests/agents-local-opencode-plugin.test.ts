@@ -64,13 +64,56 @@ async function loadUnderHome(sourcePath: string, prefix: string): Promise<any> {
 
 type Hook = (input: { sessionID?: string }, output: { system: string[] }) => Promise<void>;
 
+type SystemPart = { type: "text"; text: string };
+
+type V2ContextHook = (event: { sessionID: string; system: SystemPart[] }) => Promise<void> | void;
+
 async function loadTransform(directory: string): Promise<Hook> {
-  const module: any = await loadUnderHome(PLUGIN_PATH, "agents-local-opencode");
+  const request = await loadSessionRequest(directory, { "session-current": directory });
+
+  return async (input, output) => {
+    const system = await request(input.sessionID ?? "session-current", output.system);
+    output.system.splice(0, output.system.length, ...system);
+  };
+}
+
+async function loadSessionRequest(
+  directory: string,
+  directories: Record<string, string>,
+): Promise<(sessionID: string, initialSystem?: string[]) => Promise<string[]>> {
+  const module: any = await loadUnderHome(PLUGIN_PATH, "agents-local-opencode-session");
+
+  if (typeof module.default?.setup === "function") {
+    let contextHook: V2ContextHook | undefined;
+
+    await module.default.setup({
+      session: {
+        hook: async (name: string, hook: V2ContextHook) => {
+          if (name === "context") contextHook = hook;
+          return { dispose: async () => {} };
+        },
+        get: async ({ sessionID }: { sessionID: string }) => ({ location: { directory: directories[sessionID] } }),
+      },
+    });
+
+    expect(contextHook).toBeTypeOf("function");
+
+    return async (sessionID, initialSystem = [BASE_SYSTEM]) => {
+      const system = initialSystem.map((text) => ({ type: "text" as const, text }));
+      await contextHook?.({ sessionID, system });
+      return system.map((part) => part.text);
+    };
+  }
+
   const hooks = (await module.AgentsLocalPlugin({ directory, worktree: directory })) ?? {};
   const transform = hooks["experimental.chat.system.transform"];
   expect(transform).toBeTypeOf("function");
 
-  return transform;
+  return async (sessionID, initialSystem = [BASE_SYSTEM]) => {
+    const system = [...initialSystem];
+    await transform({ sessionID }, { system });
+    return system;
+  };
 }
 
 async function loadPiHandler(): Promise<Function> {
@@ -130,6 +173,98 @@ describe("shared selection module (R7)", () => {
 
     expect(system).toEqual([BASE_SYSTEM, block]);
     expect(piResult.systemPrompt).toBe(BASE_SYSTEM + block);
+  });
+});
+
+describe("session-local model context", () => {
+  test("two concurrent sessions inject only their own worktree instructions", async () => {
+    // #given two independent session worktrees with distinct local instructions
+    const rootA = await projectWithAgentsLocal("Worktree A LOCAL_A_473.\n");
+    const rootB = await projectWithAgentsLocal("Worktree B LOCAL_B_473.\n");
+    const rootAInstructions = await realpath(join(rootA, "AGENTS.local.md"));
+    const rootBInstructions = await realpath(join(rootB, "AGENTS.local.md"));
+    const request = await loadSessionRequest(rootA, { "session-A": rootA, "session-B": rootB });
+    const expectedA = [
+      "",
+      "",
+      "## Local Private Project Instructions",
+      "",
+      `Loaded from ${rootAInstructions}. These instructions are private and local. Follow them in addition to repository instructions.`,
+      "",
+      "### AGENTS.local.md",
+      "",
+      "Worktree A LOCAL_A_473.\n",
+    ].join("\n");
+    const expectedB = [
+      "",
+      "",
+      "## Local Private Project Instructions",
+      "",
+      `Loaded from ${rootBInstructions}. These instructions are private and local. Follow them in addition to repository instructions.`,
+      "",
+      "### AGENTS.local.md",
+      "",
+      "Worktree B LOCAL_B_473.\n",
+    ].join("\n");
+
+    // #when both sessions construct a model request through the same plugin instance
+    const actual = await Promise.all([request("session-A"), request("session-B")]);
+
+    // #then each model request carries the context selected from its own worktree
+    expect(actual).toEqual([
+      [BASE_SYSTEM, expectedA],
+      [BASE_SYSTEM, expectedB],
+    ]);
+  });
+
+  test("later requests replace stale instructions after edits, removal, and a session switch", async () => {
+    // #given two session worktrees and an array carrying an earlier generated block
+    const rootA = await projectWithAgentsLocal("Original A LOCAL_REFRESH_473.\n");
+    const rootB = await projectWithAgentsLocal("Worktree B LOCAL_REFRESH_B_473.\n");
+    const rootAInstructions = await realpath(join(rootA, "AGENTS.local.md"));
+    const rootBInstructions = await realpath(join(rootB, "AGENTS.local.md"));
+    const request = await loadSessionRequest(rootA, { "session-A": rootA, "session-B": rootB });
+    const system = await request("session-A");
+
+    // #when the local file changes, a stale A array moves to B, then B loses its file
+    await writeFile(join(rootA, "AGENTS.local.md"), "Changed A LOCAL_REFRESH_473.\n");
+    const changed = await request("session-A", system);
+    const switched = await request("session-B", changed);
+    rmSync(join(rootB, "AGENTS.local.md"));
+    const removed = await request("session-B", switched);
+
+    // #then every request carries only its current generated instructions
+    expect([changed, switched, removed]).toEqual([
+      [
+        BASE_SYSTEM,
+        [
+          "",
+          "",
+          "## Local Private Project Instructions",
+          "",
+          `Loaded from ${rootAInstructions}. These instructions are private and local. Follow them in addition to repository instructions.`,
+          "",
+          "### AGENTS.local.md",
+          "",
+          "Changed A LOCAL_REFRESH_473.\n",
+        ].join("\n"),
+      ],
+      [
+        BASE_SYSTEM,
+        [
+          "",
+          "",
+          "## Local Private Project Instructions",
+          "",
+          `Loaded from ${rootBInstructions}. These instructions are private and local. Follow them in addition to repository instructions.`,
+          "",
+          "### AGENTS.local.md",
+          "",
+          "Worktree B LOCAL_REFRESH_B_473.\n",
+        ].join("\n"),
+      ],
+      [BASE_SYSTEM],
+    ]);
   });
 });
 
@@ -213,9 +348,10 @@ describe("heading-guarded idempotence (KTD11)", () => {
     expect(system.join("\n").split("IDEMPOTENT_SENTINEL_2b7c")).toHaveLength(2);
   });
 
-  test("an array that already carries the heading is left alone", async () => {
-    // #given an array carrying the heading from some earlier producer
+  test("an array carrying a stale generated heading is replaced", async () => {
+    // #given an array carrying generated instructions from an earlier request
     const root = await projectWithAgentsLocal("Would be injected NEW_SENTINEL_8f10.\n");
+    const selectedRealPath = await realpath(join(root, "AGENTS.local.md"));
     const transform = await loadTransform(root);
     const preInjected = `${shared.LOCAL_INSTRUCTIONS_HEADING}\n\nsomething earlier`;
     const system = [BASE_SYSTEM, preInjected];
@@ -223,8 +359,21 @@ describe("heading-guarded idempotence (KTD11)", () => {
     // #when the transform runs
     await transform({}, { system });
 
-    // #then it appends nothing
-    expect(system).toEqual([BASE_SYSTEM, preInjected]);
+    // #then the current generated block replaces the stale one
+    expect(system).toEqual([
+      BASE_SYSTEM,
+      [
+        "",
+        "",
+        "## Local Private Project Instructions",
+        "",
+        `Loaded from ${selectedRealPath}. These instructions are private and local. Follow them in addition to repository instructions.`,
+        "",
+        "### AGENTS.local.md",
+        "",
+        "Would be injected NEW_SENTINEL_8f10.\n",
+      ].join("\n"),
+    ]);
   });
 });
 
