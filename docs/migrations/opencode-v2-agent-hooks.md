@@ -1,0 +1,23 @@
+---
+title: OpenCode 2 agent-hooks boundary
+---
+
+# OpenCode 2 Agent-Hooks Boundary
+
+The normal OpenCode pin remains V1. The V1 loader uses the named
+`AgentHooksPlugin` export. The V2 loader uses the plugin module's default
+definition, `agent-hooks`, and registers `execute.before`. These entrypoints
+must remain separate so a V1 session does not register the V2 handler.
+
+OpenCode 2.0.28 was exercised through standalone root sessions with a local,
+deterministic OpenAI-compatible provider. The adapter observed and dispatched
+native `shell`, `write`, and `edit` calls, plus Code Mode's nested
+`fff_grep` call. V2 supplies arguments in `event.input`; native write and edit
+use `path`, and edit replacement text is `newString`. The effective FFF route
+was `fff_grep` with `query` as its required policy input.
+
+The verified scope is the pinned standalone V2 server and its root sessions.
+It does not establish OpenCode subagent enforcement. Import, normalization,
+and dispatch failures fail open; an explicit core block is rethrown so OpenCode
+rejects the tool call. A successful V2 setup writes the same resident
+loaded-core marker as V1 for selfcheck.

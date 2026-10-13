@@ -4,7 +4,8 @@
 // node_modules, and only resolves its imports once deployed under
 // ~/.config/opencode/, where opencode's own dependencies live.
 import type { Plugin } from "@opencode-ai/plugin"
-import { join } from "node:path"
+import { lstatSync, readlinkSync } from "node:fs"
+import { dirname, join, resolve } from "node:path"
 import type { Decision, ToolEventValue } from "../../../dot_local/lib/agent-hooks/types.ts"
 
 // opencode transport for the shared agent-hooks dispatch core.
@@ -69,4 +70,51 @@ export const AgentHooksPlugin: Plugin = async () => {
       if (decision?.verdict === "block") throw new Error(decision.reason)
     },
   }
+}
+
+async function loadV2Dispatch(home: string): Promise<typeof dispatch> {
+  try {
+    const corePath = join(home, ".local", "lib", "agent-hooks")
+    const coreDir = lstatSync(corePath).isSymbolicLink()
+      ? resolve(dirname(corePath), readlinkSync(corePath))
+      : corePath
+    const core = await import(join(coreDir, "index.ts"))
+
+    if (home !== "") {
+      try {
+        const { writeMarker } = await import(join(coreDir, "selfcheck.ts"))
+        writeMarker(CLIENT, { stateDir: join(home, ".local", "state", "agent-hooks") })
+      } catch {
+        // Missing identity evidence is diagnostic only and must not disable policy.
+      }
+    }
+
+    return core.dispatch
+  } catch {
+    return undefined
+  }
+}
+
+// OpenCode 2 plugins use a default definition and execute.before receives the
+// tool name and native input together. Keep this separate from the V1 named
+// export: the pinned V1 loader invokes only AgentHooksPlugin.
+export default {
+  id: "agent-hooks",
+  async setup(ctx: { tool: { hook: (name: string, handler: (event: unknown) => Promise<void>) => Promise<unknown> } }) {
+    const v2Dispatch = await loadV2Dispatch(process.env.HOME ?? "")
+
+    if (!v2Dispatch) return
+
+    await ctx.tool.hook("execute.before", async (event) => {
+      let decision: Decision | undefined
+
+      try {
+        decision = v2Dispatch(CLIENT, event as ToolEventValue)
+      } catch {
+        return
+      }
+
+      if (decision?.verdict === "block") throw new Error(decision.reason)
+    })
+  },
 }
