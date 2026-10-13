@@ -107,10 +107,28 @@ install_revmux_shim() {
 case "${1:-}" in
   new|config|--version|--help) exec "$REAL_REVMUX" "$@" ;;
 esac
-printf '%s\n' "$@" > "$REVMUX_SHIM_RUN_ARGS"
-printf 'shim json\n'
-printf 'shim log\n' >&2
-exit "${REVMUX_SHIM_STATUS:-0}"
+  printf '%s\n' "$@" > "$REVMUX_SHIM_RUN_ARGS"
+  sleep "${REVMUX_SHIM_DELAY:-0}"
+  printf 'shim json\n'
+  printf 'shim log\n' >&2
+  exit "${REVMUX_SHIM_STATUS:-0}"
+SH
+  chmod +x "$SHIM_BIN/revmux"
+}
+
+install_revmux_kill_parent_shim() {
+  SHIM_BIN="$BATS_TEST_TMPDIR/kill-parent-shim-bin"
+  REVMUX_SHIM_WRAPPER_PID="$BATS_TEST_TMPDIR/revmux-wrapper-pid"
+  export REVMUX_SHIM_WRAPPER_PID
+  mkdir -p "$SHIM_BIN"
+  cat > "$SHIM_BIN/revmux" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  new|config|--version|--help) exec "$REAL_REVMUX" "$@" ;;
+esac
+printf '%s\n' "$PPID" > "$REVMUX_SHIM_WRAPPER_PID"
+kill -9 "$PPID"
+exit 0
 SH
   chmod +x "$SHIM_BIN/revmux"
 }
@@ -162,15 +180,6 @@ function test_revmux_round_003_next_copies_the_previous_goal_and_context_without
   run cmp "$PREVIOUS_ROUND/input/context/review.md" "$round/context/review.md"
   assert_success
   assert_file_not_exists "$round/profile.md"
-}
-
-function test_revmux_round_004_next_accepts_an_in_limit_scope() {
-  _bats_test_init 4 'next accepts a nearby in-limit scope control'
-  require_revmux
-  make_round_fixture
-
-  run_prepare_only --note 'short update'
-  assert_success
 }
 
 function test_revmux_round_005_next_rejects_an_over_limit_scope_without_launching() {
@@ -464,9 +473,184 @@ EOF
     done < "$1"
   ' bash "$scope"
   assert_success
+
+  run bash -c '
+    in_block=false
+    while IFS= read -r line; do
+      if [ "$line" = "Commits:" ]; then
+        in_block=awaiting_fence
+      elif [ "$in_block" = awaiting_fence ] && [ "$line" = "\`\`\`" ]; then
+        in_block=inside
+      elif [ "$in_block" = inside ] && [ "$line" = "\`\`\`" ]; then
+        break
+      elif [ "$in_block" = inside ]; then
+        case "$line" in
+          [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\ *)
+            printf "%s\n" "${line#* }"
+            ;;
+          *) printf "%s\n" "$line" ;;
+        esac
+      fi
+    done < "$1"
+  ' bash "$scope"
+  assert_success
+  assert_output "$(cat <<'EOF'
+limit history 15
+limit history 14
+limit history 13
+limit history 12
+limit history 11
+limit history 10
+limit history 09
+limit history 08
+limit history 07
+limit history 06
+… and 6 more
+EOF
+)"
   assert_equal "${#lines[@]}" '11'
   assert_line -n 10 '… and 6 more'
 
   run bash -c '[ "$(wc -m < "$1")" -le 1500 ]' bash "$scope"
   assert_success
+}
+
+function test_revmux_round_019_next_trims_long_changed_file_names_to_the_scope_budget() {
+  _bats_test_init 19 'next keeps a long changed-file fixture within the scope budget'
+  require_revmux
+  make_round_fixture
+  git -C "$FIXTURE_REPO" reset --hard -q "$FIXTURE_BASE"
+  local index
+  local prefix
+  local padding
+  local filename
+  local scope="$TASKS_DIR/fixture/02-after-fix/input/scope.md"
+
+  for index in $(seq -w 1 20); do
+    prefix="f-$index-"
+    padding="$(printf '%*s' "$((120 - ${#prefix}))" '')"
+    filename="${prefix}${padding// /x}"
+    printf 'long fixture %s\n' "$index" > "$FIXTURE_REPO/$filename"
+  done
+  git -C "$FIXTURE_REPO" add .
+  git -C "$FIXTURE_REPO" commit -qm 'add 20 long fixture files'
+
+  run bash -c '[ "$(git -C "$1" diff --name-status "$2..HEAD" | wc -l | tr -d "[:space:]")" = 20 ]' \
+    bash "$FIXTURE_REPO" "$FIXTURE_BASE"
+  assert_success
+
+  run_prepare_only --note 'short update'
+  assert_success
+
+  run bash -c '
+    in_block=false
+    while IFS= read -r line; do
+      if [ "$line" = "Changed files:" ]; then
+        in_block=awaiting_fence
+      elif [ "$in_block" = awaiting_fence ] && [ "$line" = "\`\`\`" ]; then
+        in_block=inside
+      elif [ "$in_block" = inside ] && [ "$line" = "\`\`\`" ]; then
+        break
+      elif [ "$in_block" = inside ]; then
+        printf "%s\n" "$line"
+      fi
+    done < "$1"
+  ' bash "$scope"
+  assert_success
+  assert_equal "${#lines[@]}" '8'
+  assert_line -n 7 '… and 13 more'
+
+  run bash -c '[ "$(wc -m < "$1")" -le 1500 ]' bash "$scope"
+  assert_success
+}
+
+function test_revmux_round_020_next_wait_ignores_a_stale_exit_file() {
+  _bats_test_init 20 'next removes a stale exit status before waiting for the launcher'
+  require_revmux
+  make_round_fixture
+  install_revmux_shim
+  local out="$BATS_TEST_TMPDIR/out"
+  mkdir -p "$out"
+  printf '7\n' > "$out/02-after-fix.exit"
+
+  run env REVMUX_SHIM_DELAY=2 REVMUX_SHIM_STATUS=0 PATH="$SHIM_BIN:$PATH" bash "$SCRIPT" next \
+    --task fixture --tasks-dir "$TASKS_DIR" --workdir "$FIXTURE_REPO" --out-dir "$out" --wait \
+    --note 'replace the stale exit status'
+  assert_success
+  assert_line 'exit: 0'
+
+  run cat "$out/02-after-fix.exit"
+  assert_success
+  assert_output '0'
+}
+
+function test_revmux_round_021_next_wait_reports_a_launcher_that_dies_without_an_exit_file() {
+  _bats_test_init 21 'next reports a launcher that dies before publishing its exit status'
+  require_revmux
+  make_round_fixture
+  install_revmux_kill_parent_shim
+  local out="$BATS_TEST_TMPDIR/out"
+  local exit_file="$out/02-after-fix.exit"
+
+  run env PATH="$SHIM_BIN:$PATH" bash "$SCRIPT" next --task fixture --tasks-dir "$TASKS_DIR" \
+    --workdir "$FIXTURE_REPO" --out-dir "$out" --wait --note 'observe the dead launcher'
+  assert_failure 2
+  assert_line "error: revmux launcher exited without writing $exit_file"
+  assert_file_not_exists "$exit_file"
+
+  run bash -c '! kill -0 "$(cat "$1")" 2>/dev/null' bash "$REVMUX_SHIM_WRAPPER_PID"
+  assert_success
+}
+
+function test_revmux_round_022_next_refuses_an_unknown_base_without_creating_a_round() {
+  _bats_test_init 22 'next leaves no round behind when the selected Git base does not exist'
+  require_revmux
+  make_round_fixture
+
+  run_prepare_only --base no-such-git-object
+  assert_failure
+  assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
+}
+
+function test_revmux_round_023_next_renders_empty_git_blocks_when_base_equals_tip() {
+  _bats_test_init 23 'next renders no-change Git facts without aborting'
+  require_revmux
+  make_round_fixture
+  local scope="$TASKS_DIR/fixture/02-after-fix/input/scope.md"
+  local expected
+  expected="$(cat <<EOF
+# Scope
+
+Round 02-after-fix of task fixture: review the cumulative change against base $FIXTURE_TIP, including the fixes since the previous round.
+
+Tip: $FIXTURE_TIP
+Scale: no changes
+
+Read the change:
+
+\`\`\`
+git diff $FIXTURE_TIP..HEAD
+git log --oneline $FIXTURE_TIP..HEAD
+\`\`\`
+
+Commits:
+
+\`\`\`
+
+\`\`\`
+
+Changed files:
+
+\`\`\`
+
+\`\`\`
+EOF
+)"
+
+  run_prepare_only --base "$FIXTURE_TIP"
+  assert_success
+
+  run cat "$scope"
+  assert_success
+  assert_output "$expected"
 }
