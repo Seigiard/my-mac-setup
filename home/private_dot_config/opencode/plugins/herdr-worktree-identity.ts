@@ -1,13 +1,21 @@
 // @ts-nocheck
 // OpenCode prompt adapter for herdr-worktree-identity. The engine detaches its
 // model worker before this foreground handshake resolves.
-import type { Plugin } from "@opencode-ai/plugin"
+import type { Plugin as V1Plugin } from "@opencode-ai/plugin"
+import type { Plugin as V2Plugin } from "@opencode/plugin"
 import { homedir } from "node:os"
 import { join } from "node:path"
 
+let defineV2Plugin: ((plugin: V2Plugin.Plugin) => V2Plugin.Plugin) | undefined
 let handoffWorktreeIdentity:
   | ((agent: "opencode", sessionID: string, prompt: string) => Promise<void>)
   | undefined
+
+try {
+  ;({ Plugin: { define: defineV2Plugin } } = await import("@opencode/plugin"))
+} catch {
+  defineV2Plugin = undefined
+}
 
 try {
   ;({ handoffWorktreeIdentity } = await import(
@@ -17,7 +25,7 @@ try {
   handoffWorktreeIdentity = undefined
 }
 
-export const HerdrWorktreeIdentityPlugin: Plugin = async () => {
+export const HerdrWorktreeIdentityPlugin: V1Plugin = async () => {
   if (!handoffWorktreeIdentity || process.env.HERDR_ENV !== "1" || process.env.HERDR_WORKTREE_IDENTITY_ACTIVE) return {}
 
   const childSessions = new Set<string>()
@@ -43,3 +51,45 @@ export const HerdrWorktreeIdentityPlugin: Plugin = async () => {
     },
   }
 }
+
+async function observeChildSessions(
+  events: AsyncIterable<{ type?: string; data?: { sessionID?: string; parentID?: string } }>,
+  childSessions: Set<string>,
+): Promise<void> {
+  try {
+    for await (const event of events) {
+      if (event.type === "session.created" && event.data?.sessionID && event.data.parentID) {
+        childSessions.add(event.data.sessionID)
+      } else if (event.type === "session.deleted" && event.data?.sessionID) {
+        childSessions.delete(event.data.sessionID)
+      }
+    }
+  } catch {
+    // Event observation is only used to reject child prompts. A disconnected
+    // stream must not interfere with OpenCode prompt admission.
+  }
+}
+
+const HerdrWorktreeIdentityV2Plugin = {
+  id: "herdr-worktree-identity",
+  async setup({ event, session }) {
+    if (!handoffWorktreeIdentity || process.env.HERDR_ENV !== "1" || process.env.HERDR_WORKTREE_IDENTITY_ACTIVE) return
+
+    const childSessions = new Set<string>()
+    const controller = new AbortController()
+    const observing = observeChildSessions(event.subscribe({ signal: controller.signal }), childSessions)
+    const registration = await session.hook("prompt", async ({ prompt, sessionID }) => {
+      if (childSessions.has(sessionID) || typeof prompt.text !== "string" || prompt.text.trim() === "") return
+
+      await handoffWorktreeIdentity("opencode", sessionID, prompt.text)
+    })
+
+    return async () => {
+      controller.abort()
+      await registration.dispose()
+      await observing
+    }
+  },
+} satisfies V2Plugin.Plugin
+
+export default defineV2Plugin?.(HerdrWorktreeIdentityV2Plugin) ?? HerdrWorktreeIdentityV2Plugin
