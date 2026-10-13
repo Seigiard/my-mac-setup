@@ -8,9 +8,9 @@ The current GitHub issue body, labels, assignees, state, and comments define the
 
 ## Conventions
 
-- List active issues exhaustively: `gh api --paginate --slurp 'repos/Seigiard/my-mac-setup/issues?state=open&per_page=100' --jq 'add | map(select(has("pull_request") | not)) | .[] | [.number, .title, .html_url] | @tsv'`
-- Search titles and bodies without a fixed result cap: `gh api --paginate --slurp 'repos/Seigiard/my-mac-setup/issues?state=all&per_page=100' --jq 'add | map(select(has("pull_request") | not)) | .[] | {number, state, title, body, url: .html_url}'`, then filter the complete output locally.
-- Read an issue and its history: `gh issue view <number> --repo Seigiard/my-mac-setup --comments`
+- List active issues exhaustively: `gh api --paginate 'repos/Seigiard/my-mac-setup/issues?state=open&per_page=100' --jq '.[] | select(has("pull_request") | not) | [.number, .title, .html_url] | @tsv'`
+- Search titles and bodies without a fixed result cap: `gh api --paginate 'repos/Seigiard/my-mac-setup/issues?state=all&per_page=100' --jq '.[] | select(has("pull_request") | not) | {number, state, title, body, url: .html_url}'`, then filter the complete output locally.
+- Read an issue, its metadata, and its history in non-TTY use: `gh issue view <number> --repo Seigiard/my-mac-setup --json number,title,body,labels,state,url,comments`.
 - Create an issue: apply the `repository-issues` ownership gate, then use `gh issue create` with one category and one state label.
 - Claim work: add yourself as assignee only when work begins.
 - Change triage state: remove the old state label and add the new one without disturbing unrelated labels.
@@ -19,6 +19,8 @@ The current GitHub issue body, labels, assignees, state, and comments define the
 - Reject work: add `wontfix` and close with the rationale.
 
 Prefer `--body-file` for issue bodies and comments. Use explicit `--repo Seigiard/my-mac-setup` arguments so lifecycle commands cannot target another checkout accidentally.
+
+`gh issue view --comments` and `--json` are mutually exclusive. Use `--comments` only for human-readable comment output; use the JSON form above when an agent must preserve the issue body, metadata, and all comments.
 
 ## Labels And Triage
 
@@ -36,4 +38,4 @@ Keep the issue body current when investigation changes the diagnosis, impact, sc
 
 ## Skill Vocabulary
 
-When a skill says "publish to the issue tracker," create a GitHub issue after applying the ownership gate. When a skill says "fetch the relevant ticket," run `gh issue view <number> --repo Seigiard/my-mac-setup --comments`.
+When a skill says "publish to the issue tracker," create a GitHub issue after applying the ownership gate. When a skill says "fetch the relevant ticket," run `gh issue view <number> --repo Seigiard/my-mac-setup --json number,title,body,labels,state,url,comments`.

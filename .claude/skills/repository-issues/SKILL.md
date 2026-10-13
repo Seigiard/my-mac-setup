@@ -26,9 +26,9 @@ When ownership is unclear, do not create an issue. Report the ambiguity and ask 
 Use explicit repository arguments so commands remain safe outside the checkout:
 
 ```sh
-gh api --paginate --slurp 'repos/Seigiard/my-mac-setup/issues?state=open&per_page=100' --jq 'add | map(select(has("pull_request") | not)) | .[] | [.number, .title, .html_url] | @tsv'
-gh api --paginate --slurp 'repos/Seigiard/my-mac-setup/issues?state=all&per_page=100' --jq 'add | map(select(has("pull_request") | not)) | .[] | {number, state, title, body, url: .html_url}'
-gh issue view 123 --repo Seigiard/my-mac-setup --comments
+gh api --paginate 'repos/Seigiard/my-mac-setup/issues?state=open&per_page=100' --jq '.[] | select(has("pull_request") | not) | [.number, .title, .html_url] | @tsv'
+gh api --paginate 'repos/Seigiard/my-mac-setup/issues?state=all&per_page=100' --jq '.[] | select(has("pull_request") | not) | {number, state, title, body, url: .html_url}'
+gh issue view 123 --repo Seigiard/my-mac-setup --json number,title,body,labels,state,url,comments
 gh issue create --repo Seigiard/my-mac-setup --title "Short title" --body-file /tmp/issue.md --label bug --label needs-triage
 gh issue edit 123 --repo Seigiard/my-mac-setup --add-assignee @me
 gh issue edit 123 --repo Seigiard/my-mac-setup --remove-label needs-triage --add-label ready-for-agent
@@ -36,7 +36,7 @@ gh issue comment 123 --repo Seigiard/my-mac-setup --body-file /tmp/comment.md
 gh issue close 123 --repo Seigiard/my-mac-setup --comment "Implemented and verified."
 ```
 
-Prefer `--body-file` over shell-interpolated multiline bodies. Read the current issue and its labels before editing it, and preserve unrelated labels.
+Prefer `--body-file` over shell-interpolated multiline bodies. `--comments` and `--json` are mutually exclusive. Use the JSON form above when reading or confirming an issue in non-TTY use: it preserves the body, metadata, and all comments. Preserve unrelated labels.
 
 ## Labels And State
 
@@ -67,4 +67,4 @@ Keep the issue body as the durable problem statement and use comments for chrono
 
 ## Done
 
-A query is complete when every requested page has been inspected. A mutation is complete only after `gh issue view --comments` confirms every intended effect, including comments; report the resulting issue URL.
+A query is complete when every requested page has been inspected. A mutation is complete only after `gh issue view <number> --repo Seigiard/my-mac-setup --json number,title,body,labels,state,url,comments` confirms every intended effect, including comments; report the resulting issue URL.
