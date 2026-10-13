@@ -19,10 +19,11 @@ The `tdd` orchestrator's files for one ticket. The `<run-id>` is the run directo
 <the ticket text, verbatim>
 
 ## Symptom
+Repeat this entry once per symptom criterion:
+- criterion: <number>
 - observed: <the wrong behavior the ticket reports, and the command or scenario it gives>
 - expected: <the behavior the ticket expects>
-- criterion: <number>
-- observation: <for a symptom criterion marked no test: command or scenario, state, output>
+- observation: <evidence when needed: command or scenario, state, output>
 
 ## Criteria
 1. <validation criterion>
