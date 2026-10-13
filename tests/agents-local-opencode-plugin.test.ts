@@ -66,54 +66,59 @@ type Hook = (input: { sessionID?: string }, output: { system: string[] }) => Pro
 
 type SystemPart = { type: "text"; text: string };
 
+type V2RequestKind = "context" | "compaction" | "generate" | "title";
+
 type V2ContextHook = (event: { sessionID: string; system: SystemPart[] }) => Promise<void> | void;
 
-async function loadTransform(directory: string): Promise<Hook> {
-  const request = await loadSessionRequest(directory, { "session-current": directory });
-
-  return async (input, output) => {
-    const system = await request(input.sessionID ?? "session-current", output.system);
-    output.system.splice(0, output.system.length, ...system);
-  };
-}
-
-async function loadSessionRequest(
-  directory: string,
-  directories: Record<string, string>,
-): Promise<(sessionID: string, initialSystem?: string[]) => Promise<string[]>> {
+async function loadV1Transform(directory: string): Promise<Hook> {
   const module: any = await loadUnderHome(PLUGIN_PATH, "agents-local-opencode-session");
-
-  if (typeof module.default?.setup === "function") {
-    let contextHook: V2ContextHook | undefined;
-
-    await module.default.setup({
-      session: {
-        hook: async (name: string, hook: V2ContextHook) => {
-          if (name === "context") contextHook = hook;
-          return { dispose: async () => {} };
-        },
-        get: async ({ sessionID }: { sessionID: string }) => ({ location: { directory: directories[sessionID] } }),
-      },
-    });
-
-    expect(contextHook).toBeTypeOf("function");
-
-    return async (sessionID, initialSystem = [BASE_SYSTEM]) => {
-      const system = initialSystem.map((text) => ({ type: "text" as const, text }));
-      await contextHook?.({ sessionID, system });
-      return system.map((part) => part.text);
-    };
-  }
-
   const hooks = (await module.AgentsLocalPlugin({ directory, worktree: directory })) ?? {};
   const transform = hooks["experimental.chat.system.transform"];
   expect(transform).toBeTypeOf("function");
 
-  return async (sessionID, initialSystem = [BASE_SYSTEM]) => {
-    const system = [...initialSystem];
-    await transform({ sessionID }, { system });
-    return system;
+  return transform;
+}
+
+async function loadV2SessionRequest(
+  directories: Record<string, string>,
+): Promise<(kind: V2RequestKind, sessionID: string, initialSystem?: string[]) => Promise<string[]>> {
+  const module: any = await loadUnderHome(PLUGIN_PATH, "agents-local-opencode-v2");
+  const hooks: Partial<Record<V2RequestKind, V2ContextHook>> = {};
+
+  await module.default.setup({
+    session: {
+      hook: async (name: V2RequestKind, hook: V2ContextHook) => {
+        hooks[name] = hook;
+
+        return { dispose: async () => {} };
+      },
+      get: async ({ sessionID }: { sessionID: string }) => ({ location: { directory: directories[sessionID] } }),
+    },
+  });
+
+  expect(hooks.context).toBeTypeOf("function");
+
+  return async (kind, sessionID, initialSystem = [BASE_SYSTEM]) => {
+    const system = initialSystem.map((text) => ({ type: "text" as const, text }));
+    const hook = hooks[kind];
+
+    if (hook) await hook({ sessionID, system });
+
+    return system.map((part) => part.text);
   };
+}
+
+async function loadV2Transform(directory: string): Promise<Hook> {
+  const request = await loadV2SessionRequest({ "session-current": directory });
+
+  return async (input, output) => {
+    const system = await request("context", input.sessionID ?? "session-current", output.system);
+    output.system.splice(0, output.system.length, ...system);
+  };
+}
+
+async function loadSharedTransforms(directory: string): Promise<{ v1: Hook; v2: Hook }> {
+  return { v1: await loadV1Transform(directory), v2: await loadV2Transform(directory) };
 }
 
 async function loadPiHandler(): Promise<Function> {
@@ -145,12 +150,14 @@ describe("shared selection module (R7)", () => {
     const contents = "Shared fixture SENTINEL_PARITY_5e1a.\n";
     const root = await projectWithAgentsLocal(contents);
     const selectedRealPath = await realpath(join(root, "AGENTS.local.md"));
-    const transform = await loadTransform(root);
+    const transforms = await loadSharedTransforms(root);
     const piHandler = await loadPiHandler();
 
-    // #when each client injects
-    const system = [BASE_SYSTEM];
-    await transform({}, { system });
+    // #when each OpenCode generation and Pi inject
+    const v1System = [BASE_SYSTEM];
+    const v2System = [BASE_SYSTEM];
+    await transforms.v1({}, { system: v1System });
+    await transforms.v2({}, { system: v2System });
     const piResult = await piHandler({ systemPrompt: BASE_SYSTEM }, { cwd: root, hasUI: false });
 
     // #then both sides emit this exact block. Written out rather than read back
@@ -171,19 +178,23 @@ describe("shared selection module (R7)", () => {
       contents,
     ].join("\n");
 
-    expect(system).toEqual([BASE_SYSTEM, block]);
+    expect([v1System, v2System]).toEqual([
+      [BASE_SYSTEM, block],
+      [BASE_SYSTEM, block],
+    ]);
     expect(piResult.systemPrompt).toBe(BASE_SYSTEM + block);
   });
 });
 
 describe("session-local model context", () => {
-  test("two concurrent sessions inject only their own worktree instructions", async () => {
+  test("all native V2 request kinds inject only their own worktree instructions", async () => {
     // #given two independent session worktrees with distinct local instructions
     const rootA = await projectWithAgentsLocal("Worktree A LOCAL_A_473.\n");
     const rootB = await projectWithAgentsLocal("Worktree B LOCAL_B_473.\n");
     const rootAInstructions = await realpath(join(rootA, "AGENTS.local.md"));
     const rootBInstructions = await realpath(join(rootB, "AGENTS.local.md"));
-    const request = await loadSessionRequest(rootA, { "session-A": rootA, "session-B": rootB });
+    const request = await loadV2SessionRequest({ "session-A": rootA, "session-B": rootB });
+
     const expectedA = [
       "",
       "",
@@ -195,6 +206,7 @@ describe("session-local model context", () => {
       "",
       "Worktree A LOCAL_A_473.\n",
     ].join("\n");
+
     const expectedB = [
       "",
       "",
@@ -207,12 +219,21 @@ describe("session-local model context", () => {
       "Worktree B LOCAL_B_473.\n",
     ].join("\n");
 
-    // #when both sessions construct a model request through the same plugin instance
-    const actual = await Promise.all([request("session-A"), request("session-B")]);
+    // #when both sessions construct every native kind through the same plugin instance
+    const actual = await Promise.all([
+      request("context", "session-A"),
+      request("context", "session-B"),
+      request("compaction", "session-B"),
+      request("generate", "session-B"),
+      request("title", "session-B"),
+    ]);
 
     // #then each model request carries the context selected from its own worktree
     expect(actual).toEqual([
       [BASE_SYSTEM, expectedA],
+      [BASE_SYSTEM, expectedB],
+      [BASE_SYSTEM, expectedB],
+      [BASE_SYSTEM, expectedB],
       [BASE_SYSTEM, expectedB],
     ]);
   });
@@ -223,20 +244,22 @@ describe("session-local model context", () => {
     const rootB = await projectWithAgentsLocal("Worktree B LOCAL_REFRESH_B_473.\n");
     const rootAInstructions = await realpath(join(rootA, "AGENTS.local.md"));
     const rootBInstructions = await realpath(join(rootB, "AGENTS.local.md"));
-    const request = await loadSessionRequest(rootA, { "session-A": rootA, "session-B": rootB });
-    const system = await request("session-A");
+    const request = await loadV2SessionRequest({ "session-A": rootA, "session-B": rootB });
+    const unrelated = "Keep the heading reference: ## Local Private Project Instructions.";
+    const system = await request("context", "session-A", [BASE_SYSTEM, unrelated]);
 
     // #when the local file changes, a stale A array moves to B, then B loses its file
     await writeFile(join(rootA, "AGENTS.local.md"), "Changed A LOCAL_REFRESH_473.\n");
-    const changed = await request("session-A", system);
-    const switched = await request("session-B", changed);
+    const changed = await request("context", "session-A", system);
+    const switched = await request("context", "session-B", changed);
     rmSync(join(rootB, "AGENTS.local.md"));
-    const removed = await request("session-B", switched);
+    const removed = await request("context", "session-B", switched);
 
     // #then every request carries only its current generated instructions
     expect([changed, switched, removed]).toEqual([
       [
         BASE_SYSTEM,
+        unrelated,
         [
           "",
           "",
@@ -251,6 +274,7 @@ describe("session-local model context", () => {
       ],
       [
         BASE_SYSTEM,
+        unrelated,
         [
           "",
           "",
@@ -263,7 +287,7 @@ describe("session-local model context", () => {
           "Worktree B LOCAL_REFRESH_B_473.\n",
         ].join("\n"),
       ],
-      [BASE_SYSTEM],
+      [BASE_SYSTEM, unrelated],
     ]);
   });
 });
@@ -279,19 +303,23 @@ describe("selection safety in opencode (R7)", () => {
     await writeFile(outsideFile, "OUTSIDE_SENTINEL_c40b must never be injected.\n");
     await symlink(outsideFile, join(root, "AGENTS.local.md"));
     await writeFile(join(root, "CLAUDE.local.md"), "In-project fallback INSIDE_SENTINEL_9d3f.\n");
-    const transform = await loadTransform(root);
+    const transforms = await loadSharedTransforms(root);
 
     // #when the transform runs
-    const system = [BASE_SYSTEM];
-    await transform({}, { system });
+    const v1System = [BASE_SYSTEM];
+    const v2System = [BASE_SYSTEM];
+    await transforms.v1({}, { system: v1System });
+    await transforms.v2({}, { system: v2System });
 
     // #then only the in-project file reaches the prompt
-    expect(system).toHaveLength(2);
-    expect(system[1]).toContain("INSIDE_SENTINEL_9d3f");
+    expect([v1System, v2System]).toEqual([
+      [BASE_SYSTEM, expect.stringContaining("INSIDE_SENTINEL_9d3f")],
+      [BASE_SYSTEM, expect.stringContaining("INSIDE_SENTINEL_9d3f")],
+    ]);
     // oracle: this string lives in a file outside the project root, written
     // independently of any source in this patch; a regressed escape check
     // leaks content the project does not own into every request's prompt.
-    expect(system[1]).not.toContain("OUTSIDE_SENTINEL_c40b");
+    expect([...v1System, ...v2System].join("\n")).not.toContain("OUTSIDE_SENTINEL_c40b");
   });
 
   test("a file over the size cap is skipped and the under-cap control is injected", async () => {
@@ -299,33 +327,39 @@ describe("selection safety in opencode (R7)", () => {
     const root = temporaryDir("agents-local-cap-");
     await writeFile(join(root, "AGENTS.local.md"), "A".repeat(shared.MAX_LOCAL_INSTRUCTIONS_BYTES + 1));
     await writeFile(join(root, "CLAUDE.local.md"), "Under the cap UNDERCAP_SENTINEL_71ee.\n");
-    const transform = await loadTransform(root);
+    const transforms = await loadSharedTransforms(root);
 
     // #when the transform runs
-    const system = [BASE_SYSTEM];
-    await transform({}, { system });
+    const v1System = [BASE_SYSTEM];
+    const v2System = [BASE_SYSTEM];
+    await transforms.v1({}, { system: v1System });
+    await transforms.v2({}, { system: v2System });
 
     // #then the oversized file is not what was injected
-    expect(system).toHaveLength(2);
-    expect(system[1]).toContain("UNDERCAP_SENTINEL_71ee");
+    expect([v1System, v2System]).toEqual([
+      [BASE_SYSTEM, expect.stringContaining("UNDERCAP_SENTINEL_71ee")],
+      [BASE_SYSTEM, expect.stringContaining("UNDERCAP_SENTINEL_71ee")],
+    ]);
     // oracle: the run of "A" is the over-cap fixture's own bytes, sized from
     // the cap the shared module publishes; a regressed cap check pushes a
     // 50 KiB+ file into every request's system prompt.
-    expect(system[1]).not.toContain("AAAAAAAAAA");
+    expect([...v1System, ...v2System].join("\n")).not.toContain("AAAAAAAAAA");
   });
 
   test("a directory named AGENTS.local.md leaves the prompt alone", async () => {
     // #given a directory where the instructions file would be
     const root = temporaryDir("agents-local-dir-");
     await mkdir(join(root, "AGENTS.local.md"));
-    const transform = await loadTransform(root);
+    const transforms = await loadSharedTransforms(root);
 
     // #when the transform runs
-    const system = [BASE_SYSTEM];
-    await transform({}, { system });
+    const v1System = [BASE_SYSTEM];
+    const v2System = [BASE_SYSTEM];
+    await transforms.v1({}, { system: v1System });
+    await transforms.v2({}, { system: v2System });
 
     // #then nothing was appended
-    expect(system).toEqual([BASE_SYSTEM]);
+    expect([v1System, v2System]).toEqual([[BASE_SYSTEM], [BASE_SYSTEM]]);
   });
 });
 
@@ -335,33 +369,52 @@ describe("heading-guarded idempotence (KTD11)", () => {
   test("a second call over an already-injected array appends nothing", async () => {
     // #given a system array the transform has already injected into
     const root = await projectWithAgentsLocal("Injected once IDEMPOTENT_SENTINEL_2b7c.\n");
-    const transform = await loadTransform(root);
-    const system = [BASE_SYSTEM];
-    await transform({}, { system });
-    const afterFirst = [...system];
+    const transforms = await loadSharedTransforms(root);
+    const v1System = [BASE_SYSTEM];
+    const v2System = [BASE_SYSTEM];
+    await transforms.v1({}, { system: v1System });
+    await transforms.v2({}, { system: v2System });
+    const afterFirst = [v1System, v2System].map((system) => [...system]);
 
     // #when the same array is transformed again
-    await transform({}, { system });
+    await transforms.v1({}, { system: v1System });
+    await transforms.v2({}, { system: v2System });
 
     // #then the array is unchanged: one heading, one copy of the content
-    expect(system).toEqual(afterFirst);
-    expect(system.join("\n").split("IDEMPOTENT_SENTINEL_2b7c")).toHaveLength(2);
+    expect([v1System, v2System]).toEqual(afterFirst);
+    expect([v1System, v2System].flat().join("\n").split("IDEMPOTENT_SENTINEL_2b7c")).toHaveLength(3);
   });
 
   test("an array carrying a stale generated heading is replaced", async () => {
     // #given an array carrying generated instructions from an earlier request
     const root = await projectWithAgentsLocal("Would be injected NEW_SENTINEL_8f10.\n");
     const selectedRealPath = await realpath(join(root, "AGENTS.local.md"));
-    const transform = await loadTransform(root);
-    const preInjected = `${shared.LOCAL_INSTRUCTIONS_HEADING}\n\nsomething earlier`;
-    const system = [BASE_SYSTEM, preInjected];
+    const transforms = await loadSharedTransforms(root);
+
+    const preInjected = [
+      "",
+      "",
+      "## Local Private Project Instructions",
+      "",
+      `Loaded from ${selectedRealPath}. These instructions are private and local. Follow them in addition to repository instructions.`,
+      "",
+      "### AGENTS.local.md",
+      "",
+      "Earlier generated LOCAL_INSTRUCTIONS_OLD_473.\n",
+    ].join("\n");
+
+    const unrelated = "Keep this ordinary reference: ## Local Private Project Instructions.";
+    const v1System = [BASE_SYSTEM, unrelated, preInjected];
+    const v2System = [BASE_SYSTEM, unrelated, preInjected];
 
     // #when the transform runs
-    await transform({}, { system });
+    await transforms.v1({}, { system: v1System });
+    await transforms.v2({}, { system: v2System });
 
     // #then the current generated block replaces the stale one
-    expect(system).toEqual([
+    const expected = [
       BASE_SYSTEM,
+      unrelated,
       [
         "",
         "",
@@ -373,7 +426,9 @@ describe("heading-guarded idempotence (KTD11)", () => {
         "",
         "Would be injected NEW_SENTINEL_8f10.\n",
       ].join("\n"),
-    ]);
+    ];
+
+    expect([v1System, v2System]).toEqual([expected, expected]);
   });
 });
 
@@ -384,14 +439,20 @@ describe("no local instructions present", () => {
     // #given a project with neither local instructions file
     const root = temporaryDir("agents-local-empty-");
     await writeFile(join(root, "AGENTS.md"), "Repository instructions, not local ones.\n");
-    const transform = await loadTransform(root);
+    const transforms = await loadSharedTransforms(root);
 
     // #when the transform runs
-    const system = [BASE_SYSTEM, "second entry"];
-    await transform({}, { system });
+    const unrelated = "Document ## Local Private Project Instructions without generating it.";
+    const v1System = [BASE_SYSTEM, "second entry", unrelated];
+    const v2System = [BASE_SYSTEM, "second entry", unrelated];
+    await transforms.v1({}, { system: v1System });
+    await transforms.v2({}, { system: v2System });
 
     // #then nothing changed
-    expect(system).toEqual([BASE_SYSTEM, "second entry"]);
+    expect([v1System, v2System]).toEqual([
+      [BASE_SYSTEM, "second entry", unrelated],
+      [BASE_SYSTEM, "second entry", unrelated],
+    ]);
   });
 });
 
