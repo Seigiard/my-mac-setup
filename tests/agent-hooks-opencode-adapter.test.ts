@@ -14,6 +14,8 @@ const core: any = await import(join(CORE_DIR, "index.ts"));
 
 const normalize: any = await import(join(CORE_DIR, "normalize.ts"));
 
+const selfcheck: any = await import(join(CORE_DIR, "selfcheck.ts"));
+
 import * as corpus from "./fixtures/agent-hooks/fixtures.ts";
 import { OPENCODE_V2_CAPTURED_EVENTS } from "./fixtures/agent-hooks/opencode-v2.ts";
 
@@ -77,17 +79,37 @@ async function loadV2Plugin(coreDir?: string, pluginPath = PLUGIN_PATH): Promise
     symlinkSync(coreDir, join(home, ".local", "lib", "agent-hooks"));
   }
 
-  const copy = join(temporaryDir("agent-hooks-opencode-v2-plugin-"), `agent-hooks-${loadCount++}.ts`);
-  cpSync(pluginPath, copy);
+  const module = await importV2Plugin(home, pluginPath);
+  const host = await setupV2Plugin(module, home);
+  const coreModule =
+    coreDir === undefined ? undefined : await import(join(coreDir, "index.ts")).catch(() => undefined);
 
+  return { hooks: host.hooks, coreModule };
+}
+
+async function withHome<T>(home: string, action: () => Promise<T>): Promise<T> {
   const previousHome = process.env.HOME;
   process.env.HOME = home;
 
   try {
-    const module: any = await import(copy);
-    const hooks: Record<string, Function> = {};
-    const plugin = module.default;
+    return await action();
+  } finally {
+    process.env.HOME = previousHome;
+  }
+}
 
+async function importV2Plugin(home: string, pluginPath = PLUGIN_PATH): Promise<any> {
+  const copy = join(temporaryDir("agent-hooks-opencode-v2-plugin-"), `agent-hooks-${loadCount++}.ts`);
+  cpSync(pluginPath, copy);
+
+  return withHome(home, () => import(copy));
+}
+
+async function setupV2Plugin(module: any, home: string): Promise<Host> {
+  const hooks: Record<string, Function> = {};
+
+  await withHome(home, async () => {
+    const plugin = module.default;
     expect(plugin?.setup).toBeTypeOf("function");
     await plugin.setup({
       location: { directory: home },
@@ -97,13 +119,9 @@ async function loadV2Plugin(coreDir?: string, pluginPath = PLUGIN_PATH): Promise
         },
       },
     });
-    const coreModule =
-      coreDir === undefined ? undefined : await import(join(coreDir, "index.ts")).catch(() => undefined);
+  });
 
-    return { hooks, coreModule };
-  } finally {
-    process.env.HOME = previousHome;
-  }
+  return { hooks };
 }
 
 /**
@@ -353,6 +371,103 @@ describe("OpenCode V2 execute.before translation", () => {
 
     // #then the tool path is not converted into an integration denial
     expect(message).toBeUndefined();
+  });
+});
+
+describe("OpenCode V2 resident core identity (R1, KTD5)", () => {
+  const denied = corpus
+    .policyFixtures("zsh-reserved-name-guard")
+    .find((candidate: any) => candidate.name === "zsh/blocks status");
+
+  function inspectResident(home: string, deployedHash: string): any {
+    const stateDir = join(home, ".local", "state", "agent-hooks");
+    const startedAt = selfcheck.processStartTime(process.pid);
+
+    return selfcheck.inspectIdentity({
+      stateDir,
+      deployedHash,
+      clients: ["opencode"],
+      markerlessClients: [],
+      isAlive: (pid: number) => pid === process.pid,
+      getProcessStart: (pid: number) => (pid === process.pid ? startedAt : null),
+    }).clients[0];
+  }
+
+  async function runtimeWithCoreA() {
+    const coreDir = temporaryDir("agent-hooks-opencode-v2-core-");
+    const home = temporaryDir("agent-hooks-opencode-v2-resident-");
+    cpSync(CORE_DIR, coreDir, { recursive: true });
+    symlinkSync(join(import.meta.dir, "../node_modules"), join(coreDir, "node_modules"));
+    mkdirSync(join(home, ".local", "lib"), { recursive: true });
+    symlinkSync(coreDir, join(home, ".local", "lib", "agent-hooks"));
+
+    return { coreDir, home, module: await importV2Plugin(home) };
+  }
+
+  async function replaceCoreWithB(coreDir: string): Promise<string> {
+    const guard = join(coreDir, "policies", "zsh-reserved-name-guard.ts");
+    const source = await Bun.file(guard).text();
+    await Bun.write(guard, source.replace("if (found.length === 0) return ALLOW;", "return ALLOW;"));
+    const result = Bun.spawnSync([process.execPath, "-e", `
+      const { dispatch } = await import(${JSON.stringify(join(coreDir, "index.ts"))});
+      console.log(dispatch("opencode", { tool: "shell", input: { command: ${JSON.stringify(denied.payload.command)} } }).verdict);
+    `]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.toString().trim()).toBe("allow");
+
+    return selfcheck.coreHash(coreDir);
+  }
+
+  test("repeated setup keeps the resident A marker stale after deployed core B replaces it", async () => {
+    // #given a V2 plugin that has loaded and registered core A
+    const runtime = await runtimeWithCoreA();
+    const hashA = selfcheck.coreHash(runtime.coreDir);
+    await setupV2Plugin(runtime.module, runtime.home);
+
+    // #when deployed core B changes on disk and setup repeats in the same process
+    const hashB = await replaceCoreWithB(runtime.coreDir);
+    const hooks = await setupV2Plugin(runtime.module, runtime.home);
+    const enforcement = await callBeforeV2(hooks, { tool: "shell", input: denied.payload });
+    const identity = inspectResident(runtime.home, hashB);
+
+    // #then cached A still enforces and selfcheck reports its distinct identity as stale
+    expect(hashB).not.toBe(hashA);
+    expect(enforcement).toBe(denied.text);
+    expect(identity).toMatchObject({ status: "stale", stale: [{ hash: hashA }] });
+  });
+
+  test("a separately evaluated adapter generation keeps the resident A marker stale after core B deploys", async () => {
+    // #given a V2 plugin whose first generation has loaded core A
+    const runtime = await runtimeWithCoreA();
+    const hashA = selfcheck.coreHash(runtime.coreDir);
+    await setupV2Plugin(runtime.module, runtime.home);
+
+    // #when core B deploys and a unique plugin import evaluates the adapter again
+    const hashB = await replaceCoreWithB(runtime.coreDir);
+    const reloadedModule = await importV2Plugin(runtime.home);
+    const reloadIdentity = inspectResident(runtime.home, hashB);
+    const hooks = await setupV2Plugin(reloadedModule, runtime.home);
+    const enforcement = await callBeforeV2(hooks, { tool: "shell", input: denied.payload });
+
+    // #then re-evaluation records cached A before setup, and setup still enforces A
+    expect(enforcement).toBe(denied.text);
+    expect(reloadIdentity).toMatchObject({ status: "stale", stale: [{ hash: hashA }] });
+  });
+
+  test("an unchanged deployed core reports the resident identity as current across setup and re-evaluation", async () => {
+    // #given a V2 plugin and its unchanged deployed core
+    const runtime = await runtimeWithCoreA();
+    const hashA = selfcheck.coreHash(runtime.coreDir);
+    await setupV2Plugin(runtime.module, runtime.home);
+
+    // #when setup repeats and a unique plugin import evaluates again
+    const reloadedModule = await importV2Plugin(runtime.home);
+    await setupV2Plugin(reloadedModule, runtime.home);
+    const identity = inspectResident(runtime.home, hashA);
+
+    // #then the marker correctly remains current
+    expect(identity).toMatchObject({ status: "current", live: [{ hash: hashA }] });
   });
 });
 
