@@ -114,6 +114,7 @@ RUN MMS_DISPOSABLE_HOME=1 \
     /tmp/chezmoi-helpers/chezmoi-unattended --profile full-fixture -- \
       execute-template --file /tmp/Brewfile.tmpl > /tmp/Brewfile && \
     grep -Fq 'brew "lazywalker/tap/rgrc"' /tmp/Brewfile && \
+    brew update && \
     brew bundle --file=/tmp/Brewfile && \
     rm -rf "$(brew --cache)"
 
