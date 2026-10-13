@@ -207,7 +207,6 @@ case "$agent_status" in
     if [ "$report_state" -eq 3 ] || [ "$report_state" -eq 4 ]; then
       # One bounded request to persist an answer the child already produced.
       recovery_prompt="The report transport file at $report_path is missing or empty. Write your exact complete previous answer, byte-for-byte, using your shell: write it to $report_path.tmp and then rename that file to $report_path. Do not use a file-editing tool. Then reply with only the path."
-      printf '%s\n' "$recovery_prompt" > "$question_file"
       herdr-child prompt --to "$started_name" --pane "$pane" --wait --timeout 120000 \
         "$recovery_prompt" >/dev/null 2>&1 || true
       set +e
