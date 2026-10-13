@@ -134,7 +134,7 @@ silent re-add cannot pass.
 
 **The regression guard:** `assert_minimal_brewfile` in `tests/bashunit/templates_test.sh:580-605`
 asserts the evidence-backed entries — currently the `oven-sh/bun` tap, `node`, `oven-sh/bun/bun`,
-`jq`, and `gitleaks` — and refutes the guarded ones, with the per-entry evidence in the comment at
+and `jq` — and refutes the guarded ones, with the per-entry evidence in the comment at
 `:566-579`. `grc`, named in earlier revisions of this document, was removed from the repository
 entirely.
 

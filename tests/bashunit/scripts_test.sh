@@ -2170,110 +2170,9 @@ PY
 # ask-in-herdr skill script
 # ===========================================
 
-PRE_EXTERNAL_SECRET_SCAN="$SOURCE_ROOT/dot_local/bin/executable_pre-external-secret-scan"
 ASK_HERDR_DIR="$SOURCE_ROOT/private_dot_agents/skills/ask-in-herdr/scripts"
 ASK_HERDR_SCRIPT="$ASK_HERDR_DIR/executable_ask.sh"
 ASK_HERDR_FOLLOW_UP="$ASK_HERDR_DIR/executable_follow-up.sh"
-
-function test_scripts_1225_pre_external_secret_scan_accepts_clean_references_and_rejects_a_real_leak() {
-  _bats_test_init 1225 'pre-external secret scan accepts clean references and rejects a real leak'
-  if ! command_exists gitleaks; then
-    [ "${MMS_DISPOSABLE_HOME:-0}" != 1 ] || fail "gitleaks is missing from the disposable-home test process"
-    skip "gitleaks is not installed"
-  fi
-  local clean_dir="$BATS_TEST_TMPDIR/scan-clean"
-  local leak_dir="$BATS_TEST_TMPDIR/scan-leak"
-  local token
-  mkdir -p "$clean_dir" "$leak_dir"
-  printf '%s\n' 'onepasswordRead "op://Private/Example/credential"' > "$clean_dir/config.tmpl"
-  token='ghp_''A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8'
-  printf 'token=%s # gitleaks:allow\n' "$token" > "$leak_dir/config"
-  cat > "$leak_dir/.gitleaks.toml" <<'TOML'
-title = "checkout-controlled empty rules"
-TOML
-
-  run bash "$PRE_EXTERNAL_SECRET_SCAN" "$clean_dir"
-  assert_success
-  assert_output --partial 'pre-external secret scan clean'
-
-  run bash -c 'printf "%s\n" '\''onepasswordRead "op://Private/Example/credential"'\'' | bash "$1" --stdin "$2"' \
-    _ "$PRE_EXTERNAL_SECRET_SCAN" "$clean_dir"
-  assert_success
-  assert_output --partial 'pre-external secret scan clean: <stdin>'
-
-  run bash "$PRE_EXTERNAL_SECRET_SCAN" "$clean_dir" "$leak_dir"
-  assert_failure 1
-  # One phrase, not two fragments: split, the refusal banner and the finding
-  # could come from different lines -- a clean directory scanned after a failed
-  # one satisfies both.
-  assert_output --partial 'pre-external secret gate REFUSED: FOUND secrets in '
-  refute_output --partial "$token"
-
-  run bash -c 'printf "prompt=%s\n" "$3" | bash "$1" --stdin "$2"' \
-    _ "$PRE_EXTERNAL_SECRET_SCAN" "$clean_dir" "$token"
-  assert_failure 1
-  assert_output --partial 'FOUND secrets in <stdin>'
-  refute_output --partial "$token"
-
-  local option_parent="$BATS_TEST_TMPDIR/scan-option"
-  mkdir -p "$option_parent/--exit-code=0"
-  printf 'token=%s\n' "$token" > "$option_parent/--exit-code=0/config"
-  run bash -c 'cd "$1" && bash "$2" --exit-code=0' \
-    _ "$option_parent" "$PRE_EXTERNAL_SECRET_SCAN"
-  assert_failure 1
-  assert_output --partial 'FOUND secrets'
-
-  local linked_root="$BATS_TEST_TMPDIR/scan-linked-root"
-  mkdir -p "$linked_root"
-  ln -s "$leak_dir" "$linked_root/outside"
-  run bash "$PRE_EXTERNAL_SECRET_SCAN" "$linked_root"
-  assert_failure 1
-  assert_output --partial 'directory symlink escapes scan root'
-
-  run env SE_SKIP_SECRET_SCAN=1 bash "$PRE_EXTERNAL_SECRET_SCAN" "$leak_dir"
-  assert_success
-  assert_output --partial 'SKIPPED by operator'
-
-  run env SE_SKIP_SECRET_SCAN=false bash "$PRE_EXTERNAL_SECRET_SCAN" "$leak_dir"
-  assert_failure 1
-  assert_output --partial 'FOUND secrets'
-
-  run env GITLEAKS_CONFIG_TOML='title = "ambient empty rules"' \
-    bash "$PRE_EXTERNAL_SECRET_SCAN" "$leak_dir"
-  assert_failure 1
-  assert_output --partial 'FOUND secrets'
-}
-
-function test_scripts_1226_pre_external_secret_scan_fails_closed_without_a_clean_scanner_verdict() {
-  _bats_test_init 1226 'pre-external secret scan fails closed without a clean scanner verdict'
-  local empty_bin="$BATS_TEST_TMPDIR/scan-empty-bin"
-  local bad_bin="$BATS_TEST_TMPDIR/scan-bad-bin"
-  local scan_dir="$BATS_TEST_TMPDIR/scan-input"
-  mkdir -p "$empty_bin" "$bad_bin" "$scan_dir"
-  cat > "$bad_bin/gitleaks" <<'SH'
-#!/bin/sh
-exit 7
-SH
-  chmod +x "$bad_bin/gitleaks"
-
-  run env PATH="$empty_bin:/usr/bin:/bin" /bin/bash "$PRE_EXTERNAL_SECRET_SCAN" "$scan_dir"
-  assert_failure 1
-  # One line each. Split, the refusal reason and the "nothing was sent"
-  # reassurance need not come from the same gate, and all three gates below
-  # print the reassurance.
-  assert_output 'pre-external secret gate REFUSED: gitleaks is not on PATH. Nothing was sent externally.'
-
-  run env PATH="$bad_bin:/usr/bin:/bin" /bin/bash "$PRE_EXTERNAL_SECRET_SCAN" "$scan_dir"
-  assert_failure 1
-  # Partial: the scanned path is resolved through /private on macOS, so the
-  # line cannot be matched whole; the merged phrase still binds the reason and
-  # the exit code to one gate.
-  assert_output --partial 'pre-external secret gate REFUSED: gitleaks exited with unexpected code 7 while scanning '
-
-  run bash "$PRE_EXTERNAL_SECRET_SCAN" "$scan_dir/missing"
-  assert_failure 1
-  assert_output "pre-external secret gate REFUSED: scan target does not exist: $scan_dir/missing. Nothing was sent externally."
-}
 
 ask_live_stub() {
   child_new_stub
@@ -2336,23 +2235,6 @@ case "${1:-}" in
   *) exit 2 ;;
 esac
 SH
-  cat > "$CHILD_STUB/pre-external-secret-scan" <<'SH'
-#!/usr/bin/env bash
-printf '%q ' "$@" >> "$CHILD_STUB/scan.log"; printf '\n' >> "$CHILD_STUB/scan.log"
-scan_count=0
-[ ! -f "$CHILD_STUB/scan-count" ] || read -r scan_count < "$CHILD_STUB/scan-count"
-scan_count=$((scan_count + 1))
-printf '%s\n' "$scan_count" > "$CHILD_STUB/scan-count"
-[ "${STUB_SCAN_FAIL_AT:-0}" -ne "$scan_count" ] || exit 1
-if [ -n "${STUB_SCAN_MATCH:-}" ]; then
-  for scan_arg in "$@"; do
-    if [ -f "$scan_arg" ] && grep -q -- "$STUB_SCAN_MATCH" "$scan_arg"; then exit 1; fi
-    if [ "${STUB_SCAN_DIRS:-0}" = 1 ] && [ -d "$scan_arg" ] && \
-       grep -R -q -- "$STUB_SCAN_MATCH" "$scan_arg"; then exit 1; fi
-  done
-fi
-exit "${STUB_SCAN_STATUS:-0}"
-SH
   cat > "$CHILD_STUB/herdr" <<'SH'
 #!/usr/bin/env bash
 printf '%q ' "$@" >> "$CHILD_STUB/herdr.log"; printf '\n' >> "$CHILD_STUB/herdr.log"
@@ -2382,7 +2264,7 @@ case "$1 $2" in
   *) exit 2 ;;
 esac
 SH
-  chmod +x "$CHILD_STUB/herdr-child" "$CHILD_STUB/herdr" "$CHILD_STUB/pre-external-secret-scan"
+  chmod +x "$CHILD_STUB/herdr-child" "$CHILD_STUB/herdr"
 }
 
 function test_scripts_1051_ask_in_herdr_script_requires_arguments() {
@@ -2433,27 +2315,9 @@ function test_scripts_1053_ask_sh_refuses_outside_herdr_and_when_herdr_child_is_
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=refused"
 }
 
-function test_scripts_1227_ask_sh_refuses_before_launch_when_the_secret_scan_is_not_clean() {
-  _bats_test_init 1227 'ask.sh refuses before launch when the secret scan is not clean'
+function test_scripts_1228_ask_in_herdr_follow_up_delivers_messages() {
+  _bats_test_init 1228 'ask-in-herdr follow-up delivers messages'
   ask_live_stub
-  run env PATH="$CHILD_STUB:$PATH" STUB_SCAN_MATCH=question-secret-marker HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_SCRIPT" claude question-secret-marker --skills "$ASK_HERDR_DIR"
-  assert_failure 2
-  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=refused"
-  assert_file_not_exists "$CHILD_STUB/child.log"
-  assert_file_contains "$CHILD_STUB/scan.log" "$PWD"
-  assert_file_contains "$CHILD_STUB/scan.log" "$ASK_HERDR_DIR"
-}
-
-function test_scripts_1228_ask_in_herdr_follow_up_rescans_the_question_before_prompting() {
-  _bats_test_init 1228 'ask-in-herdr follow-up rescans the question before prompting'
-  ask_live_stub
-  run env PATH="$CHILD_STUB:$PATH" STUB_SCAN_MATCH=follow-up-secret-marker HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_FOLLOW_UP" prompt red-wolf wT:p9 follow-up-secret-marker
-  assert_failure 2
-  assert_line --index "$(( ${#lines[@]} - 1 ))" 'follow-up.sh: status=refused'
-  assert_file_not_exists "$CHILD_STUB/child.log"
-
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$ASK_HERDR_FOLLOW_UP" prompt red-wolf wT:p9 clean-question
   assert_success
@@ -2465,47 +2329,6 @@ function test_scripts_1228_ask_in_herdr_follow_up_rescans_the_question_before_pr
   assert_success
   assert_line --index "$(( ${#lines[@]} - 1 ))" 'follow-up.sh: status=delivered'
   assert_file_contains "$CHILD_STUB/child.log" '^reply --to red-wolf --pane wT:p9 clean-decision'
-
-  ask_live_stub
-  local secret_cwd="$BATS_TEST_TMPDIR/follow-up-secret-cwd"
-  mkdir -p "$secret_cwd"
-  printf '%s\n' follow-up-secret-marker > "$secret_cwd/secret"
-  run env PATH="$CHILD_STUB:$PATH" STUB_SCAN_MATCH=follow-up-secret-marker STUB_SCAN_DIRS=1 \
-    STUB_PANE_CWD="$secret_cwd" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_FOLLOW_UP" prompt red-wolf wT:p9 clean-question
-  assert_failure 2
-  # Exit 2 is also an argument-parse refusal, so the trailer names the reason.
-  assert_line --index "$(( ${#lines[@]} - 1 ))" 'follow-up.sh: status=refused'
-  assert_file_not_exists "$CHILD_STUB/child.log"
-
-  ask_live_stub
-  local clean_cwd="$BATS_TEST_TMPDIR/follow-up-clean-cwd"
-  local secret_skills="$BATS_TEST_TMPDIR/follow-up-secret-skills"
-  mkdir -p "$clean_cwd" "$secret_skills"
-  printf '%s\n' follow-up-secret-marker > "$secret_skills/secret"
-  run env PATH="$CHILD_STUB:$PATH" STUB_SCAN_MATCH=follow-up-secret-marker STUB_SCAN_DIRS=1 \
-    STUB_PANE_CWD="$clean_cwd" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_FOLLOW_UP" prompt red-wolf wT:p9 clean-question --skills "$secret_skills"
-  assert_failure 2
-  assert_line --index "$(( ${#lines[@]} - 1 ))" 'follow-up.sh: status=refused'
-  assert_file_not_exists "$CHILD_STUB/child.log"
-
-  # Control for both directory-scan refusals: the same scanning configuration over a
-  # clean pane cwd and a clean --skills tree must still deliver. Without it a
-  # follow-up.sh that refuses whenever --skills is present passes both refusals, and
-  # the delivering legs above never exercise a scanner that reads directories.
-  ask_live_stub
-  local clean_scan_cwd="$BATS_TEST_TMPDIR/follow-up-clean-scan-cwd"
-  local clean_skills="$BATS_TEST_TMPDIR/follow-up-clean-skills"
-  mkdir -p "$clean_scan_cwd" "$clean_skills"
-  printf '%s\n' 'no marker in this tree' > "$clean_scan_cwd/notes"
-  printf '%s\n' 'no marker in this tree' > "$clean_skills/SKILL.md"
-  run env PATH="$CHILD_STUB:$PATH" STUB_SCAN_MATCH=follow-up-secret-marker STUB_SCAN_DIRS=1 \
-    STUB_PANE_CWD="$clean_scan_cwd" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_FOLLOW_UP" prompt red-wolf wT:p9 clean-question --skills "$clean_skills"
-  assert_success
-  assert_line --index "$(( ${#lines[@]} - 1 ))" 'follow-up.sh: status=delivered'
-  assert_file_contains "$CHILD_STUB/child.log" '^prompt --to red-wolf --pane wT:p9 --wait clean-question'
 
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_PROMPT_STATUS=124 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -2786,16 +2609,6 @@ function test_scripts_1068_ask_sh_reports_no_report_after_one_failed_recovery() 
   assert_file_exists "$CHILD_STUB/recover.log"
   run grep -c 'prompt' "$CHILD_STUB/recover.log"
   assert_output '1'
-}
-
-function test_scripts_1229_ask_sh_reports_refusal_when_the_recovery_scan_is_not_clean() {
-  _bats_test_init 1229 'ask.sh reports refusal when the recovery scan is not clean'
-  ask_live_stub
-  run env PATH="$CHILD_STUB:$PATH" STUB_REPORT=none STUB_SCAN_FAIL_AT=2 \
-    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$ASK_HERDR_SCRIPT" claude question
-  assert_failure 2
-  assert_line --index "$(( ${#lines[@]} - 1 ))" 'ask.sh: status=refused'
-  assert_file_not_exists "$CHILD_STUB/recover.log"
 }
 
 function test_scripts_1069_ask_sh_returns_a_recovered_report_as_a_normal_answer() {
