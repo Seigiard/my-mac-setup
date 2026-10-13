@@ -3009,20 +3009,6 @@ function test_scripts_463_herdr_peer_agent_list_fake_fields_match_real_herdr() {
     || skip "no working herdr executable is installed behind PATH"
   run herdr api schema --json
   printf '%s\n' "$output" > "$schema"
-  if [[ "$status" -eq 1 ]] && python3 - "$schema" <<'PY'
-import json
-import sys
-
-try:
-    payload = json.load(open(sys.argv[1], encoding="utf-8"))
-except (OSError, ValueError):
-    raise SystemExit(1)
-
-raise SystemExit(0 if payload.get("error", {}).get("code") == "unsupported" else 1)
-PY
-  then
-    skip "installed herdr does not support api schema --json (error.code=unsupported)"
-  fi
   if [[ "$status" -ne 0 ]]; then
     fail "herdr api schema --json exited $status: $output"
   fi
