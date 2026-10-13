@@ -21,15 +21,15 @@ try {
   defineV2 = undefined
 }
 
-async function localInstructions(directory: string): Promise<string | undefined> {
-  if (!buildLocalInstructions || !heading) return
+async function localInstructions(directory: string): Promise<{ block?: string; failed: boolean }> {
+  if (!buildLocalInstructions || !heading) return { failed: true }
 
   try {
-    return (await buildLocalInstructions(directory)).block
+    return { block: (await buildLocalInstructions(directory)).block, failed: false }
   } catch {
     // Local instructions are additive. A failed selection leaves the request
     // exactly as OpenCode built it instead of injecting an uncertain path.
-    return
+    return { failed: true }
   }
 }
 
@@ -45,13 +45,40 @@ function hasHeading(entry: unknown): boolean {
   )
 }
 
+function entryText(entry: unknown): string | undefined {
+  if (typeof entry === "string") return entry
+
+  return (
+    typeof entry === "object" &&
+    entry !== null &&
+    (entry as { type?: unknown }).type === "text" &&
+    typeof (entry as { text?: unknown }).text === "string"
+      ? (entry as { text: string }).text
+      : undefined
+  )
+}
+
+function isGeneratedLocalBlock(entry: unknown): boolean {
+  const text = entryText(entry)?.trimStart()
+  if (!text || !heading) return false
+
+  const loadedPrefix = `${heading}\n\nLoaded from `
+  const metadataSuffix = ". These instructions are private and local. Follow them in addition to repository instructions."
+  if (!text.startsWith(loadedPrefix)) return false
+
+  const suffixStart = text.indexOf(metadataSuffix, loadedPrefix.length)
+  if (suffixStart < 0) return false
+
+  return /^\n\n### (?:AGENTS|CLAUDE)\.local\.md\n\n/.test(text.slice(suffixStart + metadataSuffix.length))
+}
+
 const v2Plugin = defineV2?.({
   id: "agents-local",
   async setup(ctx) {
     if (!buildLocalInstructions || !heading) return
 
     const inject = async (request: { sessionID?: string; system: unknown[] }) => {
-      if (!request.sessionID || request.system.some(hasHeading)) return
+      if (!request.sessionID) return
 
       let session: { location?: { directory?: string } }
 
@@ -64,8 +91,12 @@ const v2Plugin = defineV2?.({
       const directory = session.location?.directory
       if (!directory) return
 
-      const block = await localInstructions(directory)
-      if (block) request.system.push({ type: "text", text: block })
+      const result = await localInstructions(directory)
+      if (result.failed) return
+
+      const system = request.system.filter((entry) => !isGeneratedLocalBlock(entry))
+      if (result.block) system.push({ type: "text", text: result.block })
+      request.system.splice(0, request.system.length, ...system)
     }
 
     await Promise.all(HOOKS.map((hook) => ctx.session.hook(hook, inject)))
@@ -82,7 +113,7 @@ export async function AgentsLocalPlugin({ directory }: { directory?: string }) {
       const system = output?.system
       if (!Array.isArray(system) || system.some(hasHeading)) return
 
-      const block = await localInstructions(directory)
+      const { block } = await localInstructions(directory)
       if (block) system.push(block)
     },
   }
