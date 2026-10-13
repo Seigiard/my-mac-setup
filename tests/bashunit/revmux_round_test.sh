@@ -13,6 +13,10 @@ setup() {
   export REAL_REVMUX
 }
 
+function tear_down_after_script() {
+  _bats_file_cleanup
+}
+
 require_revmux() {
   if [ -z "$REAL_REVMUX" ] || ! "$REAL_REVMUX" --version >/dev/null 2>&1; then
     skip "revmux is not installed"
