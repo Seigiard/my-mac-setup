@@ -1,37 +1,13 @@
 // @ts-nocheck
-// Type checking is off here for the same reason the other managed opencode
-// plugins turn it off: this file is checked out in a plain dotfiles repo with
-// no node_modules, and only resolves its imports once deployed under
-// ~/.config/opencode/, where opencode's own dependencies live.
-import type { Plugin } from "@opencode-ai/plugin"
 import { join } from "node:path"
 
-// opencode transport for the shared local-instructions module.
-//
-// Selection, the symlink-escape check, the size cap and the emitted block all
-// live in ~/.local/lib/agent-hooks/local-instructions.ts and are shared with
-// the pi extension, so the safety checks exist once (R7). pi's ui.notify
-// warnings are dropped here: opencode has no equivalent channel (KTD11).
-//
-// Idempotence is a heading check, not a call counter. opencode rebuilds the
-// system array per request (observed: a marker pushed on one turn is absent
-// from the next), but the guard also holds if a future opencode hands the hook
-// what a previous call accumulated — which is what makes the append safe
-// under either semantics (KTD11).
-//
-// The `experimental.` prefix is an accepted upgrade-fragility risk: a rename
-// silently stops the injection rather than breaking a session.
-
 const HOME = process.env.HOME ?? ""
-
 const MODULE_PATH = join(HOME, ".local", "lib", "agent-hooks", "local-instructions.ts")
+const HOOKS = ["context", "compaction", "generate", "title"]
 
-// Load-time import rather than per-call (KTD5): a failure is front-loaded into
-// a plugin that registers nothing, which is the honest degradation — a
-// registered hook that never appends would look alive to a reader.
 let buildLocalInstructions: ((cwd: string) => Promise<{ block?: string }>) | undefined
-
 let heading: string | undefined
+let defineV2: ((plugin: { id: string; setup: (ctx: unknown) => Promise<void> }) => unknown) | undefined
 
 try {
   ;({ buildLocalInstructions, LOCAL_INSTRUCTIONS_HEADING: heading } = await import(MODULE_PATH))
@@ -39,28 +15,77 @@ try {
   buildLocalInstructions = undefined
 }
 
-export const AgentsLocalPlugin: Plugin = async ({ directory }) => {
-  if (!buildLocalInstructions || !heading || !directory) return {}
+try {
+  ;({ Plugin: { define: defineV2 } } = await import("@opencode/plugin"))
+} catch {
+  defineV2 = undefined
+}
 
-  return {
-    "experimental.chat.system.transform": async (_input, output) => {
-      const system = output?.system
+async function localInstructions(directory: string): Promise<string | undefined> {
+  if (!buildLocalInstructions || !heading) return
 
-      if (!Array.isArray(system)) return
+  try {
+    return (await buildLocalInstructions(directory)).block
+  } catch {
+    // Local instructions are additive. A failed selection leaves the request
+    // exactly as OpenCode built it instead of injecting an uncertain path.
+    return
+  }
+}
 
-      if (system.some((entry: string) => entry.includes(heading))) return
+function hasHeading(entry: unknown): boolean {
+  if (typeof entry === "string") return entry.includes(heading ?? "")
 
-      let block: string | undefined
+  return (
+    typeof entry === "object" &&
+    entry !== null &&
+    (entry as { type?: unknown }).type === "text" &&
+    typeof (entry as { text?: unknown }).text === "string" &&
+    (entry as { text: string }).text.includes(heading ?? "")
+  )
+}
+
+const v2Plugin = defineV2?.({
+  id: "agents-local",
+  async setup(ctx) {
+    if (!buildLocalInstructions || !heading) return
+
+    const inject = async (request: { sessionID?: string; system: unknown[] }) => {
+      if (!request.sessionID || request.system.some(hasHeading)) return
+
+      let session: { location?: { directory?: string } }
 
       try {
-        ;({ block } = await buildLocalInstructions(directory))
+        session = await ctx.session.get({ sessionID: request.sessionID })
       } catch {
-        // A selection that throws leaves the prompt exactly as opencode built
-        // it; local instructions are additive, so degrading to none is safe.
         return
       }
 
+      const directory = session.location?.directory
+      if (!directory) return
+
+      const block = await localInstructions(directory)
+      if (block) request.system.push({ type: "text", text: block })
+    }
+
+    await Promise.all(HOOKS.map((hook) => ctx.session.hook(hook, inject)))
+  },
+})
+
+// V1 remains the normal pin until the migration lands. It also remains the
+// existing owner for shared selection regressions; V2 loads `v2Plugin` below.
+export async function AgentsLocalPlugin({ directory }: { directory?: string }) {
+  if (!directory || !heading) return {}
+
+  return {
+    "experimental.chat.system.transform": async (_input: unknown, output: { system?: string[] }) => {
+      const system = output?.system
+      if (!Array.isArray(system) || system.some(hasHeading)) return
+
+      const block = await localInstructions(directory)
       if (block) system.push(block)
     },
   }
 }
+
+export default v2Plugin ?? AgentsLocalPlugin
