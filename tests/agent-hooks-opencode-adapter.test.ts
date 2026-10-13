@@ -14,6 +14,7 @@ const core: any = await import(join(CORE_DIR, "index.ts"));
 
 const normalize: any = await import(join(CORE_DIR, "normalize.ts"));
 
+// Dynamic imports can target deployed modules or temporary fixtures with test-specific exports, so this runtime namespace boundary remains `any`.
 const selfcheck: any = await import(join(CORE_DIR, "selfcheck.ts"));
 
 import * as corpus from "./fixtures/agent-hooks/fixtures.ts";
@@ -284,10 +285,10 @@ describe("OpenCode V2 execute.before translation", () => {
     // #given the pre-port deny and allow commands in the V2 shell event shape
     const denied = corpus
       .policyFixtures("zsh-reserved-name-guard")
-      .find((candidate: any) => candidate.name === "zsh/flags the status capture idiom");
+      .find((candidate) => candidate.name === "zsh/flags the status capture idiom");
     const allowed = corpus
       .policyFixtures("zsh-reserved-name-guard")
-      .find((candidate: any) => candidate.name === "zsh/an ordinary name zsh accepts is not blocked");
+      .find((candidate) => candidate.name === "zsh/an ordinary name zsh accepts is not blocked");
     const host = await loadV2Plugin(CORE_DIR);
 
     // #when both commands reach the V2 callback
@@ -303,10 +304,10 @@ describe("OpenCode V2 execute.before translation", () => {
     // #given the pre-port FFF deny and allow queries under the captured nested tool name
     const denied = corpus
       .policyFixtures("fff-grep-guard")
-      .find((candidate: any) => candidate.name === "fff/multi-token bare query is denied");
+      .find((candidate) => candidate.name === "fff/multi-token bare query is denied");
     const allowed = corpus
       .policyFixtures("fff-grep-guard")
-      .find((candidate: any) => candidate.name === "fff/single identifier passes");
+      .find((candidate) => candidate.name === "fff/single identifier passes");
     const host = await loadV2Plugin(CORE_DIR);
 
     // #when Code Mode's nested events reach the V2 callback
@@ -350,7 +351,7 @@ describe("OpenCode V2 execute.before translation", () => {
     const denyingHost = await loadV2Plugin(CORE_DIR);
     const denied = corpus
       .policyFixtures("zsh-reserved-name-guard")
-      .find((candidate: any) => candidate.name === "zsh/blocks status");
+      .find((candidate) => candidate.name === "zsh/blocks status");
     const raw = { tool: "shell", input: denied.payload };
 
     // #when the same valid V2 callback path sees integration failure and policy denial
