@@ -27,6 +27,9 @@ The `tdd` orchestrator's files for one ticket. Publish `ticket.md`, `lock.json`,
 ## Criteria
 1. <validation criterion>
 
+## Non-goals
+- None explicitly stated
+
 ## Oracle gate
 1. test: <consumer> / <observable failure> / <independent oracle>
 2. no test: <reason>

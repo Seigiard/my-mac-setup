@@ -27,9 +27,10 @@ Evidence stays valid while the covered code, tests, fixtures, generated state, a
 - The worktree must be clean (`git status --porcelain` is empty). When it is not, report the dirty paths to the caller and stop.
 - Use the caller's run directory, or create `~/.claude/artifacts/tdd-<YYYYMMDD-HHMMSS>/<ticket>/`, where `<ticket>` is the issue number or a short slug. Its files, their layouts, and the atomic-write rule are in [`run-directory.md`](run-directory.md).
 - Write `ticket.md` with the ticket text, verbatim, and its validation criteria. The ticket is the issue the caller named, or the caller's request when there is none. When the ticket states no criteria, write them from its text.
+- Copy the ticket's explicit non-goals into `ticket.md`. Do not invent non-goals from what sits next to the criteria: an unnamed neighbor may be a necessary consequence of the change. Ask the caller only when an assumed non-goal would exclude a plausible solution or decide a product contract.
 - When the ticket reports a bug (the `bug` label, or its text describes current behavior as wrong), add a `Symptom` section to `ticket.md`: the observed behavior with the command or scenario the ticket gives, the expected behavior, and the criterion that covers it.
 
-Done when the worktree is clean and `ticket.md` holds the ticket, its criteria, and its symptom when it reports a bug.
+Done when the worktree is clean and `ticket.md` holds the ticket, its criteria, explicit non-goals, and its symptom when it reports a bug.
 
 ## The chain
 
@@ -62,6 +63,7 @@ Done when the worktree is clean and `ticket.md` holds the ticket, its criteria, 
    - each planned [calibration](#calibration) is **calibrated** for the current protected code, tests, and fixtures;
    - every applicable check in `ticket.md` has valid passing evidence;
    - every finding of the batch is closed: its acceptance evidence is recorded in Verdicts;
+   - **Scope:** inspect the cumulative diff from the batch's `base_sha`, not `lock_sha`. Reject a changed file with no criterion, a hunk not needed for its named criterion, or a change inside `Non-goals`. This applies on both locked and checks-only paths. A missing criterion on an otherwise sound diff is a **Handoff** gap that resumes the child; a necessary change that violates a non-goal is a **Decision** for the caller;
    - the worktree is clean, and the branch tip has moved past `lock_sha`, or past `base_sha` on the checks-only path. A test-only correction needs only its accepted test commit.
 
    Check the lock and clean state first, then the test command, then pending calibration, then the broader checks that lack valid evidence. A failed condition gets a diagnosis before any change: a handoff gap resumes the child; an implementation defect [preserves any uncommitted work](#preserving-a-candidate), restores any changed locked files (`git restore --source=<lock_sha> --staged --worktree -- <locked paths>`, commit only when that creates a diff), keeps the attempt's other commits on the branch, and takes the diagnosis's route. Done when all conditions hold.
@@ -70,7 +72,7 @@ Report to the caller: `lock_sha` or the checks-only verdict, the final branch ti
 
 ### Entering mid-chain
 
-A caller with review findings for a ticket that already ran the chain opens a new [batch](#batches-and-turns), runs steps 1-2 for its findings, and enters at a later step:
+A caller with review findings for a ticket that already ran the chain opens a new [batch](#batches-and-turns), re-checks `Non-goals` against its new criteria in steps 1-2, and enters at a later step. A review-fix criterion that conflicts with a recorded non-goal is a **Decision** for the caller, not a silent override or block:
 
 - A **behavior gap** (the code is wrong and no test catches it): add the criterion and its verdict, record its symptom, run step 3 to extend the lock, then steps 4 and 5.
 - A **code-only finding**: add it to the criteria, then run steps 4 and 5 against the existing lock, or checks-only when there is none.
@@ -87,6 +89,8 @@ Every dispatched or resumed child is one **turn** of its batch. Before each disp
 ## Calibration
 
 An assertion is **uncalibrated** until an observed regression makes it red for its stated reason. A test that is green before production exists, or stops at an earlier assertion, provides no such evidence for the protected assertion.
+
+`Non-goals` constrains final behavior, not temporary mutation paths. A non-goal that says "never touch path X" needs a different mutation plan, resolved before the calibrate child starts.
 
 Use this for uncalibrated negative or aggregate assertions, or a masking helper or fixture found in review. The preparation report names the finite plan in `ticket.md`: criterion, owner test, protected assertion, smallest regression, and mutation paths. A known-bad revision or an already observed faithful mutation supplies the same evidence while the protected state is unchanged.
 
