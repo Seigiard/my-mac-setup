@@ -1,11 +1,13 @@
 ---
 title: Recover Intercom launch claims without a successor
-status: accepted
+status: superseded
 date: 2026-09-29
 supersedes: []
 ---
 
 # ADR-0021: Recover Intercom launch claims without a successor
+
+Superseded by [ADR-0024](0024-replace-agent-intercom-with-herdr-peer.md).
 
 ## Context
 

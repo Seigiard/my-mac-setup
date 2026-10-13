@@ -12,10 +12,6 @@ load 'helpers/herdr_worktree_identity'
 setup() {
   export HERDR_ALIAS_ALLOCATOR="$BATS_TEST_DIRNAME/helpers/herdr_alias_allocator"
   unset HERDR_ENV
-  unset HERDR_AGENT_INTERCOM_ACTIVE
-  unset HERDR_AGENT_INTERCOM_NAME
-  unset HERDR_AGENT_INTERCOM_PANE
-  unset HERDR_AGENT_INTERCOM_PI_LOAD
   unset HERDR_CHILD_NAME
   # herdr-child reads its mode, parent identity and tuning from the
   # environment, so any of these left in the runner's own environment decides
@@ -40,17 +36,7 @@ setup() {
   unset HERDR_CHILD_DELIVERY_RETRY_MAX
   unset HERDR_WORKSPACE_ID
   unset HERDR_PANE_ID
-  # Recovery admission reads the connected server identity. Fixtures use their
-  # own CLI stub and must never inherit this runner's live Herdr socket.
   unset HERDR_SOCKET_PATH
-  unset HERDR_AGENT_INTERCOM_RECOVERY_ROOT HERDR_AGENT_INTERCOM_RECOVERY_INTENT HERDR_AGENT_INTERCOM_NATIVE_ONLY
-  unset HERDR_AGENT_INTERCOM_PYTHON
-  unset HERDR_AGENT_INTERCOM_BIN_DIR
-  unset HERDR_AGENT_INTERCOM_LIB_DIR
-  unset HERDR_AGENT_INTERCOM_RECOVERY_LABEL
-  unset HERDR_AGENT_INTERCOM_RECOVERY_PLIST
-  unset OPENCODE_INTERCOM_NAME
-  unset INTERCOM_DIR
   unset HERDR_CHILD_MAX_DELIVERY_RETRIES
   unset HERDR_CHILD_TEST_SKIP_RETRY_SLEEP
   unset HERDR_CHILD_TEST_HOLD_TIMEOUT_SECONDS
@@ -69,724 +55,6 @@ setup() {
   # U2 exercises authorization only. Do not let an installed local model CLI
   # turn those fixtures into live naming requests now that U3 derives names.
   export HERDR_WORKTREE_IDENTITY_DISABLE_ENGINES=1
-}
-
-# ===========================================
-# Agent Intercom launcher
-# ===========================================
-
-agent_intercom_stub_command() {
-  local path="$1"
-  cat > "$path" <<'SH'
-#!/usr/bin/env bash
-pi_load=
-if [[ -n "${HERDR_AGENT_INTERCOM_PI_LOAD:-}" ]]; then
-  pi_load=foreign
-  [[ "$HERDR_AGENT_INTERCOM_PI_LOAD" == "$$" ]] && pi_load=self
-fi
-printf '%s name=<%s> args=' "${0##*/}" "${OPENCODE_INTERCOM_NAME-}"
-printf ' active=<%s> pi_load=<%s>' "${HERDR_AGENT_INTERCOM_ACTIVE-}" "$pi_load"
-[[ $# -eq 0 ]] || printf '<%s>' "$@"
-printf '\n'
-SH
-  chmod +x "$path"
-}
-
-agent_intercom_stub_bin() {
-  local stub="$BATS_TEST_TMPDIR/agent-intercom-bin"
-  local home="$BATS_TEST_TMPDIR/agent-intercom-home"
-  mkdir -p "$stub"
-  agent_intercom_stub_command "$stub/claude"
-  agent_intercom_stub_command "$stub/opencode"
-  agent_intercom_stub_command "$stub/pi"
-  agent_intercom_stub_command "$stub/cci"
-  cat > "$stub/herdr" <<'SH'
-#!/usr/bin/env bash
-[[ "$1 $2" == 'agent get' ]] || exit 2
-case "$3" in
-  w1:p2) name=ochre-okapi ;;
-  w1:p3) name=violet-tern ;;
-  *) exit 1 ;;
-esac
-printf '{"result":{"agent":{"name":"%s","pane_id":"%s","launch_pending":true}}}\n' "$name" "$3"
-SH
-  cat > "$stub/allocator" <<'SH'
-#!/usr/bin/env bash
-[[ "$1" == --alias-candidates && $# == 2 ]] || exit 2
-printf '%s\n' ochre-okapi silver-ibis violet-tern
-SH
-  chmod +x "$stub/herdr" "$stub/allocator"
-  mkdir -p "$home/.local/share/agent-intercom/node_modules/.bin" \
-    "$home/.local/share/agent-intercom/node_modules/@dataforxyz/agent-intercom-claude/dist" \
-    "$home/.local/share/agent-intercom/node_modules/@dataforxyz/agent-intercom-claude/monitors" \
-    "$home/.local/bin" "$home/.local/lib"
-  ln -sf "$stub/cci" "$home/.local/share/agent-intercom/node_modules/.bin/cci"
-  : > "$home/.local/share/agent-intercom/node_modules/@dataforxyz/agent-intercom-claude/dist/claude-server.mjs"
-  : > "$home/.local/share/agent-intercom/node_modules/@dataforxyz/agent-intercom-claude/dist/inbox-monitor.mjs"
-  : > "$home/.local/share/agent-intercom/node_modules/@dataforxyz/agent-intercom-claude/monitors/monitors.json"
-  cp "$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom-claude" \
-    "$home/.local/bin/herdr-agent-intercom-claude"
-  cp "$SOURCE_ROOT/dot_local/lib/executable_herdr-agent-intercom-native-claude" \
-    "$home/.local/lib/herdr-agent-intercom-native-claude"
-  chmod +x "$home/.local/bin/herdr-agent-intercom-claude" \
-    "$home/.local/lib/herdr-agent-intercom-native-claude"
-  cat > "$home/.local/lib/intercom-claim-recovery.py" <<'PY'
-import os
-import sys
-args = sys.argv[1:]
-if os.environ.get('ADMISSION_LOG'):
-    with open(os.environ['ADMISSION_LOG'], 'a') as log:
-        log.write('admit\n')
-assert args[0] == '--admit'
-assert set(args[2::2]) == {'--socket-path', '--pane-id', '--agent', '--launcher-pid'}
-pane = args[args.index('--pane-id') + 1]
-names = {'w1:p2': 'ochre-okapi', 'w1:p3': 'violet-tern'}
-default = ('v1\tenrolled\treused\t' + names[pane] + '\t-\tok' if pane in names
-           else 'v1\tnative\t-\t-\t-\talias_unavailable')
-print(os.environ.get('ADMISSION_RESULT', default))
-sys.exit(int(os.environ.get('ADMISSION_STATUS', '0')))
-PY
-  printf '%s\n' "$stub"
-}
-
-agent_intercom_run_with_pty() {
-  python3 "$BATS_TEST_DIRNAME/helpers/agent_intercom_tty.py" "$@"
-}
-
-function test_scripts_1330_agent_intercom_launcher_is_an_exact_non_herdr_passthrough() {
-  _bats_test_init 1330 'agent intercom launcher is an exact non-Herdr passthrough'
-  local launcher="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom"
-  local stub
-  stub="$(agent_intercom_stub_bin)"
-
-  run env -u HERDR_ENV -u HERDR_CHILD_NAME -u HERDR_PANE_ID \
-    PATH="$stub:$PATH" bash "$launcher" opencode --model test/model prompt
-
-  assert_success
-  assert_output 'opencode name=<> args= active=<> pi_load=<><--model><test/model><prompt>'
-}
-
-function test_scripts_1331_agent_intercom_launcher_propagates_a_child_alias_to_each_adapter() {
-  _bats_test_init 1331 'agent intercom launcher propagates a preallocated pane alias to Claude OpenCode and Pi'
-  local launcher="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom"
-  local stub
-  stub="$(agent_intercom_stub_bin)"
-
-  local home="$BATS_TEST_TMPDIR/agent-intercom-home"
-  export HERDR_PANE_ID=w1:p2 HERDR_ALIAS_ALLOCATOR="$stub/allocator"
-
-  # The binary name leads the line. A partial that starts at `active=` accepts
-  # `claude` exec'd directly, which is the one thing this adapter exists to
-  # prevent.
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
-    PATH="$stub:$PATH" bash "$launcher" claude \
-    --dangerously-skip-permissions --model sonnet
-  assert_success
-  assert_output "cci name=<> args= active=<1> pi_load=<><--model><sonnet><--dangerously-skip-permissions><--tui><--transport><mcp><--name><ochre-okapi><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
-
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
-    PATH="$stub:$PATH" bash "$launcher" opencode --model test/model
-  assert_success
-  assert_output 'opencode name=<ochre-okapi> args= active=<1> pi_load=<><--model><test/model>'
-
-  run agent_intercom_run_with_pty env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
-    PATH="$stub:$PATH" bash "$launcher" pi --provider anthropic
-  assert_success
-  assert_output 'pi name=<> args= active=<1> pi_load=<self><--name><ochre-okapi><--provider><anthropic>'
-
-  run agent_intercom_run_with_pty env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
-    PATH="$stub:$PATH" bash "$launcher" pi --name wrong -n wrong-again -- --name message
-  assert_success
-  assert_output 'pi name=<> args= active=<1> pi_load=<self><--name><ochre-okapi><--><--name><message>'
-}
-
-function test_scripts_1905_agent_intercom_launcher_selects_shared_state_for_every_client() {
-  _bats_test_init 1905 'agent intercom launcher selects shared state for every client'
-  local launcher="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom"
-  local stub home="$BATS_TEST_TMPDIR/agent-intercom-home" client command
-  stub="$(agent_intercom_stub_bin)"
-  export HERDR_PANE_ID=w1:p2 HERDR_ALIAS_ALLOCATOR="$stub/allocator"
-  for command in claude opencode pi cci; do
-    cat > "$stub/$command" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' "${INTERCOM_DIR-}"
-SH
-  done
-
-  for client in claude opencode pi; do
-    if [[ "$client" == pi ]]; then
-      run agent_intercom_run_with_pty env -u XDG_STATE_HOME HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
-        PATH="$stub:$PATH" bash "$launcher" "$client"
-    else
-      run env -u XDG_STATE_HOME HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
-        PATH="$stub:$PATH" bash "$launcher" "$client"
-    fi
-    assert_success
-    assert_output "$home/.local/state/agent-intercom"
-
-    if [[ "$client" == pi ]]; then
-      run agent_intercom_run_with_pty env XDG_STATE_HOME="$home/custom state" HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
-        PATH="$stub:$PATH" bash "$launcher" "$client"
-    else
-      run env XDG_STATE_HOME="$home/custom state" HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
-        PATH="$stub:$PATH" bash "$launcher" "$client"
-    fi
-    assert_success
-    assert_output "$home/custom state/agent-intercom"
-
-    if [[ "$client" == pi ]]; then
-      run agent_intercom_run_with_pty env INTERCOM_DIR="$home/explicit runtime" XDG_STATE_HOME="$home/custom state" \
-        HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" PATH="$stub:$PATH" \
-        bash "$launcher" "$client"
-    else
-      run env INTERCOM_DIR="$home/explicit runtime" XDG_STATE_HOME="$home/custom state" \
-        HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" PATH="$stub:$PATH" \
-        bash "$launcher" "$client"
-    fi
-    assert_success
-    assert_output "$home/explicit runtime"
-
-    run env -u HERDR_ENV HOME="$home" PATH="$stub:$PATH" bash "$launcher" "$client"
-    assert_success
-    assert_output ''
-  done
-}
-
-function test_scripts_1332_agent_intercom_launcher_resolves_the_current_pane_alias() {
-  _bats_test_init 1332 'agent intercom launcher resolves the current Herdr pane alias'
-  local launcher="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom"
-  local stub
-  stub="$(agent_intercom_stub_bin)"
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=caller-supplied HERDR_PANE_ID=w1:p2 \
-    ADMISSION_RESULT=$'v1\tenrolled\treused\tsilver-ibis\t-\tok' \
-    HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" bash "$launcher" opencode
-
-  assert_success
-  assert_output 'opencode name=<silver-ibis> args= active=<1> pi_load=<>'
-
-  # Malformed decisions must not leak the parent's enrollment. Engine route
-  # decisions themselves are owned by test_intercom_admission.py.
-  local decision
-  for decision in $'v1\tnative\t-\t-\tretained-handle\tacquisition_unconfirmed' \
-    $'v2\tenrolled\treused\tsilver-ibis\t-\tok' \
-    $'v1\tenrolled\tclaimed\tsilver-ibis\t-\tok' \
-    $'v1\tenrolled\treused\tsilver-ibis\tunexpected\tok' \
-    $'v1\tenrolled\treused\tsilver-ibis\t-\tok\textra' \
-    $'v1\tenrolled\treused\tsilver-ibis\t-\tok\nextra' \
-    $'v1\tenrolled\treused\tsilver-ibis\t\tok'; do
-    run env HERDR_ENV=1 HERDR_CHILD_NAME=silver-ibis HERDR_PANE_ID=w1:p2 \
-      ADMISSION_RESULT="$decision" \
-      HERDR_AGENT_INTERCOM_ACTIVE=1 HERDR_AGENT_INTERCOM_PANE=w1:p1 \
-      HERDR_AGENT_INTERCOM_NAME=parent-alias OPENCODE_INTERCOM_NAME=parent-alias \
-      HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" bash "$launcher" opencode
-    assert_success
-    assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting opencode without Intercom
-opencode name=<> args= active=<> pi_load=<>'
-  done
-
-  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 ADMISSION_STATUS=1 \
-    HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" bash "$launcher" opencode
-  assert_success
-  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting opencode without Intercom
-opencode name=<> args= active=<> pi_load=<>'
-
-  # A valid fresh claim transports a root and opaque handle to the client.
-  cat > "$stub/opencode" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' "${HERDR_AGENT_INTERCOM_RECOVERY_ROOT-}" "${HERDR_AGENT_INTERCOM_RECOVERY_INTENT-}" "${OPENCODE_INTERCOM_NAME-}"
-SH
-  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 \
-    ADMISSION_RESULT=$'v1\tenrolled\tclaimed\tsilver-ibis\tlaunch-123\tok' \
-    HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" bash "$launcher" opencode
-  assert_success
-  assert_output "$BATS_TEST_TMPDIR/agent-intercom-home/.local/state/agent-intercom/recovery/v1
-launch-123
-silver-ibis"
-}
-
-function test_scripts_1346_agent_intercom_launcher_rejects_fresh_claims_without_a_restart_owner() {
-  _bats_test_init 1346 'agent intercom launcher rejects a fresh claim without a proved restart owner'
-  local launcher="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom"
-  local stub home log
-  stub="$(agent_intercom_stub_bin)"
-  home="$BATS_TEST_TMPDIR/agent-intercom-home"
-  log="$BATS_TEST_TMPDIR/claim-calls"
-  # The engine suite owns the missing-owner decision. This caller applies it
-  # without changing the native argv or claiming an inherited identity.
-  : > "$log"
-  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 ADMISSION_LOG="$log" HOME="$home" \
-    ADMISSION_RESULT=$'v1\tnative\t-\t-\t-\tadmission_unavailable' \
-    PATH="$stub:$PATH" bash "$launcher" claude --model sonnet
-
-  # #then no fake claim is taken and the native client receives its original argv
-  assert_success
-  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting claude without Intercom
-claude name=<> args= active=<> pi_load=<><--model><sonnet>'
-  assert_equal "$(cat "$log")" admit
-
-  # Missing enrollment components must bypass admission altogether.
-  rm "$home/.local/share/agent-intercom/node_modules/.bin/cci"
-  : > "$log"
-  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 ADMISSION_LOG="$log" HOME="$home" \
-    PATH="$stub:$PATH" bash "$launcher" claude --model sonnet
-  assert_success
-  assert_output 'herdr-agent-intercom: enrollment components unavailable; starting claude without Intercom
-claude name=<> args= active=<> pi_load=<><--model><sonnet>'
-  assert_equal "$(cat "$log")" ''
-
-  # The historical 1346 collision control now runs through real admission in
-  # intercom_claim_client_probe.py: alias_collision_rolls_back_and_retries.
-}
-
-function test_scripts_1348_agent_intercom_enrolls_a_pane_that_refuses_a_declared_record() {
-  _bats_test_init 1348 'agent intercom enrolls a pane that refuses a declared record'
-  local launcher="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom"
-  local release="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom-release"
-  local stub home log note
-  stub="$(agent_intercom_stub_bin)"
-  home="$BATS_TEST_TMPDIR/agent-intercom-home"
-  log="$BATS_TEST_TMPDIR/refused-calls"
-  note="$home/.local/state/agent-intercom/reconcile/w1_p2"
-
-  # Admission route selection and durable note creation now live in
-  # test_intercom_admission.py. This case owns consumption by the launcher and
-  # the existing first-prompt reconciliation hook.
-  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 \
-    ADMISSION_RESULT=$'v1\tenrolled\tdeferred_rename\tochre-okapi\t-\tok' \
-    HOME="$home" PATH="$stub:$PATH" bash "$launcher" claude
-  assert_success
-  assert_output "cci name=<> args= active=<1> pi_load=<><--tui><--transport><mcp><--name><ochre-okapi><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
-  mkdir -p "${note%/*}"
-
-  # #given the record Herdr's own detection created, under its own alias
-  cat > "$stub/herdr" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >> "$CLAIM_LOG"
-case "$1 $2" in
-  'agent get')
-    [[ -z "${NO_RECORD:-}" ]] || {
-      printf '{"error":{"code":"agent_not_found","message":"agent target %s not found"},"id":"cli:agent:get"}\n' "$3" >&2
-      exit 1
-    }
-    [[ -z "${UNNAMED_RECORD:-}" ]] || {
-      printf '{"id":"cli:agent:get","result":{"agent":{"agent":"claude","agent_session":{"source":"herdr:claude","value":"relaunch"},"pane_id":"%s"}}}\n' "$3"
-      exit 0
-    }
-    printf '{"id":"cli:agent:get","result":{"agent":{"agent":"claude","name":"%s","pane_id":"%s"}}}\n' \
-      "${RECORD_NAME:-plum-dingo}" "$3"
-    exit 0
-    ;;
-  'agent rename')
-    [[ "$4" != "${RENAME_TAKEN:-}" ]] || {
-      printf '{"error":{"code":"agent_name_taken","message":"agent name %s is already used; candidates: pane_id=w1:p7"},"id":"cli:agent:rename"}\n' "$4" >&2
-      exit 1
-    }
-    exit 0
-    ;;
-  'agent explain')
-    printf 'agent: claude\nstate: working\nrule: osc_title_working (region=osc_title priority=1100)\n'
-    exit 0
-    ;;
-esac
-exit 0
-SH
-  chmod +x "$stub/herdr"
-
-  # #when the first prompt runs the release command for that session
-  printf 'ochre-okapi\n' > "$note"; : > "$log"
-  run env HERDR_PANE_ID=w1:p2 HERDR_AGENT_INTERCOM_NAME=ochre-okapi CLAIM_LOG="$log" \
-    HOME="$home" PATH="$stub:$PATH" bash "$release"
-
-  # #then the Herdr record takes the name Intercom already answers to
-  assert_success
-  assert_file_contains "$log" 'agent rename w1:p2 ochre-okapi'
-  assert_file_not_exists "$note"
-
-  # #given the record herdr 0.9.3 creates for a client relaunched in a used
-  # pane: Claude's own hook reports its session, but the record carries no
-  # name. Measured live in intercom_claim_client_probe.py's relaunch case.
-  printf 'ochre-okapi\n' > "$note"; : > "$log"
-  # #when the release command runs
-  run env HERDR_PANE_ID=w1:p2 HERDR_AGENT_INTERCOM_NAME=ochre-okapi UNNAMED_RECORD=1 \
-    CLAIM_LOG="$log" HOME="$home" PATH="$stub:$PATH" bash "$release"
-  # #then the unnamed record takes the name Intercom already answers to
-  assert_success
-  assert_file_contains "$log" 'agent rename w1:p2 ochre-okapi'
-  assert_file_not_exists "$note"
-
-  # #given the same note but no record yet, because detection has not run
-  printf 'ochre-okapi\n' > "$note"; : > "$log"
-  # #when the release command runs
-  run env HERDR_PANE_ID=w1:p2 HERDR_AGENT_INTERCOM_NAME=ochre-okapi NO_RECORD=1 \
-    CLAIM_LOG="$log" HOME="$home" PATH="$stub:$PATH" bash "$release"
-  # #then it keeps the note so a later prompt can finish the rename. The record
-  # lookup is the gate: without it a release that exited before reaching Herdr
-  # at all would leave the same zero renames and the same note.
-  assert_success
-  assert_file_contains "$log" 'agent get w1:p2'
-  assert_equal "$(grep -c 'agent rename' "$log")" 0
-  assert_file_exists "$note"
-
-  # #given a peer that took the name between exec and this prompt
-  printf 'ochre-okapi\n' > "$note"; : > "$log"
-  # #when the release command runs
-  run env HERDR_PANE_ID=w1:p2 HERDR_AGENT_INTERCOM_NAME=ochre-okapi \
-    RENAME_TAKEN=ochre-okapi CLAIM_LOG="$log" HOME="$home" PATH="$stub:$PATH" bash "$release"
-  # #then it says the two names stay apart and stops retrying a lost race
-  assert_success
-  assert_output 'herdr-agent-intercom: ochre-okapi is taken, so this session answers to it in Intercom while Herdr shows plum-dingo'
-  assert_file_not_exists "$note"
-
-  # #given a note left by a session other than this one
-  printf 'ochre-okapi\n' > "$note"; : > "$log"
-  # #when a session enrolled under a different name runs the release command
-  run env HERDR_PANE_ID=w1:p2 HERDR_AGENT_INTERCOM_NAME=azure-otter \
-    CLAIM_LOG="$log" HOME="$home" PATH="$stub:$PATH" bash "$release"
-  # #then it renames nothing: the note belongs to whoever enrolled under it. The
-  # name mismatch is settled before any Herdr call, so the whole log stays empty
-  # -- a stronger statement than one pattern's absence.
-  assert_success
-  assert_equal "$(wc -c < "$log" | tr -d ' ')" 0
-  assert_file_exists "$note"
-}
-
-function test_scripts_1349_agent_intercom_suite_clears_inherited_session_and_recovery_variables() {
-  _bats_test_init 1349 'agent intercom suite clears inherited session and recovery variables'
-  local launcher="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom"
-  local stub home dump client
-  stub="$(agent_intercom_stub_bin)"
-  home="$BATS_TEST_TMPDIR/agent-intercom-home"
-  dump="$BATS_TEST_TMPDIR/exported-session-names"
-  : > "$dump"
-
-  # #given a client that reports the Intercom session variables it was handed.
-  # The names are collected from real launches rather than read out of the
-  # launcher, so a variable the launcher starts exporting joins this set the
-  # day it appears, without anyone remembering to list it here.
-  for client in cci pi opencode; do
-    cat > "$stub/$client" <<'SH'
-#!/usr/bin/env bash
-env | grep -E '^(HERDR_AGENT_INTERCOM_[A-Z0-9_]*|INTERCOM_DIR|OPENCODE_INTERCOM_NAME)=' \
-  | cut -d= -f1 >> "$NAME_DUMP"
-SH
-    chmod +x "$stub/$client"
-  done
-
-  # #given every client under an existing alias, so their observable session
-  # environment is collected without fabricating fresh-claim ownership.
-  for client in claude opencode pi; do
-    if [[ "$client" == pi ]]; then
-      run agent_intercom_run_with_pty env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 NAME_DUMP="$dump" \
-        HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
-        HOME="$home" PATH="$stub:$PATH" bash "$launcher" "$client"
-    else
-      run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 NAME_DUMP="$dump" \
-        HERDR_ALIAS_ALLOCATOR="$stub/allocator" \
-        HOME="$home" PATH="$stub:$PATH" bash "$launcher" "$client"
-    fi
-    assert_success
-  done
-
-  # Recovery handles and helper overrides are manually listed isolation inputs.
-  # The real existing-alias launches above do not emit fresh-claim controls.
-  printf '%s\n' HERDR_SOCKET_PATH HERDR_AGENT_INTERCOM_RECOVERY_ROOT HERDR_AGENT_INTERCOM_RECOVERY_INTENT \
-    HERDR_AGENT_INTERCOM_PYTHON HERDR_AGENT_INTERCOM_BIN_DIR \
-    HERDR_AGENT_INTERCOM_LIB_DIR HERDR_AGENT_INTERCOM_RECOVERY_LABEL \
-    HERDR_AGENT_INTERCOM_RECOVERY_PLIST >> "$dump"
-
-  # #then actual clients contributed exports; this cannot pass on an empty dump.
-  assert_file_contains "$dump" '^HERDR_AGENT_INTERCOM_ACTIVE$'
-  assert_file_contains "$dump" '^HERDR_AGENT_INTERCOM_PI_LOAD$'
-  assert_file_contains "$dump" '^OPENCODE_INTERCOM_NAME$'
-  assert_file_contains "$dump" '^INTERCOM_DIR$'
-
-  # #when a runner carries every one of them, as any shell inside an enrolled
-  # pane does, and the suite's own setup runs
-  local survivors
-  survivors="$(
-    while read -r name; do
-      [[ -n "$name" ]] || continue
-      export "$name=inherited-from-the-runner"
-    done < <(sort -u "$dump")
-    setup
-    while read -r name; do
-      [[ -n "$name" ]] || continue
-      [[ -z "${!name:-}" ]] || printf '%s\n' "$name"
-    done < <(sort -u "$dump")
-  )"
-
-  # #then none of them survives into a case, so the suite's verdict does not
-  # depend on whether the shell running it is enrolled
-  assert_equal "$survivors" ''
-}
-
-function test_scripts_1333_agent_intercom_launcher_passes_through_an_unidentified_herdr_session() {
-  _bats_test_init 1333 'agent intercom launcher passes through an unidentified Herdr session'
-  local launcher="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom"
-  local stub
-  stub="$(agent_intercom_stub_bin)"
-
-  run env HERDR_ENV=1 HERDR_CHILD_NAME= HERDR_PANE_ID= \
-    HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" bash "$launcher" pi
-
-  assert_success
-  assert_output 'pi name=<> args= active=<> pi_load=<>'
-
-  run env HERDR_ENV=1 HERDR_CHILD_NAME= HERDR_PANE_ID=w1:p2 \
-    ADMISSION_RESULT=$'v1\tnative\t-\t-\t-\tadmission_unavailable' \
-    HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" bash "$launcher" claude
-  assert_success
-  assert_output 'herdr-agent-intercom: canonical pane alias unavailable; starting claude without Intercom
-claude name=<> args= active=<> pi_load=<>'
-}
-
-function test_scripts_1334_agent_intercom_shell_wrappers_only_intercept_herdr_launches() {
-  _bats_test_init 1334 'agent intercom shell wrappers only intercept Herdr launches'
-  local aliases="$SOURCE_ROOT/dot_aliases"
-  local launcher="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom"
-  local stub home="$BATS_TEST_TMPDIR/agent-intercom-home"
-  stub="$(agent_intercom_stub_bin)"
-  mkdir -p "$home/.local/bin"
-  export HERDR_PANE_ID=w1:p2 HERDR_ALIAS_ALLOCATOR="$stub/allocator"
-  cp "$launcher" "$home/.local/bin/herdr-agent-intercom"
-  chmod +x "$home/.local/bin/herdr-agent-intercom"
-
-  run env -u HERDR_ENV -u HERDR_CHILD_NAME -u HERDR_PANE_ID HOME="$home" PATH="$stub:/usr/bin:/bin" \
-    zsh -fc 'source "$1"; opencode --model test/model' _ "$aliases"
-  assert_success
-  assert_output 'opencode name=<> args= active=<> pi_load=<><--model><test/model>'
-
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" PATH="$stub:/usr/bin:/bin" \
-    zsh -fc 'source "$1"; opencode --model test/model' _ "$aliases"
-  assert_success
-  assert_output 'opencode name=<ochre-okapi> args= active=<1> pi_load=<><--model><test/model>'
-}
-
-function test_scripts_1337_agent_intercom_launcher_preserves_utility_and_nested_commands() {
-  _bats_test_init 1337 'agent intercom launcher preserves utility commands and nested launches'
-  local launcher="$SOURCE_ROOT/dot_local/bin/executable_herdr-agent-intercom"
-  local stub argv home="$BATS_TEST_TMPDIR/agent-intercom-home"
-  stub="$(agent_intercom_stub_bin)"
-  export HERDR_PANE_ID=w1:p2 HERDR_ALIAS_ALLOCATOR="$stub/allocator"
-
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
-    PATH="$stub:$PATH" bash "$launcher" claude mcp list
-  assert_success
-  assert_output 'claude name=<> args= active=<> pi_load=<><mcp><list>'
-
-  # An OpenCode utility launch must not carry the pane's Intercom identity
-  # either. This pane already has its alias, so the name would reach the
-  # process through `OPENCODE_INTERCOM_NAME` with nothing to stop it; the
-  # interactive control below is what tells a working guard from a broken
-  # adapter that enrolls nobody.
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
-    PATH="$stub:$PATH" bash "$launcher" opencode models anthropic
-  assert_success
-  assert_output 'opencode name=<> args= active=<> pi_load=<><models><anthropic>'
-
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
-    PATH="$stub:$PATH" bash "$launcher" opencode --version
-  assert_success
-  assert_output 'opencode name=<> args= active=<> pi_load=<><--version>'
-
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
-    PATH="$stub:$PATH" bash "$launcher" opencode --mini /work
-  assert_success
-  assert_output 'opencode name=<ochre-okapi> args= active=<1> pi_load=<><--mini></work>'
-
-  # Restore the OpenCode controls from base test 1346. A valid existing alias
-  # makes a missing bypass observable without fabricating a restart owner.
-  for argv in 'serve --port 4096' '--log-level DEBUG serve' \
-    '--print-logs stats' '--mdns-domain opencode.local serve' \
-    '--cors http://a serve' '--mdns serve' '--log-level DEBUG --version' \
-    '--pure' '--pure=true' 'help' 'help run' \
-    '--get-yargs-completions opencode' '--get-yargs-completions opencode serve' \
-    '--get-yargs-completions=opencode'; do
-    # shellcheck disable=SC2086
-    run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 HOME="$home" XDG_STATE_HOME="$home/.local/state" \
-      PATH="$stub:$PATH" bash "$launcher" opencode $argv
-    assert_success
-    assert_output "opencode name=<> args= active=<> pi_load=<><${argv// /><}>"
-  done
-
-  for argv in 'pr 123' 'version' '--pure=false'; do
-    # shellcheck disable=SC2086
-    run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 HOME="$home" XDG_STATE_HOME="$home/.local/state" \
-      PATH="$stub:$PATH" bash "$launcher" opencode $argv
-    assert_success
-    assert_output "opencode name=<ochre-okapi> args= active=<1> pi_load=<><${argv// /><}>"
-  done
-
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
-    PATH="$stub:$PATH" bash "$launcher" claude --verbose plugins list
-  assert_success
-  assert_output 'claude name=<> args= active=<> pi_load=<><--verbose><plugins><list>'
-
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
-    PATH="$stub:$PATH" bash "$launcher" claude --plugin-dir /tmp mcp list
-  assert_success
-  assert_output 'claude name=<> args= active=<> pi_load=<><--plugin-dir></tmp><mcp><list>'
-
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
-    PATH="$stub:$PATH" bash "$launcher" claude -c --no-session-persistence mcp list
-  assert_success
-  assert_output 'claude name=<> args= active=<> pi_load=<><-c><--no-session-persistence><mcp><list>'
-
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
-    PATH="$stub:$PATH" bash "$launcher" claude upgrade
-  assert_success
-  assert_output 'claude name=<> args= active=<> pi_load=<><upgrade>'
-
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
-    PATH="$stub:$PATH" bash "$launcher" claude --debug mcp list
-  assert_success
-  assert_output "cci name=<> args= active=<1> pi_load=<><--tui><--transport><mcp><--name><ochre-okapi><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
-
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
-    PATH="$stub:$PATH" bash "$launcher" claude --mcp-config mcp --model sonnet
-  assert_success
-  assert_output "cci name=<> args= active=<1> pi_load=<><--model><sonnet><--tui><--transport><mcp><--name><ochre-okapi><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
-
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
-    PATH="$stub:$PATH" bash "$launcher" claude --tools Read mcp list
-  assert_success
-  assert_output "cci name=<> args= active=<1> pi_load=<><--tui><--transport><mcp><--name><ochre-okapi><--claude><$home/.local/bin/herdr-agent-intercom-claude>"
-
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
-    PATH="$stub:$PATH" bash "$launcher" claude --model sonnet -p prompt
-  assert_success
-  assert_output 'claude name=<> args= active=<> pi_load=<><--model><sonnet><-p><prompt>'
-
-  run agent_intercom_run_with_pty env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
-    PATH="$stub:$PATH" bash "$launcher" pi list
-  assert_success
-  assert_output 'pi name=<> args= active=<> pi_load=<><list>'
-
-  run agent_intercom_run_with_pty env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
-    PATH="$stub:$PATH" bash "$launcher" pi --offline -p prompt
-  assert_success
-  assert_output 'pi name=<> args= active=<> pi_load=<><--offline><-p><prompt>'
-
-  run agent_intercom_run_with_pty env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/agent-intercom-home" \
-    PATH="$stub:$PATH" bash "$launcher" pi --export session.jsonl output.html
-  assert_success
-  assert_output 'pi name=<> args= active=<> pi_load=<><--export><session.jsonl><output.html>'
-
-  # Restore the terminal utility controls from base test 1346. A pipe must not
-  # mask these guards, and --mode text must still take the enrollment path.
-  for argv in '--mode rpc' '--mode json' '--no-extensions' \
-    '--provider google --version' '--thinking high --help'; do
-    # shellcheck disable=SC2086
-    run agent_intercom_run_with_pty env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 HOME="$home" \
-      PATH="$stub:$PATH" bash "$launcher" pi $argv
-    assert_success
-    assert_output "pi name=<> args= active=<> pi_load=<><${argv// /><}>"
-  done
-
-  run agent_intercom_run_with_pty env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 HOME="$home" \
-    PATH="$stub:$PATH" bash "$launcher" pi --mode text
-  assert_success
-  assert_output 'pi name=<> args= active=<1> pi_load=<self><--name><ochre-okapi><--mode><text>'
-
-  # The same interactive argv with pipe stdio deliberately bypasses enrollment.
-  run env HERDR_ENV=1 HERDR_PANE_ID=w1:p2 HOME="$home" \
-    PATH="$stub:$PATH" bash "$launcher" pi --mode text
-  assert_success
-  assert_output 'pi name=<> args= active=<> pi_load=<><--mode><text>'
-
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$BATS_TEST_TMPDIR/missing-intercom" \
-    PATH="$stub:$PATH" bash "$launcher" claude
-  assert_success
-  assert_output 'herdr-agent-intercom: enrollment components unavailable; starting claude without Intercom
-claude name=<> args= active=<> pi_load=<>'
-
-  rm -f "$BATS_TEST_TMPDIR/agent-intercom-home/.local/share/agent-intercom/node_modules/@dataforxyz/agent-intercom-claude/monitors/monitors.json"
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
-    PATH="$stub:$PATH" bash "$launcher" claude
-  assert_success
-  assert_output 'herdr-agent-intercom: enrollment components unavailable; starting claude without Intercom
-claude name=<> args= active=<> pi_load=<>'
-  : > "$BATS_TEST_TMPDIR/agent-intercom-home/.local/share/agent-intercom/node_modules/@dataforxyz/agent-intercom-claude/monitors/monitors.json"
-
-  rm -f "$BATS_TEST_TMPDIR/agent-intercom-home/.local/share/agent-intercom/node_modules/@dataforxyz/agent-intercom-claude/dist/inbox-monitor.mjs"
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HOME="$home" \
-    PATH="$stub:$PATH" bash "$launcher" claude
-  assert_success
-  assert_output 'herdr-agent-intercom: enrollment components unavailable; starting claude without Intercom
-claude name=<> args= active=<> pi_load=<>'
-
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=unrelated-launch-name HERDR_AGENT_INTERCOM_ACTIVE=1 \
-    HERDR_AGENT_INTERCOM_NAME=ochre-okapi HERDR_AGENT_INTERCOM_PANE=w1:p2 \
-    HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" \
-    bash "$launcher" opencode run prompt
-  assert_success
-  assert_output 'opencode name=<> args= active=<1> pi_load=<><run><prompt>'
-
-  run env HERDR_ENV=1 HERDR_CHILD_NAME=ochre-okapi HERDR_AGENT_INTERCOM_ACTIVE=1 \
-    HERDR_PANE_ID=w1:p3 HERDR_AGENT_INTERCOM_NAME=ochre-okapi HERDR_AGENT_INTERCOM_PANE=w1:p2 \
-    HOME="$BATS_TEST_TMPDIR/agent-intercom-home" PATH="$stub:$PATH" \
-    bash "$launcher" opencode
-  assert_success
-  assert_output 'opencode name=<violet-tern> args= active=<1> pi_load=<>'
-}
-
-function test_scripts_1335_agent_intercom_claude_bridge_preserves_native_arguments() {
-  _bats_test_init 1335 'agent intercom Claude bridge preserves native arguments after cci reparses its controls'
-  local bridge stub home
-  stub="$(agent_intercom_stub_bin)"
-  home="$BATS_TEST_TMPDIR/agent-intercom-home"
-  bridge="$home/.local/bin/herdr-agent-intercom-claude"
-
-  run env AGENT_INTERCOM_CLAUDE_COMMAND="$stub/claude" AGENT_INTERCOM_CLAUDE_ARGC=4 \
-    AGENT_INTERCOM_CLAUDE_ARG_0=--disallowed-tools \
-    AGENT_INTERCOM_CLAUDE_ARG_1='Edit Write NotebookEdit AskUserQuestion' \
-    AGENT_INTERCOM_CLAUDE_ARG_2='prompt with spaces' AGENT_INTERCOM_CLAUDE_ARG_3= \
-    HOME="$home" bash "$bridge" --plugin-dir /managed/intercom --permission-mode manual
-
-  assert_success
-  assert_output 'claude name=<> args= active=<> pi_load=<><--disallowed-tools><Edit Write NotebookEdit AskUserQuestion><prompt with spaces><><--plugin-dir></managed/intercom>'
-
-  run env AGENT_INTERCOM_CLAUDE_COMMAND="$stub/claude" AGENT_INTERCOM_CLAUDE_ARGC=2 \
-    AGENT_INTERCOM_CLAUDE_ARG_0=--permission-mode AGENT_INTERCOM_CLAUDE_ARG_1=acceptEdits \
-    HOME="$home" bash "$bridge" --plugin-dir /managed/intercom --permission-mode manual
-  assert_success
-  assert_output 'claude name=<> args= active=<> pi_load=<><--permission-mode><acceptEdits><--plugin-dir></managed/intercom>'
-
-  run env AGENT_INTERCOM_CLAUDE_COMMAND="$stub/claude" AGENT_INTERCOM_CLAUDE_ARGC=3 \
-    AGENT_INTERCOM_CLAUDE_ARG_0=-- AGENT_INTERCOM_CLAUDE_ARG_1=--model \
-    AGENT_INTERCOM_CLAUDE_ARG_2=literal \
-    HOME="$home" bash "$bridge" --plugin-dir /managed/intercom
-  assert_success
-  assert_output 'claude name=<> args= active=<> pi_load=<><--plugin-dir></managed/intercom><--><--model><literal>'
-
-  run env AGENT_INTERCOM_CLAUDE_COMMAND="$stub/claude" AGENT_INTERCOM_CLAUDE_ARGC=0 \
-    HOME="$home" bash "$bridge" --plugin-dir /managed/intercom
-  assert_success
-  assert_output 'claude name=<> args= active=<> pi_load=<><--plugin-dir></managed/intercom>'
-}
-
-function test_scripts_1336_agent_intercom_claude_bridge_scrubs_its_transport_environment() {
-  _bats_test_init 1336 'agent intercom Claude bridge scrubs transported arguments before starting Claude'
-  local bridge stub home
-  stub="$BATS_TEST_TMPDIR/agent-intercom-clean-claude"
-  home="$BATS_TEST_TMPDIR/agent-intercom-home"
-  cat > "$stub" <<'SH'
-#!/usr/bin/env bash
-if [[ -n "${AGENT_INTERCOM_CLAUDE_COMMAND:-}" || -n "${AGENT_INTERCOM_CLAUDE_ARGC:-}" || -n "${AGENT_INTERCOM_CLAUDE_ARG_0:-}" ]]; then
-  exit 9
-fi
-printf '<%s>' "$@"
-SH
-  chmod +x "$stub"
-  agent_intercom_stub_bin >/dev/null
-  bridge="$home/.local/bin/herdr-agent-intercom-claude"
-
-  run env AGENT_INTERCOM_CLAUDE_COMMAND="$stub" AGENT_INTERCOM_CLAUDE_ARGC=1 \
-    AGENT_INTERCOM_CLAUDE_ARG_0='private prompt' HOME="$home" \
-    bash "$bridge" --plugin-dir /managed/intercom
-
-  assert_success
-  assert_output '<private prompt><--plugin-dir></managed/intercom>'
 }
 
 # Mint every stub through here. A test that stubs herdr more than once
@@ -3585,6 +2853,152 @@ function test_scripts_1072_ask_sh_retains_the_transport_while_the_child_may_stil
 }
 
 # ===========================================
+
+# ===========================================
+# herdr-peer prompt contract
+# ===========================================
+
+HERDR_PEER="$SOURCE_ROOT/dot_local/bin/executable_herdr-peer"
+
+peer_stub_herdr() {
+  child_new_stub
+  cat > "$CHILD_STUB/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+
+printf '%q ' "$@" >> "$CHILD_STUB/calls.log"
+printf '\n' >> "$CHILD_STUB/calls.log"
+
+case "${1:-} ${2:-}" in
+  "agent list")
+    [ "${STUB_LIST_FAIL:-0}" != 1 ] || exit 1
+    if [ -n "${STUB_AGENTS_JSON:-}" ]; then
+      printf '%s\n' "$STUB_AGENTS_JSON"
+    else
+      printf '%s\n' '{"result":{"agents":[]}}'
+    fi
+    ;;
+  "agent prompt")
+    count="$(cat "$CHILD_STUB/prompt-count" 2>/dev/null || printf 0)"
+    count=$((count + 1))
+    printf '%s' "$count" > "$CHILD_STUB/prompt-count"
+    printf '%s' "${3:-}" > "$CHILD_STUB/prompt-target-$count"
+    printf '%s' "${4:-}" > "$CHILD_STUB/prompt-message-$count"
+    ;;
+  *) exit 2 ;;
+esac
+SH
+  chmod +x "$CHILD_STUB/herdr"
+}
+
+function test_scripts_457_herdr_peer_delivers_each_message_kind_with_the_peer_marker() {
+  _bats_test_init 457 'herdr-peer delivers each message kind with the peer marker'
+  local agents marker
+  agents='{"id":"cli:agent:list","result":{"agents":[{"name":"jade-rabbit","agent":"opencode","pane_id":"wB:pTR","agent_status":"idle"},{"name":"violet-tern","agent":"pi","pane_id":"wB:pTS","agent_status":"working"}]}}'
+  peer_stub_herdr
+
+  # #given
+  marker='[peer-message v1 from=jade-rabbit pane=wB:pTR kind=send]'
+  # #when
+  run env PATH="$CHILD_STUB:$PATH" HERDR_PANE_ID=wB:pTR STUB_AGENTS_JSON="$agents" \
+    bash "$HERDR_PEER" send violet-tern $'first line\nsecond line'
+  # #then
+  assert_success
+  assert_equal "$(cat "$CHILD_STUB/prompt-target-1")" violet-tern
+  assert_equal "$(cat "$CHILD_STUB/prompt-message-1")" "$marker"$'\n\nfirst line\nsecond line'
+
+  marker='[peer-message v1 from=jade-rabbit pane=wB:pTR kind=ask]'
+  run env PATH="$CHILD_STUB:$PATH" HERDR_PANE_ID=wB:pTR STUB_AGENTS_JSON="$agents" \
+    bash "$HERDR_PEER" ask violet-tern 'question body'
+  assert_success
+  assert_equal "$(cat "$CHILD_STUB/prompt-target-2")" violet-tern
+  assert_equal "$(cat "$CHILD_STUB/prompt-message-2")" "$marker"$'\n\nquestion body'
+
+  marker='[peer-message v1 from=jade-rabbit pane=wB:pTR kind=reply]'
+  run env PATH="$CHILD_STUB:$PATH" HERDR_PANE_ID=wB:pTR STUB_AGENTS_JSON="$agents" \
+    bash "$HERDR_PEER" reply violet-tern 'reply body'
+  assert_success
+  assert_equal "$(cat "$CHILD_STUB/prompt-target-3")" violet-tern
+  assert_equal "$(cat "$CHILD_STUB/prompt-message-3")" "$marker"$'\n\nreply body'
+  assert_equal "$(cat "$CHILD_STUB/prompt-count")" 3
+}
+
+function test_scripts_457_herdr_peer_rejects_undeliverable_messages_without_a_prompt() {
+  _bats_test_init 457 'herdr-peer rejects undeliverable messages without a prompt'
+  local agents
+  agents='{"id":"cli:agent:list","result":{"agents":[{"name":"jade-rabbit","agent":"opencode","pane_id":"wB:pTR","agent_status":"idle"},{"name":"violet-tern","agent":"pi","pane_id":"wB:pTS","agent_status":"working"}]}}'
+
+  # #given
+  peer_stub_herdr
+  # #when
+  run env PATH="$CHILD_STUB:$PATH" HERDR_PANE_ID=wB:pTR STUB_AGENTS_JSON="$agents" \
+    bash "$HERDR_PEER" send violet-tern 'delivered control'
+  # #then
+  assert_success
+  assert_equal "$(cat "$CHILD_STUB/prompt-count")" 1
+
+  peer_stub_herdr
+  run env PATH="$CHILD_STUB:$PATH" HERDR_PANE_ID=wB:pTR STUB_AGENTS_JSON="$agents" \
+    bash "$HERDR_PEER" send absent-alias 'must not deliver'
+  assert_failure
+  assert_equal "$(awk '$1 == "agent" && $2 == "prompt" { count++ } END { print count + 0 }' "$CHILD_STUB/calls.log")" 0
+
+  peer_stub_herdr
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENTS_JSON="$agents" \
+    bash "$HERDR_PEER" ask violet-tern 'must not deliver'
+  assert_failure
+  assert_equal "$(awk '$1 == "agent" && $2 == "prompt" { count++ } END { print count + 0 }' "$CHILD_STUB/calls.log")" 0
+
+  agents='{"id":"cli:agent:list","result":{"agents":[{"name":"jade-rabbit","agent":"opencode","pane_id":"wB:pTR","agent_status":"idle"},{"name":"jade-duck","agent":"claude","pane_id":"wB:pTR","agent_status":"idle"},{"name":"violet-tern","agent":"pi","pane_id":"wB:pTS","agent_status":"working"}]}}'
+  peer_stub_herdr
+  run env PATH="$CHILD_STUB:$PATH" HERDR_PANE_ID=wB:pTR STUB_AGENTS_JSON="$agents" \
+    bash "$HERDR_PEER" reply violet-tern 'must not deliver'
+  assert_failure
+  assert_equal "$(awk '$1 == "agent" && $2 == "prompt" { count++ } END { print count + 0 }' "$CHILD_STUB/calls.log")" 0
+}
+
+function test_scripts_457_herdr_peer_lists_other_agents_in_herdr_order() {
+  _bats_test_init 457 'herdr-peer lists other agents in Herdr order'
+  local agents
+  agents='{"id":"cli:agent:list","result":{"agents":[{"name":"jade-rabbit","agent":"opencode","pane_id":"wB:pTR","agent_status":"idle"},{"name":"violet-tern","agent":"pi","pane_id":"wB:pTS","agent_status":"working"},{"name":"amber-ibis","agent":"codex","pane_id":"wB:pTT"}]}}'
+  peer_stub_herdr
+
+  # #given
+  # #when
+  run env PATH="$CHILD_STUB:$PATH" HERDR_PANE_ID=wB:pTR STUB_AGENTS_JSON="$agents" \
+    bash "$HERDR_PEER" list
+  # #then
+  assert_success
+  assert_output $'violet-tern\tpi\tworking\namber-ibis\tcodex\tunknown'
+
+  peer_stub_herdr
+  run env PATH="$CHILD_STUB:$PATH" HERDR_PANE_ID=wB:pTR STUB_AGENTS_JSON='{"result":{"agents":[{"name":"jade-rabbit","agent":"opencode","pane_id":"wB:pTR","agent_status":"idle"}]}}' \
+    bash "$HERDR_PEER" list
+  assert_success
+  assert_output ''
+
+  peer_stub_herdr
+  run env PATH="$CHILD_STUB:$PATH" HERDR_PANE_ID=wB:pTR STUB_LIST_FAIL=1 \
+    bash "$HERDR_PEER" list
+  assert_failure
+}
+
+# Oracle: only non-empty string aliases are addressable peers, so unrelated
+# pane records cannot stop later named peers from reaching the caller.
+function test_scripts_457_herdr_peer_list_skips_unaddressable_records_and_unknown_kinds() {
+  _bats_test_init 457 'herdr-peer list skips unaddressable records and reports unknown kinds'
+  local agents
+  agents='{"id":"cli:agent:list","result":{"agents":[{"name":"jade-rabbit","agent":"opencode","pane_id":"wB:pTR","agent_status":"idle"},{"name":null,"agent":"pi","pane_id":"wB:pTU","agent_status":"idle"},{"name":"","agent":"claude","pane_id":"wB:pTV","agent_status":"idle"},{"agent":"codex","pane_id":"wB:pTW","agent_status":"idle"},{"name":"violet-tern","agent":42,"pane_id":"wB:pTS","agent_status":"working"},{"name":"amber-ibis","agent":"codex","pane_id":"wB:pTT"}]}}'
+  peer_stub_herdr
+
+  # #given
+  # #when
+  run env PATH="$CHILD_STUB:$PATH" HERDR_PANE_ID=wB:pTR STUB_AGENTS_JSON="$agents" \
+    bash "$HERDR_PEER" list
+  # #then
+  assert_success
+  assert_output $'violet-tern\tunknown\tworking\namber-ibis\tcodex\tunknown'
+}
 
 # ===========================================
 # herdr-child launch and return contract

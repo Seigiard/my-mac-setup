@@ -6,7 +6,7 @@ This contract defines how a parent agent and a child agent communicate through h
 
 `herdr-child start` injects `HERDR_CHILD_LAUNCH=1` and `HERDR_CHILD_PARENT_PANE` when creating either a pane or a tab. The boolean marker identifies child-launch context; `HERDR_CHILD_LAUNCH_MODE` separately selects the attached or detached lifecycle. No launch-time name is needed in the managed environment.
 
-`herdr-child ask` requires that marker, the parent pane, and its own `HERDR_PANE_ID`. It resolves the callback alias from the current Herdr pane record, so reconciliation can change the alias without invalidating the launch context. Intercom also uses the pane's canonical alias, independently of the child-launch marker.
+`herdr-child ask` requires that marker, the parent pane, and its own `HERDR_PANE_ID`. It resolves the callback alias from the current Herdr pane record, so reconciliation can change the alias without invalidating the launch context. Peer messages also use the pane's canonical alias, independently of the child-launch marker.
 
 **Migration compatibility:** children created by the previous managed launcher carry `HERDR_CHILD_NAME` without `HERDR_CHILD_LAUNCH`. When the new marker is unset, `ask` accepts a nonempty legacy variable as child-launch context only, keeping those in-flight children working across deployment. Its value is never a routing alias. An explicitly empty or non-`1` new marker is rejected even if the legacy variable is present. The fallback can be removed once no pre-migration child panes remain.
 

@@ -8,7 +8,7 @@ On the unchanged owned source at `39f0c2feaec49b134f2a4e4aead0b3df76b9374b`, Oxl
 
 All 18 generic rules and native `oxc/no-accumulating-spread` remain enabled as errors. Owned manifests have no direct Effect dependency. No configured repository-wide TypeScript typecheck exists.
 
-The authorized cleanup removes the 512 spacing findings and fixes the remaining 95 errors. Zod schemas decode tool events, marker files, and update-lock owners at their input boundaries. Named transport types replace unknown contracts. Encoders assign optional fields explicitly. Client adapters use their SDK contracts; the Intercom response wrapper uses direct method calls.
+The authorized cleanup removes the 512 spacing findings and fixes the remaining 95 errors. Zod schemas decode tool events, marker files, and update-lock owners at their input boundaries. Named transport types replace unknown contracts. Encoders assign optional fields explicitly. Client adapters use their SDK contracts.
 
 Zod is pinned to `4.3.6` in checkout tooling and in the two managed runtime packages. A chezmoi installer runs frozen npm installs after Node is available. Both CI test jobs install checkout dependencies. Both Docker test worktrees stage the manifests, lint configuration, and vendored plugin before installing checkout dependencies.
 

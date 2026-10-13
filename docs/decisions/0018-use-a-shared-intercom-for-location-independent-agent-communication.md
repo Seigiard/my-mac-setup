@@ -1,11 +1,13 @@
 ---
 title: Use a shared intercom for location-independent agent communication
-status: accepted
+status: superseded
 date: 2026-09-12
 supersedes: []
 ---
 
 # ADR-0018: Use a shared intercom for location-independent agent communication
+
+Superseded by [ADR-0024](0024-replace-agent-intercom-with-herdr-peer.md).
 
 Accepted follow-up: [ADR-0021](0021-recover-intercom-launch-claims-without-a-successor.md)
 adds recovery of new launch claims without a successor session. The launcher

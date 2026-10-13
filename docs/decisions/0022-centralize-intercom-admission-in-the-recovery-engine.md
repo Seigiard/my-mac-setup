@@ -1,11 +1,13 @@
 ---
 title: Centralize Intercom admission in the recovery engine
-status: accepted
+status: superseded
 date: 2026-10-01
 supersedes: []
 ---
 
 # ADR-0022: Centralize Intercom admission in the recovery engine
+
+Superseded by [ADR-0024](0024-replace-agent-intercom-with-herdr-peer.md).
 
 ## Context
 
@@ -50,6 +52,6 @@ distinct from the Intercom broker runtime.
 
 This decision preserves the early reservation and independent cleanup guarantees
 of ADR-0018 and ADR-0021. The interface migration is implemented under #402;
-machine deployment follows the [stopped-client rollout](../intercom-recovery-rollout.md).
+the stopped-client rollout document was removed with ADR-0024.
 The agreed interface details are recorded in the
 [interface design](../plans/2026-10-01-intercom-recovery-engine-interface.md).
