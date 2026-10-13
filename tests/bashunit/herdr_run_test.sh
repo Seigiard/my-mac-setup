@@ -30,38 +30,31 @@ wait_for_run_exit() {
   [ -s "$exit_file" ] || fail "run did not write $exit_file"
 }
 
+wait_for_run_pid() {
+  local pid_file="$1" attempt=0
+  while [ ! -s "$pid_file" ] && [ "$attempt" -lt 500 ]; do
+    sleep 0.01
+    attempt=$((attempt + 1))
+  done
+  [ -s "$pid_file" ] || fail "run did not write $pid_file"
+}
+
 state_directory_is_empty() {
   [ ! -e "$HERDR_RUN_DIR" ] && return 0
   [ -d "$HERDR_RUN_DIR" ] || return 1
   [ -z "$(find "$HERDR_RUN_DIR" -mindepth 1 -maxdepth 1 -print -quit)" ]
 }
 
-write_marker_observer() {
-  local observer="$1"
-  cat > "$observer" <<'SH'
-#!/usr/bin/env bash
-exit_file="$1"
-marker="$2"
-while IFS= read -r line; do
-  if [ "$line" = "$marker" ] && [ ! -s "$exit_file" ]; then
-    exit 1
-  fi
-  printf '%s\n' "$line"
-done
-SH
-  chmod +x "$observer"
-}
-
 function test_herdr_run_4601_inline_wait_returns_the_inner_status_and_records_it() {
   _bats_test_init 4601 'inline wait returns the inner status and records it'
   # #given
   # #when
-  run herdr_run failed --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" --wait -- sh -c 'exit 3'
+  run herdr_run failed --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" --wait --timeout 5 -- sh -c 'exit 3'
   # #then
   assert_failure 3
   assert_equal "$(cat "$HERDR_RUN_DIR/failed.exit")" 3
 
-  run herdr_run succeeded --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" --wait -- sh -c 'exit 0'
+  run herdr_run succeeded --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" --wait --timeout 5 -- sh -c 'exit 0'
   assert_success
   assert_equal "$(cat "$HERDR_RUN_DIR/succeeded.exit")" 0
 }
@@ -79,7 +72,7 @@ function test_herdr_run_4602_records_merged_output_and_independent_git_metadata(
   head="$(git -C "$HERDR_RUN_CWD" rev-parse HEAD)"
 
   # #when
-  run herdr_run clean --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" --wait -- sh -c 'printf "out\n"; printf "err\n" >&2'
+  run herdr_run clean --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" --wait --timeout 5 -- sh -c 'printf "out\n"; printf "err\n" >&2'
   # #then
   assert_success
   assert_equal "$(cat "$HERDR_RUN_DIR/clean.log")" $'out\nerr'
@@ -89,7 +82,7 @@ function test_herdr_run_4602_records_merged_output_and_independent_git_metadata(
   assert_file_contains "$HERDR_RUN_DIR/clean.meta" "^cwd=$HERDR_RUN_CWD$"
 
   printf 'untracked\n' > "$HERDR_RUN_CWD/untracked"
-  run herdr_run dirty --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" --wait -- sh -c 'exit 0'
+  run herdr_run dirty --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" --wait --timeout 5 -- sh -c 'exit 0'
   assert_success
   assert_file_contains "$HERDR_RUN_DIR/dirty.meta" "^head=$head$"
   assert_file_contains "$HERDR_RUN_DIR/dirty.meta" '^dirty=1$'
@@ -101,25 +94,30 @@ function test_herdr_run_4603_launch_script_ends_with_the_exact_marker_outside_th
   run herdr_run marker --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" -- sh -c 'exit 3'
   assert_success
   wait_for_run_exit "$HERDR_RUN_DIR/marker.exit"
-  local observer="$BATS_TEST_TMPDIR/observe-marker"
-  write_marker_observer "$observer"
   rm -f "$HERDR_RUN_DIR/marker.exit" "$HERDR_RUN_DIR/marker.log"
 
   # #when
-  run bash -c 'set -o pipefail; bash "$1" | bash "$2" "$3" "$4"' _ \
-    "$HERDR_RUN_DIR/marker.sh" "$observer" "$HERDR_RUN_DIR/marker.exit" 'herdr-run: marker exit=3'
+  local output_file="$BATS_TEST_TMPDIR/marker.stdout" trace_file="$BATS_TEST_TMPDIR/marker.trace"
+  run bash -c 'bash -x "$1" > "$2" 2> "$3"' _ \
+    "$HERDR_RUN_DIR/marker.sh" "$output_file" "$trace_file"
   # #then
   assert_failure 3
-  assert_output 'herdr-run: marker exit=3'
+  assert_equal "$(cat "$output_file")" 'herdr-run: marker exit=3'
   assert_equal "$(cat "$HERDR_RUN_DIR/marker.exit")" 3
   assert_equal "$(cat "$HERDR_RUN_DIR/marker.log")" ''
+  local exit_write_line marker_line
+  exit_write_line="$(grep -nF "+ printf '%s\\n' 3" "$trace_file" | cut -d: -f1)"
+  marker_line="$(grep -nF "+ printf 'herdr-run: marker exit=%s\\n' 3" "$trace_file" | cut -d: -f1)"
+  [ -n "$exit_write_line" ] || fail 'xtrace did not record the exit-file write'
+  [ -n "$marker_line" ] || fail 'xtrace did not record the marker print'
+  [ "$exit_write_line" -lt "$marker_line" ] || fail 'launch script printed the marker before writing .exit'
 }
 
 function test_herdr_run_4604_sets_the_launch_environment_and_changes_to_the_requested_directory() {
   _bats_test_init 4604 'sets the launch environment and changes to the requested directory'
   # #given
   # #when
-  run herdr_run My.Label --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" --wait -- \
+  run herdr_run My.Label --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" --wait --timeout 5 -- \
     sh -c 'printf "%s\n%s\n%s\n" "$COMPOSE_PROJECT_NAME" "$PATH" "$PWD"'
   # #then
   assert_success
@@ -173,7 +171,7 @@ function test_herdr_run_4607_verdict_reports_complete_running_and_unknown_state(
   # #given
   mkdir -p "$HERDR_RUN_DIR"
   printf '%s\n' 'start=2026-10-13T07:40:24Z' 'head=abc123' 'dirty=1' "cwd=$HERDR_RUN_CWD" > "$HERDR_RUN_DIR/report.meta"
-  printf '\342\234\227 first\n\342\234\227 second\nFailed third\n\033[31m\342\234\227 fourth\033[0m\npassed \342\234\223\n' > "$HERDR_RUN_DIR/report.log"
+  printf '\342\234\227 first\n\342\234\227 second\nFailed third\n\033[31m\342\234\227 fourth\033[0m\npassed \342\234\223\nmid-line \342\234\227 decoy\n' > "$HERDR_RUN_DIR/report.log"
   printf '1\n' > "$HERDR_RUN_DIR/report.exit"
 
   # #when
@@ -221,7 +219,7 @@ function test_herdr_run_4608_usage_errors_leave_no_launch_state() {
   assert_stderr --partial usage
   assert state_directory_is_empty
 
-  run --separate-stderr herdr_run missing --dir "$HERDR_RUN_DIR" --wait true
+  run --separate-stderr herdr_run missing --dir "$HERDR_RUN_DIR" --wait --timeout 1 true
   assert_failure 2
   assert_stderr --partial usage
   assert state_directory_is_empty
@@ -260,4 +258,181 @@ function test_herdr_run_4609_herdr_mode_launches_the_saved_script_in_a_new_tab()
   assert_file_exists "$HERDR_RUN_DIR/tabbed.sh"
   assert_file_contains "$HERDR_STUB_CALLS" "^tab create .*--cwd $HERDR_RUN_CWD.*--no-focus$"
   assert_equal "$(sed -n '2p' "$HERDR_STUB_CALLS")" "pane run w1:p2 bash $HERDR_RUN_DIR/tabbed.sh"
+}
+
+function test_herdr_run_4613_wait_and_verdict_report_a_workload_killed_without_a_status() {
+  _bats_test_init 4613 'wait and verdict report a workload killed without a status'
+  # #given
+  run herdr_run control --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" --wait --timeout 5 -- sh -c 'sleep 1'
+  assert_success
+
+  local stderr_file="$BATS_TEST_TMPDIR/dead.stderr" wrapper_pid workload_pid wait_status
+  env HOME="$HERDR_RUN_HOME" HERDR_RUN_DIR="$HERDR_RUN_DIR" "$HERDR_RUN" dead \
+    --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" --wait --timeout 2 -- sh -c 'sleep 4' \
+    > /dev/null 2> "$stderr_file" &
+  wrapper_pid=$!
+  wait_for_run_pid "$HERDR_RUN_DIR/dead.pid"
+  workload_pid="$(cat "$HERDR_RUN_DIR/dead.pid")"
+  run kill -0 "$workload_pid"
+  assert_success
+
+  # #when
+  kill -KILL "$workload_pid"
+  if wait "$wrapper_pid"; then
+    wait_status=0
+  else
+    wait_status=$?
+  fi
+  # #then
+  assert_equal "$wait_status" 125
+  assert_file_contains "$stderr_file" "herdr-run: dead workload gone without a status (pid=$workload_pid)"
+
+  run herdr_run verdict dead --dir "$HERDR_RUN_DIR"
+  assert_failure 4
+  assert_output --partial 'state=dead'
+}
+
+function test_herdr_run_4614_resolves_relative_workload_and_state_paths_before_launch() {
+  _bats_test_init 4614 'resolves relative workload and state paths before launch'
+  # #given
+  local absolute_tmp absolute_cwd absolute_state
+  absolute_tmp="$(cd "$BATS_TEST_TMPDIR" && pwd -P)"
+  absolute_cwd="$absolute_tmp/cwd"
+  absolute_state="$absolute_tmp/state"
+
+  # #when
+  run bash -c 'cd "$1" && env HOME="$2" "$3" relative --cwd cwd --dir state --wait --timeout 5 -- sh -c "exit 3"' _ \
+    "$BATS_TEST_TMPDIR" "$HERDR_RUN_HOME" "$HERDR_RUN"
+  # #then
+  assert_failure 3
+  assert_file_contains "$absolute_state/relative.meta" "^cwd=$absolute_cwd$"
+  assert_file_exists "$absolute_state/relative.exit"
+  assert_equal "$(cat "$absolute_state/relative.exit")" 3
+}
+
+function test_herdr_run_46131_verdict_reports_dead_after_its_recorded_pid_is_killed() {
+  _bats_test_init 46131 'verdict reports dead after its recorded pid is killed'
+  # #given
+  run herdr_run dead-verdict --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" -- sh -c 'sleep 1'
+  assert_success
+  wait_for_run_pid "$HERDR_RUN_DIR/dead-verdict.pid"
+  local workload_pid
+  workload_pid="$(cat "$HERDR_RUN_DIR/dead-verdict.pid")"
+  run kill -0 "$workload_pid"
+  assert_success
+  kill -KILL "$workload_pid"
+
+  # #when
+  run herdr_run verdict dead-verdict --dir "$HERDR_RUN_DIR"
+  # #then
+  assert_failure 4
+  assert_output --partial 'state=dead'
+}
+
+function test_herdr_run_4615_quotes_a_space_containing_script_path_for_herdr() {
+  _bats_test_init 4615 'quotes a space containing script path for herdr'
+  # #given
+  write_herdr_stub
+  local state_dir="$BATS_TEST_TMPDIR/with space" expected_command
+  expected_command="$(printf 'bash %q' "$state_dir/quoted.sh")"
+
+  # #when
+  run env HERDR_ENV=1 HERDR_WORKSPACE_ID=w1 HOME="$HERDR_RUN_HOME" PATH="$HERDR_STUB:$PATH" \
+    "$HERDR_RUN" quoted --dir "$state_dir" --cwd "$HERDR_RUN_CWD" -- sh -c 'exit 0'
+  # #then
+  assert_success
+  assert_equal "$(sed -n '2p' "$HERDR_STUB_CALLS")" "pane run w1:p2 $expected_command"
+}
+
+function test_herdr_run_4616_rejects_unusable_state_and_workload_directories_without_launching() {
+  _bats_test_init 4616 'rejects unusable state and workload directories without launching'
+  # #given
+  local state_file="$BATS_TEST_TMPDIR/state-file" missing_cwd="$BATS_TEST_TMPDIR/missing-cwd"
+  : > "$state_file"
+
+  # #when
+  run --separate-stderr herdr_run missing-cwd --dir "$HERDR_RUN_DIR" --cwd "$missing_cwd" --wait --timeout 5 -- true
+  # #then
+  assert_failure 2
+  assert_stderr --partial 'herdr-run: cwd is not a directory:'
+  assert [ ! -e "$HERDR_RUN_DIR/missing-cwd.pid" ]
+  assert [ ! -e "$HERDR_RUN_DIR/missing-cwd.pane" ]
+  assert [ ! -e "$HERDR_RUN_DIR/missing-cwd.sh" ]
+
+  run --separate-stderr herdr_run state-file --dir "$state_file" --cwd "$HERDR_RUN_CWD" --wait --timeout 5 -- true
+  assert_failure 2
+  assert_stderr --partial 'herdr-run:'
+  assert [ ! -e "$state_file/state-file.pid" ]
+  assert [ ! -e "$state_file/state-file.pane" ]
+  assert [ ! -e "$state_file/state-file.sh" ]
+}
+
+function test_herdr_run_4617_refuses_to_replace_the_state_of_a_live_label() {
+  _bats_test_init 4617 'refuses to replace the state of a live label'
+  # #given
+  run herdr_run live --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" -- sh -c 'sleep 2'
+  assert_success
+  wait_for_run_pid "$HERDR_RUN_DIR/live.pid"
+  local original_pid original_script
+  original_pid="$(cat "$HERDR_RUN_DIR/live.pid")"
+  original_script="$(cat "$HERDR_RUN_DIR/live.sh")"
+  run kill -0 "$original_pid"
+  assert_success
+
+  # #when
+  run --separate-stderr herdr_run live --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" --wait --timeout 5 -- true
+  # #then
+  assert_failure 2
+  assert_stderr "herdr-run: live is still running (pid=$original_pid); wait for it or choose another label"
+  assert_equal "$(cat "$HERDR_RUN_DIR/live.pid")" "$original_pid"
+  assert_equal "$(cat "$HERDR_RUN_DIR/live.sh")" "$original_script"
+  wait_for_run_exit "$HERDR_RUN_DIR/live.exit"
+  assert_equal "$(cat "$HERDR_RUN_DIR/live.exit")" 0
+}
+
+function test_herdr_run_46181_launch_script_records_its_own_pid() {
+  _bats_test_init 46181 'launch script records its own pid'
+  # #given
+  run herdr_run script-pid --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" -- sh -c 'exit 0'
+  assert_success
+  wait_for_run_exit "$HERDR_RUN_DIR/script-pid.exit"
+  rm -f "$HERDR_RUN_DIR/script-pid.pid" "$HERDR_RUN_DIR/script-pid.exit" "$HERDR_RUN_DIR/script-pid.log"
+
+  # #when
+  run bash -c 'printf "%s\n" "$$"; exec bash "$1"' _ "$HERDR_RUN_DIR/script-pid.sh"
+  # #then
+  assert_success
+  local script_pid
+  script_pid="$(printf '%s\n' "$output" | sed -n '1p')"
+  assert_file_exists "$HERDR_RUN_DIR/script-pid.pid"
+  assert_equal "$(cat "$HERDR_RUN_DIR/script-pid.pid")" "$script_pid"
+}
+
+function test_herdr_run_4618_stall_report_includes_the_script_pid_and_its_descendant() {
+  _bats_test_init 4618 'stall report includes the script pid and its descendant'
+  # #given
+  local stderr_file="$BATS_TEST_TMPDIR/descendant.stderr" wrapper_pid attempt=0 script_pid wait_status
+  # #when
+  env HERDR_RUN_STALL_SECONDS=1 HOME="$HERDR_RUN_HOME" "$HERDR_RUN" descendant \
+    --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" --wait --timeout 10 -- sh -c 'sleep 3' \
+    > /dev/null 2> "$stderr_file" &
+  wrapper_pid=$!
+  while ! grep -Fq 'herdr-run: descendant stall: log idle ' "$stderr_file" \
+    && kill -0 "$wrapper_pid" 2>/dev/null && [ "$attempt" -lt 500 ]; do
+    sleep 0.01
+    attempt=$((attempt + 1))
+  done
+  script_pid="$(cat "$HERDR_RUN_DIR/descendant.pid")"
+  # #then
+  assert_file_contains "$stderr_file" 'herdr-run: descendant stall: log idle '
+  run ps -o command= -p "$script_pid"
+  assert_success
+  assert_output --partial "bash $HERDR_RUN_DIR/descendant.sh"
+  assert_file_contains "$stderr_file" 'sleep 3'
+  if wait "$wrapper_pid"; then
+    wait_status=0
+  else
+    wait_status=$?
+  fi
+  assert_equal "$wait_status" 0
 }
