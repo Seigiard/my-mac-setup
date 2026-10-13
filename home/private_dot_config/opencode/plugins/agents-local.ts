@@ -13,14 +13,8 @@ import { join } from "node:path"
 // the pi extension, so the safety checks exist once (R7). pi's ui.notify
 // warnings are dropped here: opencode has no equivalent channel (KTD11).
 //
-// Idempotence is a heading check, not a call counter. opencode rebuilds the
-// system array per request (observed: a marker pushed on one turn is absent
-// from the next), but the guard also holds if a future opencode hands the hook
-// what a previous call accumulated — which is what makes the append safe
-// under either semantics (KTD11).
-//
-// The `experimental.` prefix is an accepted upgrade-fragility risk: a rename
-// silently stops the injection rather than breaking a session.
+// Generated blocks are replaced before every request. This makes an edited
+// file, a missing file, or a changed session directory retract stale context.
 
 const HOME = process.env.HOME ?? ""
 
@@ -48,7 +42,9 @@ export const AgentsLocalPlugin: Plugin = async ({ directory }) => {
 
       if (!Array.isArray(system)) return
 
-      if (system.some((entry: string) => entry.includes(heading))) return
+      const retained = system.filter((entry: string) => !entry.includes(heading))
+      system.length = 0
+      system.push(...retained)
 
       let block: string | undefined
 
@@ -63,4 +59,37 @@ export const AgentsLocalPlugin: Plugin = async ({ directory }) => {
       if (block) system.push(block)
     },
   }
+}
+
+export default {
+  id: "agents-local",
+  async setup(ctx) {
+    if (!buildLocalInstructions || !heading) return
+
+    await ctx.session.hook("context", async (event) => {
+      const system = event.system
+      const retained = system.filter((part) => !part.text.includes(heading))
+      system.splice(0, system.length, ...retained)
+
+      let session
+
+      try {
+        session = await ctx.session.get({ sessionID: event.sessionID })
+      } catch {
+        return
+      }
+
+      const directory = session?.location?.directory
+
+      if (!directory) return
+
+      try {
+        const { block } = await buildLocalInstructions(directory)
+
+        if (block) system.push({ type: "text", text: block })
+      } catch {
+        return
+      }
+    })
+  },
 }

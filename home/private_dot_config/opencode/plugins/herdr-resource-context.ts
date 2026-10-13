@@ -69,3 +69,38 @@ export const HerdrResourceContextPlugin: Plugin = async () => {
     },
   }
 }
+
+export default {
+  id: "herdr-resource-context",
+  async setup(ctx) {
+    if (process.env.HERDR_ENV !== "1") return
+
+    await ctx.session.hook("context", async (event) => {
+      const system = event.system
+      const retained = system.filter((part) => !generatedContext(part.text))
+      system.splice(0, system.length, ...retained)
+
+      if (!event.sessionID) {
+        system.push({
+          type: "text",
+          text: `${HEADING}\nHerdr resource context unavailable: OpenCode did not expose a native session identity. This must not be treated as an empty resource branch.`,
+        })
+
+        return
+      }
+
+      const context = await queryContext(event.sessionID)
+
+      if (context === undefined) {
+        system.push({
+          type: "text",
+          text: `${HEADING}\nHerdr resource context unavailable: the shared resource query failed. This must not be treated as an empty resource branch.`,
+        })
+
+        return
+      }
+
+      if (context !== "") system.push({ type: "text", text: `${HEADING}\n${context}` })
+    })
+  },
+}
