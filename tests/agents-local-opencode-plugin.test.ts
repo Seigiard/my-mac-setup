@@ -72,7 +72,9 @@ type V2ContextHook = (event: { sessionID: string; system: SystemPart[] }) => Pro
 
 async function loadV1Transform(directory: string): Promise<Hook> {
   const module: any = await loadUnderHome(PLUGIN_PATH, "agents-local-opencode-session");
-  const hooks = (await module.AgentsLocalPlugin({ directory, worktree: directory })) ?? {};
+  const server = module.default?.server;
+  expect(server).toBeTypeOf("function");
+  const hooks = (await server({ directory, worktree: directory })) ?? {};
   const transform = hooks["experimental.chat.system.transform"];
   expect(transform).toBeTypeOf("function");
 

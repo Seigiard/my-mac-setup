@@ -88,9 +88,11 @@ async function loadV1Plugin(
 
   try {
     const module: any = await import(copy);
+    const server = module.default?.server;
+    expect(server).toBeTypeOf("function");
 
     const hooks: Record<string, Function> =
-      (await module.HerdrResourceContextPlugin({
+      (await server({
         directory: root,
         worktree: root,
         client: { session: { promptAsync: async () => operations.push("legacy-promptAsync") } },
