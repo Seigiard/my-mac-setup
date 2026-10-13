@@ -70,6 +70,20 @@ async function observeChildSessions(
   }
 }
 
+async function isChildSession(
+  session: Pick<V2Plugin.SessionDomain, "get">,
+  sessionID: string,
+  childSessions: Set<string>,
+): Promise<boolean> {
+  if (childSessions.has(sessionID)) return true
+
+  try {
+    return Boolean((await session.get({ sessionID })).parentID)
+  } catch {
+    return false
+  }
+}
+
 const HerdrWorktreeIdentityV2Plugin = {
   id: "herdr-worktree-identity",
   async setup({ event, session }) {
@@ -79,7 +93,7 @@ const HerdrWorktreeIdentityV2Plugin = {
     const controller = new AbortController()
     const observing = observeChildSessions(event.subscribe({ signal: controller.signal }), childSessions)
     const registration = await session.hook("prompt", async ({ prompt, sessionID }) => {
-      if (childSessions.has(sessionID) || typeof prompt.text !== "string" || prompt.text.trim() === "") return
+      if (await isChildSession(session, sessionID, childSessions) || typeof prompt.text !== "string" || prompt.text.trim() === "") return
 
       await handoffWorktreeIdentity("opencode", sessionID, prompt.text)
     })
