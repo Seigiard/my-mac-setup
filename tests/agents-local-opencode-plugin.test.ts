@@ -49,7 +49,8 @@ async function loadUnderHome(sourcePath: string, prefix: string): Promise<any> {
   mkdirSync(join(home, ".local", "lib"), { recursive: true });
   symlinkSync(CORE_DIR, join(home, ".local", "lib", "agent-hooks"));
 
-  const copy = join(temporaryDir(`${prefix}-copy-`), `${prefix}-${loadCount++}.ts`);
+  const copyDirectory = temporaryDir(`${prefix}-copy-`);
+  const copy = join(copyDirectory, `${prefix}-${loadCount++}.ts`);
   cpSync(sourcePath, copy);
 
   const previousHome = process.env.HOME;
@@ -57,6 +58,62 @@ async function loadUnderHome(sourcePath: string, prefix: string): Promise<any> {
 
   try {
     return await import(copy);
+  } finally {
+    process.env.HOME = previousHome;
+  }
+}
+
+function installV2PluginRuntime(directory: string): void {
+  const packageDirectory = join(directory, "node_modules", "@opencode", "plugin");
+  mkdirSync(packageDirectory, { recursive: true });
+  writeFileSync(join(packageDirectory, "package.json"), '{"type":"module","exports":"./index.js"}\n');
+  writeFileSync(join(packageDirectory, "index.js"), "export const Plugin = { define: (plugin) => plugin };\n");
+}
+
+type V2SystemPart = { type: "text"; text: string };
+type V2Request = { sessionID: string; system: V2SystemPart[] };
+type V2ContextHook = (request: V2Request) => Promise<void>;
+type V2Plugin = {
+  setup: (ctx: {
+    session: {
+      get: (input: { sessionID: string }) => Promise<{ location?: { directory?: string } }>;
+      hook: (kind: string, handler: V2ContextHook) => Promise<void>;
+    };
+  }) => Promise<void>;
+};
+
+async function loadV2ContextHook(directories: Record<string, string>): Promise<V2ContextHook> {
+  const home = temporaryDir("agents-local-v2-home-");
+  mkdirSync(join(home, ".local", "lib"), { recursive: true });
+  symlinkSync(CORE_DIR, join(home, ".local", "lib", "agent-hooks"));
+
+  const copyDirectory = temporaryDir("agents-local-v2-copy-");
+  installV2PluginRuntime(copyDirectory);
+  const copy = join(copyDirectory, `agents-local-v2-${loadCount++}.ts`);
+  cpSync(PLUGIN_PATH, copy);
+
+  const previousHome = process.env.HOME;
+  process.env.HOME = home;
+
+  try {
+    const module = (await import(copy)) as { default?: V2Plugin };
+    const plugin = module.default;
+    if (!plugin) throw new Error("V2 plugin definition is unavailable");
+
+    const hooks: Record<string, V2ContextHook> = {};
+    await plugin.setup({
+      session: {
+        get: async ({ sessionID }) => ({ location: { directory: directories[sessionID] } }),
+        hook: async (kind, handler) => {
+          hooks[kind] = handler;
+        },
+      },
+    });
+
+    const context = hooks.context;
+    if (!context) throw new Error("V2 context hook is unavailable");
+
+    return context;
   } finally {
     process.env.HOME = previousHome;
   }
@@ -86,6 +143,33 @@ async function loadPiHandler(): Promise<Function> {
 }
 
 const BASE_SYSTEM = "You are opencode.";
+const LOCAL_HEADING = "## Local Private Project Instructions";
+
+function expectedLocalBlock(path: string, contents: string): string {
+  return [
+    "",
+    "",
+    LOCAL_HEADING,
+    "",
+    `Loaded from ${path}. These instructions are private and local. Follow them in addition to repository instructions.`,
+    "",
+    "### AGENTS.local.md",
+    "",
+    contents,
+  ].join("\n");
+}
+
+function staleLocalBlock(marker: string): string {
+  return [
+    LOCAL_HEADING,
+    "",
+    "Loaded from /retired-worktree/AGENTS.local.md. These instructions are private and local. Follow them in addition to repository instructions.",
+    "",
+    "### AGENTS.local.md",
+    "",
+    marker,
+  ].join("\n");
+}
 
 async function projectWithAgentsLocal(contents: string): Promise<string> {
   const root = temporaryDir("agents-local-project-");
@@ -225,6 +309,91 @@ describe("heading-guarded idempotence (KTD11)", () => {
 
     // #then it appends nothing
     expect(system).toEqual([BASE_SYSTEM, preInjected]);
+  });
+});
+
+describe("V2 local-instruction refresh", () => {
+  test("replaces duplicate generated blocks while preserving ordinary text that mentions the heading", async () => {
+    // #given a V2 request preloaded with stale generated entries and unrelated text
+    const root = await projectWithAgentsLocal("CURRENT_LOCAL_A_473\n");
+    const selectedPath = await realpath(join(root, "AGENTS.local.md"));
+    const transform = await loadV2ContextHook({ "session-a": root });
+    const ordinary = `A prose note mentions ${LOCAL_HEADING} but is not a generated local block.`;
+    const system: V2SystemPart[] = [
+      { type: "text", text: BASE_SYSTEM },
+      { type: "text", text: staleLocalBlock("STALE_LOCAL_A_473") },
+      { type: "text", text: staleLocalBlock("DUPLICATE_LOCAL_A_473") },
+      { type: "text", text: ordinary },
+    ];
+
+    // #when OpenCode prepares the model request for the current session
+    await transform({ sessionID: "session-a", system });
+
+    // #then exactly the current generated block remains and the ordinary part survives
+    expect(system).toEqual([
+      { type: "text", text: BASE_SYSTEM },
+      { type: "text", text: ordinary },
+      { type: "text", text: expectedLocalBlock(selectedPath, "CURRENT_LOCAL_A_473\n") },
+    ]);
+  });
+
+  test("refreshes a generated local block when the selected file changes", async () => {
+    // #given a session with a previously generated local block
+    const root = await projectWithAgentsLocal("INITIAL_LOCAL_A_473\n");
+    const selectedPath = await realpath(join(root, "AGENTS.local.md"));
+    const transform = await loadV2ContextHook({ "session-a": root });
+    const system: V2SystemPart[] = [
+      { type: "text", text: BASE_SYSTEM },
+      { type: "text", text: expectedLocalBlock(selectedPath, "INITIAL_LOCAL_A_473\n") },
+    ];
+    await writeFile(join(root, "AGENTS.local.md"), "REFRESHED_LOCAL_A_473\n");
+
+    // #when the same session prepares its next request
+    await transform({ sessionID: "session-a", system });
+
+    // #then the request carries the changed content and not the old block
+    expect(system).toEqual([
+      { type: "text", text: BASE_SYSTEM },
+      { type: "text", text: expectedLocalBlock(selectedPath, "REFRESHED_LOCAL_A_473\n") },
+    ]);
+  });
+
+  test("replaces the previous session's generated block with its own worktree instructions", async () => {
+    // #given a request carrying session A's generated block before session B is selected
+    const rootA = await projectWithAgentsLocal("LOCAL_FOR_SESSION_A_473\n");
+    const rootB = await projectWithAgentsLocal("LOCAL_FOR_SESSION_B_473\n");
+    const selectedPathB = await realpath(join(rootB, "AGENTS.local.md"));
+    const transform = await loadV2ContextHook({ "session-a": rootA, "session-b": rootB });
+    const system: V2SystemPart[] = [
+      { type: "text", text: BASE_SYSTEM },
+      { type: "text", text: expectedLocalBlock(await realpath(join(rootA, "AGENTS.local.md")), "LOCAL_FOR_SESSION_A_473\n") },
+    ];
+
+    // #when OpenCode prepares a request for session B
+    await transform({ sessionID: "session-b", system });
+
+    // #then only B's local instructions reach the model input
+    expect(system).toEqual([
+      { type: "text", text: BASE_SYSTEM },
+      { type: "text", text: expectedLocalBlock(selectedPathB, "LOCAL_FOR_SESSION_B_473\n") },
+    ]);
+  });
+
+  test("removes generated local blocks when the current session has no local selection", async () => {
+    // #given a request with a generated block and a session directory without AGENTS.local.md
+    const root = await projectWithAgentsLocal("LOCAL_TO_REMOVE_473\n");
+    const emptyRoot = temporaryDir("agents-local-v2-empty-");
+    const transform = await loadV2ContextHook({ "session-a": root, "session-empty": emptyRoot });
+    const system: V2SystemPart[] = [
+      { type: "text", text: BASE_SYSTEM },
+      { type: "text", text: expectedLocalBlock(await realpath(join(root, "AGENTS.local.md")), "LOCAL_TO_REMOVE_473\n") },
+    ];
+
+    // #when OpenCode prepares a request for the empty selection
+    await transform({ sessionID: "session-empty", system });
+
+    // #then no generated local entry remains
+    expect(system).toEqual([{ type: "text", text: BASE_SYSTEM }]);
   });
 });
 
