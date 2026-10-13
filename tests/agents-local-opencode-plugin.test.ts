@@ -71,8 +71,11 @@ function installV2PluginRuntime(directory: string): void {
 }
 
 type V2SystemPart = { type: "text"; text: string };
+
 type V2Request = { sessionID: string; system: V2SystemPart[] };
+
 type V2ContextHook = (request: V2Request) => Promise<void>;
+
 type V2Plugin = {
   setup: (ctx: {
     session: {
@@ -96,11 +99,16 @@ async function loadV2ContextHook(directories: Record<string, string>): Promise<V
   process.env.HOME = home;
 
   try {
+    // SAFETY: the fixture imports the candidate after installing its V2 Plugin.define
+    // identity stub, so only the candidate's default plugin export is read here.
     const module = (await import(copy)) as { default?: V2Plugin };
+
     const plugin = module.default;
+
     if (!plugin) throw new Error("V2 plugin definition is unavailable");
 
     const hooks: Record<string, V2ContextHook> = {};
+
     await plugin.setup({
       session: {
         get: async ({ sessionID }) => ({ location: { directory: directories[sessionID] } }),
@@ -111,6 +119,7 @@ async function loadV2ContextHook(directories: Record<string, string>): Promise<V
     });
 
     const context = hooks.context;
+
     if (!context) throw new Error("V2 context hook is unavailable");
 
     return context;
@@ -143,6 +152,7 @@ async function loadPiHandler(): Promise<Function> {
 }
 
 const BASE_SYSTEM = "You are opencode.";
+
 const LOCAL_HEADING = "## Local Private Project Instructions";
 
 function expectedLocalBlock(path: string, contents: string): string {
@@ -318,7 +328,9 @@ describe("V2 local-instruction refresh", () => {
     const root = await projectWithAgentsLocal("CURRENT_LOCAL_A_473\n");
     const selectedPath = await realpath(join(root, "AGENTS.local.md"));
     const transform = await loadV2ContextHook({ "session-a": root });
+
     const ordinary = `A prose note mentions ${LOCAL_HEADING} but is not a generated local block.`;
+
     const system: V2SystemPart[] = [
       { type: "text", text: BASE_SYSTEM },
       { type: "text", text: staleLocalBlock("STALE_LOCAL_A_473") },
@@ -342,10 +354,12 @@ describe("V2 local-instruction refresh", () => {
     const root = await projectWithAgentsLocal("INITIAL_LOCAL_A_473\n");
     const selectedPath = await realpath(join(root, "AGENTS.local.md"));
     const transform = await loadV2ContextHook({ "session-a": root });
+
     const system: V2SystemPart[] = [
       { type: "text", text: BASE_SYSTEM },
       { type: "text", text: expectedLocalBlock(selectedPath, "INITIAL_LOCAL_A_473\n") },
     ];
+
     await writeFile(join(root, "AGENTS.local.md"), "REFRESHED_LOCAL_A_473\n");
 
     // #when the same session prepares its next request
@@ -363,7 +377,9 @@ describe("V2 local-instruction refresh", () => {
     const rootA = await projectWithAgentsLocal("LOCAL_FOR_SESSION_A_473\n");
     const rootB = await projectWithAgentsLocal("LOCAL_FOR_SESSION_B_473\n");
     const selectedPathB = await realpath(join(rootB, "AGENTS.local.md"));
+
     const transform = await loadV2ContextHook({ "session-a": rootA, "session-b": rootB });
+
     const system: V2SystemPart[] = [
       { type: "text", text: BASE_SYSTEM },
       { type: "text", text: expectedLocalBlock(await realpath(join(rootA, "AGENTS.local.md")), "LOCAL_FOR_SESSION_A_473\n") },
@@ -383,7 +399,9 @@ describe("V2 local-instruction refresh", () => {
     // #given a request with a generated block and a session directory without AGENTS.local.md
     const root = await projectWithAgentsLocal("LOCAL_TO_REMOVE_473\n");
     const emptyRoot = temporaryDir("agents-local-v2-empty-");
+
     const transform = await loadV2ContextHook({ "session-a": root, "session-empty": emptyRoot });
+
     const system: V2SystemPart[] = [
       { type: "text", text: BASE_SYSTEM },
       { type: "text", text: expectedLocalBlock(await realpath(join(root, "AGENTS.local.md")), "LOCAL_TO_REMOVE_473\n") },
