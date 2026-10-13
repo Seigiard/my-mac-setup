@@ -68,7 +68,7 @@ This is a single-context repository: domain vocabulary lives at the root and arc
 <important if="you are about to run make test-templates, make test-ubuntu, make test-docker, or make build-docker">
 
 - Treat these targets as long-running Docker workloads, including cached runs. Read `~/.claude/shared/long-running-work.md` before launch.
-- When `HERDR_ENV=1`, use `make test-ubuntu-herdr` for `make test-ubuntu`. It prints `label=<worktree-specific label>`; use that label with `herdr-run verdict`. For other targets, use `herdr-run <label> --cwd "$PWD" --wait -- make <target>`.
+- When `HERDR_ENV=1`, use `make test-ubuntu-herdr` for `make test-ubuntu`. It prints `label=<worktree-specific label>`; use that label with `home/dot_local/bin/executable_herdr-run verdict <label>`. For other targets, use `home/dot_local/bin/executable_herdr-run <label> --cwd "$PWD" --wait -- make <target>`.
 - Keep the workload free of the Bash tool's 120-second timeout. A bounded pane observation may stop waiting, but it must leave the workload running for the next check.
 - Before retrying an interrupted workload, verify that its command and Docker children reached a terminal state, then state why a retry is safe.
 
