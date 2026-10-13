@@ -34,7 +34,7 @@ The chain **stops**, reporting the diagnoses and the run directory, when:
 
 ### Preserving a candidate
 
-Before any reset, restore, or `git clean`, keep what the child produced reachable as one ordinary commit under `refs/tdd/<run-id>/<role>-<n>`:
+Before any reset, restore, or `git clean`, keep what the child produced reachable as one ordinary commit under `refs/tdd/`[`<run-id>`](run-directory.md#run-directory)/`<role>-<n>`:
 
 - a clean committed candidate: `git update-ref refs/tdd/<run-id>/<role>-<n> HEAD`;
 - uncommitted work, staged or not, including untracked files: record `pre_sha` (`git rev-parse HEAD`), then `git add -A && git commit -q -m "tdd wip <role>-<n>" && git update-ref refs/tdd/<run-id>/<role>-<n> HEAD && git reset --hard <pre_sha>`. The WIP commit then exists only under the ref, and the branch is back at `pre_sha` with the attempt's earlier commits intact.
