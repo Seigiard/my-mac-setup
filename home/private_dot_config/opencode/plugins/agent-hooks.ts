@@ -30,8 +30,14 @@ const CORE_DIR = join(HOME, ".local", "lib", "agent-hooks")
 // the runtime actually resolves a different core module.
 const RESIDENT_CORE_HASHES = Symbol.for("agent-hooks.opencode.resident-core-hashes")
 
+type ResidentCoreRegistryHost = {
+  [key: symbol]: Map<unknown, string> | undefined
+}
+
+const residentCoreRegistryHost = globalThis as typeof globalThis & ResidentCoreRegistryHost
+
 const residentCoreHashes: Map<unknown, string> =
-  (globalThis as any)[RESIDENT_CORE_HASHES] ?? ((globalThis as any)[RESIDENT_CORE_HASHES] = new Map())
+  residentCoreRegistryHost[RESIDENT_CORE_HASHES] ?? (residentCoreRegistryHost[RESIDENT_CORE_HASHES] = new Map())
 
 function residentCoreHash(dispatch: unknown, coreHash: () => string): string {
   const known = residentCoreHashes.get(dispatch)
@@ -56,6 +62,7 @@ try {
   if (dispatch && HOME !== "") {
     try {
       const { coreHash, writeMarker } = await import(join(CORE_DIR, "selfcheck.ts"))
+      // Hashing disk here would mislabel a cached dispatch after an apply.
       writeMarker(CLIENT, {
         stateDir: join(HOME, ".local", "state", "agent-hooks"),
         hash: residentCoreHash(core.dispatch, coreHash),
@@ -69,10 +76,6 @@ try {
   dispatch = undefined
 }
 
-// The marker records which core this resident session actually loaded, so
-// selfcheck can tell a stale session from a current one after an apply (KTD5).
-// Best-effort and separate from the gate above: no marker is a reporting gap,
-// not a reason to stop enforcing.
 export const AgentHooksPlugin: Plugin = async () => {
   if (!dispatch) return {}
 
@@ -106,6 +109,7 @@ async function loadV2Dispatch(home: string): Promise<typeof dispatch> {
     if (core.dispatch && home !== "") {
       try {
         const { coreHash, writeMarker } = await import(join(coreDir, "selfcheck.ts"))
+        // Hashing disk here would mislabel a cached dispatch after an apply.
         writeMarker(CLIENT, {
           stateDir: join(home, ".local", "state", "agent-hooks"),
           hash: residentCoreHash(core.dispatch, coreHash),
