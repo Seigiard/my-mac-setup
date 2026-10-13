@@ -18,6 +18,7 @@ start_child() {
   local generation="" run_dir="" watcher_pid="" self="" prompt_pid=""
   local prompt_submitted=0 snapshot_policy=require-session
   local skills_count=0 tab_mode=0 label="" tab="" identity="" preserved_tab="" tab_note=""
+  local opencode_version="" opencode_major="" effective_agent=""
   local -a skills=() split_args=() native_args=()
 
   while [ $# -gt 0 ]; do
@@ -94,11 +95,25 @@ start_child() {
   if [ -n "$configured_agent" ] && [ "$kind" != opencode ]; then fail_usage "--agent is not supported for $kind"; fi
   if [ "$kind" = opencode ]; then
     [ -n "$model" ] || model='openai/gpt-5.5'
-    opencode_config="$(python3 - "$model" "$configured_agent" "$posture" <<'PY'
+    opencode_version="$(opencode --version 2>/dev/null)" || {
+      printf 'herdr-child: could not determine OpenCode version\n' >&2
+      return 1
+    }
+    opencode_version="${opencode_version##*v}"
+    case "$opencode_version" in
+      1.*) opencode_major=1 ;;
+      2.*) opencode_major=2 ;;
+      *)
+        printf 'herdr-child: unsupported OpenCode version: %s\n' "$opencode_version" >&2
+        return 1
+        ;;
+    esac
+    effective_agent="${configured_agent:-build}"
+    opencode_config="$(python3 - "$model" "$configured_agent" "$effective_agent" "$posture" <<'PY'
 import json
 import sys
 
-model, agent, posture = sys.argv[1:]
+model, agent, effective_agent, posture = sys.argv[1:]
 permission = {"question": "deny", "edit": "allow", "shell": "allow"}
 if posture == "ro":
     permission["edit"] = "deny"
@@ -106,6 +121,7 @@ config = {"model": model}
 if agent:
     config["default_agent"] = agent
 config["permission"] = permission
+config["agent"] = {effective_agent: {"model": model, "permission": permission}}
 print(json.dumps(config, separators=(",", ":")))
 PY
 )" || {
@@ -392,7 +408,12 @@ EOF
       fi
       ;;
     opencode)
-      native_args+=(--standalone)
+      if [ "$opencode_major" = 2 ]; then
+        native_args+=(--standalone)
+      else
+        native_args+=(--model "$model")
+        [ -z "$configured_agent" ] || native_args+=(--agent "$configured_agent")
+      fi
       ;;
     pi)
       # Pi cannot provide the callback shell under read-only, so only read-write reaches this branch.
