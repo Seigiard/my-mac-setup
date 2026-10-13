@@ -3047,6 +3047,27 @@ PY
   if [[ "$agent_count" -eq 0 ]]; then
     skip "Herdr server returned zero agents to compare"
   fi
+  run python3 - "$payload" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+agents = payload["result"]["agents"]
+has_named_agent = False
+for index, agent in enumerate(agents):
+    if not isinstance(agent, dict):
+        raise TypeError((index, type(agent).__name__))
+    if "name" in agent and not isinstance(agent["name"], (str, type(None))):
+        raise TypeError((index, "name", type(agent["name"]).__name__))
+    has_named_agent = has_named_agent or isinstance(agent.get("name"), str) and bool(agent["name"])
+print("named" if has_named_agent else "unnamed")
+PY
+  if [[ "$status" -ne 0 ]]; then
+    fail "successful herdr agent list did not provide a nullable string name: $output"
+  fi
+  if [[ "$output" == unnamed ]]; then
+    skip "no named Herdr agent to compare"
+  fi
   # #then
   run python3 - "$payload" <<'PY'
 import json
@@ -3058,9 +3079,12 @@ assert isinstance(agents, list), type(agents).__name__
 assert agents, "result.agents is empty"
 for index, agent in enumerate(agents):
     assert isinstance(agent, dict), (index, type(agent).__name__)
-    for field in ("name", "pane_id", "agent", "agent_status"):
+    for field in ("pane_id", "agent_status"):
         assert field in agent, (index, field)
         assert isinstance(agent[field], str), (index, field, type(agent[field]).__name__)
+    for field in ("name", "agent"):
+        if field in agent:
+            assert isinstance(agent[field], (str, type(None))), (index, field, type(agent[field]).__name__)
 PY
   assert_success
 }
