@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -377,9 +377,15 @@ describe("OpenCode V2 execute.before translation", () => {
 describe("OpenCode V2 resident core identity (R1, KTD5)", () => {
   const denied = corpus
     .policyFixtures("zsh-reserved-name-guard")
-    .find((candidate: any) => candidate.name === "zsh/blocks status");
+    .find((candidate) => candidate.name === "zsh/blocks status");
 
-  function inspectResident(home: string, deployedHash: string): any {
+  type ResidentIdentity = {
+    status: "current" | "stale";
+    live?: Array<{ hash: string }>;
+    stale?: Array<{ hash: string }>;
+  };
+
+  function inspectResident(home: string, deployedHash: string): ResidentIdentity {
     const stateDir = join(home, ".local", "state", "agent-hooks");
     const startedAt = selfcheck.processStartTime(process.pid);
 
@@ -390,14 +396,18 @@ describe("OpenCode V2 resident core identity (R1, KTD5)", () => {
       markerlessClients: [],
       isAlive: (pid: number) => pid === process.pid,
       getProcessStart: (pid: number) => (pid === process.pid ? startedAt : null),
-    }).clients[0];
+    }).clients[0] as ResidentIdentity;
   }
 
   async function runtimeWithCoreA() {
     const coreDir = temporaryDir("agent-hooks-opencode-v2-core-");
     const home = temporaryDir("agent-hooks-opencode-v2-resident-");
     cpSync(CORE_DIR, coreDir, { recursive: true });
-    symlinkSync(join(import.meta.dir, "../node_modules"), join(coreDir, "node_modules"));
+    const copiedDependencies = join(coreDir, "node_modules");
+
+    if (!existsSync(copiedDependencies)) {
+      symlinkSync(join(import.meta.dir, "../node_modules"), copiedDependencies);
+    }
     mkdirSync(join(home, ".local", "lib"), { recursive: true });
     symlinkSync(coreDir, join(home, ".local", "lib", "agent-hooks"));
 
