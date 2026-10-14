@@ -41,18 +41,17 @@ export const DIALECT_FIXTURES: DialectFixture[] = [
     payload: { filePath: TEST_FILE, content: WRITE_BODY },
     raw: {
       claude: { tool_name: "Write", tool_input: { file_path: TEST_FILE, content: WRITE_BODY } },
-      opencode: { tool: "write", args: { filePath: TEST_FILE, content: WRITE_BODY } },
+      opencode: { tool: "write", input: { path: TEST_FILE, content: WRITE_BODY } },
       pi: { toolName: "write", input: { path: TEST_FILE, content: WRITE_BODY } },
     },
   },
   {
-    // opencode's edit tool has sent both filePath and file_path.
     name: "single edit replacement",
     tool: "edit",
     payload: { filePath: TEST_FILE, content: EDIT_BODY },
     raw: {
       claude: { tool_name: "Edit", tool_input: { file_path: TEST_FILE, new_string: EDIT_BODY } },
-      opencode: { tool: "edit", args: { file_path: TEST_FILE, newString: EDIT_BODY } },
+      opencode: { tool: "edit", input: { path: TEST_FILE, newString: EDIT_BODY } },
       pi: { toolName: "edit", input: { path: TEST_FILE, edits: [{ newText: EDIT_BODY }] } },
     },
   },
@@ -68,7 +67,7 @@ export const DIALECT_FIXTURES: DialectFixture[] = [
           edits: [{ new_string: "first replacement" }, { new_string: "second replacement" }],
         },
       },
-      opencode: { tool: "edit", args: { filePath: TEST_FILE, newString: MULTI_EDIT_BODY } },
+      opencode: { tool: "edit", input: { path: TEST_FILE, newString: MULTI_EDIT_BODY } },
       pi: {
         toolName: "edit",
         input: {
@@ -84,7 +83,7 @@ export const DIALECT_FIXTURES: DialectFixture[] = [
     payload: { command: COMMAND },
     raw: {
       claude: { tool_name: "Bash", tool_input: { command: COMMAND } },
-      opencode: { tool: "bash", args: { command: COMMAND } },
+      opencode: { tool: "shell", input: { command: COMMAND } },
       pi: { toolName: "bash", input: { command: COMMAND } },
     },
   },

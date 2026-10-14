@@ -3,7 +3,7 @@
 // Field names come from the shipped adapters, which are the authority on what
 // each client actually sends:
 //   claude   tool_input.content / file_path / new_string / edits[].new_string
-//   opencode args.content / filePath | file_path / newString
+//   opencode input.content / path / newString (OpenCode 2.x)
 //   pi       input.content / path / edits[].newText / command | cmd / query | pattern
 // Content is aggregated across the full-content and edit fields alike: a Write
 // call carries its text only in `content`, and dropping it would let full-file
@@ -38,7 +38,7 @@ const argumentsWithFallback = argumentsSchema.catch(() => argumentsSchema.parse(
 
 const eventSchema = z.object({
   tool_name: text, tool: text, toolName: text,
-  tool_input: argumentsWithFallback, args: argumentsWithFallback, input: argumentsWithFallback,
+  tool_input: argumentsWithFallback, input: argumentsWithFallback,
 });
 
 type ParsedEvent = z.infer<typeof eventSchema>;
@@ -65,27 +65,19 @@ function readClaude(raw: ParsedEvent): RawRead {
 }
 
 function readOpencode(raw: ParsedEvent): RawRead {
-  // OpenCode V1 supplies `args`; V2 supplies the native tool input directly.
-  const args = raw.args;
+  // V2 supplies the native tool input directly.
   const input = raw.input;
-  const payload = hasArguments(args) ? args : input;
 
   return {
     clientToolName: raw.tool,
     payload: {
-      filePath: payload.filePath || payload.file_path || payload.path,
-      content: joinParts([payload.content, payload.newString]),
-      command: payload.command,
-      query: payload.query,
-      url: payload.url,
+      filePath: input.path,
+      content: joinParts([input.content, input.newString]),
+      command: input.command,
+      query: input.query,
+      url: input.url,
     },
   };
-}
-
-function hasArguments(input: ToolArguments): boolean {
-  // The parsed arguments hold only strings and edit lists; an empty value of
-  // either kind is the schema's fallback, not a supplied argument.
-  return Object.values(input).some((value) => (Array.isArray(value) ? value.length > 0 : value !== ""));
 }
 
 function readPi(raw: ParsedEvent): RawRead {
@@ -158,16 +150,16 @@ const WRITERS: Record<ClientId, Writer> = {
     return { tool_name: toolName, tool_input: input };
   },
   opencode: (toolName, payload, tool) => {
-    const args = commonArguments(payload);
+    const input = commonArguments(payload);
 
-    if (payload.filePath) args.filePath = payload.filePath;
+    if (payload.filePath) input.path = payload.filePath;
 
     if (payload.content) {
-      if (tool === "edit") args.newString = payload.content;
-      else args.content = payload.content;
+      if (tool === "edit") input.newString = payload.content;
+      else input.content = payload.content;
     }
 
-    return { tool: toolName, args };
+    return { tool: toolName, input };
   },
   pi: (toolName, payload, tool) => {
     const input = commonArguments(payload);

@@ -34,7 +34,7 @@ export const CLIENT_PROFILES: ClientProfile[] = [
   },
   {
     client: "opencode",
-    tools: { edit: "edit", write: "write", bash: "bash", shell: "bash", fff_grep: "fff-grep" },
+    tools: { edit: "edit", write: "write", shell: "bash", fff_grep: "fff-grep" },
     outcomes: ["block"],
   },
   {

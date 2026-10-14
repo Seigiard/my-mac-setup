@@ -38,11 +38,11 @@ parent panes and record the exact `opencode --version` and `herdr --version`.
 This repository does not own OpenCode or Herdr runtime semantics, so no local
 source-shape test substitutes for that live check.
 
-The V1 rollback fallback is no longer exercised by a real-V1 test after this
-cutover. Test 1227 (`test_scripts_1227_opencode_v1_worktree_identity_loader_registers_the_named_prompt_handler`)
-skips because the managed setup no longer installs an OpenCode `1.19.0` binary;
-deletion of that test is tracked in #512. This is a named coverage limit, not
-evidence that the V1 rollback path passed.
+The V1 rollback fallback is no longer exercised by any automated test after this
+cutover. Test 1227 (`test_scripts_1227_opencode_v1_worktree_identity_loader_registers_the_named_prompt_handler`),
+which verified the V1 loader and Herdr integration, is deleted under #512 because
+the managed setup no longer installs an OpenCode `1.19.0` binary. The V1 rollback
+path is now a coverage limit: rollback must be verified manually if needed.
 
 ## Deployment Order
 
@@ -69,13 +69,17 @@ checkout.
 3. Run `brew bundle --file ~/.config/brewfiles/Brewfile`, then `brew upgrade
    opencode` when the formula was already installed. Confirm the package comes
    from the current Homebrew formula.
-4. Remove every old mise-managed installation with `mise uninstall --all
-   opencode`. If the stale shim still exists, run `mise reshim`, then require
-   that `~/.local/share/mise/shims/opencode` is absent. Check resolution with
-   the non-interactive PATH used by `herdr-run`, which puts that shims directory
+4. Remove every old mise-managed installation. First check that mise holds no
+   install shipping an `opencode` binary. If any row appears in `mise ls | grep
+   -i opencode`, uninstall every such backend (for example `mise uninstall
+   npm:@opencode/cli`) before running `mise uninstall --all opencode`. Then run
+   `mise reshim` if the stale shim still exists, and require that
+   `~/.local/share/mise/shims/opencode` is absent. Check resolution with the
+   non-interactive PATH used by `herdr-run`, which puts that shims directory
    first, and record the version from the same check:
 
    ```sh
+   ! mise ls | grep -i opencode
    test ! -e "$HOME/.local/share/mise/shims/opencode"
    brew_opencode="$(brew --prefix)/bin/opencode"
    PATH="$HOME/.local/share/mise/shims:$PATH" /bin/sh -c \
@@ -96,16 +100,22 @@ on `PATH` and silently run the old binary after Homebrew installs V2.
 
 ## Rollback
 
-Binary rollback and client-data migration are separate operations. The
-`<v1-backup>` path below is the `v1_backup` directory recorded before
-deployment; it must remain distinct from the V2 backup created during rollback.
+After this cutover under #512, the managed plugins, herdr-child scripts, and
+agent-hooks normalizer support only OpenCode 2. A complete rollback to OpenCode 1.x
+requires restoring the chezmoi source to before #512 (commit d274a58 or earlier),
+not just the binary and client data. Binary rollback and client-data migration are
+separate operations. The `<v1-backup>` path below is the `v1_backup` directory
+recorded before deployment; it must remain distinct from the V2 backup created
+during rollback.
 
 To return to the previous binary, install the desired prior formula version
 using the maintainer's supported Homebrew procedure, or reinstall the prior
 mise tool only as an explicit temporary owner change. Do not leave both
 Homebrew and mise installations on `PATH`; verify the selected binary with
 `command -v opencode` and `opencode --version`. Restore Homebrew as the sole
-owner after the temporary rollback is no longer needed.
+owner after the temporary rollback is no longer needed. You must also check out
+and apply the chezmoi source from before #512 (commit d274a58 or earlier) to use
+OpenCode 1.x, as the current managed plugins and scripts do not support V1.
 
 Changing the binary does not migrate or erase persistent OpenCode data. Before
 rollback, stop OpenCode and back up the current V2 state to a new, separate

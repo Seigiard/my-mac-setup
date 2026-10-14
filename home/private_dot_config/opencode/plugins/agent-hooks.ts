@@ -1,29 +1,23 @@
 // @ts-nocheck
-// Type checking is off here for the same reason herdr's own managed extensions
-// turn it off: this file is checked out in a plain dotfiles repo with no
-// node_modules, and only resolves its imports once deployed under
-// ~/.config/opencode/, where opencode's own dependencies live.
-import type { Plugin } from "@opencode-ai/plugin"
+// Type checking is off: this file is checked out in a plain dotfiles repo with no
+// node_modules, and only resolves its imports once deployed under ~/.config/opencode/,
+// where opencode's own dependencies live.
 import { lstatSync, readlinkSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import type { Decision, ToolEventValue } from "../../../dot_local/lib/agent-hooks/types.ts"
 
-// opencode transport for the shared agent-hooks dispatch core.
+// OpenCode 2 transport for the shared agent-hooks dispatch core.
 //
 // Every policy lives in ~/.local/lib/agent-hooks; this file only translates.
-// In: opencode hands `tool.execute.before` the tool name on `input` and the
-// call arguments on `output`, so the core's opencode dialect is composed here
-// as {tool, args}. Out: a deny is a thrown Error whose message is the core's
-// already-prefixed reason; an allow is a plain return.
+// In: opencode hands `ctx.tool.hook("execute.before", …)` the tool name on
+// `tool` and the call arguments on `input`, so the core's opencode dialect is
+// composed here as {tool, input}. Out: a deny is a thrown Error whose message
+// is the core's already-prefixed reason; an allow is a plain return.
 //
 // Fails open in every direction (R4): no core on disk, a core that will not
 // import, or a dispatch that throws must all let the tool call proceed.
 
 const CLIENT = "opencode"
-
-const HOME = process.env.HOME ?? ""
-
-const CORE_DIR = join(HOME, ".local", "lib", "agent-hooks")
 
 // Adapter modules can be re-evaluated while their runtime imports keep the
 // prior core resident. Keying by dispatch preserves that loaded identity until
@@ -57,52 +51,7 @@ function residentCoreHash(dispatch: Dispatch, coreHash: () => string): string {
 // Load-time import rather than per-call (KTD5): a failure is front-loaded into
 // a plugin that registers nothing, which is the honest fail-open shape — an
 // installed handler that silently allows would look alive to a reader.
-let dispatch: Dispatch | undefined
-
-try {
-  const core = await import(join(CORE_DIR, "index.ts"))
-  dispatch = core.dispatch
-
-  if (dispatch && HOME !== "") {
-    try {
-      const { coreHash, writeMarker } = await import(join(CORE_DIR, "selfcheck.ts"))
-      // Hashing disk here would mislabel a cached dispatch after an apply.
-      writeMarker(CLIENT, {
-        stateDir: join(HOME, ".local", "state", "agent-hooks"),
-        hash: residentCoreHash(core.dispatch, coreHash),
-      })
-    } catch {
-      // A marker this session cannot write leaves its identity unknown, which is
-      // what selfcheck already reports for a session it has no evidence about.
-    }
-  }
-} catch {
-  dispatch = undefined
-}
-
-export const AgentHooksPlugin: Plugin = async () => {
-  if (!dispatch) return {}
-
-  return {
-    "tool.execute.before": async (input, output) => {
-      let decision: any
-
-      try {
-        decision = dispatch(CLIENT, { tool: input?.tool, args: output?.args ?? {} })
-      } catch {
-        // Deliberately outside the throw below. The shipped guards recognised
-        // their own deny by a fixed reason prefix; the prefix is the policy's
-        // now, so a catch wrapped around the throw would have to guess which
-        // errors are denies and would swallow one it guessed wrong about.
-        return
-      }
-
-      if (decision?.verdict === "block") throw new Error(decision.reason)
-    },
-  }
-}
-
-async function loadV2Dispatch(home: string): Promise<typeof dispatch> {
+async function loadV2Dispatch(home: string): Promise<Dispatch | undefined> {
   try {
     const corePath = join(home, ".local", "lib", "agent-hooks")
 
@@ -137,11 +86,8 @@ type V2ToolHookHost = {
   tool: { hook: (name: "execute.before", handler: (event: ToolEventValue) => Promise<void>) => Promise<void> }
 }
 
-// V1 reads server() from the default definition; V2 reads setup(). Both call
-// one adapter, so each loader registers exactly one Hooks handler.
 export default {
   id: "agent-hooks",
-  server: AgentHooksPlugin,
   async setup(ctx: V2ToolHookHost) {
     const v2Dispatch = await loadV2Dispatch(process.env.HOME ?? "")
 

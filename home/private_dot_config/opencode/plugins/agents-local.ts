@@ -1,9 +1,9 @@
 // @ts-nocheck
-// This runs under the pinned V1 host, where the V2 package is absent at runtime.
-// Type-only V2 imports document the upgrade contract without changing that load path.
+// Type checking is off: this file is checked out in a plain dotfiles repo with no
+// node_modules, and only resolves its imports once deployed under ~/.config/opencode/,
+// where opencode's own dependencies live.
 import { join } from "node:path"
 import type { SystemPart } from "@opencode/ai"
-import type { Plugin as OpenCodePlugin } from "@opencode/plugin"
 import type { SessionRequest } from "@opencode/plugin/promise/session"
 
 const HOME = process.env.HOME ?? ""
@@ -14,31 +14,14 @@ const HOOKS = ["context", "compaction", "generate", "title"]
 
 type LocalInstructionsBlock = { block?: string }
 
-type V2Plugin = OpenCodePlugin.Plugin
-
-type V1Plugin = {
-  "experimental.chat.system.transform"?: (
-    input: Record<string, never>,
-    output: { system?: string[] },
-  ) => Promise<void>
-}
-
 let buildLocalInstructions: ((cwd: string) => Promise<LocalInstructionsBlock>) | undefined
 
 let isGeneratedLocalInstructionsBlock: ((block: string) => boolean) | undefined
-
-let defineV2: ((plugin: V2Plugin) => V2Plugin) | undefined
 
 try {
   ;({ buildLocalInstructions, isGeneratedLocalInstructionsBlock } = await import(MODULE_PATH))
 } catch {
   buildLocalInstructions = undefined
-}
-
-try {
-  ;({ Plugin: { define: defineV2 } } = await import("@opencode/plugin"))
-} catch {
-  defineV2 = undefined
 }
 
 async function localInstructions(directory: string): Promise<string | undefined> {
@@ -52,7 +35,6 @@ async function localInstructions(directory: string): Promise<string | undefined>
 
 const plugin = {
   id: "agents-local",
-  server: AgentsLocalPlugin,
   async setup(ctx) {
     if (!buildLocalInstructions || !isGeneratedLocalInstructionsBlock) return
 
@@ -78,25 +60,4 @@ const plugin = {
   },
 }
 
-// The V1 export remains only as a compatibility fallback for a temporary
-// rollback; normal installation now selects the V2 Homebrew formula.
-export async function AgentsLocalPlugin({ directory }: { directory?: string }): Promise<V1Plugin> {
-  if (!buildLocalInstructions || !isGeneratedLocalInstructionsBlock || !directory) return {}
-
-  return {
-    "experimental.chat.system.transform": async (_input: Record<string, never>, output: { system?: string[] }) => {
-      const system = output?.system
-
-      if (!Array.isArray(system)) return
-
-      const retained = system.filter((entry) => !isGeneratedLocalInstructionsBlock(entry))
-      system.splice(0, system.length, ...retained)
-
-      const block = await localInstructions(directory)
-
-      if (block) system.push(block)
-    },
-  }
-}
-
-export default defineV2 ? defineV2(plugin) : plugin
+export default plugin
