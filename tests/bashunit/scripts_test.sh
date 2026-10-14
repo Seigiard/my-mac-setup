@@ -10488,7 +10488,7 @@ handoff_session_start_run() {
 }
 
 function test_scripts_2831_handoff_injector_places_the_handoff_in_model_context() {
-  _bats_test_init 2831 'handoff injector emits additionalContext and never systemMessage'
+  _bats_test_init 2831 'handoff injector puts the handoff in additionalContext and only the goal in systemMessage'
   local store="$BATS_TEST_TMPDIR/cache" file
   mkdir -p "$BATS_TEST_TMPDIR/home"
   file="$(handoff_stage_stored "$store" injected '## Goal
@@ -10496,9 +10496,10 @@ finish the injector
 ## Key Details
 the build id is 7731-ZARBLAX')"
 
-  # KTD8, R15. This is the field the whole vendoring exists for: systemMessage
-  # renders to the operator and never reaches the model, which is a handoff
-  # that was shown rather than handed off.
+  # KTD8, R15. additionalContext is the field the whole vendoring exists for:
+  # systemMessage renders to the operator and never reaches the model, which is
+  # a handoff that was shown rather than handed off. systemMessage may ride
+  # beside it, carrying the goal alone so the operator can check it.
   run handoff_session_start_run injected compact
   assert_success
   local response="$output"
@@ -10508,14 +10509,57 @@ the build id is 7731-ZARBLAX')"
   run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
   assert_success
   assert_output --partial '7731-ZARBLAX'
-  run jq -e 'has("systemMessage") | not' <<< "$response"
+  run jq -r '.systemMessage' <<< "$response"
   assert_success
+  assert_output 'Handoff goal: finish the injector'
 
   # Consumed once. A second start finds nothing to inject.
   assert_file_not_exists "$file"
   run handoff_session_start_run injected compact
   assert_success
   assert_output ''
+}
+
+function test_scripts_2834_handoff_injector_shows_the_goal_only_when_the_handoff_names_one() {
+  _bats_test_init 2834 'handoff injector omits systemMessage without a goal section and caps a runaway goal'
+  local store="$BATS_TEST_TMPDIR/cache" long
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # A handoff that lost its `## Goal` section is still injected for the model;
+  # the operator just gets no message to read.
+  handoff_stage_stored "$store" bare '## Key Details
+only details, no goal' > /dev/null
+  run handoff_session_start_run bare compact
+  assert_success
+  local response="$output"
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+  assert_output --partial 'only details, no goal'
+  run jq -e 'has("systemMessage") | not' <<< "$response"
+  assert_success
+
+  # A multi-line goal collapses to one line, and the heading after it is not
+  # part of it. A goal with no closing heading is cut at 300 characters.
+  handoff_stage_stored "$store" auto '## Goal
+ship the
+hook change
+
+## Key Details
+secret-detail' > /dev/null
+  run handoff_session_start_run auto compact
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output 'Handoff goal: ship the hook change'
+
+  long="$(printf 'x%.0s' $(seq 1 400))"
+  handoff_stage_stored "$store" replaced "## Goal
+$long" > /dev/null
+  run handoff_session_start_run replaced compact
+  assert_success
+  run jq -r '.systemMessage | length' <<< "$output"
+  assert_success
+  assert_output '315'
 }
 
 function test_scripts_2832_handoff_injector_takes_only_this_sessions_handoff() {

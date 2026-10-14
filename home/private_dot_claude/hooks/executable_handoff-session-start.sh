@@ -53,11 +53,30 @@ fi
 
 rm -f "$store" 2> /dev/null || true
 
-jq -n --arg context "$content" '{
-  hookSpecificOutput: {
-    hookEventName: "SessionStart",
-    additionalContext: $context
-  }
-}' 2>/dev/null || exit 0
+# The operator never sees additionalContext, so show them the one line they
+# can check: the goal the extractor settled on. It is read from the `## Goal`
+# section of the handoff and stops at the next heading. A handoff without that
+# section yields no message rather than a guess.
+goal=$(printf '%s\n' "$content" | awk '
+  /^## Goal[[:space:]]*$/ { in_goal = 1; next }
+  in_goal && (/^## / || /^<\/handoff>/) { exit }
+  in_goal { print }
+' 2> /dev/null | tr '\n' ' ') || goal=""
+
+# systemMessage renders to the operator and never reaches the model, so it
+# rides beside additionalContext and never replaces it (KTD8). The cap keeps a
+# handoff that broke its own format from filling the screen.
+jq -n --arg context "$content" --arg goal "$goal" '
+  ($goal | gsub("\\s+"; " ") | sub("^ "; "") | sub(" $"; "")) as $g
+  | {
+      hookSpecificOutput: {
+        hookEventName: "SessionStart",
+        additionalContext: $context
+      }
+    }
+    + (if $g == "" then {}
+       else {systemMessage: ("Handoff goal: " + (if ($g | length) > 300 then $g[0:300] + "…" else $g end))}
+       end)
+' 2>/dev/null || exit 0
 
 exit 0
