@@ -157,17 +157,6 @@ async function runV2Request(
   return system.map((part) => part.text);
 }
 
-async function loadV1Transform(directory: string): Promise<Hook> {
-  const module: any = await loadUnderHome(PLUGIN_PATH, "agents-local-opencode-session");
-  const server = module.default?.server;
-  expect(server).toBeTypeOf("function");
-  const hooks = (await server({ directory, worktree: directory })) ?? {};
-  const transform = hooks["experimental.chat.system.transform"];
-  expect(transform).toBeTypeOf("function");
-
-  return transform;
-}
-
 async function loadV2Transform(directory: string): Promise<Hook> {
   const hooks = await loadV2ContextHook({ "session-current": directory });
 
@@ -175,10 +164,6 @@ async function loadV2Transform(directory: string): Promise<Hook> {
     const system = await runV2Request(hooks, "context", input.sessionID ?? "session-current", output.system);
     output.system.splice(0, output.system.length, ...system);
   };
-}
-
-async function loadSharedTransforms(directory: string): Promise<{ v1: Hook; v2: Hook }> {
-  return { v1: await loadV1Transform(directory), v2: await loadV2Transform(directory) };
 }
 
 async function loadPiHandler(): Promise<Function> {
@@ -238,14 +223,12 @@ describe("shared selection module (R7)", () => {
     const contents = "Shared fixture SENTINEL_PARITY_5e1a.\n";
     const root = await projectWithAgentsLocal(contents);
     const selectedRealPath = await realpath(join(root, "AGENTS.local.md"));
-    const transforms = await loadSharedTransforms(root);
+    const transform = await loadV2Transform(root);
     const piHandler = await loadPiHandler();
 
-    // #when each OpenCode generation and Pi inject
-    const v1System = [BASE_SYSTEM];
-    const v2System = [BASE_SYSTEM];
-    await transforms.v1({}, { system: v1System });
-    await transforms.v2({}, { system: v2System });
+    // #when OpenCode and Pi inject
+    const system = [BASE_SYSTEM];
+    await transform({}, { system });
     const piResult = await piHandler({ systemPrompt: BASE_SYSTEM }, { cwd: root, hasUI: false });
 
     // #then both sides emit this exact block. Written out rather than read back
@@ -266,10 +249,7 @@ describe("shared selection module (R7)", () => {
       contents,
     ].join("\n");
 
-    expect([v1System, v2System]).toEqual([
-      [BASE_SYSTEM, block],
-      [BASE_SYSTEM, block],
-    ]);
+    expect(system).toEqual([BASE_SYSTEM, block]);
     expect(piResult.systemPrompt).toBe(BASE_SYSTEM + block);
   });
 });
@@ -317,23 +297,18 @@ describe("selection safety in opencode (R7)", () => {
     await writeFile(outsideFile, "OUTSIDE_SENTINEL_c40b must never be injected.\n");
     await symlink(outsideFile, join(root, "AGENTS.local.md"));
     await writeFile(join(root, "CLAUDE.local.md"), "In-project fallback INSIDE_SENTINEL_9d3f.\n");
-    const transforms = await loadSharedTransforms(root);
+    const transform = await loadV2Transform(root);
 
     // #when the transform runs
-    const v1System = [BASE_SYSTEM];
-    const v2System = [BASE_SYSTEM];
-    await transforms.v1({}, { system: v1System });
-    await transforms.v2({}, { system: v2System });
+    const system = [BASE_SYSTEM];
+    await transform({}, { system });
 
     // #then only the in-project file reaches the prompt
-    expect([v1System, v2System]).toEqual([
-      [BASE_SYSTEM, expect.stringContaining("INSIDE_SENTINEL_9d3f")],
-      [BASE_SYSTEM, expect.stringContaining("INSIDE_SENTINEL_9d3f")],
-    ]);
+    expect(system).toEqual([BASE_SYSTEM, expect.stringContaining("INSIDE_SENTINEL_9d3f")]);
     // oracle: this string lives in a file outside the project root, written
     // independently of any source in this patch; a regressed escape check
     // leaks content the project does not own into every request's prompt.
-    expect([...v1System, ...v2System].join("\n")).not.toContain("OUTSIDE_SENTINEL_c40b");
+    expect(system.join("\n")).not.toContain("OUTSIDE_SENTINEL_c40b");
   });
 
   test("a file over the size cap is skipped and the under-cap control is injected", async () => {
@@ -341,39 +316,32 @@ describe("selection safety in opencode (R7)", () => {
     const root = temporaryDir("agents-local-cap-");
     await writeFile(join(root, "AGENTS.local.md"), "A".repeat(shared.MAX_LOCAL_INSTRUCTIONS_BYTES + 1));
     await writeFile(join(root, "CLAUDE.local.md"), "Under the cap UNDERCAP_SENTINEL_71ee.\n");
-    const transforms = await loadSharedTransforms(root);
+    const transform = await loadV2Transform(root);
 
     // #when the transform runs
-    const v1System = [BASE_SYSTEM];
-    const v2System = [BASE_SYSTEM];
-    await transforms.v1({}, { system: v1System });
-    await transforms.v2({}, { system: v2System });
+    const system = [BASE_SYSTEM];
+    await transform({}, { system });
 
     // #then the oversized file is not what was injected
-    expect([v1System, v2System]).toEqual([
-      [BASE_SYSTEM, expect.stringContaining("UNDERCAP_SENTINEL_71ee")],
-      [BASE_SYSTEM, expect.stringContaining("UNDERCAP_SENTINEL_71ee")],
-    ]);
+    expect(system).toEqual([BASE_SYSTEM, expect.stringContaining("UNDERCAP_SENTINEL_71ee")]);
     // oracle: the run of "A" is the over-cap fixture's own bytes, sized from
     // the cap the shared module publishes; a regressed cap check pushes a
     // 50 KiB+ file into every request's system prompt.
-    expect([...v1System, ...v2System].join("\n")).not.toContain("AAAAAAAAAA");
+    expect(system.join("\n")).not.toContain("AAAAAAAAAA");
   });
 
   test("a directory named AGENTS.local.md leaves the prompt alone", async () => {
     // #given a directory where the instructions file would be
     const root = temporaryDir("agents-local-dir-");
     await mkdir(join(root, "AGENTS.local.md"));
-    const transforms = await loadSharedTransforms(root);
+    const transform = await loadV2Transform(root);
 
     // #when the transform runs
-    const v1System = [BASE_SYSTEM];
-    const v2System = [BASE_SYSTEM];
-    await transforms.v1({}, { system: v1System });
-    await transforms.v2({}, { system: v2System });
+    const system = [BASE_SYSTEM];
+    await transform({}, { system });
 
     // #then nothing was appended
-    expect([v1System, v2System]).toEqual([[BASE_SYSTEM], [BASE_SYSTEM]]);
+    expect(system).toEqual([BASE_SYSTEM]);
   });
 });
 
@@ -383,64 +351,17 @@ describe("heading-guarded idempotence (KTD11)", () => {
   test("a second call over an already-injected array appends nothing", async () => {
     // #given a system array the transform has already injected into
     const root = await projectWithAgentsLocal("Injected once IDEMPOTENT_SENTINEL_2b7c.\n");
-    const transforms = await loadSharedTransforms(root);
-    const v1System = [BASE_SYSTEM];
-    const v2System = [BASE_SYSTEM];
-    await transforms.v1({}, { system: v1System });
-    await transforms.v2({}, { system: v2System });
-    const afterFirst = [v1System, v2System].map((system) => [...system]);
+    const transform = await loadV2Transform(root);
+    const system = [BASE_SYSTEM];
+    await transform({}, { system });
+    const afterFirst = [...system];
 
     // #when the same array is transformed again
-    await transforms.v1({}, { system: v1System });
-    await transforms.v2({}, { system: v2System });
-
-    // #then the array is unchanged: one heading, one copy of the content
-    expect([v1System, v2System]).toEqual(afterFirst);
-    expect([v1System, v2System].flat().join("\n").split("IDEMPOTENT_SENTINEL_2b7c")).toHaveLength(3);
-  });
-
-  test("a V1 array carrying a stale generated heading is replaced", async () => {
-    // #given an array carrying generated instructions from an earlier request
-    const root = await projectWithAgentsLocal("Would be injected NEW_SENTINEL_8f10.\n");
-    const selectedRealPath = await realpath(join(root, "AGENTS.local.md"));
-    const transform = await loadV1Transform(root);
-
-    const preInjected = [
-      "",
-      "",
-      "## Local Private Project Instructions",
-      "",
-      `Loaded from ${selectedRealPath}. These instructions are private and local. Follow them in addition to repository instructions.`,
-      "",
-      "### AGENTS.local.md",
-      "",
-      "Earlier generated LOCAL_INSTRUCTIONS_OLD_473.\n",
-    ].join("\n");
-
-    const unrelated = "Keep this ordinary reference: ## Local Private Project Instructions.";
-    const system = [BASE_SYSTEM, unrelated, preInjected];
-
-    // #when the transform runs
     await transform({}, { system });
 
-    // #then the current generated block replaces the stale one
-    const expected = [
-      BASE_SYSTEM,
-      unrelated,
-      [
-        "",
-        "",
-        "## Local Private Project Instructions",
-        "",
-        `Loaded from ${selectedRealPath}. These instructions are private and local. Follow them in addition to repository instructions.`,
-        "",
-        "### AGENTS.local.md",
-        "",
-        "Would be injected NEW_SENTINEL_8f10.\n",
-      ].join("\n"),
-    ];
-
-    expect(system).toEqual(expected);
+    // #then the array is unchanged: one heading, one copy of the content
+    expect(system).toEqual(afterFirst);
+    expect(system.join("\n").split("IDEMPOTENT_SENTINEL_2b7c")).toHaveLength(2);
   });
 });
 
@@ -586,20 +507,15 @@ describe("no local instructions present", () => {
     // #given a project with neither local instructions file
     const root = temporaryDir("agents-local-empty-");
     await writeFile(join(root, "AGENTS.md"), "Repository instructions, not local ones.\n");
-    const transforms = await loadSharedTransforms(root);
+    const transform = await loadV2Transform(root);
 
     // #when the transform runs
     const unrelated = "Document ## Local Private Project Instructions without generating it.";
-    const v1System = [BASE_SYSTEM, "second entry", unrelated];
-    const v2System = [BASE_SYSTEM, "second entry", unrelated];
-    await transforms.v1({}, { system: v1System });
-    await transforms.v2({}, { system: v2System });
+    const system = [BASE_SYSTEM, "second entry", unrelated];
+    await transform({}, { system });
 
     // #then nothing changed
-    expect([v1System, v2System]).toEqual([
-      [BASE_SYSTEM, "second entry", unrelated],
-      [BASE_SYSTEM, "second entry", unrelated],
-    ]);
+    expect(system).toEqual([BASE_SYSTEM, "second entry", unrelated]);
   });
 });
 
