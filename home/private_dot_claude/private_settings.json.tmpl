@@ -128,13 +128,26 @@
     "playwright@claude-plugins-official": true,
     "plugin-dev@claude-plugins-official": false,
     "security-guidance@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true{{ if eq $machineRole "mbp2026" }},
+    "typescript-lsp@claude-plugins-official": true,
+    "where-am-i@claude-code-mods": true,
+    "image-view@claude-image-view": true{{ if eq $machineRole "mbp2026" }},
     "membrane-operator@membrane.private": true,
     "summit@summit-ai-notes": true
 {{- end }}
   },
-{{- if eq $machineRole "mbp2026" }}
   "extraKnownMarketplaces": {
+    "claude-code-mods": {
+      "source": {
+        "source": "github",
+        "repo": "hamzafer/claude-code-mods"
+      }
+    },
+    "claude-image-view": {
+      "source": {
+        "source": "github",
+        "repo": "jarrodwatts/claude-image-view"
+      }
+    }{{ if eq $machineRole "mbp2026" }},
     "membrane.private": {
       "source": {
         "source": "github",
@@ -147,8 +160,8 @@
         "repo": "SummitNotes/mcp-markeplace"
       }
     }
-  },
 {{- end }}
+  },
   "outputStyle": "writing-style",
   "effortLevel": "high",
   "autoUpdatesChannel": "stable",

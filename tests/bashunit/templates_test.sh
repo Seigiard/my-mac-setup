@@ -1333,7 +1333,8 @@ function test_templates_0311_private_claude_plugins_are_scoped_to_mbp2026() {
     --slurpfile current "$mbp2026_settings" '
       ($old[0] | (.enabledPlugins | has("membrane-operator@membrane.private") | not)
         and (.enabledPlugins | has("summit@summit-ai-notes") | not)
-        and (has("extraKnownMarketplaces") | not))
+        and (.extraKnownMarketplaces | has("membrane.private") | not)
+        and (.extraKnownMarketplaces | has("summit-ai-notes") | not))
       and
       ($current[0] | .enabledPlugins["membrane-operator@membrane.private"] == true
         and .enabledPlugins["summit@summit-ai-notes"] == true

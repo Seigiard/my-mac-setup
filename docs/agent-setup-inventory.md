@@ -57,7 +57,10 @@ Portable bare `ce-*` skills replace the former client-specific Compound
 Engineering providers.
 
 Claude retains `playwright`, `plugin-dev`, `security-guidance`, and
-`typescript-lsp` for non-skill functionality. Its Compound Engineering,
+`typescript-lsp` for non-skill functionality. Claude also enables two
+third-party mods on every machine: `where-am-i` from the
+`hamzafer/claude-code-mods` marketplace and `image-view` from the
+`jarrodwatts/claude-image-view` marketplace. Its Compound Engineering,
 `frontend-design`, and `claude-md-management` plugins are retired
 (`claude-md-improver` overlaps with the manifest-installed `improve-claude-md`
 skill, which all three agents see; the `/revise-claude-md` command goes with
