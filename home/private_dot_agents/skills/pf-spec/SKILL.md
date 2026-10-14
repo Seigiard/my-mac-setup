@@ -50,16 +50,19 @@ Fill the spec template into `~/.claude/artifacts/<id>/spec.html` (pf-cycle → a
 
 Before presenting each substantive revision to the user, run the contract spec past opencode on the **frontier tier** and fold in what survives your judgement. This review remains user-mandated on the frontier tier. Implementation runs through the `tdd` chain, which owns its tiers.
 
-The stdin redirect prevents `opencode run` from waiting for EOF.
+V2 has no `run --dir`; the subshell makes the process cwd and `PWD` agree on the epic worktree. The stdin redirect prevents `opencode run` from waiting for EOF. On OpenCode 2 add `--standalone` so the run uses a private server with this shell's environment instead of the shared background service.
 
 ```bash
-opencode run --dir <epic worktree> < /dev/null \
-  -m openai/gpt-5.6-sol \
-  -f <screenshot1.png> -f <screenshot2.png> ... \
-  "<review prompt>"
+(
+  cd <epic worktree> || exit
+  exec opencode run \
+    -m openai/gpt-5.6-sol \
+    -f <screenshot1.png> -f <screenshot2.png> ... \
+    "<review prompt>"
+) < /dev/null
 ```
 
-Run **without** `--auto`: opencode has no hard read-only mode in a headless run, so an attempted edit dies on the permission gate instead of landing. Pass **every screenshot as a real PNG via repeated `-f` flags** — inlined base64 is opaque to the model. If the frontier slug has rotated off `openai/gpt-5.6-sol`, use the current frontier model and note the new slug in your report.
+Run **without** `--auto`, but do not treat this as a read-only boundary: opencode can still execute a tool when the effective permission policy allows it. The review prompt below is the mutation boundary. Pass **every screenshot as a real PNG via repeated `-f` flags** — inlined base64 is opaque to the model. If the frontier slug has rotated off `openai/gpt-5.6-sol`, use the current frontier model and note the new slug in your report.
 
 The review prompt, filled in:
 
