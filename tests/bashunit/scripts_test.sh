@@ -10567,6 +10567,21 @@ handoff_stub_claude() {
   chmod +x "$dir/claude"
 }
 
+handoff_stub_claude_observes_store() {
+  local dir="$1" status="${2:-0}"
+  mkdir -p "$dir"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'if [ -e "$HANDOFF_TEST_STORE_FILE" ]; then\n'
+    printf '  printf "present" > "$HANDOFF_TEST_STORE_OBSERVATION"\n'
+    printf 'else\n'
+    printf '  printf "absent" > "$HANDOFF_TEST_STORE_OBSERVATION"\n'
+    printf 'fi\n'
+    printf 'exit %s\n' "$status"
+  } > "$dir/claude"
+  chmod +x "$dir/claude"
+}
+
 handoff_payload() {
   jq -nc --arg session "$1" --arg cwd "$2" --arg trigger "$3" --arg instructions "$4" \
     '{session_id: $session, cwd: $cwd, trigger: $trigger,
@@ -10958,7 +10973,7 @@ function test_scripts_2833_handoff_injector_ignores_ordinary_session_starts() {
 function test_scripts_2840_handoff_pre_compact_never_resurrects_an_older_goal() {
   _bats_test_init 2840 'handoff pre-compact discards the previous handoff before extracting a new one'
   local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
-  local file
+  local file observation="$BATS_TEST_TMPDIR/store-at-extraction"
   handoff_stub_claude "$stub" 'the first goal handoff'
   file="$(handoff_store_path "$store" replaced)"
 
@@ -10972,12 +10987,14 @@ function test_scripts_2840_handoff_pre_compact_never_resurrects_an_older_goal() 
   # R16 in its harder form: the operator asked for a *different* goal and the
   # extraction failed. Injecting the previous compaction's handoff would hand
   # the next session a goal it has already finished with.
-  handoff_stub_claude "$stub" '' 3
+  handoff_stub_claude_observes_store "$stub" 3
   run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    HANDOFF_TEST_STORE_FILE="$file" HANDOFF_TEST_STORE_OBSERVATION="$observation" \
     CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
     bash "$(handoff_pre_compact_hook)" \
     <<< "$(handoff_payload replaced "$root" manual 'a second and different goal')"
   assert_success
+  assert_equal "$(< "$observation")" 'absent'
   assert_file_exists "$file"
   run handoff_session_start_run replaced compact
   assert_success
@@ -11034,9 +11051,9 @@ function test_scripts_2846_handoff_pre_compact_logs_each_run_without_blocking_on
   assert_success
   assert_output ''
   assert_file_exists "$log"
-  run jq -sc 'map([.session_id, .trigger, .goal, .outcome])' < "$log"
+  run jq -Rc 'fromjson | [.session_id, .trigger, .goal, .outcome]' < "$log"
   assert_success
-  assert_output '[["log-writable","manual","first log goal","stored"]]'
+  assert_output '["log-writable","manual","first log goal","stored"]'
 
   run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" HANDOFF_LOG_FILE="$log" \
     CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
@@ -11044,9 +11061,9 @@ function test_scripts_2846_handoff_pre_compact_logs_each_run_without_blocking_on
     <<< "$(handoff_payload log-writable "$root" auto '')"
   assert_success
   assert_output ''
-  run jq -sc 'map([.session_id, .trigger, .goal, .outcome])' < "$log"
+  run jq -Rc 'fromjson | [.session_id, .trigger, .goal, .outcome]' < "$log"
   assert_success
-  assert_output '[["log-writable","manual","first log goal","stored"],["log-writable","auto","","stored"]]'
+  assert_output $'["log-writable","manual","first log goal","stored"]\n["log-writable","auto","","stored"]'
 
   handoff_stub_claude "$stub" '' 3
   run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" HANDOFF_LOG_FILE="$log" \
@@ -11055,9 +11072,9 @@ function test_scripts_2846_handoff_pre_compact_logs_each_run_without_blocking_on
     <<< "$(handoff_payload broken "$root" manual 'failed log goal')"
   assert_success
   assert_output ''
-  run jq -sc 'map([.session_id, .trigger, .goal, .outcome])' < "$log"
+  run jq -Rc 'fromjson | [.session_id, .trigger, .goal, .outcome]' < "$log"
   assert_success
-  assert_output '[["log-writable","manual","first log goal","stored"],["log-writable","auto","","stored"],["broken","manual","failed log goal","fork"]]'
+  assert_output $'["log-writable","manual","first log goal","stored"]\n["log-writable","auto","","stored"]\n["broken","manual","failed log goal","fork"]'
 
   : > "$blocked"
   handoff_stub_claude "$stub" 'same stored handoff'
