@@ -10557,12 +10557,12 @@ handoff_pre_compact_hook() {
 # A `claude` on PATH that writes the text it was told to, so the hook's
 # storage and gating are exercised without a model call.
 handoff_stub_claude() {
-  local dir="$1" body="${2:-## Goal\nship the vendored hook\n}"
+  local dir="$1" body="${2-## Goal\nship the vendored hook\n}" status="${3:-0}"
   mkdir -p "$dir"
   {
     printf '#!/usr/bin/env bash\n'
     printf 'printf "%%b" "%s"\n' "$body"
-    printf 'exit 0\n'
+    printf 'exit %s\n' "$status"
   } > "$dir/claude"
   chmod +x "$dir/claude"
 }
@@ -10735,10 +10735,11 @@ function test_scripts_2837_handoff_hooks_fail_open_without_a_home() {
   assert_output 'sourced'
 }
 
-function test_scripts_2818_handoff_pre_compact_fails_open() {
-  _bats_test_init 2818 'handoff pre-compact exits silently on malformed input and failed extraction'
+function test_scripts_2818_handoff_pre_compact_reports_a_failed_fork_after_compaction() {
+  _bats_test_init 2818 'handoff pre-compact reports a failed fork after compaction'
   local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
-  mkdir -p "$stub"
+  local file
+  mkdir -p "$stub" "$root/home"
 
   run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
     CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
@@ -10747,24 +10748,28 @@ function test_scripts_2818_handoff_pre_compact_fails_open() {
   assert_output ''
   assert_dir_not_exists "$store"
 
-  # KTD9: an extractor that fails leaves no half-written handoff behind, and
-  # compaction still proceeds.
-  printf '#!/usr/bin/env bash\nexit 3\n' > "$stub/claude"
-  chmod +x "$stub/claude"
+  # A failed extraction must still fail open for compaction, but SessionStart
+  # needs a record that makes the lost handoff visible to the operator.
+  handoff_stub_claude "$stub" '' 3
+  file="$(handoff_store_path "$store" broken)"
   run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
     CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
     bash "$(handoff_pre_compact_hook)" \
     <<< "$(handoff_payload broken "$root" manual 'a goal nobody can extract')"
   assert_success
-  assert_file_not_exists "$store/$(printf '%s' broken | base64 | tr '/+' '_-' | tr -d '=\n').json"
+  assert_output ''
+  assert_file_exists "$file"
 
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$stub/claude"
-  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
-    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
-    bash "$(handoff_pre_compact_hook)" \
-    <<< "$(handoff_payload empty "$root" manual 'a goal with an empty answer')"
+  run handoff_session_start_run broken compact
   assert_success
-  assert_file_not_exists "$store/$(printf '%s' empty | base64 | tr '/+' '_-' | tr -d '=\n').json"
+  local response="$output"
+  run jq -c 'keys' <<< "$response"
+  assert_success
+  assert_output '["systemMessage"]'
+  run jq -r '.systemMessage' <<< "$response"
+  assert_success
+  assert_output $'-----\n⚠️ Compact handoff not delivered\n\nreason: fork\n-----'
+  assert_file_not_exists "$file"
 }
 
 # --- handoff SessionStart injector (U7) ------------------------------------
@@ -10782,7 +10787,11 @@ handoff_store_path() {
   case "$2" in
     bare) encoded=YmFyZQ ;;
     auto) encoded=YXV0bw ;;
+    broken) encoded=YnJva2Vu ;;
+    empty) encoded=ZW1wdHk ;;
     injected) encoded=aW5qZWN0ZWQ ;;
+    log-writable) encoded=bG9nLXdyaXRhYmxl ;;
+    log-unwritable) encoded=bG9nLXVud3JpdGFibGU ;;
     neighbour) encoded=bmVpZ2hib3Vy ;;
     startup) encoded=c3RhcnR1cA ;;
     replaced) encoded=cmVwbGFjZWQ ;;
@@ -10890,18 +10899,36 @@ $long" > /dev/null
 }
 
 function test_scripts_2832_handoff_injector_takes_only_this_sessions_handoff() {
-  _bats_test_init 2832 'handoff injector leaves another session handoff untouched'
-  local store="$BATS_TEST_TMPDIR/cache" other
+  _bats_test_init 2832 'handoff injector leaves another session failure untouched'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub" other
   mkdir -p "$BATS_TEST_TMPDIR/home"
-  other="$(handoff_stage_stored "$store" neighbour 'belongs to the other session')"
+  handoff_stub_claude "$stub" '' 3
+  other="$(handoff_store_path "$store" neighbour)"
+
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload neighbour "$root" manual 'other session goal')"
+  assert_success
+  assert_file_exists "$other"
 
   # AE7, R16. Two worktree sessions compact independently; neither may consume
-  # the other's handoff, and neither may inject a handoff it did not ask for.
+  # the other's failure record, and neither may report a failure it did not own.
   run handoff_session_start_run mine compact
   assert_success
   assert_output ''
   assert_file_exists "$other"
-  assert_file_contains "$other" 'belongs to the other session'
+
+  run handoff_session_start_run neighbour compact
+  assert_success
+  local response="$output"
+  run jq -c 'keys' <<< "$response"
+  assert_success
+  assert_output '["systemMessage"]'
+  run jq -r '.systemMessage' <<< "$response"
+  assert_success
+  assert_output $'-----\n⚠️ Compact handoff not delivered\n\nreason: fork\n-----'
+  assert_file_not_exists "$other"
 }
 
 function test_scripts_2833_handoff_injector_ignores_ordinary_session_starts() {
@@ -10945,14 +10972,103 @@ function test_scripts_2840_handoff_pre_compact_never_resurrects_an_older_goal() 
   # R16 in its harder form: the operator asked for a *different* goal and the
   # extraction failed. Injecting the previous compaction's handoff would hand
   # the next session a goal it has already finished with.
-  printf '#!/usr/bin/env bash\nexit 3\n' > "$stub/claude"
-  chmod +x "$stub/claude"
+  handoff_stub_claude "$stub" '' 3
   run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
     CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
     bash "$(handoff_pre_compact_hook)" \
     <<< "$(handoff_payload replaced "$root" manual 'a second and different goal')"
   assert_success
+  assert_file_exists "$file"
+  run handoff_session_start_run replaced compact
+  assert_success
+  local response="$output"
+  run jq -c 'keys' <<< "$response"
+  assert_success
+  assert_output '["systemMessage"]'
+  run jq -r '.systemMessage' <<< "$response"
+  assert_success
+  assert_output $'-----\n⚠️ Compact handoff not delivered\n\nreason: fork\n-----'
   assert_file_not_exists "$file"
+}
+
+function test_scripts_2845_handoff_pre_compact_reports_an_empty_extraction_after_compaction() {
+  _bats_test_init 2845 'handoff pre-compact reports an empty extraction after compaction'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local file
+  mkdir -p "$root/home"
+  handoff_stub_claude "$stub" ''
+  file="$(handoff_store_path "$store" empty)"
+
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload empty "$root" manual 'a goal with an empty answer')"
+  assert_success
+  assert_output ''
+  assert_file_exists "$file"
+
+  run handoff_session_start_run empty compact
+  assert_success
+  local response="$output"
+  run jq -c 'keys' <<< "$response"
+  assert_success
+  assert_output '["systemMessage"]'
+  run jq -r '.systemMessage' <<< "$response"
+  assert_success
+  assert_output $'-----\n⚠️ Compact handoff not delivered\n\nreason: empty\n-----'
+  assert_file_not_exists "$file"
+}
+
+function test_scripts_2846_handoff_pre_compact_logs_each_run_without_blocking_on_log_errors() {
+  _bats_test_init 2846 'handoff pre-compact appends outcome logs and ignores an unwritable log path'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local log="$root/new/logs/handoff.jsonl" blocked="$root/not-a-directory" writable unwritable
+  handoff_stub_claude "$stub" 'same stored handoff'
+  writable="$(handoff_store_path "$store" log-writable)"
+  unwritable="$(handoff_store_path "$store" log-unwritable)"
+
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" HANDOFF_LOG_FILE="$log" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload log-writable "$root" manual 'first log goal')"
+  assert_success
+  assert_output ''
+  assert_file_exists "$log"
+  run jq -sc 'map([.session_id, .trigger, .goal, .outcome])' < "$log"
+  assert_success
+  assert_output '[["log-writable","manual","first log goal","stored"]]'
+
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" HANDOFF_LOG_FILE="$log" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload log-writable "$root" auto '')"
+  assert_success
+  assert_output ''
+  run jq -sc 'map([.session_id, .trigger, .goal, .outcome])' < "$log"
+  assert_success
+  assert_output '[["log-writable","manual","first log goal","stored"],["log-writable","auto","","stored"]]'
+
+  handoff_stub_claude "$stub" '' 3
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" HANDOFF_LOG_FILE="$log" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload broken "$root" manual 'failed log goal')"
+  assert_success
+  assert_output ''
+  run jq -sc 'map([.session_id, .trigger, .goal, .outcome])' < "$log"
+  assert_success
+  assert_output '[["log-writable","manual","first log goal","stored"],["log-writable","auto","","stored"],["broken","manual","failed log goal","fork"]]'
+
+  : > "$blocked"
+  handoff_stub_claude "$stub" 'same stored handoff'
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    HANDOFF_LOG_FILE="$blocked/handoff.jsonl" CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    CONTEXT_USAGE_STATE_DIR="$root/usage" bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload log-unwritable "$root" manual 'second log goal')"
+  assert_success
+  assert_output ''
+  assert_equal "$(jq -r '.handoff_content' < "$writable")" 'same stored handoff'
+  assert_equal "$(jq -r '.handoff_content' < "$unwritable")" 'same stored handoff'
 }
 
 # ===========================================
