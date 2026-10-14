@@ -29,24 +29,49 @@
 #     a session state the operator has already moved past (R16).
 #
 # Fails open: any missing dependency, unreadable input, or failed extraction
-# exits 0 and lets compaction proceed unchanged.
+# exits 0 and lets compaction proceed unchanged. Once a session id is known,
+# delivery failures are saved for the SessionStart hook to show the operator.
 
 set -uo pipefail
 
 command -v jq > /dev/null 2>&1 || exit 0
 
-# The library owns the state path, the key encoding, and the extraction bound.
-# ${HOME:-} rather than $HOME: under `set -u` an unset HOME would abort the
-# hook with a non-zero status, which is the opposite of failing open.
+# The library owns the state path and key encoding. ${HOME:-} rather than $HOME
+# avoids turning an unset HOME into a hook failure under `set -u`.
 CONTEXT_USAGE_LIBRARY="${CONTEXT_USAGE_LIBRARY:-${HOME:-}/.local/lib/context-usage.sh}"
 [ -r "$CONTEXT_USAGE_LIBRARY" ] || exit 0
 # shellcheck source=home/dot_local/lib/context-usage.sh
 . "$CONTEXT_USAGE_LIBRARY" || exit 0
 
 HANDOFF_STORE="${HANDOFF_STORE_DIR:-${HOME:-}/.cache/claude-handoff}"
+HANDOFF_LOG_FILE="${HANDOFF_LOG_FILE:-$HANDOFF_STORE/handoff.log}"
 
 handoff_file() {
   printf '%s/%s.json' "$HANDOFF_STORE" "$(context_usage_encode_key "$1")"
+}
+
+log_outcome() {
+  local outcome="$1" record directory
+  record=$(jq -nc --arg session_id "$session_id" --arg trigger "$trigger" --arg goal "$goal" --arg outcome "$outcome" \
+    '{session_id: $session_id, trigger: $trigger, goal: $goal, outcome: $outcome}' 2> /dev/null) || return 0
+  directory="${HANDOFF_LOG_FILE%/*}"
+  [ "$directory" != "$HANDOFF_LOG_FILE" ] || directory="."
+  [ -d "$directory" ] || mkdir -p "$directory" 2> /dev/null || return 0
+  printf '%s\n' "$record" >> "$HANDOFF_LOG_FILE" 2> /dev/null || true
+}
+
+store_failure() {
+  local reason="$1" record
+  record=$(jq -nc --arg reason "$reason" '{failure_reason: $reason, type: "compact_failure"}' 2> /dev/null) || {
+    log_outcome write
+    return 1
+  }
+  if context_usage_atomic_write "$store" "$record" 2> /dev/null; then
+    log_outcome "$reason"
+    return 0
+  fi
+  log_outcome write
+  return 1
 }
 
 input=$(cat) || exit 0
@@ -79,7 +104,10 @@ fi
 # must leave no handoff at all rather than the previous compaction's.
 rm -f "$store" 2> /dev/null || true
 
-command -v claude > /dev/null 2>&1 || exit 0
+command -v claude > /dev/null 2>&1 || {
+  store_failure dependency
+  exit 0
+}
 
 # The extraction prompt is upstream's, unchanged apart from what fills the
 # <goal> block, which upstream always took from the operator.
@@ -139,19 +167,71 @@ Do not:
 
 # Write the model's output straight to a file. Capturing it in a shell
 # variable corrupts backticks, command substitutions, globs, and null bytes.
-extracted=$(mktemp "${TMPDIR:-/tmp}/handoff.XXXXXX" 2> /dev/null) || exit 0
+extracted=$(mktemp "${TMPDIR:-/tmp}/handoff.XXXXXX" 2> /dev/null) || {
+  store_failure write
+  exit 0
+}
 trap 'rm -f "$extracted"' EXIT
 
-status=0
-claude --resume "$session_id" --fork-session \
-  --model haiku --print "$prompt" > "$extracted" 2> /dev/null < /dev/null || status=$?
+# Claude Code terminates this hook at 120 seconds. Polling avoids relying on a
+# platform-specific timeout command while still recording an earlier timeout.
+timeout_seconds="${HANDOFF_TIMEOUT_SECONDS:-110}"
+case "$timeout_seconds" in
+  '' | *[!0-9]*) timeout_seconds=110 ;;
+esac
+[ "$timeout_seconds" -le 110 ] || timeout_seconds=110
 
-[ "$status" -eq 0 ] || exit 0
-[ -s "$extracted" ] || exit 0
+claude --resume "$session_id" --fork-session \
+  --model haiku --print "$prompt" > "$extracted" 2> /dev/null < /dev/null &
+claude_pid=$!
+started=$SECONDS
+timed_out=0
+while kill -0 "$claude_pid" 2> /dev/null; do
+  if [ "$((SECONDS - started))" -ge "$timeout_seconds" ]; then
+    timed_out=1
+    kill "$claude_pid" 2> /dev/null || true
+    break
+  fi
+  sleep 0.1
+done
+
+status=0
+if [ "$timed_out" -eq 1 ]; then
+  # SIGTERM is cooperative. Do not let a process that ignores it outlive the
+  # hook's 120-second Claude Code limit.
+  kill "$claude_pid" 2> /dev/null || true
+  grace_started=$SECONDS
+  while kill -0 "$claude_pid" 2> /dev/null; do
+    if [ "$((SECONDS - grace_started))" -ge 5 ]; then
+      kill -KILL "$claude_pid" 2> /dev/null || true
+      break
+    fi
+    sleep 0.1
+  done
+  wait "$claude_pid" 2> /dev/null || true
+  store_failure timeout
+  exit 0
+fi
+wait "$claude_pid" || status=$?
+[ "$status" -eq 0 ] || {
+  store_failure fork
+  exit 0
+}
+[ -s "$extracted" ] || {
+  store_failure empty
+  exit 0
+}
 
 record=$(jq -n --rawfile content "$extracted" --arg goal "$goal" --arg trigger "$trigger" \
-  '{handoff_content: $content, goal: $goal, trigger: $trigger, type: "compact"}' 2> /dev/null) || exit 0
+  '{handoff_content: $content, goal: $goal, trigger: $trigger, type: "compact"}' 2> /dev/null) || {
+  store_failure write
+  exit 0
+}
 
-context_usage_atomic_write "$store" "$record" 2> /dev/null || exit 0
+context_usage_atomic_write "$store" "$record" 2> /dev/null || {
+  store_failure write
+  exit 0
+}
+log_outcome stored
 
 exit 0
