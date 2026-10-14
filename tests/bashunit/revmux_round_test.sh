@@ -245,7 +245,7 @@ function test_revmux_round_005_next_rejects_an_over_limit_scope_without_launchin
   run env PATH="$SHIM_BIN:$PATH" bash "$SCRIPT" next --task fixture --tasks-dir "$TASKS_DIR" \
     --workdir "$FIXTURE_REPO" --out-dir "$BATS_TEST_TMPDIR/out" --note "$note" --wait
   assert_failure 1
-  assert_output --regexp '^error: scope\.md is [0-9]+ characters; the limit is 1500$'
+  assert_output --regexp '^error: Note section makes scope\.md [0-9]+ characters; the limit is 1500$'
   assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
   assert_file_not_exists "$REVMUX_SHIM_RUN_ARGS"
 }
@@ -868,4 +868,96 @@ function test_revmux_round_032_next_names_candidate_when_it_alone_exceeds_the_sc
   assert_failure 1
   assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
   assert_output --regexp '^error: .*Candidate.*$'
+}
+
+function test_revmux_round_033_next_names_note_when_note_overflows_with_a_small_candidate() {
+  _bats_test_init 33 'next names Note instead of Candidate when the note exceeds the scope limit'
+  require_revmux
+
+  # #given
+  make_round_fixture
+  local candidate="$BATS_TEST_TMPDIR/small.json"
+  local note
+  printf '{"artifact":"small"}\n' > "$candidate"
+  note="$(LC_ALL=C head -c 1400 /dev/zero | tr '\0' n)"
+
+  # #when
+  run_prepare_only --candidate "$candidate" --note "$note"
+
+  # #then
+  assert_failure 1
+  assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
+  assert_output --regexp '^error: Note section makes scope\.md [0-9]+ characters; the limit is 1500$'
+}
+
+function test_revmux_round_034_next_rejects_a_line_feed_in_a_candidate_value() {
+  _bats_test_init 34 'next rejects a candidate value containing a line feed and names its key'
+  require_revmux
+
+  # #given
+  make_round_fixture
+  local candidate="$BATS_TEST_TMPDIR/line-feed-value.json"
+  printf '{"artifact":"first line\\nforged: line"}\n' > "$candidate"
+
+  # #when
+  run_prepare_only --candidate "$candidate"
+
+  # #then
+  assert_failure 1
+  assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
+  assert_output --regexp '^error: .*artifact.*$'
+}
+
+function test_revmux_round_035_next_rejects_a_carriage_return_in_a_candidate_value() {
+  _bats_test_init 35 'next rejects a candidate value containing a carriage return and names its key'
+  require_revmux
+
+  # #given
+  make_round_fixture
+  local candidate="$BATS_TEST_TMPDIR/carriage-return-value.json"
+  printf '{"digest":"trusted\\rforged"}\n' > "$candidate"
+
+  # #when
+  run_prepare_only --candidate "$candidate"
+
+  # #then
+  assert_failure 1
+  assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
+  assert_output --regexp '^error: .*digest.*$'
+}
+
+function test_revmux_round_036_next_rejects_a_candidate_key_ending_in_a_line_feed() {
+  _bats_test_init 36 'next applies the key alphabet check through a trailing line feed'
+  require_revmux
+
+  # #given
+  make_round_fixture
+  local candidate="$BATS_TEST_TMPDIR/line-feed-key.json"
+  printf '{"linefeed-key\\n":"value"}\n' > "$candidate"
+
+  # #when
+  run_prepare_only --candidate "$candidate"
+
+  # #then
+  assert_failure 1
+  assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
+  assert_output --regexp '^error: .*linefeed-key.*$'
+}
+
+function test_revmux_round_037_next_rejects_a_candidate_key_ending_in_a_carriage_return() {
+  _bats_test_init 37 'next applies the key alphabet check through a trailing carriage return'
+  require_revmux
+
+  # #given
+  make_round_fixture
+  local candidate="$BATS_TEST_TMPDIR/carriage-return-key.json"
+  printf '{"carriage-key\\r":"value"}\n' > "$candidate"
+
+  # #when
+  run_prepare_only --candidate "$candidate"
+
+  # #then
+  assert_failure 1
+  assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
+  assert_output --regexp '^error: .*carriage-key.*$'
 }
