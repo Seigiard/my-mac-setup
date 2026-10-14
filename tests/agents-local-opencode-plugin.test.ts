@@ -63,13 +63,6 @@ async function loadUnderHome(sourcePath: string, prefix: string): Promise<any> {
   }
 }
 
-function installV2PluginRuntime(directory: string): void {
-  const packageDirectory = join(directory, "node_modules", "@opencode", "plugin");
-  mkdirSync(packageDirectory, { recursive: true });
-  writeFileSync(join(packageDirectory, "package.json"), '{"type":"module","exports":"./index.js"}\n');
-  writeFileSync(join(packageDirectory, "index.js"), "export const Plugin = { define: (plugin) => plugin };\n");
-}
-
 type V2SystemPart = { type: "text"; text: string };
 
 type V2Request = { sessionID: string; system: V2SystemPart[] };
@@ -99,7 +92,6 @@ async function loadV2ContextHook(
   symlinkSync(CORE_DIR, join(home, ".local", "lib", "agent-hooks"));
 
   const copyDirectory = temporaryDir("agents-local-v2-copy-");
-  installV2PluginRuntime(copyDirectory);
   const copy = join(copyDirectory, `agents-local-v2-${loadCount++}.ts`);
   cpSync(PLUGIN_PATH, copy);
 
@@ -107,8 +99,8 @@ async function loadV2ContextHook(
   process.env.HOME = home;
 
   try {
-    // SAFETY: the fixture imports the candidate after installing its V2 Plugin.define
-    // identity stub, so only the candidate's default plugin export is read here.
+    // SAFETY: the plugin's default export is the plain V2 definition object, so the
+    // namespace is read only for that export.
     const module = (await import(copy)) as { default?: V2Plugin };
 
     const plugin = module.default;

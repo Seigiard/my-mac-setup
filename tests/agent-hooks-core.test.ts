@@ -229,6 +229,59 @@ describe("normalization of the three arg dialects", () => {
   }
 });
 
+describe("encoded OpenCode events", () => {
+  // The selfcheck canary and the parity test obtain their OpenCode event from
+  // `encodeEvent`; the reader accepts whatever the writer emits, so only the
+  // captured OpenCode 2.0.28 events can say what the wire shape must be.
+  for (const [name, tool, payload, expected] of [
+    [
+      "shell",
+      "bash",
+      { command: OPENCODE_V2_CAPTURED_EVENTS.shell.input.command },
+      {
+        tool: OPENCODE_V2_CAPTURED_EVENTS.shell.tool,
+        input: { command: OPENCODE_V2_CAPTURED_EVENTS.shell.input.command },
+      },
+    ],
+    [
+      "write",
+      "write",
+      { filePath: OPENCODE_V2_CAPTURED_EVENTS.write.input.path, content: OPENCODE_V2_CAPTURED_EVENTS.write.input.content },
+      OPENCODE_V2_CAPTURED_EVENTS.write,
+    ],
+    [
+      "edit",
+      "edit",
+      { filePath: OPENCODE_V2_CAPTURED_EVENTS.edit.input.path, content: OPENCODE_V2_CAPTURED_EVENTS.edit.input.newString },
+      {
+        tool: OPENCODE_V2_CAPTURED_EVENTS.edit.tool,
+        input: {
+          path: OPENCODE_V2_CAPTURED_EVENTS.edit.input.path,
+          newString: OPENCODE_V2_CAPTURED_EVENTS.edit.input.newString,
+        },
+      },
+    ],
+    [
+      "nested FFF grep",
+      "fff-grep",
+      { query: OPENCODE_V2_CAPTURED_EVENTS.nestedFffGrep.input.query },
+      {
+        tool: OPENCODE_V2_CAPTURED_EVENTS.nestedFffGrep.tool,
+        input: { query: OPENCODE_V2_CAPTURED_EVENTS.nestedFffGrep.input.query },
+      },
+    ],
+  ] as const) {
+    test(`the ${name} event is encoded in the wire shape OpenCode 2 sends`, () => {
+      // #given a canonical payload for the tool that OpenCode 2.0.28 was captured calling
+      // #when it is encoded for opencode against the shipped registry
+      const encoded = normalize.encodeEvent("opencode", tool, payload, core.CORE_REGISTRY);
+
+      // #then the tool name and input fields are the ones OpenCode 2 sends
+      expect(encoded).toEqual(expected);
+    });
+  }
+});
+
 // --- scenario 2: first deny wins --------------------------------------------
 
 describe("dispatch ordering", () => {
