@@ -123,10 +123,10 @@ async function callBeforeV2(host: Host, raw: any): Promise<string | undefined> {
 // policy at all. The tool names `shell` and `fff_grep` are the ones captured
 // from OpenCode 2.0.28 in `OPENCODE_V2_CAPTURED_EVENTS`; a deny only fires below
 // if the registry still agrees with them.
-const OPENCODE_WIRE_TOOLS: Record<string, string> = {
+const OPENCODE_WIRE_TOOLS = {
   bash: "shell",
   "fff-grep": "fff_grep",
-};
+} satisfies Record<string, string>;
 
 /** undefined = opencode has no wire shape for that tool, i.e. no route exists. */
 function opencodeRawFor(fixture: any): any | undefined {
