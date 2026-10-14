@@ -42,8 +42,9 @@ Repeat this entry once per symptom criterion:
 - Tests: <command>
 - Checks: <each applicable check from the repository's verification rules>
 
-## Implementer start
-- <low | medium>: <the one production file | the production files the change touches>; reason: <why this tier applies>
+## Starting tiers
+- test writer: <medium | high>; reason: <medium by default | high when any test criterion drives a browser or renders UI>
+- implementer: <low | low+>; reason: <low for one production file | low+ for more than one production file>
 
 ## Batch
 - <number>: <initial ticket | caller-supplied review findings>

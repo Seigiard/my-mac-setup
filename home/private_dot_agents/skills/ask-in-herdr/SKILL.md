@@ -21,7 +21,7 @@ bash ~/.agents/skills/ask-in-herdr/scripts/ask.sh <agent> "<question>" [flags]
 |---|---|
 | `--rw` | Give the child a read-write posture. The default is read-only. |
 | `--model M` | Override the model. |
-| `--effort L` | Set Claude effort or Pi thinking level. Pi defaults to `medium`. |
+| `--effort L` | Set Claude effort, Pi thinking level, or OpenCode variant. Pi defaults to `medium`. |
 | `--cwd DIR` | Set the child working directory. |
 | `--skills DIR` | Add a claude or pi skill directory. Repeat the flag for multiple directories. |
 | `--agent NAME` | Select a configured opencode agent. |
