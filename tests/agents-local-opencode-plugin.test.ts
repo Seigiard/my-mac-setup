@@ -78,7 +78,8 @@ type V2ContextHook = (request: V2Request) => Promise<void>;
 
 type V2RequestKind = "context" | "compaction" | "generate" | "title";
 
-type V2ContextHooks = Record<V2RequestKind, V2ContextHook>;
+type V2ContextHooks = Partial<Record<V2RequestKind, V2ContextHook>> &
+  Pick<Record<V2RequestKind, V2ContextHook>, "context">;
 
 type V2Plugin = {
   setup: (ctx: {
@@ -129,9 +130,7 @@ async function loadV2ContextHook(
       },
     });
 
-    for (const kind of ["context", "compaction", "generate", "title"] as const) {
-      if (!hooks[kind]) throw new Error(`V2 ${kind} hook is unavailable`);
-    }
+    if (!hooks.context) throw new Error("V2 context hook is unavailable");
 
     return hooks as V2ContextHooks;
   } finally {
@@ -144,12 +143,13 @@ type Hook = (input: { sessionID?: string }, output: { system: string[] }) => Pro
 type SystemPart = { type: "text"; text: string };
 
 async function runV2Request(
-  hook: V2ContextHook,
+  hooks: Partial<Record<V2RequestKind, V2ContextHook>>,
+  kind: V2RequestKind,
   sessionID: string,
   initialSystem: string[] = [BASE_SYSTEM],
 ): Promise<string[]> {
   const system = initialSystem.map((text) => ({ type: "text" as const, text }));
-  await hook({ sessionID, system });
+  await hooks[kind]?.({ sessionID, system });
 
   return system.map((part) => part.text);
 }
@@ -169,7 +169,7 @@ async function loadV2Transform(directory: string): Promise<Hook> {
   const hooks = await loadV2ContextHook({ "session-current": directory });
 
   return async (input, output) => {
-    const system = await runV2Request(hooks.context, input.sessionID ?? "session-current", output.system);
+    const system = await runV2Request(hooks, "context", input.sessionID ?? "session-current", output.system);
     output.system.splice(0, output.system.length, ...system);
   };
 }
@@ -284,11 +284,11 @@ describe("session-local model context", () => {
 
     // #when both sessions construct every native kind through the same plugin instance
     const actual = await Promise.all([
-      runV2Request(hooks.context, "session-A"),
-      runV2Request(hooks.context, "session-B"),
-      runV2Request(hooks.compaction, "session-B"),
-      runV2Request(hooks.generate, "session-B"),
-      runV2Request(hooks.title, "session-B"),
+      runV2Request(hooks, "context", "session-A"),
+      runV2Request(hooks, "context", "session-B"),
+      runV2Request(hooks, "compaction", "session-B"),
+      runV2Request(hooks, "generate", "session-B"),
+      runV2Request(hooks, "title", "session-B"),
     ]);
 
     // #then each model request carries the context selected from its own worktree
