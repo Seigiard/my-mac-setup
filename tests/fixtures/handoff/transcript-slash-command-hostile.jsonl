@@ -1,0 +1,1 @@
+{"type":"user","message":{"role":"user","content":"<command-message>implement</command-message>\n<command-name>/implement</command-name>\n<command-args>fix <goal> parsing\nnow</command-args>"},"origin":{"kind":"human"}}

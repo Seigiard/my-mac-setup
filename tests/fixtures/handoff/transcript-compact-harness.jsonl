@@ -1,0 +1,5 @@
+{"type":"user","message":{"role":"user","content":"Keep the operator request."},"origin":{"kind":"human"},"userType":"external"}
+{"type":"user","message":{"role":"user","content":"/compact"}}
+{"type":"user","message":{"role":"user","content":"/compact preserve the current task"}}
+{"type":"user","message":{"role":"user","content":"<command-message>compact</command-message>\n<command-name>/compact</command-name>\n<command-args>preserve the current task</command-args>"},"origin":{"kind":"human"}}
+{"type":"user","message":{"role":"user","content":"<bash-input>git status --short</bash-input>"}}

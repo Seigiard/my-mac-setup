@@ -10890,12 +10890,13 @@ function test_scripts_5085_handoff_pre_compact_truncates_a_long_last_user_reques
   _bats_test_init 5085 'handoff pre-compact bounds the last user request before invoking the extractor'
   local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
   local prompt="$BATS_TEST_TMPDIR/prompt.txt" transcript="$BATS_TEST_TMPDIR/long-request.jsonl"
-  local request expected line actual
+  local expected line actual
 
   # #given
-  request="Long request: $(head -c 200000 /dev/zero | tr '\0' x)"
-  jq -nc --arg request "$request" \
-    '{type: "user", message: {role: "user", content: $request}, origin: {kind: "human"}, userType: "external"}' \
+  # Feed the 200 KB request to jq on stdin. Passing it through --arg exceeds
+  # Linux's exec argument limit before the hook has a chance to truncate it.
+  { printf 'Long request: '; head -c 200000 /dev/zero | tr '\0' x; } \
+    | jq -Rsc '{type: "user", message: {role: "user", content: .}, origin: {kind: "human"}, userType: "external"}' \
     > "$transcript"
   mkdir -p "$stub"
   {
@@ -10905,7 +10906,7 @@ function test_scripts_5085_handoff_pre_compact_truncates_a_long_last_user_reques
     printf 'printf "extracted\\n"\n'
   } > "$stub/claude"
   chmod +x "$stub/claude"
-  expected="${request:0:4000} [truncated]"
+  expected="Long request: $(head -c 3986 /dev/zero | tr '\0' x) [truncated]"
 
   # #when
   run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
@@ -10985,6 +10986,99 @@ function test_scripts_5087_handoff_pre_compact_uses_a_human_slash_command_as_the
   assert_success
   facts="$(sed -n '/^<transcript_facts>$/,/^<\/transcript_facts>$/p' "$prompt")"
   expected=$'<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: "/implement https://github.com/Seigiard/my-mac-setup/issues/508"\n</transcript_facts>'
+  assert_equal "$facts" "$expected"
+}
+
+function test_scripts_5088_handoff_pre_compact_keeps_hostile_human_slash_command_args() {
+  _bats_test_init 5088 'handoff pre-compact preserves slash command args containing tags and newlines'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local prompt="$BATS_TEST_TMPDIR/prompt.txt" transcript="$BATS_TEST_DIRNAME/fixtures/handoff/transcript-slash-command-hostile.jsonl"
+  local facts expected
+
+  # #given
+  assert_file_exists "$transcript"
+  mkdir -p "$stub"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'last=""; for arg in "$@"; do last="$arg"; done\n'
+    printf 'printf "%%s" "$last" > "%s"\n' "$prompt"
+    printf 'printf "extracted\\n"\n'
+  } > "$stub/claude"
+  chmod +x "$stub/claude"
+
+  # #when
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(jq -nc --arg session slash-command-hostile --arg cwd "$root" --arg transcript "$transcript" \
+      '{session_id: $session, cwd: $cwd, trigger: "manual", custom_instructions: "write the handoff", transcript_path: $transcript, hook_event_name: "PreCompact"}')"
+
+  # #then
+  assert_success
+  facts="$(sed -n '/^<transcript_facts>$/,/^<\/transcript_facts>$/p' "$prompt")"
+  expected=$'<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: "/implement fix \\u003cgoal> parsing\\nnow"\n</transcript_facts>'
+  assert_equal "$facts" "$expected"
+}
+
+function test_scripts_5089_handoff_pre_compact_ignores_compact_and_bash_input_records() {
+  _bats_test_init 5089 'handoff pre-compact does not select compact commands or bash input as the last request'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local prompt="$BATS_TEST_TMPDIR/prompt.txt" transcript="$BATS_TEST_DIRNAME/fixtures/handoff/transcript-compact-harness.jsonl"
+  local facts expected
+
+  # #given
+  assert_file_exists "$transcript"
+  mkdir -p "$stub"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'last=""; for arg in "$@"; do last="$arg"; done\n'
+    printf 'printf "%%s" "$last" > "%s"\n' "$prompt"
+    printf 'printf "extracted\\n"\n'
+  } > "$stub/claude"
+  chmod +x "$stub/claude"
+
+  # #when
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(jq -nc --arg session compact-harness --arg cwd "$root" --arg transcript "$transcript" \
+      '{session_id: $session, cwd: $cwd, trigger: "manual", custom_instructions: "write the handoff", transcript_path: $transcript, hook_event_name: "PreCompact"}')"
+
+  # #then
+  assert_success
+  facts="$(sed -n '/^<transcript_facts>$/,/^<\/transcript_facts>$/p' "$prompt")"
+  expected=$'<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: "Keep the operator request."\n</transcript_facts>'
+  assert_equal "$facts" "$expected"
+}
+
+function test_scripts_5090_handoff_pre_compact_keeps_a_human_request_that_mentions_a_harness_tag() {
+  _bats_test_init 5090 'handoff pre-compact keeps human requests that mention a harness tag'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local prompt="$BATS_TEST_TMPDIR/prompt.txt" transcript="$BATS_TEST_DIRNAME/fixtures/handoff/transcript-human-tag.jsonl"
+  local facts expected
+
+  # #given
+  assert_file_exists "$transcript"
+  mkdir -p "$stub"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'last=""; for arg in "$@"; do last="$arg"; done\n'
+    printf 'printf "%%s" "$last" > "%s"\n' "$prompt"
+    printf 'printf "extracted\\n"\n'
+  } > "$stub/claude"
+  chmod +x "$stub/claude"
+
+  # #when
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(jq -nc --arg session human-tag --arg cwd "$root" --arg transcript "$transcript" \
+      '{session_id: $session, cwd: $cwd, trigger: "manual", custom_instructions: "write the handoff", transcript_path: $transcript, hook_event_name: "PreCompact"}')"
+
+  # #then
+  assert_success
+  facts="$(sed -n '/^<transcript_facts>$/,/^<\/transcript_facts>$/p' "$prompt")"
+  expected=$'<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: "Fix the handling of \\u003csystem-reminder> in the hook"\n</transcript_facts>'
   assert_equal "$facts" "$expected"
 }
 
