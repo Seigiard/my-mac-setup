@@ -44,10 +44,10 @@ Done when the worktree is clean and `ticket.md` holds the ticket, its criteria, 
 2. **Seams and checks.** Record in `ticket.md`, reusing fields an earlier batch recorded when they are unchanged:
    - for every **test** criterion: the public boundary, the allowed test paths and fixtures, and the test command;
    - the applicable checks from the repository's verification rules (in my-mac-setup: `docs/agent-verification.md`; ask the caller when the repository has none);
-    - both roles' starting tiers and reasons (Starting tiers, below);
+   - both roles' starting tiers and reasons (Starting tiers, below);
    - the batch number, its immutable `batch_start_sha` (`HEAD` when the batch opens and preserved across retries and re-locks), and its turn count and limit ([batches](#batches-and-turns)).
 
-    Starting tiers: the test writer starts on `medium`, or `high` when any test criterion drives a browser or renders UI (e2e, component, visual). The implementer starts on `low` when the production change touches one file, otherwise on `low+`; count only production files and record the reason in `ticket.md`. A Capability diagnosis climbs one rung. On `high+`, there is no next tier: stop. Tiers map to model and effort through `~/.claude/shared/model-tiers.md`.
+   Starting tiers: the test writer starts on `medium`, or `high` when any test criterion drives a browser or renders UI (e2e, component, visual). The implementer starts on `low` when the production change touches one file, otherwise on `low+`; count only production files and record the reason in `ticket.md`. A Capability diagnosis climbs one rung. On `high+`, there is no next tier: stop. Tiers map to model and effort through `~/.claude/shared/model-tiers.md`.
 
    Read the area's glossary and ADRs when present. For an unsettled interface, load `codebase-design`; ask the user when it needs a product decision. Done when these fields are recorded for the batch.
 3. **Test writer.** Record `base_sha` (`git rev-parse HEAD`) and start a test writer in **prepare** mode ([Dispatch](#dispatch), brief: `test-writer.md` in this skill's directory). When it settles, inspect the worktree, the report, and the evidence before changing repository state. A [handoff gap](#responding-to-a-failure) keeps the candidate in place and resumes the child. Otherwise accept the lock only when all of these hold:
