@@ -1133,3 +1133,37 @@ function test_revmux_round_042_next_archives_the_current_candidate_instead_of_th
   run cmp "$current_candidate" "$archived_candidate"
   assert_success
 }
+
+function test_revmux_round_043_next_uses_generic_overflow_when_only_fixed_parts_exceed_the_limit() {
+  _bats_test_init 43 'next does not blame Candidate when Limited to already exceeds the scope limit'
+  require_revmux
+
+  # #given
+  make_round_fixture
+  local component
+  local path
+  local candidate="$BATS_TEST_TMPDIR/candidate.json"
+  local only_args=()
+  local index
+  component="$(LC_ALL=C head -c 120 /dev/zero | tr '\0' l)"
+  path="$component.txt"
+  printf 'selected\n' > "$FIXTURE_REPO/$path"
+  git -C "$FIXTURE_REPO" add "$path"
+  git -C "$FIXTURE_REPO" commit -qm selected
+  {
+    printf '{"blob":"'
+    LC_ALL=C head -c 1100 /dev/zero | tr '\0' x
+    printf '"}\n'
+  } > "$candidate"
+  for ((index = 0; index < 10; index++)); do
+    only_args+=(--only "$path")
+  done
+
+  # #when
+  run_prepare_only --candidate "$candidate" "${only_args[@]}"
+
+  # #then
+  assert_failure 1
+  assert_output --regexp '^error: scope\.md is [0-9]+ characters; the limit is 1500$'
+  assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
+}
