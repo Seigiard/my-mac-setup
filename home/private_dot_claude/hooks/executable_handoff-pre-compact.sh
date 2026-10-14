@@ -148,7 +148,16 @@ transcript_facts() {
       or ((.origin.kind? != "human")
           and ($text | test("(?i)(^|\\n)(hook feedback:|system reminder:)|<system-reminder>|<task-notification>|<local-command-(stdout|stderr)>|<(local|bash)-(stdout|stderr)>|<bash-input>|^\\[Request interrupted by user( for tool use)?\\]|<command-name>|<command-message>")));
 
-    . as $records
+    def queued_as_user:
+      if .type == "attachment"
+         and (.attachment.type? == "queued_command")
+         and (.attachment.commandMode? == "prompt")
+         and ((.attachment.prompt? | type) == "string")
+      then {type: "user", message: {role: "user", content: .attachment.prompt}, origin: .attachment.origin?}
+      else .
+      end;
+
+    map(queued_as_user) as $records
     | [ $records[]
       | select(.type == "user")
       | tool_results
