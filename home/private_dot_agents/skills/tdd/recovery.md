@@ -17,7 +17,7 @@ The diagnosis records the authoritative source that settles the expected result,
 | **Production:** a changed file or hunk serves no existing criterion | The **Production** targeted fix above, with the diagnosis naming the unrelated paths to remove. |
 | **Locked test:** a test is wrong (false green, wrong oracle, contradictory fixture) | The suspect-test route under [Entering mid-chain](SKILL.md#entering-mid-chain), on the tier of the last accepted lock. The implementer is never asked to satisfy a wrong test. |
 | **Calibration:** a mutation was unfaithful, or restoration failed | Recover and verify the production snapshot at `calibration_sha`, then a fresh calibrate child. The lock stays. |
-| **Capability:** an authoritative contract or oracle source already settles the expected result, but the child could not establish the behavior from it, exercise it, or produce a faithful regression | A fresh child one tier up with the diagnosis in its prompt. On `high`, there is no next tier: stop. |
+| **Capability:** an authoritative contract or oracle source already settles the expected result, but the child could not establish the behavior from it, exercise it, or produce a faithful regression | A fresh child one tier up with the diagnosis in its prompt. On `high+`, there is no next tier: stop. |
 | **Prerequisite:** the environment or the caller's brief is wrong | The orchestrator corrects run-directory data, brief data, and environment state within its scope. A repository edit goes to a scoped child only when an existing criterion already requires the repair; otherwise return the scope decision to the caller as **Decision**. After each repair, retry the same tier. When it cannot be restored with the tools and access you have, stop. |
 | **Decision:** the available authority does not settle the expected result, or sources conflict, a change needs a product decision, or a necessary change violates a non-goal | Ask the caller. No model change answers this. |
 
@@ -28,7 +28,7 @@ The chain **stops**, reporting the diagnoses and the run directory, when:
 - the worktree is dirty before the chain, or no child can start;
 - a diagnosis returns;
 - a bug is not reproduced;
-- a capability failure happens on `high`, or a prerequisite cannot be restored;
+- a capability failure happens on `high+`, or a prerequisite cannot be restored;
 - another dispatch is needed and the batch has no turns left;
 - the caller must decide an oracle or a product question.
 

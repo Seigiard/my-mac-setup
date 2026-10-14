@@ -1,12 +1,13 @@
 # Model tiers
 
-A skill that starts a child picks its model by tier, never by name. This table is where a tier becomes a model; the calling skill sets which tiers a role may use.
+A skill that starts a child picks its model and reasoning effort by tier, never by name. The tier owns the effort or variant; the calling skill sets which tiers a role may use.
 
-| Tier | Claude model | OpenCode model |
+| Tier | Claude model / effort | OpenCode model / variant |
 |---|---|---|
-| `low` | `sonnet` | `openai/gpt-5.6-luna` |
-| `medium` | `sonnet` | `openai/gpt-5.6-terra` |
-| `high` | `opus` | `openai/gpt-5.6-sol` |
-| `xhigh` | `fable` | `openai/gpt-6-astra` |
+| `low` | `haiku` / `high` | `openai/gpt-5.6-luna` / `high` |
+| `low+` | `haiku` / `xhigh` | `openai/gpt-5.6-luna` / `xhigh` |
+| `medium` | `sonnet` / `high` | `openai/gpt-5.6-terra` / `high` |
+| `high` | `opus` / `medium` | `openai/gpt-5.6-sol` / `medium` |
+| `high+` | `opus` / `high` | `openai/gpt-5.6-sol` / `high` |
 
-Verified on 2026-09-12 against Claude Code 2.1.236 and OpenCode 1.18.30. Claude has no cheaper step than `sonnet`, so `low` and `medium` share it; a role that needs a real `low` runs on OpenCode.
+Verified on 2026-10-14 against Claude Code 2.1.287 and OpenCode 1.19.0.

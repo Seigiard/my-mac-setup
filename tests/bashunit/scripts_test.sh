@@ -5909,6 +5909,69 @@ PY
   assert_success
 }
 
+function test_scripts_0617_herdr_child_maps_opencode_effort_levels_to_agent_vari() {
+  _bats_test_init 617 'herdr-child maps every OpenCode effort level to the agent variant'
+
+  # #given
+  local effort
+  child_stub_herdr
+
+  for effort in low medium high xhigh max; do
+    : > "$CHILD_STUB/calls.log"
+
+    # #when
+    run child_start --kind opencode --agent plan --model opencode/cat-jam-free \
+      --effort "$effort" --wait
+
+    # #then
+    assert_success
+    run python3 - "$(child_logged_value OPENCODE_CONFIG_CONTENT)" "$effort" <<'PY'
+import json
+import sys
+
+name, value = sys.argv[1].split("=", 1)
+variant = sys.argv[2]
+assert name == "OPENCODE_CONFIG_CONTENT", repr(name)
+assert json.loads(value) == {
+    "model": "opencode/cat-jam-free",
+    "default_agent": "plan",
+    "permission": {"question": "deny", "edit": "deny", "shell": "allow"},
+    "agent": {
+        "plan": {
+            "model": "opencode/cat-jam-free",
+            "permission": {"question": "deny", "edit": "deny", "shell": "allow"},
+            "variant": variant,
+        },
+    },
+}
+PY
+    assert_success
+  done
+}
+
+function test_scripts_0618_herdr_child_passes_an_opencode_native_variant_unchanged() {
+  _bats_test_init 618 'herdr-child passes an OpenCode native variant unchanged'
+
+  # #given
+  child_stub_herdr
+
+  # #when
+  run child_start --kind opencode --agent plan --model opencode/cat-jam-free \
+    --variant thinking --wait
+
+  # #then
+  assert_success
+  run python3 - "$(child_logged_value OPENCODE_CONFIG_CONTENT)" <<'PY'
+import json
+import sys
+
+name, value = sys.argv[1].split("=", 1)
+assert name == "OPENCODE_CONFIG_CONTENT", repr(name)
+assert json.loads(value)["agent"]["plan"]["variant"] == "thinking"
+PY
+  assert_success
+}
+
 function test_scripts_0611_herdr_child_maps_open_read_write_permissions_model_and() {
   _bats_test_init 611 'herdr-child launches read-write OpenCode with merged configuration'
   child_stub_herdr
@@ -6024,18 +6087,87 @@ function test_scripts_062_herdr_child_maps_pi_model_effort_skills_and_ques() {
   assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--model custom/model --thinking high'
 }
 
+function test_scripts_0619_herdr_child_rejects_unknown_claude_effort_before_start() {
+  _bats_test_init 619 'herdr-child rejects an unknown Claude effort before starting'
+
+  # #given
+  local level
+  child_stub_herdr
+
+  # #when
+  run child_start --kind claude --posture rw --effort none --wait
+
+  # #then
+  assert_failure 2
+  for level in low medium high xhigh max; do
+    [[ "$output" == *"$level"* ]] || fail "usage error did not name accepted effort level: $level"
+  done
+  [ ! -f "$CHILD_STUB/calls.log" ]
+}
+
+function test_scripts_06191_herdr_child_rejects_unknown_opencode_effort_before_start() {
+  _bats_test_init 6191 'herdr-child rejects an unknown OpenCode effort before starting'
+
+  # #given
+  local level
+  child_stub_herdr
+
+  # #when
+  run child_start --kind opencode --posture rw --effort none --wait
+
+  # #then
+  assert_failure 2
+  for level in low medium high xhigh max; do
+    [[ "$output" == *"$level"* ]] || fail "usage error did not name accepted effort level: $level"
+  done
+  [ ! -f "$CHILD_STUB/calls.log" ]
+}
+
+function test_scripts_06192_herdr_child_rejects_unknown_pi_effort_before_start() {
+  _bats_test_init 6192 'herdr-child rejects an unknown Pi effort before starting'
+
+  # #given
+  local level
+  child_stub_herdr
+
+  # #when
+  run child_start --kind pi --posture rw --effort none --wait
+
+  # #then
+  assert_failure 2
+  for level in low medium high xhigh max; do
+    [[ "$output" == *"$level"* ]] || fail "usage error did not name accepted effort level: $level"
+  done
+  [ ! -f "$CHILD_STUB/calls.log" ]
+}
+
 function test_scripts_063_herdr_child_rejects_native_options_that_the_sele() {
   _bats_test_init 63 'herdr-child rejects native options that the selected kind cannot map'
   child_stub_herdr
-  run child_start --kind opencode --effort high --wait
+  run child_start --kind claude --variant thinking --wait
   assert_failure 2
-  assert_output --partial "--effort is not supported for opencode"
+  assert_output --partial "--variant is only supported for opencode"
   run child_start --kind pi --posture rw --agent reviewer --wait
   assert_failure 2
   assert_output --partial "--agent is not supported for pi"
   run child_start --kind opencode --skills A --wait
   assert_failure 2
   assert_output --partial "--skills is not supported for opencode"
+  [ ! -f "$CHILD_STUB/calls.log" ]
+}
+
+function test_scripts_0620_herdr_child_rejects_opencode_effort_and_variant_togethe() {
+  _bats_test_init 620 'herdr-child rejects OpenCode effort and variant together before starting'
+
+  # #given
+  child_stub_herdr
+
+  # #when
+  run child_start --kind opencode --effort high --variant thinking --wait
+
+  # #then
+  assert_failure 2
+  assert_output --partial "--effort cannot be combined with --variant"
   [ ! -f "$CHILD_STUB/calls.log" ]
 }
 

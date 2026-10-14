@@ -6,7 +6,7 @@ start_child() {
   require_parent
 
   local -a original_args=("$@")
-  local kind="" name="" posture="ro" cwd="$PWD" model="" effort=""
+  local kind="" name="" posture="ro" cwd="$PWD" model="" effort="" variant=""
   local configured_agent="" prompt="" prompt_file="" direction="" direction_explicit=0
   local mode="" mode_count=0 timeout="30000" supervision_timeout="$DEFAULT_SUPERVISION_TIMEOUT"
   local supervision_timeout_set=0
@@ -28,6 +28,7 @@ start_child() {
       --cwd) [ $# -ge 2 ] || fail_usage '--cwd needs a value'; cwd="$2"; shift 2 ;;
       --model) [ $# -ge 2 ] || fail_usage '--model needs a value'; model="$2"; shift 2 ;;
       --effort) [ $# -ge 2 ] || fail_usage '--effort needs a value'; effort="$2"; shift 2 ;;
+      --variant) [ $# -ge 2 ] || fail_usage '--variant needs a value'; variant="$2"; shift 2 ;;
       --skills) [ $# -ge 2 ] || fail_usage '--skills needs a value'; skills+=("$2"); skills_count=$((skills_count + 1)); shift 2 ;;
       --agent) [ $# -ge 2 ] || fail_usage '--agent needs a value'; configured_agent="$2"; shift 2 ;;
       --prompt) [ $# -ge 2 ] || fail_usage '--prompt needs a value'; prompt="$2"; shift 2 ;;
@@ -90,7 +91,13 @@ start_child() {
   if [ "$kind" = pi ] && [ "$posture" = ro ]; then
     fail_usage 'pi does not support read-only posture: its return channel requires bash (R10)'
   fi
-  if [ -n "$effort" ] && [ "$kind" = opencode ]; then fail_usage "--effort is not supported for $kind"; fi
+  if [ -n "$effort" ]; then
+    case "$effort" in low|medium|high|xhigh|max) ;; *) fail_usage '--effort must be low, medium, high, xhigh, or max' ;; esac
+  fi
+  if [ -n "$variant" ] && [ "$kind" != opencode ]; then fail_usage '--variant is only supported for opencode'; fi
+  if [ "$kind" = opencode ] && [ -n "$effort" ] && [ -n "$variant" ]; then
+    fail_usage '--effort cannot be combined with --variant'
+  fi
   if [ "$skills_count" -gt 0 ] && [ "$kind" = opencode ]; then fail_usage '--skills is not supported for opencode'; fi
   if [ -n "$configured_agent" ] && [ "$kind" != opencode ]; then fail_usage "--agent is not supported for $kind"; fi
   if [ "$kind" = opencode ]; then
@@ -109,17 +116,19 @@ start_child() {
         ;;
     esac
     effective_agent="${configured_agent:-build}"
-    opencode_config="$(python3 - "$model" "$effective_agent" "$posture" <<'PY'
+    opencode_config="$(python3 - "$model" "$effective_agent" "$posture" "${variant:-$effort}" <<'PY'
 import json
 import sys
 
-model, effective_agent, posture = sys.argv[1:]
+model, effective_agent, posture, variant = sys.argv[1:]
 permission = {"question": "deny", "edit": "allow", "shell": "allow"}
 if posture == "ro":
     permission["edit"] = "deny"
 config = {"model": model, "default_agent": effective_agent}
 config["permission"] = permission
 config["agent"] = {effective_agent: {"model": model, "permission": permission}}
+if variant:
+    config["agent"][effective_agent]["variant"] = variant
 print(json.dumps(config, separators=(",", ":")))
 PY
 )" || {
