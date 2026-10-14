@@ -311,11 +311,18 @@ Then provide your handoff in this exact structure:
 [Restate the goal as a clear, actionable directive]
 
 ## Relevant Context
-[3-7 bullet points of technical context that directly enables the goal]
+[Bullet points of technical context that directly enables the goal]
 [Each bullet must pass the test: \"The next agent cannot execute the goal without knowing this\"]
+[When an item is inferred rather than observed, write it as: <claim>, verify with: <exact command>]
+
+## Last request
+[Quote the operator's last real message verbatim from the facts block above]
+Status: [Use exactly one of: Answered, Partially answered, Not answered]
+[When the request is not fully answered, name what to check first]
 
 ## Key Details
 [Specific implementation details: file paths, function names, commands, error messages]
+[When an item is inferred rather than observed, write it as: <claim>, verify with: <exact command>]
 [Use exact names and paths—no paraphrasing]
 
 ## Warnings
