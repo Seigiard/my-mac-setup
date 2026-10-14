@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -815,7 +815,7 @@ test("registers session_start to run the update sequence in the background, only
   // signal, and the startup event below is the control proving it still fires.
   let uiReads = 0;
 
-  const ctx = { get ui() { uiReads += 1;
+  const ctx = { hasUI: true, get ui() { uiReads += 1;
 
  return fakeUi().ui; } };
 
@@ -865,7 +865,7 @@ test("invokes the registered brew-auto-update-now handler and runs the full upda
   const { ui } = fakeUi();
   // The real handler.handler signature is (args, ctx); a bare {} stands in
   // for command args the update sequence never reads.
-  await commandHandler!({}, { ui });
+  await commandHandler!({}, { hasUI: true, ui });
 
   // Observed through the fake executor: this is the actual command sequence
   // the registered handler drove end to end, in order, not just proof that a
@@ -875,4 +875,69 @@ test("invokes the registered brew-auto-update-now handler and runs the full upda
     ["brew", ["upgrade", "pi-coding-agent"]],
     ["pi", ["update", "--extensions"]],
   ]);
+});
+
+// Pi binds print and JSON modes to a no-op UI and reports hasUI: false there
+// (pi-coding-agent 1.2.0, core/extensions/runner.js noOpUIContext).
+test("starts no startup run in a headless session, where a notification cannot reach anyone", async () => {
+  const handlers = new Map<string, Function>();
+
+  const fakePi = {
+    on: (event: string, handler: Function) => handlers.set(event, handler),
+    registerCommand: () => {},
+  };
+
+  const { deps } = await dependencies();
+  registerBrewAutoUpdater(fakePi, deps);
+  // As in the startup test above, the synchronous ctx.ui read is the causal
+  // signal that a run started; that test is the control where it does.
+  let uiReads = 0;
+
+  const ctx = { hasUI: false, get ui() { uiReads += 1;
+
+ return fakeUi().ui; } };
+
+  // #when a startup session_start arrives without a UI
+  handlers.get("session_start")!({ reason: "startup" }, ctx);
+
+  // #then the handler started no run
+  expect(uiReads).toBe(0);
+});
+
+test("reports a headless manual run's failure on stderr instead of the no-op UI", async () => {
+  let commandHandler: Function | undefined;
+
+  const fakePi = {
+    on: () => {},
+    registerCommand: (name: string, options: { handler: Function }) => {
+      if (name === "brew-auto-update-now") commandHandler = options.handler;
+    },
+  };
+
+  const { deps } = await dependencies({
+    exec: async () => ({ code: 1, stdout: "", stderr: "stop", killed: false }),
+  });
+
+  registerBrewAutoUpdater(fakePi, deps);
+  const { ui, notifications } = fakeUi();
+  const written: string[] = [];
+
+  const stderrWrite = spyOn(process.stderr, "write").mockImplementation((chunk) => {
+    written.push(String(chunk));
+
+    return true;
+  });
+
+  // #when the command runs without a UI
+  try {
+    await commandHandler!({}, { hasUI: false, ui });
+  } finally {
+    stderrWrite.mockRestore();
+  }
+
+  // #then the failure reaches stderr and nothing goes to the UI that drops it
+  expect({ written, notifications }).toEqual({
+    written: ["brew-auto-update: warning: Homebrew metadata refresh failed: stop\n"],
+    notifications: [],
+  });
 });

@@ -346,8 +346,20 @@ function notify(ui: UpdateUi, message: string, level: NotificationLevel): void {
   try {
     ui.notify(message, level);
   } catch {
-    // Headless modes can omit UI behavior. Updating remains best-effort.
+    // A throwing UI must not break the updater. Updating remains best-effort.
   }
+}
+
+// Print and JSON modes bind extensions to a UI whose notify is a no-op. A
+// headless caller reads stderr; stdout must stay the mode's own output.
+const stderrUi: UpdateUi = {
+  notify: (message, level) => {
+    process.stderr.write(`brew-auto-update: ${level}: ${message}\n`);
+  },
+};
+
+function updateUiFor(ctx: { hasUI: boolean; ui: UpdateUi }): UpdateUi {
+  return ctx.hasUI ? ctx.ui : stderrUi;
 }
 
 function failureDetail(result: ExecResult): string {
@@ -608,6 +620,11 @@ export default function registerBrewAutoUpdater(
 
   pi.on("session_start", (event, ctx) => {
     if (event.reason !== "startup") return;
+
+    // A headless session (print or JSON mode) ends when its prompt does, and
+    // disposing the runtime makes pi.exec throw mid-sequence. Do not start a
+    // Homebrew upgrade that a scripted run did not ask for and cannot finish.
+    if (!ctx.hasUI) return;
     void runBrewAutoUpdate("startup", ctx.ui, deps).catch(() => {
       // runBrewAutoUpdate reports failures itself. This guard prevents a
       // cleanup defect from becoming an unhandled startup rejection.
@@ -617,7 +634,7 @@ export default function registerBrewAutoUpdater(
   pi.registerCommand("brew-auto-update-now", {
     description: "Update Homebrew-managed Pi and installed Pi packages now",
     handler: async (_args, ctx) => {
-      await runBrewAutoUpdate("manual", ctx.ui, deps);
+      await runBrewAutoUpdate("manual", updateUiFor(ctx), deps);
     },
   });
 }
