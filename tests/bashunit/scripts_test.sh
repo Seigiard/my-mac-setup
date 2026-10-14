@@ -10718,8 +10718,10 @@ function test_scripts_2844_handoff_pre_compact_hands_the_extractor_a_usable_goal
 function test_scripts_508_handoff_pre_compact_feeds_transcript_facts_to_the_extractor() {
   _bats_test_init 508 'handoff pre-compact gives the extractor successful transcript facts before its goal'
   local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
-  local prompt="$BATS_TEST_TMPDIR/prompt.txt" transcript="$SOURCE_ROOT/tests/fixtures/handoff/transcript-facts.jsonl"
+  local prompt="$BATS_TEST_TMPDIR/prompt.txt" transcript="$BATS_TEST_DIRNAME/fixtures/handoff/transcript-facts.jsonl"
   local file facts_line goal_line
+
+  assert_file_exists "$transcript"
 
   mkdir -p "$stub"
   {
