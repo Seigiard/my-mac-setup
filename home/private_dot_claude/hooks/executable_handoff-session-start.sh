@@ -45,7 +45,18 @@ session_id=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null) ||
 store="$HANDOFF_STORE/$(context_usage_encode_key "$session_id").json"
 [ -f "$store" ] || exit 0
 
-content=$(jq -r '.handoff_content // empty' < "$store" 2>/dev/null) || exit 0
+failure_reason=$(jq -r '.failure_reason // empty' < "$store" 2> /dev/null) || exit 0
+case "$failure_reason" in
+  dependency | fork | timeout | empty | write)
+    rm -f "$store" 2> /dev/null || true
+    jq -n --arg reason "$failure_reason" \
+      '{systemMessage: ("-----\n⚠️ Compact handoff not delivered\n\nreason: " + $reason + "\n-----")}' \
+      2> /dev/null || exit 0
+    exit 0
+    ;;
+esac
+
+content=$(jq -r '.handoff_content // empty' < "$store" 2> /dev/null) || exit 0
 if [ -z "$content" ]; then
   rm -f "$store" 2> /dev/null || true
   exit 0
