@@ -10926,6 +10926,37 @@ function test_scripts_5085_handoff_pre_compact_truncates_a_long_last_user_reques
   assert_success
 }
 
+function test_scripts_5086_handoff_pre_compact_ignores_real_harness_record_shapes() {
+  _bats_test_init 5086 'handoff pre-compact does not select compact, interruption, protocol, or bash records'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local prompt="$BATS_TEST_TMPDIR/prompt.txt" transcript="$BATS_TEST_DIRNAME/fixtures/handoff/transcript-harness.jsonl"
+  local facts expected
+
+  # #given
+  assert_file_exists "$transcript"
+  mkdir -p "$stub"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'last=""; for arg in "$@"; do last="$arg"; done\n'
+    printf 'printf "%%s" "$last" > "%s"\n' "$prompt"
+    printf 'printf "extracted\\n"\n'
+  } > "$stub/claude"
+  chmod +x "$stub/claude"
+
+  # #when
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(jq -nc --arg session harness-records --arg cwd "$root" --arg transcript "$transcript" \
+      '{session_id: $session, cwd: $cwd, trigger: "manual", custom_instructions: "write the handoff", transcript_path: $transcript, hook_event_name: "PreCompact"}')"
+
+  # #then
+  assert_success
+  facts="$(sed -n '/^<transcript_facts>$/,/^<\/transcript_facts>$/p' "$prompt")"
+  expected=$'<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: "Keep this operator request."\n</transcript_facts>'
+  assert_equal "$facts" "$expected"
+}
+
 function test_scripts_2837_handoff_hooks_fail_open_without_a_home() {
   _bats_test_init 2837 'handoff hooks fail open when HOME is unset'
   local hook
