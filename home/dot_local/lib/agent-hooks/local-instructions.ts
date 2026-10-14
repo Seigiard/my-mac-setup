@@ -17,9 +17,12 @@ export const LOCAL_INSTRUCTION_FILE_NAMES = ["AGENTS.local.md", "CLAUDE.local.md
 
 export const MAX_LOCAL_INSTRUCTIONS_BYTES = 50 * 1024;
 
-// Emitted by formatLocalInstructions and recognized by the OpenCode plugin
-// when it replaces an earlier generated entry.
+// Match the formatter's full block shape so refreshes preserve ordinary text
+// that mentions this heading.
 export const LOCAL_INSTRUCTIONS_HEADING = "## Local Private Project Instructions";
+
+const LOCAL_INSTRUCTIONS_SOURCE_SUFFIX =
+  ". These instructions are private and local. Follow them in addition to repository instructions.";
 
 export type LocalInstructionFileName = (typeof LOCAL_INSTRUCTION_FILE_NAMES)[number];
 
@@ -240,15 +243,26 @@ export function formatLocalInstructions(selected: LocalInstructionCandidate, con
 
 ${LOCAL_INSTRUCTIONS_HEADING}
 
-Loaded from ${selected.realPath}. These instructions are private and local. Follow them in addition to repository instructions.
+Loaded from ${selected.realPath}${LOCAL_INSTRUCTIONS_SOURCE_SUFFIX}
 
 ### ${selected.name}
 
 ${contents}`;
 }
 
-export function isGeneratedLocalInstructions(block: string): boolean {
-  return block.startsWith(`\n\n${LOCAL_INSTRUCTIONS_HEADING}\n\nLoaded from `);
+export function isGeneratedLocalInstructionsBlock(block: string): boolean {
+  const text = block.trimStart();
+  const loadedPrefix = `${LOCAL_INSTRUCTIONS_HEADING}\n\nLoaded from `;
+
+  if (!text.startsWith(loadedPrefix)) return false;
+
+  const sourceEnd = text.indexOf(LOCAL_INSTRUCTIONS_SOURCE_SUFFIX, loadedPrefix.length);
+
+  if (sourceEnd < 0) return false;
+
+  const fileHeading = text.slice(sourceEnd + LOCAL_INSTRUCTIONS_SOURCE_SUFFIX.length);
+
+  return LOCAL_INSTRUCTION_FILE_NAMES.some((name) => fileHeading.startsWith(`\n\n### ${name}\n\n`));
 }
 
 /**

@@ -1,100 +1,104 @@
 // @ts-nocheck
-// Type checking is off here for the same reason the other managed opencode
-// plugins turn it off: this file is checked out in a plain dotfiles repo with
-// no node_modules, and only resolves its imports once deployed under
-// ~/.config/opencode/, where opencode's own dependencies live.
-import type { Plugin } from "@opencode-ai/plugin"
+// This runs under the pinned V1 host, where the V2 package is absent at runtime.
+// Type-only V2 imports document the upgrade contract without changing that load path.
 import { join } from "node:path"
-
-// opencode transport for the shared local-instructions module.
-//
-// Selection, the symlink-escape check, the size cap and the emitted block all
-// live in ~/.local/lib/agent-hooks/local-instructions.ts and are shared with
-// the pi extension, so the safety checks exist once (R7). pi's ui.notify
-// warnings are dropped here: opencode has no equivalent channel (KTD11).
-//
-// Generated blocks are replaced before every request. This makes an edited
-// file, a missing file, or a changed session directory retract stale context.
+import type { SystemPart } from "@opencode/ai"
+import type { Plugin as OpenCodePlugin } from "@opencode/plugin"
+import type { SessionRequest } from "@opencode/plugin/promise/session"
 
 const HOME = process.env.HOME ?? ""
 
 const MODULE_PATH = join(HOME, ".local", "lib", "agent-hooks", "local-instructions.ts")
 
-// Load-time import rather than per-call (KTD5): a failure is front-loaded into
-// a plugin that registers nothing, which is the honest degradation — a
-// registered hook that never appends would look alive to a reader.
-let buildLocalInstructions: ((cwd: string) => Promise<{ block?: string }>) | undefined
+const HOOKS = ["context", "compaction", "generate", "title"]
 
-let isGeneratedLocalInstructions: ((block: string) => boolean) | undefined
+type LocalInstructionsBlock = { block?: string }
+
+type V2Plugin = OpenCodePlugin.Plugin
+
+type V1Plugin = {
+  "experimental.chat.system.transform"?: (
+    input: Record<string, never>,
+    output: { system?: string[] },
+  ) => Promise<void>
+}
+
+let buildLocalInstructions: ((cwd: string) => Promise<LocalInstructionsBlock>) | undefined
+
+let isGeneratedLocalInstructionsBlock: ((block: string) => boolean) | undefined
+
+let defineV2: ((plugin: V2Plugin) => V2Plugin) | undefined
 
 try {
-  ;({ buildLocalInstructions, isGeneratedLocalInstructions } = await import(MODULE_PATH))
+  ;({ buildLocalInstructions, isGeneratedLocalInstructionsBlock } = await import(MODULE_PATH))
 } catch {
   buildLocalInstructions = undefined
 }
 
-export const AgentsLocalPlugin: Plugin = async ({ directory }) => {
-  if (!buildLocalInstructions || !isGeneratedLocalInstructions || !directory) return {}
+try {
+  ;({ Plugin: { define: defineV2 } } = await import("@opencode/plugin"))
+} catch {
+  defineV2 = undefined
+}
+
+async function localInstructions(directory: string): Promise<{ block?: string; failed: boolean }> {
+  if (!buildLocalInstructions) return { failed: true }
+
+  try {
+    return { block: (await buildLocalInstructions(directory)).block, failed: false }
+  } catch {
+    // Do not restore stale instructions when selection fails.
+    return { failed: true }
+  }
+}
+
+const plugin = {
+  id: "agents-local",
+  server: AgentsLocalPlugin,
+  async setup(ctx) {
+    if (!buildLocalInstructions || !isGeneratedLocalInstructionsBlock) return
+
+    const inject = async (request: SessionRequest) => {
+      const retained = request.system.filter((part) => !isGeneratedLocalInstructionsBlock(part.text))
+      request.system.splice(0, request.system.length, ...retained)
+
+      try {
+        const session = await ctx.session.get({ sessionID: request.sessionID })
+        const directory = session?.location?.directory
+
+        if (!directory) return
+
+        const { block } = await localInstructions(directory)
+
+        if (block) request.system.push({ type: "text", text: block } satisfies SystemPart)
+      } catch {
+        return
+      }
+    }
+
+    await Promise.all(HOOKS.map((hook) => ctx.session.hook(hook, inject)))
+  },
+}
+
+// V1 remains the normal pin until the upgrade lands; the dynamic V2 bridge
+// keeps this file loadable in that host while preserving V1 selection coverage.
+export async function AgentsLocalPlugin({ directory }: { directory?: string }): Promise<V1Plugin> {
+  if (!buildLocalInstructions || !isGeneratedLocalInstructionsBlock || !directory) return {}
 
   return {
-    "experimental.chat.system.transform": async (_input, output) => {
+    "experimental.chat.system.transform": async (_input: Record<string, never>, output: { system?: string[] }) => {
       const system = output?.system
 
       if (!Array.isArray(system)) return
 
-      const retained = system.filter((entry: string) => !isGeneratedLocalInstructions(entry))
-      system.length = 0
-      system.push(...retained)
+      const retained = system.filter((entry) => !isGeneratedLocalInstructionsBlock(entry))
+      system.splice(0, system.length, ...retained)
 
-      let block: string | undefined
-
-      try {
-        ;({ block } = await buildLocalInstructions(directory))
-      } catch {
-        // A selection that throws leaves the prompt exactly as opencode built
-        // it; local instructions are additive, so degrading to none is safe.
-        return
-      }
+      const { block } = await localInstructions(directory)
 
       if (block) system.push(block)
     },
   }
 }
 
-export default {
-  id: "agents-local",
-  server: AgentsLocalPlugin,
-  async setup(ctx) {
-    if (!buildLocalInstructions || !isGeneratedLocalInstructions) return
-
-    const inject = async (event) => {
-      const system = event.system
-      const retained = system.filter((part) => !isGeneratedLocalInstructions(part.text))
-      system.splice(0, system.length, ...retained)
-
-      let session
-
-      try {
-        session = await ctx.session.get({ sessionID: event.sessionID })
-      } catch {
-        return
-      }
-
-      const directory = session?.location?.directory
-
-      if (!directory) return
-
-      try {
-        const { block } = await buildLocalInstructions(directory)
-
-        if (block) system.push({ type: "text", text: block })
-      } catch {
-        return
-      }
-    }
-
-    for (const hook of ["context", "compaction", "generate", "title"]) {
-      await ctx.session.hook(hook, inject)
-    }
-  },
-}
+export default defineV2 ? defineV2(plugin) : plugin

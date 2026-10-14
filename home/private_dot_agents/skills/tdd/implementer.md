@@ -17,7 +17,7 @@ Other test files follow the red-test rules in `~/.claude/shared/testing.md`. A c
 
 ## Work
 
-1. Make the smallest change that turns the locked tests green and satisfies the criteria. Stay inside the ticket's scope; refactoring belongs to review.
+1. Make the smallest change that turns the locked tests green and satisfies the criteria. Every final change must be necessary for a criterion in `ticket.md`; `Non-goals` lists what stays unchanged. A new capability or refactor belongs in the final diff only when a criterion requires it or depends on it. Apply this criterion test to new abstractions, options, compatibility paths, and support for additional cases.
 2. When `ticket.md` names a test command, run it on your final state. For the other applicable checks in `ticket.md`, run each one that has no [valid evidence](SKILL.md#evidence) for the state your changes affect.
 3. Commit on the current branch. Do not push.
 
@@ -27,7 +27,7 @@ Done when the test command is green (when `ticket.md` names one), the applicable
 
 Write the report to the path in your prompt. Include:
 
-- the files you changed, one line each on why;
+- the files you changed, one line each on why and the criterion it serves, or `consequence of <criterion>` for a lockfile, glossary, or generated state; report a necessary change that violates a non-goal as a conflict;
 - the test command and each check with its [valid evidence](SKILL.md#evidence): the tested commit and the log or tool output with its exit status; for a reused result, the run it comes from;
 - any locked test you believe is wrong, with the evidence;
 - anything left undone.
