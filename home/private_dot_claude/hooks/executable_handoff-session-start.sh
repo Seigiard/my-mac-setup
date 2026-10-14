@@ -75,10 +75,28 @@ goal=$(printf '%s\n' "$content" | awk '
   in_goal { print }
 ' 2> /dev/null | tr '\n' ' ') || goal=""
 
+# A recognized status is shown beside the goal so the operator can see whether
+# the next turn must answer the last request first. Only a Status: line inside
+# the Last request section is eligible; ordinary handoff details are not state.
+last_request_status=$(printf '%s\n' "$content" | awk '
+  /^## Last request[[:space:]]*$/ { in_last_request = 1; next }
+  in_last_request && /^## / { exit }
+  in_last_request && /^Status:/ {
+    sub(/^Status:/, "")
+    gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+    print
+    exit
+  }
+' 2> /dev/null) || last_request_status=""
+case "$last_request_status" in
+  Answered | 'Partially answered' | 'Not answered') ;;
+  *) last_request_status="" ;;
+esac
+
 # systemMessage renders to the operator and never reaches the model, so it
 # rides beside additionalContext and never replaces it (KTD8). The cap keeps a
 # handoff that broke its own format from filling the screen.
-jq -n --arg context "$content" --arg goal "$goal" '
+jq -n --arg context "$content" --arg goal "$goal" --arg status "$last_request_status" '
   ($goal | gsub("\\s+"; " ") | sub("^ "; "") | sub(" $"; "")) as $g
   | {
       hookSpecificOutput: {
@@ -87,7 +105,7 @@ jq -n --arg context "$content" --arg goal "$goal" '
       }
     }
     + (if $g == "" then {}
-       else {systemMessage: ("-----\n🎯 Compact goal\n\n" + (if ($g | length) > 300 then $g[0:300] + "…" else $g end) + "\n-----")}
+       else {systemMessage: ("-----\n🎯 Compact goal\n\n" + (if ($g | length) > 300 then $g[0:300] + "…" else $g end) + (if $status == "" then "" else "\n\nStatus: " + $status end) + "\n-----")}
        end)
 ' 2>/dev/null || exit 0
 

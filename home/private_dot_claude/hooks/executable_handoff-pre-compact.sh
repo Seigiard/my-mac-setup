@@ -311,11 +311,18 @@ Then provide your handoff in this exact structure:
 [Restate the goal as a clear, actionable directive]
 
 ## Relevant Context
-[3-7 bullet points of technical context that directly enables the goal]
+[Bullet points of technical context that directly enables the goal]
 [Each bullet must pass the test: \"The next agent cannot execute the goal without knowing this\"]
+[When an item is inferred rather than observed, write it as: <claim>, verify with: <exact command>]
+
+## Last request
+[Quote the operator's last real message verbatim from the facts block above as a Markdown blockquote, with every line prefixed by \`> \`]
+Status: [Use exactly one of: Answered, Partially answered, Not answered]
+[When the request is not fully answered, name what to check first]
 
 ## Key Details
 [Specific implementation details: file paths, function names, commands, error messages]
+[When an item is inferred rather than observed, write it as: <claim>, verify with: <exact command>]
 [Use exact names and paths—no paraphrasing]
 
 ## Warnings
@@ -325,6 +332,7 @@ Then provide your handoff in this exact structure:
 
 Constraints:
 - Maximum 400 words in the <handoff> section
+- The verbatim quote in ## Last request does not count toward the 400-word cap
 - File paths only, not full code snippets (the agent can read files)
 - Include verbatim quotes for anything where paraphrasing risks drift
 - Copy file paths, commit hashes and subjects, and the last user request exactly from <transcript_facts>; do not paraphrase or infer replacements.
