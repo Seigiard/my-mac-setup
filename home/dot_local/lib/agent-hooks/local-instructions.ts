@@ -17,8 +17,8 @@ export const LOCAL_INSTRUCTION_FILE_NAMES = ["AGENTS.local.md", "CLAUDE.local.md
 
 export const MAX_LOCAL_INSTRUCTIONS_BYTES = 50 * 1024;
 
-// V1 treats this marker as an existing-entry guard; V2 needs the formatter's
-// full block shape to replace only the local instructions it previously added.
+// Match the formatter's full block shape so refreshes preserve ordinary text
+// that mentions this heading.
 export const LOCAL_INSTRUCTIONS_HEADING = "## Local Private Project Instructions";
 
 const LOCAL_INSTRUCTIONS_SOURCE_SUFFIX =

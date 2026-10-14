@@ -36,6 +36,10 @@ type Transform = (
   output: { system: string[] },
 ) => Promise<void>;
 
+type V2RequestKind = "context" | "compaction" | "generate" | "title";
+
+type V2ContextHook = (event: { sessionID: string; system: Array<{ type: "text"; text: string }> }) => Promise<void> | void;
+
 function installQueryStub(root: string): string {
   const cli = join(root, "herdr-resource-tree");
   writeFileSync(
@@ -62,10 +66,10 @@ fi
   return cli;
 }
 
-async function loadPlugin(
+async function loadV1Plugin(
   root: string,
   herdrEnv = "1",
-): Promise<{ hooks: Record<string, Function>; promptAsyncCalls: () => number }> {
+): Promise<{ hooks: Record<string, Function>; sessionOperations: () => string[] }> {
   const cli = installQueryStub(root);
   const copy = join(temporaryDir("herdr-resource-context-plugin-"), `plugin-${loadCount++}.ts`);
   cpSync(PLUGIN_PATH, copy);
@@ -80,19 +84,21 @@ async function loadPlugin(
   process.env.HERDR_ENV = herdrEnv;
   process.env.HERDR_RESOURCE_CONTEXT_CLI = cli;
 
-  let calls = 0;
+  const operations: string[] = [];
 
   try {
     const module: any = await import(copy);
+    const server = module.default?.server;
+    expect(server).toBeTypeOf("function");
 
     const hooks: Record<string, Function> =
-      (await module.HerdrResourceContextPlugin({
+      (await server({
         directory: root,
         worktree: root,
-        client: { session: { promptAsync: async () => calls++ } },
+        client: { session: { promptAsync: async () => operations.push("legacy-promptAsync") } },
       })) ?? {};
 
-    return { hooks, promptAsyncCalls: () => calls };
+    return { hooks, sessionOperations: () => operations };
   } finally {
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key];
@@ -101,12 +107,87 @@ async function loadPlugin(
   }
 }
 
-async function loadTransform(root: string): Promise<{ transform: Transform; promptAsyncCalls: () => number }> {
-  const host = await loadPlugin(root);
+async function loadV2Plugin(
+  root: string,
+  herdrEnv = "1",
+): Promise<{ request: (kind: V2RequestKind, sessionID: string | undefined, initial: string[]) => Promise<string[]>; sessionOperations: () => string[] }> {
+  const cli = installQueryStub(root);
+  const copy = join(temporaryDir("herdr-resource-context-plugin-v2-"), `plugin-${loadCount++}.ts`);
+  cpSync(PLUGIN_PATH, copy);
+
+  const previous = {
+    HOME: process.env.HOME,
+    HERDR_ENV: process.env.HERDR_ENV,
+    HERDR_RESOURCE_CONTEXT_CLI: process.env.HERDR_RESOURCE_CONTEXT_CLI,
+  };
+
+  process.env.HOME = root;
+  process.env.HERDR_ENV = herdrEnv;
+  process.env.HERDR_RESOURCE_CONTEXT_CLI = cli;
+
+  const operations: string[] = [];
+
+  try {
+    const module: any = await import(copy);
+    const hooks: Partial<Record<V2RequestKind, V2ContextHook>> = {};
+
+    await module.default.setup({
+      session: {
+        hook: async (name: V2RequestKind, hook: V2ContextHook) => {
+          hooks[name] = hook;
+
+          return { dispose: async () => {} };
+        },
+        prompt: async () => {
+          operations.push("prompt");
+        },
+        synthetic: async () => {
+          operations.push("synthetic");
+        },
+      },
+    });
+
+    return {
+      request: async (kind, sessionID, initial) => {
+        const system = initial.map((text) => ({ type: "text" as const, text }));
+        const hook = hooks[kind];
+
+        if (hook) await hook({ sessionID: sessionID ?? "", system });
+
+        return system.map((part) => part.text);
+      },
+      sessionOperations: () => operations,
+    };
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+async function loadV1Transform(root: string): Promise<{ transform: Transform; sessionOperations: () => string[] }> {
+  const host = await loadV1Plugin(root);
   const transform = host.hooks["experimental.chat.system.transform"];
   expect(transform).toBeTypeOf("function");
 
-  return { transform, promptAsyncCalls: host.promptAsyncCalls };
+  return { transform, sessionOperations: host.sessionOperations };
+}
+
+async function loadV2Transform(root: string): Promise<{ transform: Transform; sessionOperations: () => string[] }> {
+  const host = await loadV2Plugin(root);
+
+  return {
+    transform: async (input, output) => {
+      const system = await host.request("context", input.sessionID, output.system);
+      output.system.splice(0, output.system.length, ...system);
+    },
+    sessionOperations: host.sessionOperations,
+  };
+}
+
+async function loadSharedTransforms(root: string): Promise<{ v1: { transform: Transform; sessionOperations: () => string[] }; v2: { transform: Transform; sessionOperations: () => string[] } }> {
+  return { v1: await loadV1Transform(root), v2: await loadV2Transform(root) };
 }
 
 describe("OpenCode model-request resource context", () => {
@@ -124,13 +205,18 @@ describe("OpenCode model-request resource context", () => {
 
     writeFileSync(join(root, "context"), context);
     writeFileSync(join(root, "stderr-session-B"), 'Excluded sibling: pane "sibling" [w1:pS]\n');
-    const host = await loadTransform(root);
-    const system = ["You are OpenCode."];
+    const hosts = await loadSharedTransforms(root);
+    const v1System = ["You are OpenCode."];
+    const v2System = ["You are OpenCode."];
 
-    await host.transform({ sessionID: "session-B" }, { system });
+    await hosts.v1.transform({ sessionID: "session-B" }, { system: v1System });
+    await hosts.v2.transform({ sessionID: "session-B" }, { system: v2System });
 
-    expect(system).toEqual(["You are OpenCode.", `${HEADING}\n${context}`]);
-    expect(system.join("\n")).not.toContain("sibling");
+    expect([v1System, v2System]).toEqual([
+      ["You are OpenCode.", `${HEADING}\n${context}`],
+      ["You are OpenCode.", `${HEADING}\n${context}`],
+    ]);
+    expect([v1System, v2System].flat().join("\n")).not.toContain("sibling");
     expect(readFileSync(join(root, "query-argv"), "utf8").trim().split("\n")).toEqual([
       "--context",
       "--caller-agent",
@@ -138,93 +224,128 @@ describe("OpenCode model-request resource context", () => {
       "--caller-session-id",
       "session-B",
     ]);
-    expect(host.promptAsyncCalls()).toBe(0);
+    expect([hosts.v1.sessionOperations(), hosts.v2.sessionOperations()]).toEqual([[], []]);
   });
 
   test("successful refresh replaces duplicates while empty and failed queries stay distinct", async () => {
     const root = temporaryDir("herdr-resource-context-refresh-");
     const fresh = 'Parent agent: "agent-a"\nResources:\n- workspace "owned" [w1]';
     writeFileSync(join(root, "context"), fresh);
-    const host = await loadTransform(root);
+    const hosts = await loadSharedTransforms(root);
     const stale = `${HEADING}\nResources:\n- workspace "stale" [old]`;
-    const system = ["You are OpenCode.", stale, stale];
+    const v1System = ["You are OpenCode.", stale, stale];
+    const v2System = ["You are OpenCode.", stale, stale];
 
-    await host.transform({ sessionID: "session-B" }, { system });
+    await hosts.v1.transform({ sessionID: "session-B" }, { system: v1System });
+    await hosts.v2.transform({ sessionID: "session-B" }, { system: v2System });
 
-    expect(system).toEqual(["You are OpenCode.", `${HEADING}\n${fresh}`]);
-    expect(system.join("\n").split(HEADING)).toHaveLength(2);
+    expect([v1System, v2System]).toEqual([
+      ["You are OpenCode.", `${HEADING}\n${fresh}`],
+      ["You are OpenCode.", `${HEADING}\n${fresh}`],
+    ]);
+    expect([v1System, v2System].flat().join("\n").split(HEADING)).toHaveLength(3);
 
     writeFileSync(join(root, "context"), "");
-    await host.transform({ sessionID: "session-B" }, { system });
-    expect(system).toEqual(["You are OpenCode."]);
+    await hosts.v1.transform({ sessionID: "session-B" }, { system: v1System });
+    await hosts.v2.transform({ sessionID: "session-B" }, { system: v2System });
+    expect([v1System, v2System]).toEqual([["You are OpenCode."], ["You are OpenCode."]]);
 
     const prior = `${HEADING}\nResources:\n- workspace "last-known" [last]`;
-    system.push(prior);
+    v1System.push(prior);
+    v2System.push(prior);
     writeFileSync(join(root, "fail-session-B"), "snapshot unavailable\n");
-    await host.transform({ sessionID: "session-B" }, { system });
-    expect(system).toEqual([
+    await hosts.v1.transform({ sessionID: "session-B" }, { system: v1System });
+    await hosts.v2.transform({ sessionID: "session-B" }, { system: v2System });
+
+    const unavailable = [
       "You are OpenCode.",
       `${HEADING}\nHerdr resource context unavailable: the shared resource query failed. This must not be treated as an empty resource branch.`,
+    ];
+
+    expect([v1System, v2System]).toEqual([
+      unavailable,
+      unavailable,
     ]);
   });
 
-  test("each model request re-queries the same conversation and rejects a new pane occupant", async () => {
+  test("V2 native request kinds re-query the conversation and reject a new pane occupant", async () => {
     const root = temporaryDir("herdr-resource-context-session-");
     const firstBranch = 'Resources:\n- pane "first" [w1:p1]';
     const refreshedBranch = 'Resources:\n- pane "refreshed" [w1:p2]';
     writeFileSync(join(root, "context"), "");
     writeFileSync(join(root, "context-session-B"), firstBranch);
     writeFileSync(join(root, "fail-session-new"), "caller identity changed before context projection\n");
-    const host = await loadTransform(root);
+    const v1 = await loadV1Transform(root);
+    const v2 = await loadV2Plugin(root);
 
-    const first = ["ordinary request"];
-    await host.transform({ sessionID: "session-B" }, { system: first });
-    expect(first).toEqual(["ordinary request", `${HEADING}\n${firstBranch}`]);
+    const v1First = ["ordinary V1 request"];
+    await v1.transform({ sessionID: "session-B" }, { system: v1First });
+    const v2First = await v2.request("context", "session-B", ["ordinary V2 request"]);
+    expect([v1First, v2First]).toEqual([
+      ["ordinary V1 request", `${HEADING}\n${firstBranch}`],
+      ["ordinary V2 request", `${HEADING}\n${firstBranch}`],
+    ]);
 
     writeFileSync(join(root, "context-session-B"), refreshedBranch);
-    const next = ["next request"];
-    await host.transform({ sessionID: "session-B" }, { system: next });
-    expect(next).toEqual(["next request", `${HEADING}\n${refreshedBranch}`]);
+    const v1Next = ["next V1 request"];
 
-    // OpenCode exposes no request-kind discriminator here. Ordinary, restored,
-    // and compaction model calls all rebuild `system` and invoke this transform.
-    const restored = ["restored request"];
-    await host.transform({ sessionID: "session-B" }, { system: restored });
-    expect(restored).toEqual(["restored request", `${HEADING}\n${refreshedBranch}`]);
+    await v1.transform({ sessionID: "session-B" }, { system: v1Next });
 
-    const compaction = ["compaction request"];
-    await host.transform({ sessionID: "session-B" }, { system: compaction });
-    expect(compaction).toEqual(["compaction request", `${HEADING}\n${refreshedBranch}`]);
+    const requests = await Promise.all([
+      v2.request("context", "session-B", ["primary request"]),
+      v2.request("compaction", "session-B", ["compaction request"]),
+      v2.request("generate", "session-B", ["generate request"]),
+      v2.request("title", "session-B", ["title request"]),
+    ]);
+
+    expect([v1Next, ...requests]).toEqual([
+      ["next V1 request", `${HEADING}\n${refreshedBranch}`],
+      ["primary request", `${HEADING}\n${refreshedBranch}`],
+      ["compaction request", `${HEADING}\n${refreshedBranch}`],
+      ["generate request", `${HEADING}\n${refreshedBranch}`],
+      ["title request", `${HEADING}\n${refreshedBranch}`],
+    ]);
 
     // The query failed for the new occupant, so the reason has to be the failed
     // query, not the "no session identity" text a substring match accepts too.
-    const replacement = ["new conversation"];
-    await host.transform({ sessionID: "session-new" }, { system: replacement });
+    const replacement = await v2.request("context", "session-new", ["new conversation"]);
     expect(replacement).toEqual([
       "new conversation",
       `${HEADING}\nHerdr resource context unavailable: the shared resource query failed. This must not be treated as an empty resource branch.`,
     ]);
-    expect(host.promptAsyncCalls()).toBe(0);
+    expect([v1.sessionOperations(), v2.sessionOperations()]).toEqual([[], []]);
   });
 
   test("a request without a session identity retracts the earlier branch", async () => {
     const root = temporaryDir("herdr-resource-context-no-session-");
     writeFileSync(join(root, "context"), 'Resources:\n- pane "owned" [w1:p1]');
-    const host = await loadTransform(root);
+    const hosts = await loadSharedTransforms(root);
 
-    const system = ["You are OpenCode."];
-    await host.transform({ sessionID: "session-B" }, { system });
+    const v1System = ["You are OpenCode."];
+    const v2System = ["You are OpenCode."];
+    await hosts.v1.transform({ sessionID: "session-B" }, { system: v1System });
+    await hosts.v2.transform({ sessionID: "session-B" }, { system: v2System });
     // Exact, like the other projections in this file: the retraction below is
     // only meaningful if the branch it retracts was rendered whole first.
-    expect(system).toEqual(["You are OpenCode.", `${HEADING}\nResources:\n- pane "owned" [w1:p1]`]);
+    expect([v1System, v2System]).toEqual([
+      ["You are OpenCode.", `${HEADING}\nResources:\n- pane "owned" [w1:p1]`],
+      ["You are OpenCode.", `${HEADING}\nResources:\n- pane "owned" [w1:p1]`],
+    ]);
 
     // sessionID is optional in the plugin API, so an absent one is a supported
     // state. Returning early would leave the previous request's branch in the
     // system prompt, presented as current.
-    await host.transform({}, { system });
-    expect(system).toEqual([
+    await hosts.v1.transform({}, { system: v1System });
+    await hosts.v2.transform({}, { system: v2System });
+
+    const unavailable = [
       "You are OpenCode.",
       `${HEADING}\nHerdr resource context unavailable: OpenCode did not expose a native session identity. This must not be treated as an empty resource branch.`,
+    ];
+
+    expect([v1System, v2System]).toEqual([
+      unavailable,
+      unavailable,
     ]);
   });
 
@@ -232,10 +353,12 @@ describe("OpenCode model-request resource context", () => {
     const root = temporaryDir("herdr-resource-context-outside-");
     writeFileSync(join(root, "context"), 'Resources:\n- pane "must-not-appear" [w1:p1]');
 
-    const host = await loadPlugin(root, "");
+    const v1 = await loadV1Plugin(root, "");
+    const v2 = await loadV2Plugin(root, "");
 
-    expect(host.hooks).toEqual({});
-    expect(host.promptAsyncCalls()).toBe(0);
+    expect(v1.hooks).toEqual({});
+    expect([v1.sessionOperations(), v2.sessionOperations()]).toEqual([[], []]);
+    expect(await v2.request("context", "session-B", ["ordinary request"])).toEqual(["ordinary request"]);
     expect(() => readFileSync(join(root, "query-argv"), "utf8")).toThrow();
   });
 });

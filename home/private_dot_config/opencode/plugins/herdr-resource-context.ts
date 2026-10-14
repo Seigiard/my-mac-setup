@@ -18,6 +18,13 @@ const RESOURCE_CLI =
 
 type V2Plugin = OpenCodePlugin.Plugin
 
+type V1Plugin = {
+  "experimental.chat.system.transform"?: (
+    input: { sessionID?: string },
+    output: { system?: string[] },
+  ) => Promise<void>
+}
+
 let defineV2: ((plugin: V2Plugin) => V2Plugin) | undefined
 
 try {
@@ -55,8 +62,9 @@ async function resourceContext(sessionID?: string): Promise<string | undefined> 
   if (context !== "") return `${HEADING}\n${context}`
 }
 
-const v2Plugin = defineV2?.({
+const plugin = {
   id: "herdr-resource-context",
+  server: HerdrResourceContextPlugin,
   async setup(ctx) {
     if (process.env.HERDR_ENV !== "1") return
 
@@ -73,11 +81,11 @@ const v2Plugin = defineV2?.({
 
     await Promise.all(HOOKS.map((hook) => ctx.session.hook(hook, inject)))
   },
-})
+}
 
 // V1 remains the normal pin until the upgrade lands; the dynamic V2 bridge
 // keeps this file loadable in that host while preserving V1 projection coverage.
-export async function HerdrResourceContextPlugin() {
+export async function HerdrResourceContextPlugin(): Promise<V1Plugin> {
   if (process.env.HERDR_ENV !== "1") return {}
 
   return {
@@ -100,4 +108,4 @@ export async function HerdrResourceContextPlugin() {
   }
 }
 
-export default v2Plugin ?? HerdrResourceContextPlugin
+export default defineV2 ? defineV2(plugin) : plugin

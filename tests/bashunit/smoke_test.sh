@@ -830,8 +830,9 @@ function test_smoke_1070_deployed_opencode_agents_local_plugin_injects_from_the_
   assert_success
 }
 
-# The checkout suite proves the adapter contract. This deployed run also proves
-# chezmoi kept the new plugin path managed and OpenCode can load that exact file.
+# The checkout suite proves the resource-context adapter contract. This deployed
+# run proves the managed resource-context plugin passes it. This does not load
+# either plugin through a native OpenCode host.
 function test_smoke_1072_deployed_opencode_resource_context_reaches_model_requests() {
   _bats_test_init 1072 'deployed opencode Herdr resource context reaches model requests'
   local plugin="$HOME/.config/opencode/plugins/herdr-resource-context.ts"

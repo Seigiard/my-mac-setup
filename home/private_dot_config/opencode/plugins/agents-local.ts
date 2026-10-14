@@ -16,16 +16,21 @@ type LocalInstructionsBlock = { block?: string }
 
 type V2Plugin = OpenCodePlugin.Plugin
 
-let buildLocalInstructions: ((cwd: string) => Promise<LocalInstructionsBlock>) | undefined
+type V1Plugin = {
+  "experimental.chat.system.transform"?: (
+    input: Record<string, never>,
+    output: { system?: string[] },
+  ) => Promise<void>
+}
 
-let heading: string | undefined
+let buildLocalInstructions: ((cwd: string) => Promise<LocalInstructionsBlock>) | undefined
 
 let isGeneratedLocalInstructionsBlock: ((block: string) => boolean) | undefined
 
 let defineV2: ((plugin: V2Plugin) => V2Plugin) | undefined
 
 try {
-  ;({ buildLocalInstructions, LOCAL_INSTRUCTIONS_HEADING: heading, isGeneratedLocalInstructionsBlock } = await import(MODULE_PATH))
+  ;({ buildLocalInstructions, isGeneratedLocalInstructionsBlock } = await import(MODULE_PATH))
 } catch {
   buildLocalInstructions = undefined
 }
@@ -36,39 +41,34 @@ try {
   defineV2 = undefined
 }
 
-async function localInstructions(directory: string): Promise<{ block?: string; failed: boolean }> {
-  if (!buildLocalInstructions || !heading) return { failed: true }
-
+async function localInstructions(directory: string): Promise<string | undefined> {
   try {
-    return { block: (await buildLocalInstructions(directory)).block, failed: false }
+    return (await buildLocalInstructions(directory)).block
   } catch {
-    // Local instructions are additive. A failed selection leaves the request
-    // exactly as OpenCode built it instead of injecting an uncertain path.
-    return { failed: true }
+    // Do not restore stale instructions when selection fails.
+    return undefined
   }
 }
 
-function hasLocalInstructionsHeading(entry: string): boolean {
-  return entry.includes(heading ?? "")
-}
-
-const v2Plugin = defineV2?.({
+const plugin = {
   id: "agents-local",
+  server: AgentsLocalPlugin,
   async setup(ctx) {
-    if (!buildLocalInstructions || !heading || !isGeneratedLocalInstructionsBlock) return
+    if (!buildLocalInstructions || !isGeneratedLocalInstructionsBlock) return
 
     const inject = async (request: SessionRequest) => {
+      const retained = request.system.filter((part) => !isGeneratedLocalInstructionsBlock(part.text))
+      request.system.splice(0, request.system.length, ...retained)
+
       try {
         const session = await ctx.session.get({ sessionID: request.sessionID })
-        const result = await localInstructions(session.location.directory)
+        const directory = session?.location?.directory
 
-        if (result.failed) return
+        if (!directory) return
 
-        const system = request.system.filter((part) => !isGeneratedLocalInstructionsBlock(part.text))
+        const block = await localInstructions(directory)
 
-        if (result.block) system.push({ type: "text", text: result.block } satisfies SystemPart)
-
-        request.system.splice(0, request.system.length, ...system)
+        if (block) request.system.push({ type: "text", text: block } satisfies SystemPart)
       } catch {
         return
       }
@@ -76,24 +76,27 @@ const v2Plugin = defineV2?.({
 
     await Promise.all(HOOKS.map((hook) => ctx.session.hook(hook, inject)))
   },
-})
+}
 
 // V1 remains the normal pin until the upgrade lands; the dynamic V2 bridge
 // keeps this file loadable in that host while preserving V1 selection coverage.
-export async function AgentsLocalPlugin({ directory }: { directory?: string }) {
-  if (!directory || !heading) return {}
+export async function AgentsLocalPlugin({ directory }: { directory?: string }): Promise<V1Plugin> {
+  if (!buildLocalInstructions || !isGeneratedLocalInstructionsBlock || !directory) return {}
 
   return {
     "experimental.chat.system.transform": async (_input: Record<string, never>, output: { system?: string[] }) => {
-      const system = output.system
+      const system = output?.system
 
-      if (!system || system.some(hasLocalInstructionsHeading)) return
+      if (!Array.isArray(system)) return
 
-      const { block } = await localInstructions(directory)
+      const retained = system.filter((entry) => !isGeneratedLocalInstructionsBlock(entry))
+      system.splice(0, system.length, ...retained)
+
+      const block = await localInstructions(directory)
 
       if (block) system.push(block)
     },
   }
 }
 
-export default v2Plugin ?? AgentsLocalPlugin
+export default defineV2 ? defineV2(plugin) : plugin
