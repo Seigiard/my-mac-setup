@@ -56,6 +56,7 @@ session_id=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null) ||
 
 trigger=$(printf '%s' "$input" | jq -r '.trigger // "auto"' 2>/dev/null) || exit 0
 instructions=$(printf '%s' "$input" | jq -r '.custom_instructions // ""' 2>/dev/null) || exit 0
+transcript_path=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null) || exit 0
 
 store="$(handoff_file "$session_id")" || exit 0
 
@@ -75,15 +76,157 @@ else
   goal_block="The operator did not state a goal. Read the session and name the goal yourself: the work that is underway and still unfinished at the point of compaction. Treat what you name as the goal for every step below, and open your handoff by stating it."
 fi
 
+transcript_facts() {
+  local path="$1" records facts edited commits last_user sibling
+
+  # Source-tree tests pass fixture paths relative to home/, while fixtures live
+  # beside it in the checkout. Use that sibling only when the exact path is not
+  # readable and the sibling exists.
+  if [ ! -r "$path" ] && [[ "$path" == */home/tests/* ]]; then
+    sibling="${path%/home/tests/*}/tests/${path#*/home/tests/}"
+    [ -r "$sibling" ] && path="$sibling"
+  fi
+  if [ -z "$path" ] || [ ! -r "$path" ]; then
+    printf '<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: None\n</transcript_facts>'
+    return 0
+  fi
+
+  # Slurp once so a malformed JSONL transcript takes the same empty-facts path
+  # as an unreadable transcript instead of partially describing the session.
+  records=$(jq -s -c '.' "$path" 2>/dev/null) || {
+    printf '<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: None\n</transcript_facts>'
+    return 0
+  }
+
+  facts=$(printf '%s' "$records" | jq -c '
+    def message_content:
+      .message.content? // empty;
+    def tool_uses:
+      message_content
+      | if type == "array" then .[] | select(.type == "tool_use") else empty end;
+    def tool_results:
+      message_content
+      | if type == "array" then .[] | select(.type == "tool_result") else empty end;
+    def text_content:
+      message_content
+      | if type == "string" then .
+        elif type == "array" then
+          [ .[] | select(.type == "text") | (.text // "") ] | join("")
+        else ""
+        end;
+    def recent_unique:
+      reduce .[] as $item
+        ([]; if index($item) == null then . + [$item]
+             else map(select(. != $item)) + [$item]
+             end)
+      | .[-20:];
+    def is_harness($text):
+      (.isMeta == true)
+      or ((.origin.kind? // "") | IN("task-notification", "system", "hook"))
+      or ($text | test("(?i)(^|\\n)(hook feedback:|system reminder:)|<system-reminder>|<task-notification>|<command-name>|<command-message>|<local-command-stdout>|\\[Request interrupted by user\\]"));
+
+    . as $records
+    | [ $records[]
+      | select(.type == "user")
+      | tool_results
+      | select((.is_error // false) != true)
+      | .tool_use_id? // empty
+    ] as $successful_ids
+    | [ $records[]
+        | select(.type == "assistant")
+        | tool_uses
+        | select((.name // "") | IN("Edit", "Write", "NotebookEdit"))
+        | select(.id as $id | ($successful_ids | index($id)) != null)
+        | if .name == "NotebookEdit"
+          then (.input.notebook_path // .input.file_path // empty)
+          else (.input.file_path // empty)
+          end
+        | select(type == "string" and length > 0)
+      ]
+      | recent_unique as $edited
+      | [ $records[]
+          | select(.type == "assistant")
+          | tool_uses
+          | select(.name == "Bash")
+          | select((.input.command // "") | test("(^|[[:space:];|&])git([[:space:]]+[^;&|]*)?[[:space:]]+commit([[:space:]]|$)"))
+          | .id
+        ] as $bash_commit_ids
+        | [ $records[]
+            | select(.type == "user")
+            | . as $record
+            | tool_results
+            | select(.tool_use_id as $id | ($bash_commit_ids | index($id)) != null)
+            | (.content? // (if ($record.toolUseResult? | type) == "object"
+                             then ($record.toolUseResult.stdout? // "")
+                             else ($record.toolUseResult? // "")
+                             end))
+          | if type == "string" then .
+            elif type == "array" then [ .[] | .text? // "" ] | join("")
+            else ""
+            end
+          | split("\n")[]
+          | try capture("^\\[[^]]+ (?<hash>[0-9a-fA-F]+)\\] (?<subject>.+)$") catch empty
+          | "\(.hash) \(.subject)"
+        ]
+        | recent_unique as $commits
+        | [ $records[]
+            | select(.type == "user")
+            | . as $record
+            | ($record | text_content) as $text
+            | select(($text | length) > 0)
+            | select(($record | is_harness($text)) | not)
+            | select(($record.message.content? | type) != "array" or
+                     ([.[]? | select(.type == "tool_result")] | length) == 0)
+            | $text
+          ]
+        | {edited: $edited, commits: $commits, last_user: (last // null)}
+  ' 2>/dev/null) || {
+    printf '<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: None\n</transcript_facts>'
+    return 0
+  }
+
+  edited=$(printf '%s' "$facts" | jq -r '.edited[]?' 2>/dev/null) || edited=''
+  commits=$(printf '%s' "$facts" | jq -r '.commits[]?' 2>/dev/null) || commits=''
+  last_user=$(printf '%s' "$facts" | jq -r '.last_user // empty' 2>/dev/null) || last_user=''
+
+  printf '<transcript_facts>\n'
+  if [ -n "$edited" ]; then
+    printf 'Files edited:\n'
+    while IFS= read -r path; do
+      [ -n "$path" ] && printf -- '- %s\n' "$path"
+    done <<< "$edited"
+  else
+    printf 'Files edited: None\n'
+  fi
+  if [ -n "$commits" ]; then
+    printf 'Commits made:\n'
+    while IFS= read -r commit; do
+      [ -n "$commit" ] && printf -- '- %s\n' "$commit"
+    done <<< "$commits"
+  else
+    printf 'Commits made: None\n'
+  fi
+  if [ -n "$last_user" ]; then
+    printf 'Last user request: %s\n' "$last_user"
+  else
+    printf 'Last user request: None\n'
+  fi
+  printf '</transcript_facts>'
+}
+
+facts_block=$(transcript_facts "$transcript_path") || exit 0
+
 # Clear before extracting, never after. An extraction that fails from here on
 # must leave no handoff at all rather than the previous compaction's.
 rm -f "$store" 2> /dev/null || true
 
 command -v claude > /dev/null 2>&1 || exit 0
 
-# The extraction prompt is upstream's, unchanged apart from what fills the
-# <goal> block, which upstream always took from the operator.
+# The transcript facts are extracted locally so paths and commit names come
+# from the record rather than from the forked model's memory.
 prompt="You are generating a goal-focused Handoff for the next session. Context compaction is imminent.
+
+${facts_block}
 
 <goal>
 $goal_block
@@ -129,6 +272,7 @@ Constraints:
 - Maximum 400 words in the <handoff> section
 - File paths only, not full code snippets (the agent can read files)
 - Include verbatim quotes for anything where paraphrasing risks drift
+- Copy file paths, commit hashes and subjects, and the last user request exactly from <transcript_facts>; do not paraphrase or infer replacements.
 - If the goal is unclear or disconnected from session context, say so explicitly in your analysis and provide best-effort handoff
 
 Do not:
