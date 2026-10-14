@@ -130,7 +130,7 @@ transcript_facts() {
       (.isMeta == true)
       or (.isCompactSummary == true)
       or ((.origin.kind? // "") | IN("task-notification", "system", "hook"))
-      or ($text | test("(?i)^\\[(child-supervision|child-ask|peer-message) v[0-9]+ "))
+      or ($text | test("^\\[[a-z]+(-[a-z]+)+ v[0-9]+([ \\n\\]])"))
       or ($text | test("^/compact(?:[[:space:]]|$)"))
       or (is_human_slash_command($text)
           and (($text | capture("<command-name>(?<name>/[^<]+)</command-name>") | .name) == "/compact"))
