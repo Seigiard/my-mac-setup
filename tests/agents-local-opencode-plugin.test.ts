@@ -76,6 +76,10 @@ type V2Request = { sessionID: string; system: V2SystemPart[] };
 
 type V2ContextHook = (request: V2Request) => Promise<void>;
 
+type V2RequestKind = "context" | "compaction" | "generate" | "title";
+
+type V2ContextHooks = Record<V2RequestKind, V2ContextHook>;
+
 type V2Plugin = {
   setup: (ctx: {
     session: {
@@ -85,7 +89,10 @@ type V2Plugin = {
   }) => Promise<void>;
 };
 
-async function loadV2ContextHook(directories: Record<string, string>): Promise<V2ContextHook> {
+async function loadV2ContextHook(
+  directories: Record<string, string | undefined>,
+  rejectedSessionIDs: readonly string[] = [],
+): Promise<V2ContextHooks> {
   const home = temporaryDir("agents-local-v2-home-");
   mkdirSync(join(home, ".local", "lib"), { recursive: true });
   symlinkSync(CORE_DIR, join(home, ".local", "lib", "agent-hooks"));
@@ -111,18 +118,22 @@ async function loadV2ContextHook(directories: Record<string, string>): Promise<V
 
     await plugin.setup({
       session: {
-        get: async ({ sessionID }) => ({ location: { directory: directories[sessionID] } }),
+        get: async ({ sessionID }) => {
+          if (rejectedSessionIDs.includes(sessionID)) throw new Error("session lookup unavailable");
+
+          return { location: { directory: directories[sessionID] } };
+        },
         hook: async (kind, handler) => {
           hooks[kind] = handler;
         },
       },
     });
 
-    const context = hooks.context;
+    for (const kind of ["context", "compaction", "generate", "title"] as const) {
+      if (!hooks[kind]) throw new Error(`V2 ${kind} hook is unavailable`);
+    }
 
-    if (!context) throw new Error("V2 context hook is unavailable");
-
-    return context;
+    return hooks as V2ContextHooks;
   } finally {
     process.env.HOME = previousHome;
   }
@@ -132,7 +143,16 @@ type Hook = (input: { sessionID?: string }, output: { system: string[] }) => Pro
 
 type SystemPart = { type: "text"; text: string };
 
-type V2RequestKind = "context" | "compaction" | "generate" | "title";
+async function runV2Request(
+  hook: V2ContextHook,
+  sessionID: string,
+  initialSystem: string[] = [BASE_SYSTEM],
+): Promise<string[]> {
+  const system = initialSystem.map((text) => ({ type: "text" as const, text }));
+  await hook({ sessionID, system });
+
+  return system.map((part) => part.text);
+}
 
 async function loadV1Transform(directory: string): Promise<Hook> {
   const module: any = await loadUnderHome(PLUGIN_PATH, "agents-local-opencode-session");
@@ -145,40 +165,11 @@ async function loadV1Transform(directory: string): Promise<Hook> {
   return transform;
 }
 
-async function loadV2SessionRequest(
-  directories: Record<string, string>,
-): Promise<(kind: V2RequestKind, sessionID: string, initialSystem?: string[]) => Promise<string[]>> {
-  const module: any = await loadUnderHome(PLUGIN_PATH, "agents-local-opencode-v2");
-  const hooks: Partial<Record<V2RequestKind, V2ContextHook>> = {};
-
-  await module.default.setup({
-    session: {
-      hook: async (name: V2RequestKind, hook: V2ContextHook) => {
-        hooks[name] = hook;
-
-        return { dispose: async () => {} };
-      },
-      get: async ({ sessionID }: { sessionID: string }) => ({ location: { directory: directories[sessionID] } }),
-    },
-  });
-
-  expect(hooks.context).toBeTypeOf("function");
-
-  return async (kind, sessionID, initialSystem = [BASE_SYSTEM]) => {
-    const system = initialSystem.map((text) => ({ type: "text" as const, text }));
-    const hook = hooks[kind];
-
-    if (hook) await hook({ sessionID, system });
-
-    return system.map((part) => part.text);
-  };
-}
-
 async function loadV2Transform(directory: string): Promise<Hook> {
-  const request = await loadV2SessionRequest({ "session-current": directory });
+  const hooks = await loadV2ContextHook({ "session-current": directory });
 
   return async (input, output) => {
-    const system = await request("context", input.sessionID ?? "session-current", output.system);
+    const system = await runV2Request(hooks.context, input.sessionID ?? "session-current", output.system);
     output.system.splice(0, output.system.length, ...system);
   };
 }
@@ -287,39 +278,17 @@ describe("session-local model context", () => {
     const rootB = await projectWithAgentsLocal("Worktree B LOCAL_B_473.\n");
     const rootAInstructions = await realpath(join(rootA, "AGENTS.local.md"));
     const rootBInstructions = await realpath(join(rootB, "AGENTS.local.md"));
-    const request = await loadV2SessionRequest({ "session-A": rootA, "session-B": rootB });
-
-    const expectedA = [
-      "",
-      "",
-      "## Local Private Project Instructions",
-      "",
-      `Loaded from ${rootAInstructions}. These instructions are private and local. Follow them in addition to repository instructions.`,
-      "",
-      "### AGENTS.local.md",
-      "",
-      "Worktree A LOCAL_A_473.\n",
-    ].join("\n");
-
-    const expectedB = [
-      "",
-      "",
-      "## Local Private Project Instructions",
-      "",
-      `Loaded from ${rootBInstructions}. These instructions are private and local. Follow them in addition to repository instructions.`,
-      "",
-      "### AGENTS.local.md",
-      "",
-      "Worktree B LOCAL_B_473.\n",
-    ].join("\n");
+    const hooks = await loadV2ContextHook({ "session-A": rootA, "session-B": rootB });
+    const expectedA = expectedLocalBlock(rootAInstructions, "Worktree A LOCAL_A_473.\n");
+    const expectedB = expectedLocalBlock(rootBInstructions, "Worktree B LOCAL_B_473.\n");
 
     // #when both sessions construct every native kind through the same plugin instance
     const actual = await Promise.all([
-      request("context", "session-A"),
-      request("context", "session-B"),
-      request("compaction", "session-B"),
-      request("generate", "session-B"),
-      request("title", "session-B"),
+      runV2Request(hooks.context, "session-A"),
+      runV2Request(hooks.context, "session-B"),
+      runV2Request(hooks.compaction, "session-B"),
+      runV2Request(hooks.generate, "session-B"),
+      runV2Request(hooks.title, "session-B"),
     ]);
 
     // #then each model request carries the context selected from its own worktree
@@ -332,58 +301,6 @@ describe("session-local model context", () => {
     ]);
   });
 
-  test("later requests replace stale instructions after edits, removal, and a session switch", async () => {
-    // #given two session worktrees and an array carrying an earlier generated block
-    const rootA = await projectWithAgentsLocal("Original A LOCAL_REFRESH_473.\n");
-    const rootB = await projectWithAgentsLocal("Worktree B LOCAL_REFRESH_B_473.\n");
-    const rootAInstructions = await realpath(join(rootA, "AGENTS.local.md"));
-    const rootBInstructions = await realpath(join(rootB, "AGENTS.local.md"));
-    const request = await loadV2SessionRequest({ "session-A": rootA, "session-B": rootB });
-    const unrelated = "Keep the heading reference: ## Local Private Project Instructions.";
-    const system = await request("context", "session-A", [BASE_SYSTEM, unrelated]);
-
-    // #when the local file changes, a stale A array moves to B, then B loses its file
-    await writeFile(join(rootA, "AGENTS.local.md"), "Changed A LOCAL_REFRESH_473.\n");
-    const changed = await request("context", "session-A", system);
-    const switched = await request("context", "session-B", changed);
-    rmSync(join(rootB, "AGENTS.local.md"));
-    const removed = await request("context", "session-B", switched);
-
-    // #then every request carries only its current generated instructions
-    expect([changed, switched, removed]).toEqual([
-      [
-        BASE_SYSTEM,
-        unrelated,
-        [
-          "",
-          "",
-          "## Local Private Project Instructions",
-          "",
-          `Loaded from ${rootAInstructions}. These instructions are private and local. Follow them in addition to repository instructions.`,
-          "",
-          "### AGENTS.local.md",
-          "",
-          "Changed A LOCAL_REFRESH_473.\n",
-        ].join("\n"),
-      ],
-      [
-        BASE_SYSTEM,
-        unrelated,
-        [
-          "",
-          "",
-          "## Local Private Project Instructions",
-          "",
-          `Loaded from ${rootBInstructions}. These instructions are private and local. Follow them in addition to repository instructions.`,
-          "",
-          "### AGENTS.local.md",
-          "",
-          "Worktree B LOCAL_REFRESH_B_473.\n",
-        ].join("\n"),
-      ],
-      [BASE_SYSTEM, unrelated],
-    ]);
-  });
 });
 
 // --- scenario 2: the safety checks reach opencode ----------------------------
@@ -479,11 +396,11 @@ describe("heading-guarded idempotence (KTD11)", () => {
     expect([v1System, v2System].flat().join("\n").split("IDEMPOTENT_SENTINEL_2b7c")).toHaveLength(3);
   });
 
-  test("an array carrying a stale generated heading is replaced", async () => {
+  test("a V1 array carrying a stale generated heading is replaced", async () => {
     // #given an array carrying generated instructions from an earlier request
     const root = await projectWithAgentsLocal("Would be injected NEW_SENTINEL_8f10.\n");
     const selectedRealPath = await realpath(join(root, "AGENTS.local.md"));
-    const transforms = await loadSharedTransforms(root);
+    const transform = await loadV1Transform(root);
 
     const preInjected = [
       "",
@@ -498,12 +415,10 @@ describe("heading-guarded idempotence (KTD11)", () => {
     ].join("\n");
 
     const unrelated = "Keep this ordinary reference: ## Local Private Project Instructions.";
-    const v1System = [BASE_SYSTEM, unrelated, preInjected];
-    const v2System = [BASE_SYSTEM, unrelated, preInjected];
+    const system = [BASE_SYSTEM, unrelated, preInjected];
 
     // #when the transform runs
-    await transforms.v1({}, { system: v1System });
-    await transforms.v2({}, { system: v2System });
+    await transform({}, { system });
 
     // #then the current generated block replaces the stale one
     const expected = [
@@ -522,7 +437,7 @@ describe("heading-guarded idempotence (KTD11)", () => {
       ].join("\n"),
     ];
 
-    expect([v1System, v2System]).toEqual([expected, expected]);
+    expect(system).toEqual(expected);
   });
 });
 
@@ -531,7 +446,7 @@ describe("V2 local-instruction refresh", () => {
     // #given a V2 request preloaded with stale generated entries and unrelated text
     const root = await projectWithAgentsLocal("CURRENT_LOCAL_A_473\n");
     const selectedPath = await realpath(join(root, "AGENTS.local.md"));
-    const transform = await loadV2ContextHook({ "session-a": root });
+    const hooks = await loadV2ContextHook({ "session-a": root });
 
     const ordinary = `A prose note mentions ${LOCAL_HEADING} but is not a generated local block.`;
 
@@ -543,7 +458,7 @@ describe("V2 local-instruction refresh", () => {
     ];
 
     // #when OpenCode prepares the model request for the current session
-    await transform({ sessionID: "session-a", system });
+    await hooks.context({ sessionID: "session-a", system });
 
     // #then exactly the current generated block remains and the ordinary part survives
     expect(system).toEqual([
@@ -557,7 +472,7 @@ describe("V2 local-instruction refresh", () => {
     // #given a session with a previously generated local block
     const root = await projectWithAgentsLocal("INITIAL_LOCAL_A_473\n");
     const selectedPath = await realpath(join(root, "AGENTS.local.md"));
-    const transform = await loadV2ContextHook({ "session-a": root });
+    const hooks = await loadV2ContextHook({ "session-a": root });
 
     const system: V2SystemPart[] = [
       { type: "text", text: BASE_SYSTEM },
@@ -567,7 +482,7 @@ describe("V2 local-instruction refresh", () => {
     await writeFile(join(root, "AGENTS.local.md"), "REFRESHED_LOCAL_A_473\n");
 
     // #when the same session prepares its next request
-    await transform({ sessionID: "session-a", system });
+    await hooks.context({ sessionID: "session-a", system });
 
     // #then the request carries the changed content and not the old block
     expect(system).toEqual([
@@ -582,7 +497,7 @@ describe("V2 local-instruction refresh", () => {
     const rootB = await projectWithAgentsLocal("LOCAL_FOR_SESSION_B_473\n");
     const selectedPathB = await realpath(join(rootB, "AGENTS.local.md"));
 
-    const transform = await loadV2ContextHook({ "session-a": rootA, "session-b": rootB });
+    const hooks = await loadV2ContextHook({ "session-a": rootA, "session-b": rootB });
 
     const system: V2SystemPart[] = [
       { type: "text", text: BASE_SYSTEM },
@@ -590,7 +505,7 @@ describe("V2 local-instruction refresh", () => {
     ];
 
     // #when OpenCode prepares a request for session B
-    await transform({ sessionID: "session-b", system });
+    await hooks.context({ sessionID: "session-b", system });
 
     // #then only B's local instructions reach the model input
     expect(system).toEqual([
@@ -599,12 +514,52 @@ describe("V2 local-instruction refresh", () => {
     ]);
   });
 
+  test("removes stale generated local blocks when session lookup rejects", async () => {
+    // #given an ordinary system part and stale generated instructions from another project
+    const hooks = await loadV2ContextHook({}, ["session-unavailable"]);
+    const ordinary = "Preserve this ordinary instruction after a lookup failure.";
+    const system: V2SystemPart[] = [
+      { type: "text", text: BASE_SYSTEM },
+      { type: "text", text: ordinary },
+      { type: "text", text: staleLocalBlock("STALE_LOOKUP_FAILURE_405") },
+    ];
+
+    // #when OpenCode cannot resolve the session for a new model request
+    await hooks.context({ sessionID: "session-unavailable", system });
+
+    // #then only the stale generated block is removed
+    expect(system).toEqual([
+      { type: "text", text: BASE_SYSTEM },
+      { type: "text", text: ordinary },
+    ]);
+  });
+
+  test("removes stale generated local blocks when session has no directory", async () => {
+    // #given an ordinary system part and stale generated instructions from another project
+    const hooks = await loadV2ContextHook({ "session-without-directory": undefined });
+    const ordinary = "Preserve this ordinary instruction without a session directory.";
+    const system: V2SystemPart[] = [
+      { type: "text", text: BASE_SYSTEM },
+      { type: "text", text: ordinary },
+      { type: "text", text: staleLocalBlock("STALE_MISSING_DIRECTORY_405") },
+    ];
+
+    // #when OpenCode resolves the session but it has no directory
+    await hooks.context({ sessionID: "session-without-directory", system });
+
+    // #then only the stale generated block is removed
+    expect(system).toEqual([
+      { type: "text", text: BASE_SYSTEM },
+      { type: "text", text: ordinary },
+    ]);
+  });
+
   test("removes generated local blocks when the current session has no local selection", async () => {
     // #given a request with a generated block and a session directory without AGENTS.local.md
     const root = await projectWithAgentsLocal("LOCAL_TO_REMOVE_473\n");
     const emptyRoot = temporaryDir("agents-local-v2-empty-");
 
-    const transform = await loadV2ContextHook({ "session-a": root, "session-empty": emptyRoot });
+    const hooks = await loadV2ContextHook({ "session-a": root, "session-empty": emptyRoot });
 
     const system: V2SystemPart[] = [
       { type: "text", text: BASE_SYSTEM },
@@ -612,7 +567,7 @@ describe("V2 local-instruction refresh", () => {
     ];
 
     // #when OpenCode prepares a request for the empty selection
-    await transform({ sessionID: "session-empty", system });
+    await hooks.context({ sessionID: "session-empty", system });
 
     // #then no generated local entry remains
     expect(system).toEqual([{ type: "text", text: BASE_SYSTEM }]);
