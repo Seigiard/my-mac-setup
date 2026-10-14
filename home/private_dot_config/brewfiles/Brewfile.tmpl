@@ -63,8 +63,6 @@ brew "ripgrep"      # rg
 brew "bat"
 {{ end -}}
 brew "jq"
-{{/* gitleaks is required by the fail-closed external peer launch boundary */ -}}
-brew "gitleaks"
 
 # Machine secrets
 {{/* age decrypts the machine secrets; templates_test.sh exercises it, so CI-minimal keeps it */ -}}

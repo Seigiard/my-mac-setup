@@ -1,6 +1,6 @@
 ---
 title: Scan the full checkout before external peer launches
-status: accepted
+status: retired
 date: 2026-09-11
 supersedes: []
 ---
@@ -33,6 +33,11 @@ never cached across launches. Output is redacted, scanner exit codes are handled
 explicitly, and a missing scanner, finding, or unknown failure blocks launch.
 Safe 1Password references such as `op://...` must not be treated as leaked
 credentials.
+
+Retired 2026-10-13: the managed scanner and its `ask-in-herdr` gate were
+removed. Full-working-directory scans could match test tokens and block peer
+delivery. This ADR preserves the rationale for the former boundary; it no
+longer defines current workflow behavior.
 
 ## Consequences
 

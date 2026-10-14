@@ -44,6 +44,7 @@ This is a single-context repository: domain vocabulary lives at the root and arc
 | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
 | `make test-python`                                     | Run general Python contract tests                                                               |
 | `make test-ubuntu`                                     | Full source render, disposable-home apply, and test suite in Docker                             |
+| `make test-ubuntu-herdr`                               | Run the Ubuntu Docker suite through `herdr-run`                                                 |
 | `make test-docker`                                     | Build + run full Docker test suite                                                              |
 | `make test-suite`                                      | Post-apply suite against the already-applied `~/`; excludes `tests/bashunit/idempotent_test.sh` |
 | `make test-templates`                                  | Focused source-render tests in Docker; included in `make test-ubuntu`                           |
@@ -67,7 +68,7 @@ This is a single-context repository: domain vocabulary lives at the root and arc
 <important if="you are about to run make test-templates, make test-ubuntu, make test-docker, or make build-docker">
 
 - Treat these targets as long-running Docker workloads, including cached runs. Read `~/.claude/shared/long-running-work.md` before launch.
-- When `HERDR_ENV=1`, launch the workload in a visible Herdr tab, persist its exit status as a terminal marker, and observe that marker before reporting a verdict.
+- When `HERDR_ENV=1`, use `make test-ubuntu-herdr` for `make test-ubuntu`. It prints `label=<worktree-specific label>`; use that label with `home/dot_local/bin/executable_herdr-run verdict <label>`. For other targets, use `home/dot_local/bin/executable_herdr-run <label> --cwd "$PWD" --wait -- make <target>`.
 - Keep the workload free of the Bash tool's 120-second timeout. A bounded pane observation may stop waiting, but it must leave the workload running for the next check.
 - Before retrying an interrupted workload, verify that its command and Docker children reached a terminal state, then state why a retry is safe.
 
@@ -180,7 +181,7 @@ Costly-to-reverse architecture decisions go to `docs/decisions/` as minimal Arch
 
 <important if="you are launching a revmux round, have read its findings, or are judging whether review context in this repository is complete">
 
-- The default profile on this machine is `dual-model`, set in `~/.config/revmux/config`: every `lean` lens group run twice, once on claude and once on codex. It stays the default because it covers more cases than `lean`; it costs roughly twice what `lean` does per round. `comprehensive` is the narrower roster here, not the full one. For the first round and for follow-up rounds, use the profile-selection policy in `code-review`.
+- The default profile on this machine is `mixed`, set in `~/.config/revmux/config`: each `lean` lens group once, on the model that found more of its gating findings across the `dual-model` archive, plus `docs+tests` on both models. Six agents. `dual-model` runs every group on both models at ten agents and stays available by name; the archive showed the second model adds findings and the second agent of a pair rarely does. `comprehensive` is the narrower roster here, not the full one. For the first round and for follow-up rounds, use the profile-selection policy in `code-review`.
 - `.revmux/profile.md` is the reviewer calibration revmux injects into every agent of every round. The global ignore file excludes `.revmux/*`; this repository re-admits the profile with a `!.revmux/profile.md` line in its own `.gitignore`, because revmux resolves the profile from the process working directory, so it must reach every herdr worktree.
 - It carries **weights, not facts** — how much something costs here, never what the repository contains. Anything an agent could establish by reading the repository belongs in the repository; only what changes a verdict belongs in the profile.
 - **Update it when a round demonstrates that a weight was wrong.** That is the whole trigger: a finding missed, a severity rated by general instinct instead of this repository's own rules, a false positive on a deliberate convention, a mandatory gate never applied. A new `docs/solutions/` entry or ADR is a reason to check whether one of those happened, not a reason to add a line.

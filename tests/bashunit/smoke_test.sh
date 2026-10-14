@@ -22,16 +22,6 @@ function test_smoke_001_python3_is_present_and_at_least_3_9_the_floor_re() {
   assert_success
 }
 
-function test_smoke_002_opencode_headless_managed_entrypoint_runs() {
-  _bats_test_init 2 'managed headless helper runs with the deployed interpreter'
-  # given
-  assert_file_executable "$HOME/.local/bin/opencode-headless.py"
-  # when
-  run "$HOME/.local/bin/opencode-headless.py" --help
-  # then
-  assert_success
-}
-
 function test_smoke_003_post_apply_suite_wrapper_rejects_an_unknown_mode() {
   _bats_test_init 3 'post-apply suite wrapper rejects an unknown mode with usage'
   local repository_root
@@ -612,7 +602,7 @@ function test_smoke_030_lazygit_config_keeps_russian_layout_keybindings() {
 # herdr alias presentation (engine, native integrations, sidebar)
 # ===========================================
 
-function test_smoke_1051_herdr_alias_pane_label_child_and_secret_scan_files_are_deployed() {
+function test_smoke_1051_herdr_alias_pane_label_and_child_files_are_deployed() {
   _bats_test_init 1051 'herdr support files are deployed'
   assert_file_exists "$HOME/.local/lib/herdr-resource-tree.py"
   assert_file_exists "$HOME/.local/bin/herdr-child"
@@ -621,8 +611,6 @@ function test_smoke_1051_herdr_alias_pane_label_child_and_secret_scan_files_are_
   assert_file_executable "$HOME/.local/bin/herdr-resource-tree"
   assert_file_exists "$HOME/.local/bin/herdr"
   assert_file_executable "$HOME/.local/bin/herdr"
-  assert_file_exists "$HOME/.local/bin/pre-external-secret-scan"
-  assert_file_executable "$HOME/.local/bin/pre-external-secret-scan"
   assert_file_exists "$HOME/.agents/skills/ask-in-herdr/scripts/follow-up.sh"
   assert_file_executable "$HOME/.agents/skills/ask-in-herdr/scripts/follow-up.sh"
 }
@@ -842,8 +830,9 @@ function test_smoke_1070_deployed_opencode_agents_local_plugin_injects_from_the_
   assert_success
 }
 
-# The checkout suite proves the adapter contract. This deployed run also proves
-# chezmoi kept the new plugin path managed and OpenCode can load that exact file.
+# The checkout suite proves the resource-context adapter contract. This deployed
+# run proves the managed resource-context plugin passes it. This does not load
+# either plugin through a native OpenCode host.
 function test_smoke_1072_deployed_opencode_resource_context_reaches_model_requests() {
   _bats_test_init 1072 'deployed opencode Herdr resource context reaches model requests'
   local plugin="$HOME/.config/opencode/plugins/herdr-resource-context.ts"
