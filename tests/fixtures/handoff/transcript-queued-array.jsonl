@@ -1,0 +1,2 @@
+{"type":"user","message":{"role":"user","content":"Original operator request."},"origin":{"kind":"human"},"userType":"external"}
+{"type":"attachment","attachment":{"type":"queued_command","source_uuid":"66666666-6666-4666-8666-666666666666","prompt":[{"type":"text","text":"Actually, match this screenshot."},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"aGVsbG8="}}],"commandMode":"prompt","origin":{"kind":"human"},"humanTurn":true,"timestamp":"2026-10-14T09:00:00.000Z"},"userType":"external","uuid":"cccccccc-0000-4000-8000-000000000001"}

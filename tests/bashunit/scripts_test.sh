@@ -11330,6 +11330,102 @@ function test_scripts_5098_handoff_pre_compact_selects_a_queued_parent_prompt() 
   assert_equal "$facts" "$expected"
 }
 
+function test_scripts_5099_handoff_pre_compact_selects_a_queued_array_prompt() {
+  _bats_test_init 5099 'handoff pre-compact selects the text of a queued operator message with an array prompt'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local prompt="$BATS_TEST_TMPDIR/prompt.txt" transcript="$BATS_TEST_DIRNAME/fixtures/handoff/transcript-queued-array.jsonl"
+  local facts expected
+
+  # #given
+  assert_file_exists "$transcript"
+  mkdir -p "$stub"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'last=""; for arg in "$@"; do last="$arg"; done\n'
+    printf 'printf "%%s" "$last" > "%s"\n' "$prompt"
+    printf 'printf "extracted\\n"\n'
+  } > "$stub/claude"
+  chmod +x "$stub/claude"
+
+  # #when
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(jq -nc --arg session queued-array --arg cwd "$root" --arg transcript "$transcript" \
+      '{session_id: $session, cwd: $cwd, trigger: "manual", custom_instructions: "write the handoff", transcript_path: $transcript, hook_event_name: "PreCompact"}')"
+
+  # #then
+  assert_success
+  facts="$(sed -n '/^<transcript_facts>$/,/^<\/transcript_facts>$/p' "$prompt")"
+  expected=$'<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: "Actually, match this screenshot."\n</transcript_facts>'
+  assert_equal "$facts" "$expected"
+}
+
+function test_scripts_5100_handoff_pre_compact_ignores_queued_meta_and_non_human_origins() {
+  _bats_test_init 5100 'handoff pre-compact ignores meta-flagged queued records and records with a non-human origin'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local prompt="$BATS_TEST_TMPDIR/prompt.txt" transcript="$BATS_TEST_DIRNAME/fixtures/handoff/transcript-queued-meta-origin.jsonl"
+  local facts expected
+
+  # #given
+  assert_file_exists "$transcript"
+  mkdir -p "$stub"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'last=""; for arg in "$@"; do last="$arg"; done\n'
+    printf 'printf "%%s" "$last" > "%s"\n' "$prompt"
+    printf 'printf "extracted\\n"\n'
+  } > "$stub/claude"
+  chmod +x "$stub/claude"
+
+  # #when
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(jq -nc --arg session queued-meta-origin --arg cwd "$root" --arg transcript "$transcript" \
+      '{session_id: $session, cwd: $cwd, trigger: "manual", custom_instructions: "write the handoff", transcript_path: $transcript, hook_event_name: "PreCompact"}')"
+
+  # #then
+  assert_success
+  facts="$(sed -n '/^<transcript_facts>$/,/^<\/transcript_facts>$/p' "$prompt")"
+  expected=$'<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: "Original operator request."\n</transcript_facts>'
+  assert_equal "$facts" "$expected"
+}
+
+function test_scripts_5101_handoff_pre_compact_keeps_an_originless_queued_record_eligible() {
+  _bats_test_init 5101 'handoff pre-compact still selects a queued record that carries no origin'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local prompt="$BATS_TEST_TMPDIR/prompt.txt" transcript="$BATS_TEST_DIRNAME/fixtures/handoff/transcript-queued-meta-origin.jsonl"
+  local facts expected
+
+  # #given
+  assert_file_exists "$transcript"
+  transcript="$BATS_TEST_TMPDIR/transcript-originless.jsonl"
+  cp "$BATS_TEST_DIRNAME/fixtures/handoff/transcript-queued-meta-origin.jsonl" "$transcript"
+  printf '%s\n' '{"type":"attachment","attachment":{"type":"queued_command","prompt":"Queued text without an origin.","commandMode":"prompt"}}' >> "$transcript"
+  mkdir -p "$stub"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'last=""; for arg in "$@"; do last="$arg"; done\n'
+    printf 'printf "%%s" "$last" > "%s"\n' "$prompt"
+    printf 'printf "extracted\\n"\n'
+  } > "$stub/claude"
+  chmod +x "$stub/claude"
+
+  # #when
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(jq -nc --arg session queued-originless --arg cwd "$root" --arg transcript "$transcript" \
+      '{session_id: $session, cwd: $cwd, trigger: "manual", custom_instructions: "write the handoff", transcript_path: $transcript, hook_event_name: "PreCompact"}')"
+
+  # #then
+  assert_success
+  facts="$(sed -n '/^<transcript_facts>$/,/^<\/transcript_facts>$/p' "$prompt")"
+  expected=$'<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: "Queued text without an origin."\n</transcript_facts>'
+  assert_equal "$facts" "$expected"
+}
+
 function test_scripts_2837_handoff_hooks_fail_open_without_a_home() {
   _bats_test_init 2837 'handoff hooks fail open when HOME is unset'
   local hook
