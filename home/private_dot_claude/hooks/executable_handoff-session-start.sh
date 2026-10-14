@@ -104,7 +104,7 @@ jq -n --arg context "$content" --arg goal "$goal" --arg status "$last_request_st
         additionalContext: $context
       }
     }
-     + (if $g == "" then {}
+    + (if $g == "" then {}
         else {systemMessage: ("-----\n🎯 Compact goal\n\n" + (if ($g | length) > 300 then $g[0:300] + "…" else $g end) + (if $status == "" then "" else "\n\nStatus: " + $status end) + "\n-----")}
        end)
 ' 2>/dev/null || exit 0

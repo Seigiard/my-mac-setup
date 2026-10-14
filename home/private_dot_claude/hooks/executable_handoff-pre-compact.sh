@@ -332,6 +332,7 @@ Status: [Use exactly one of: Answered, Partially answered, Not answered]
 
 Constraints:
 - Maximum 400 words in the <handoff> section
+- The verbatim quote in ## Last request does not count toward the 400-word cap
 - File paths only, not full code snippets (the agent can read files)
 - Include verbatim quotes for anything where paraphrasing risks drift
 - Copy file paths, commit hashes and subjects, and the last user request exactly from <transcript_facts>; do not paraphrase or infer replacements.
