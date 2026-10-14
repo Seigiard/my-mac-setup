@@ -10574,6 +10574,7 @@ function test_scripts_50900_handoff_pre_compact_instructs_the_extractor_about_la
   _bats_test_init 50900 'handoff pre-compact tells the extractor how to report the last request and inferences'
   local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
   local prompt="$BATS_TEST_TMPDIR/prompt.txt"
+  local directive relevant_context key_details last_request
 
   # #given
   mkdir -p "$stub"
@@ -10594,17 +10595,59 @@ function test_scripts_50900_handoff_pre_compact_instructs_the_extractor_about_la
   # #then
   assert_success
   assert_file_exists "$prompt"
+  last_request="$(sed -n '/^## Last request$/,/^## Key Details$/p' "$prompt")"
   assert_file_contains "$prompt" '## Last request'
-  assert_file_contains "$prompt" 'Last user request'
-  assert_file_contains "$prompt" 'Status:'
-  assert_file_contains "$prompt" 'Answered'
-  assert_file_contains "$prompt" 'Partially answered'
-  assert_file_contains "$prompt" 'Not answered'
-  assert_file_contains "$prompt" 'what to check first'
-  assert_file_contains "$prompt" '<claim>, verify with: <exact command>'
+  run grep -Fq 'verbatim from the facts block' <<< "$last_request"
+  assert_success
+  run grep -Fq 'Status: [Use exactly one of: Answered, Partially answered, Not answered]' <<< "$last_request"
+  assert_success
+  run grep -Fq 'what to check first' <<< "$last_request"
+  assert_success
+  directive='[When an item is inferred rather than observed, write it as: <claim>, verify with: <exact command>]'
+  relevant_context="$(sed -n '/^## Relevant Context$/,/^## Last request$/p' "$prompt")"
+  key_details="$(sed -n '/^## Key Details$/,/^## Warnings$/p' "$prompt")"
+  run grep -Fxq -- "$directive" <<< "$relevant_context"
+  assert_success
+  run grep -Fxq -- "$directive" <<< "$key_details"
+  assert_success
   assert_file_contains "$prompt" 'Maximum 400 words'
   run grep -Fq '3-7 bullet points' "$prompt"
   assert_failure
+}
+
+function test_scripts_50903_handoff_pre_compact_requires_a_blockquoted_last_request() {
+  _bats_test_init 50903 'handoff pre-compact tells the extractor to blockquote every line of the last request'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local prompt="$BATS_TEST_TMPDIR/prompt.txt" last_request quote_line status_line
+
+  # #given
+  mkdir -p "$stub"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'last=""; for arg in "$@"; do last="$arg"; done\n'
+    printf 'printf "%%s" "$last" > "%s"\n' "$prompt"
+    printf 'printf "extracted\\n"\n'
+  } > "$stub/claude"
+  chmod +x "$stub/claude"
+
+  # #when
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload blockquote-contract "$root" manual 'resume the interrupted work')"
+
+  # #then
+  assert_success
+  assert_file_exists "$prompt"
+  last_request="$(sed -n '/^## Last request$/,/^## Key Details$/p' "$prompt")"
+  run grep -Fq 'Markdown blockquote' <<< "$last_request"
+  assert_success
+  run grep -Fq 'every line prefixed by `> `' <<< "$last_request"
+  assert_success
+  quote_line="$(grep -n -m 1 'Markdown blockquote' <<< "$last_request" | cut -d: -f1)"
+  status_line="$(grep -n -m 1 '^Status: \[Use exactly one of:' <<< "$last_request" | cut -d: -f1)"
+  run bash -c '[ "$1" -lt "$2" ]' _ "$quote_line" "$status_line"
+  assert_success
 }
 
 function test_scripts_508_handoff_pre_compact_feeds_transcript_facts_to_the_extractor() {
@@ -11465,7 +11508,7 @@ function test_scripts_50901_handoff_injector_shows_a_recognized_last_request_sta
   local store="$BATS_TEST_TMPDIR/cache"
   local response
   mkdir -p "$BATS_TEST_TMPDIR/home"
-  handoff_stage_stored "$store" last-request $'## Goal\nanswer the waiting operator\n\n## Last request\nCan you answer this now?\nStatus: Not answered\nCheck the status extractor first.\n\n## Key Details\nThe operator is waiting.' > /dev/null
+  handoff_stage_stored "$store" last-request $'## Goal\nanswer the waiting operator\n\n## Last request\n> Can you answer this now?\n> Status: Answered\n> ## Steps\n> Check the status extractor first.\nStatus: Not answered\n\n## Key Details\nThe operator is waiting.' > /dev/null
 
   # #when
   run handoff_session_start_run last-request compact
@@ -11529,9 +11572,13 @@ secret-detail' > /dev/null
   assert_success
   assert_output $'-----\n🎯 Compact goal\n\nship the hook change\n-----'
 
-  # A status outside Last request is ordinary handoff text, not operator state.
+  # A Later section's status is ordinary handoff text, even when Last request
+  # exists but contains no status of its own.
   handoff_stage_stored "$store" last-request '## Goal
 ship the hook change
+
+## Last request
+Please continue without a status.
 
 ## Key Details
 Status: Not answered' > /dev/null
