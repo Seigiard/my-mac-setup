@@ -1,66 +1,99 @@
 // @ts-nocheck
-// Type checking is off here for the same reason the other managed opencode
-// plugins turn it off: this file is checked out in a plain dotfiles repo with
-// no node_modules, and only resolves its imports once deployed under
-// ~/.config/opencode/, where opencode's own dependencies live.
-import type { Plugin } from "@opencode-ai/plugin"
+// This runs under the pinned V1 host, where the V2 package is absent at runtime.
+// Type-only V2 imports document the upgrade contract without changing that load path.
 import { join } from "node:path"
-
-// opencode transport for the shared local-instructions module.
-//
-// Selection, the symlink-escape check, the size cap and the emitted block all
-// live in ~/.local/lib/agent-hooks/local-instructions.ts and are shared with
-// the pi extension, so the safety checks exist once (R7). pi's ui.notify
-// warnings are dropped here: opencode has no equivalent channel (KTD11).
-//
-// Idempotence is a heading check, not a call counter. opencode rebuilds the
-// system array per request (observed: a marker pushed on one turn is absent
-// from the next), but the guard also holds if a future opencode hands the hook
-// what a previous call accumulated — which is what makes the append safe
-// under either semantics (KTD11).
-//
-// The `experimental.` prefix is an accepted upgrade-fragility risk: a rename
-// silently stops the injection rather than breaking a session.
+import type { SystemPart } from "@opencode/ai"
+import type { Plugin as OpenCodePlugin } from "@opencode/plugin"
+import type { SessionRequest } from "@opencode/plugin/promise/session"
 
 const HOME = process.env.HOME ?? ""
 
 const MODULE_PATH = join(HOME, ".local", "lib", "agent-hooks", "local-instructions.ts")
 
-// Load-time import rather than per-call (KTD5): a failure is front-loaded into
-// a plugin that registers nothing, which is the honest degradation — a
-// registered hook that never appends would look alive to a reader.
-let buildLocalInstructions: ((cwd: string) => Promise<{ block?: string }>) | undefined
+const HOOKS = ["context", "compaction", "generate", "title"]
+
+type LocalInstructionsBlock = { block?: string }
+
+type V2Plugin = OpenCodePlugin.Plugin
+
+let buildLocalInstructions: ((cwd: string) => Promise<LocalInstructionsBlock>) | undefined
 
 let heading: string | undefined
 
+let isGeneratedLocalInstructionsBlock: ((block: string) => boolean) | undefined
+
+let defineV2: ((plugin: V2Plugin) => V2Plugin) | undefined
+
 try {
-  ;({ buildLocalInstructions, LOCAL_INSTRUCTIONS_HEADING: heading } = await import(MODULE_PATH))
+  ;({ buildLocalInstructions, LOCAL_INSTRUCTIONS_HEADING: heading, isGeneratedLocalInstructionsBlock } = await import(MODULE_PATH))
 } catch {
   buildLocalInstructions = undefined
 }
 
-export const AgentsLocalPlugin: Plugin = async ({ directory }) => {
-  if (!buildLocalInstructions || !heading || !directory) return {}
+try {
+  ;({ Plugin: { define: defineV2 } } = await import("@opencode/plugin"))
+} catch {
+  defineV2 = undefined
+}
 
-  return {
-    "experimental.chat.system.transform": async (_input, output) => {
-      const system = output?.system
+async function localInstructions(directory: string): Promise<{ block?: string; failed: boolean }> {
+  if (!buildLocalInstructions || !heading) return { failed: true }
 
-      if (!Array.isArray(system)) return
+  try {
+    return { block: (await buildLocalInstructions(directory)).block, failed: false }
+  } catch {
+    // Local instructions are additive. A failed selection leaves the request
+    // exactly as OpenCode built it instead of injecting an uncertain path.
+    return { failed: true }
+  }
+}
 
-      if (system.some((entry: string) => entry.includes(heading))) return
+function hasLocalInstructionsHeading(entry: string): boolean {
+  return entry.includes(heading ?? "")
+}
 
-      let block: string | undefined
+const v2Plugin = defineV2?.({
+  id: "agents-local",
+  async setup(ctx) {
+    if (!buildLocalInstructions || !heading || !isGeneratedLocalInstructionsBlock) return
 
+    const inject = async (request: SessionRequest) => {
       try {
-        ;({ block } = await buildLocalInstructions(directory))
+        const session = await ctx.session.get({ sessionID: request.sessionID })
+        const result = await localInstructions(session.location.directory)
+
+        if (result.failed) return
+
+        const system = request.system.filter((part) => !isGeneratedLocalInstructionsBlock(part.text))
+
+        if (result.block) system.push({ type: "text", text: result.block } satisfies SystemPart)
+
+        request.system.splice(0, request.system.length, ...system)
       } catch {
-        // A selection that throws leaves the prompt exactly as opencode built
-        // it; local instructions are additive, so degrading to none is safe.
         return
       }
+    }
+
+    await Promise.all(HOOKS.map((hook) => ctx.session.hook(hook, inject)))
+  },
+})
+
+// V1 remains the normal pin until the upgrade lands; the dynamic V2 bridge
+// keeps this file loadable in that host while preserving V1 selection coverage.
+export async function AgentsLocalPlugin({ directory }: { directory?: string }) {
+  if (!directory || !heading) return {}
+
+  return {
+    "experimental.chat.system.transform": async (_input: Record<string, never>, output: { system?: string[] }) => {
+      const system = output.system
+
+      if (!system || system.some(hasLocalInstructionsHeading)) return
+
+      const { block } = await localInstructions(directory)
 
       if (block) system.push(block)
     },
   }
 }
+
+export default v2Plugin ?? AgentsLocalPlugin
