@@ -5941,11 +5941,11 @@ PY
   assert_success
 }
 
-function test_scripts_0615_herdr_child_preserves_the_configured_agent_when_no_agent_is_requested() {
-  _bats_test_init 615 'herdr-child leaves the configured default agent unchanged without --agent'
+function test_scripts_0615_herdr_child_selects_build_when_no_agent_is_requested() {
+  _bats_test_init 615 'herdr-child selects build without --agent'
   child_stub_herdr
 
-  # #given — V2 keeps its configured build default, whose own rules conflict.
+  # #given — an omitted agent must select build despite a client default conflict.
 
   # #when
   run child_start --kind opencode --wait
@@ -5958,8 +5958,10 @@ import sys
 
 name, value = sys.argv[1].split("=", 1)
 assert name == "OPENCODE_CONFIG_CONTENT", repr(name)
-assert json.loads(value) == {
+actual = json.loads(value)
+expected = {
     "model": "openai/gpt-5.5",
+    "default_agent": "build",
     "permission": {"question": "deny", "edit": "deny", "shell": "allow"},
     "agent": {
         "build": {
@@ -5968,6 +5970,7 @@ assert json.loads(value) == {
         },
     },
 }
+assert actual == expected, actual
 PY
   assert_success
   run python3 - "$CHILD_STUB/calls.log" <<'PY'
