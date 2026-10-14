@@ -1,0 +1,5 @@
+{"type":"user","message":{"role":"user","content":"Keep the original operator request."},"origin":{"kind":"human"},"userType":"external"}
+{"type":"user","message":{"role":"user","content":"\n\n<pasted_content id=\"9967\">\n[child-settled v1 agent=w pane=w1:p2]\n\nbody\n</pasted_content id=\"9967\">\n"},"origin":{"kind":"human"}}
+{"type":"user","message":{"role":"user","content":"\n\n<pasted_content id=\"9968\">\n[child-supervision v1 generation=abc event=settled-seq agent=w pane=w1:p2]\n\nbody\n</pasted_content id=\"9968\">\n"},"origin":{"kind":"human"}}
+{"type":"user","message":{"role":"user","content":"\n\n<pasted_content id=\"9969\">\n[child-ask v2 generation=abc event=callback-1 agent=w pane=w1:p2]\n\nbody\n</pasted_content id=\"9969\">\n"},"origin":{"kind":"human"}}
+{"type":"user","message":{"role":"user","content":"\n\n<pasted_content id=\"9970\">\n[peer-message v1 from=w]\n\nbody\n</pasted_content id=\"9970\">\n"},"origin":{"kind":"human"}}

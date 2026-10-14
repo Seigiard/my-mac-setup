@@ -16,7 +16,7 @@
 # as a plugin because plugin files are overwritten on update and neither of
 # the two defects below could be kept fixed (KD2).
 #
-# Two deliberate departures from upstream:
+# Four deliberate departures from upstream:
 #   - The pending handoff lives under ~/.cache, keyed by session id, instead of
 #     `.git/handoff-pending/`. `mkdir -p .git/handoff-pending` fails outright in
 #     a linked worktree, where `.git` is a file, and there is no `.git` at all
@@ -27,6 +27,11 @@
 #     starts. An interrupted compaction leaves a handoff behind, and without
 #     this the injector would deliver it after the next compaction, describing
 #     a session state the operator has already moved past (R16).
+#   - The extraction prompt includes a locally derived `<transcript_facts>`
+#     block so paths, commits, and the last operator request come from the
+#     transcript rather than the forked model's memory.
+#   - A bare `/compact` gets a filled `<goal>` block that asks the fork to name
+#     the unfinished work, instead of leaving the goal empty.
 #
 # Fails open: any missing dependency, unreadable input, or failed extraction
 # exits 0 and lets compaction proceed unchanged. Once a session id is known,
@@ -81,6 +86,7 @@ session_id=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null) ||
 
 trigger=$(printf '%s' "$input" | jq -r '.trigger // "auto"' 2>/dev/null) || exit 0
 instructions=$(printf '%s' "$input" | jq -r '.custom_instructions // ""' 2>/dev/null) || exit 0
+transcript_path=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null) || exit 0
 
 store="$(handoff_file "$session_id")" || exit 0
 
@@ -100,6 +106,168 @@ else
   goal_block="The operator did not state a goal. Read the session and name the goal yourself: the work that is underway and still unfinished at the point of compaction. Treat what you name as the goal for every step below, and open your handoff by stating it."
 fi
 
+transcript_facts() {
+  local path="$1" records facts
+
+  if [ -z "$path" ] || [ ! -r "$path" ]; then
+    printf '<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: None\n</transcript_facts>'
+    return 0
+  fi
+
+  # Slurp once so a malformed JSONL transcript takes the same empty-facts path
+  # as an unreadable transcript instead of partially describing the session.
+  records=$(jq -s -c '.' "$path" 2>/dev/null) || {
+    printf '<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: None\n</transcript_facts>'
+    return 0
+  }
+
+  facts=$(printf '%s' "$records" | jq -c '
+    def message_content:
+      .message.content? // empty;
+    def tool_uses:
+      message_content
+      | if type == "array" then .[] | select(.type == "tool_use") else empty end;
+    def tool_results:
+      message_content
+      | if type == "array" then .[] | select(.type == "tool_result") else empty end;
+    def text_content:
+      message_content
+      | if type == "string" then .
+        elif type == "array" then
+          [ .[] | select(.type == "text") | (.text // "") ] | join("")
+        else ""
+        end;
+    def bounded_text:
+      if length > 4000 then .[0:4000] + " [truncated]" else . end;
+    def is_human_slash_command($text):
+      (.origin.kind? == "human")
+      and ($text | test("<command-name>/[^<]+</command-name>"));
+    def slash_command($text):
+      ($text | capture("<command-name>(?<name>/[^<]+)</command-name>(?:\\n<command-args>(?<args>[\\s\\S]*?)</command-args>)?"))
+      | .name + (if (.args // "") == "" then "" else " " + .args end);
+    def unwrap_pasted_content:
+      if test("^[[:space:]]*<pasted_content id=\"[^\"]*\">\\n") then
+        sub("^[[:space:]]*<pasted_content id=\"[^\"]*\">\\n"; "")
+        | sub("\\n</pasted_content id=\"[^\"]*\">[[:space:]]*$"; "")
+      else .
+      end;
+    def is_non_parent_protocol_marker($text):
+      ($text | unwrap_pasted_content) as $marker_text
+      | ($marker_text | test("^\\[[a-z]+(-[a-z]+)+ v[0-9]+([ \\n\\]])")) as $is_marker
+      | ($marker_text | test("^\\[parent-(prompt|reply) v[0-9]+([ \\n\\]])")) as $is_parent
+      | ($is_marker and ($is_parent | not));
+    def recent_unique:
+      reduce .[] as $item
+        ([]; if index($item) == null then . + [$item]
+             else map(select(. != $item)) + [$item]
+             end)
+      | .[-20:];
+    def is_harness($text):
+      (.isMeta == true)
+      or (.isCompactSummary == true)
+      or ((.origin.kind? // "human") != "human")
+      or is_non_parent_protocol_marker($text)
+      or ($text | test("^/compact(?:[[:space:]]|$)"))
+      or (is_human_slash_command($text)
+          and (($text | capture("<command-name>(?<name>/[^<]+)</command-name>") | .name) == "/compact"))
+      or ((.origin.kind? != "human")
+          and ($text | test("(?i)(^|\\n)(hook feedback:|system reminder:)|<system-reminder>|<task-notification>|<local-command-(stdout|stderr)>|<(local|bash)-(stdout|stderr)>|<bash-input>|^\\[Request interrupted by user( for tool use)?\\]|<command-name>|<command-message>")));
+
+    def queued_as_user:
+      if .type == "attachment"
+         and (.attachment.type? == "queued_command")
+         and (.attachment.commandMode? == "prompt")
+         and ((.attachment.prompt? | type) | IN("string", "array"))
+      then {type: "user", message: {role: "user", content: .attachment.prompt}, origin: .attachment.origin?, isMeta: .attachment.isMeta?}
+      else .
+      end;
+
+    map(queued_as_user) as $records
+    | [ $records[]
+      | select(.type == "user")
+      | tool_results
+      | select((.is_error // false) != true)
+      | .tool_use_id? // empty
+    ] as $successful_ids
+    | [ $records[]
+        | select(.type == "assistant")
+        | tool_uses
+        | select((.name // "") | IN("Edit", "Write", "NotebookEdit"))
+        | select(.id as $id | ($successful_ids | index($id)) != null)
+        | if .name == "NotebookEdit"
+          then (.input.notebook_path // .input.file_path // empty)
+          else (.input.file_path // empty)
+          end
+        | select(type == "string" and length > 0)
+      ]
+      | recent_unique as $edited
+      | [ $records[]
+          | select(.type == "assistant")
+          | tool_uses
+          | select(.name == "Bash")
+          | select((.input.command // "") | test("(^|[[:space:];|&])git([[:space:]]+[^;&|]*)?[[:space:]]+commit([[:space:]]|$)"))
+          | .id
+        ] as $bash_commit_ids
+        | [ $records[]
+            | select(.type == "user")
+            | . as $record
+            | tool_results
+            | select(.tool_use_id as $id | ($bash_commit_ids | index($id)) != null)
+            | (.content? // (if ($record.toolUseResult? | type) == "object"
+                             then ($record.toolUseResult.stdout? // "")
+                             else ($record.toolUseResult? // "")
+                             end))
+          | if type == "string" then .
+            elif type == "array" then [ .[] | .text? // "" ] | join("")
+            else ""
+            end
+          | split("\n")[]
+          | try capture("^\\[[^]]+ (?<hash>[0-9a-fA-F]+)\\] (?<subject>.+)$") catch empty
+          | "\(.hash) \(.subject)"
+        ]
+        | recent_unique as $commits
+        | [ $records[]
+            | select(.type == "user")
+            | . as $record
+            | ($record | text_content) as $text
+            | select(($text | length) > 0)
+            | select(($record | is_harness($text)) | not)
+            | select(((message_content | type) != "array") or
+                     ((message_content | any(.[]?; .type == "tool_result")) | not))
+            | if ($record | is_human_slash_command($text)) then
+                slash_command($text)
+              else $text
+              end
+            | bounded_text
+          ]
+        | {edited: $edited, commits: $commits, last_user: (last // null)}
+  ' 2>/dev/null) || {
+    printf '<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: None\n</transcript_facts>'
+    return 0
+  }
+
+  printf '%s' "$facts" | jq -r '
+    def json_literal: tojson | gsub("<"; "\\u003c");
+    "<transcript_facts>",
+    (if (.edited | length) > 0 then
+       "Files edited:", (.edited[] | "- " + json_literal)
+     else "Files edited: None"
+     end),
+    (if (.commits | length) > 0 then
+       "Commits made:", (.commits[] | "- " + json_literal)
+     else "Commits made: None"
+     end),
+    (if .last_user == null then "Last user request: None"
+     else "Last user request: " + (.last_user | json_literal)
+     end),
+    "</transcript_facts>"
+  ' 2>/dev/null || {
+    printf '<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: None\n</transcript_facts>'
+  }
+}
+
+facts_block=$(transcript_facts "$transcript_path") || exit 0
+
 # Clear before extracting, never after. An extraction that fails from here on
 # must leave no handoff at all rather than the previous compaction's.
 rm -f "$store" 2> /dev/null || true
@@ -109,9 +277,11 @@ command -v claude > /dev/null 2>&1 || {
   exit 0
 }
 
-# The extraction prompt is upstream's, unchanged apart from what fills the
-# <goal> block, which upstream always took from the operator.
+# The transcript facts are extracted locally so paths and commit names come
+# from the record rather than from the forked model's memory.
 prompt="You are generating a goal-focused Handoff for the next session. Context compaction is imminent.
+
+${facts_block}
 
 <goal>
 $goal_block
@@ -157,6 +327,8 @@ Constraints:
 - Maximum 400 words in the <handoff> section
 - File paths only, not full code snippets (the agent can read files)
 - Include verbatim quotes for anything where paraphrasing risks drift
+- Copy file paths, commit hashes and subjects, and the last user request exactly from <transcript_facts>; do not paraphrase or infer replacements.
+- Fact values are JSON string literals; the character < is written as \\u003c. Decode each literal and copy its text exactly into the handoff without changing or paraphrasing it.
 - If the goal is unclear or disconnected from session context, say so explicitly in your analysis and provide best-effort handoff
 
 Do not:

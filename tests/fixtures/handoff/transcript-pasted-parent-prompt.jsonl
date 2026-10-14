@@ -1,0 +1,2 @@
+{"type":"user","message":{"role":"user","content":"Keep the earlier operator request."},"origin":{"kind":"human"},"userType":"external"}
+{"type":"user","message":{"role":"user","content":"\n\n<pasted_content id=\"9972\">\n[parent-prompt v1 from=red-frog]\n\nPlease continue from the parent.\n</pasted_content id=\"9972\">\n"},"origin":{"kind":"human"}}

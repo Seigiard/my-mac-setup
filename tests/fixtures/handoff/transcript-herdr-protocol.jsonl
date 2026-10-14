@@ -1,0 +1,6 @@
+{"type":"user","message":{"role":"user","content":"[draft] tidy the hook"},"origin":{"kind":"human"},"userType":"external"}
+{"type":"user","message":{"role":"user","content":"[child-settled v1 agent=worker pane=w1:p2]"},"origin":{"kind":"human"}}
+{"type":"user","message":{"role":"user","content":"[child-supervision v1 generation=abc event=settled-seq agent=worker pane=w1:p2]"},"origin":{"kind":"human"}}
+{"type":"user","message":{"role":"user","content":"[child-ask v2 generation=abc event=callback-1 agent=worker pane=w1:p2]"},"origin":{"kind":"human"}}
+{"type":"user","message":{"role":"user","content":"[peer-message v1]\nbody"},"origin":{"kind":"human"}}
+{"type":"user","message":{"role":"user","content":"[parent-prompt v1 from=red-frog]\n\nPlease continue the test preparation."},"origin":{"kind":"human"}}
