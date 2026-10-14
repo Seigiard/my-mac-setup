@@ -171,6 +171,16 @@ if [[ -n "$HERDR_PANE_ID" ]]; then
   }
   _herdr_report_machine &!
 fi
+
+# Claude Code enables terminal images by terminal name and does not know herdr
+# (anthropics/claude-code#101306), so pasted-image thumbnails from the
+# image-view plugin render as bare "[Image #n]" text. Herdr passes the kitty
+# Unicode placeholders through to Ghostty, so force images inside herdr panes
+# only: a global setting would draw colored squares in terminals without
+# placeholder support, such as VS Code's.
+if [[ -n "$HERDR_PANE_ID" ]]; then
+  export CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1
+fi
 {{- if .is_darwin }}
 
 # Restart the herdr server under the com.seigiard.herdr-server LaunchAgent, so
