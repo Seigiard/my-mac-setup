@@ -132,15 +132,18 @@ async function loadV2ContextHook(
 
     if (!hooks.context) throw new Error("V2 context hook is unavailable");
 
-    return hooks as V2ContextHooks;
+    return {
+      context: hooks.context,
+      compaction: hooks.compaction,
+      generate: hooks.generate,
+      title: hooks.title,
+    };
   } finally {
     process.env.HOME = previousHome;
   }
 }
 
 type Hook = (input: { sessionID?: string }, output: { system: string[] }) => Promise<void>;
-
-type SystemPart = { type: "text"; text: string };
 
 async function runV2Request(
   hooks: Partial<Record<V2RequestKind, V2ContextHook>>,
@@ -518,6 +521,7 @@ describe("V2 local-instruction refresh", () => {
     // #given an ordinary system part and stale generated instructions from another project
     const hooks = await loadV2ContextHook({}, ["session-unavailable"]);
     const ordinary = "Preserve this ordinary instruction after a lookup failure.";
+
     const system: V2SystemPart[] = [
       { type: "text", text: BASE_SYSTEM },
       { type: "text", text: ordinary },
@@ -538,6 +542,7 @@ describe("V2 local-instruction refresh", () => {
     // #given an ordinary system part and stale generated instructions from another project
     const hooks = await loadV2ContextHook({ "session-without-directory": undefined });
     const ordinary = "Preserve this ordinary instruction without a session directory.";
+
     const system: V2SystemPart[] = [
       { type: "text", text: BASE_SYSTEM },
       { type: "text", text: ordinary },
