@@ -10174,15 +10174,9 @@ function test_scripts_1224_opencode_worktree_identity_plugin_uses_deployed_consu
   root="$BATS_TEST_TMPDIR/opencode-adapter"
   home="$root/home"
   deployed="$home/.config/opencode/plugins"
-  mkdir -p "$deployed/node_modules/@opencode/plugin" "$home/.local/lib"
+  mkdir -p "$deployed" "$home/.local/lib"
   ln -s "$SOURCE_ROOT/dot_local/lib/agent-hooks" "$home/.local/lib/agent-hooks"
   cp "$HWI_OPENCODE_PLUGIN_SOURCE" "$deployed/herdr-worktree-identity.ts"
-  cat > "$deployed/node_modules/@opencode/plugin/package.json" <<'JSON'
-{"name":"@opencode/plugin","type":"module","exports":"./index.js"}
-JSON
-  cat > "$deployed/node_modules/@opencode/plugin/index.js" <<'JS'
-export const Plugin = { define: (plugin) => plugin };
-JS
   cat > "$root/run.ts" <<'TS'
 const { default: plugin } = await import(process.env.HWI_OPENCODE_PLUGIN!);
 let promptHook;
