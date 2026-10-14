@@ -3,7 +3,8 @@
 
 # Public API consumed by herdr-pane-labels. A breaking change raises this
 # version and requires a matching herdr-pane-labels release.
-export HERDR_PROCESS_API=1
+# shellcheck disable=SC2034
+HERDR_PROCESS_API=1
 
 # Public contract:
 # - process_start_marker prints a canonical UTC ps lstart marker.
