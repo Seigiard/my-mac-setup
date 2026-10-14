@@ -1,6 +1,6 @@
 # Run directory
 
-The `tdd` orchestrator's files for one ticket. Publish `ticket.md`, `lock.json`, prompts, and reports through a temporary file and an atomic rename: write `<file>.tmp`, then rename it. Execution logs may stream while the child runs.
+The `tdd` orchestrator's files for one ticket. The `<run-id>` is the run directory's path relative to `~/.claude/artifacts/` (for example, `tdd-20261013-120000/495`). Publish `ticket.md`, `lock.json`, prompts, and reports through a temporary file and an atomic rename: write `<file>.tmp`, then rename it. Execution logs may stream while the child runs.
 
 | File | Holds |
 |---|---|
@@ -19,13 +19,17 @@ The `tdd` orchestrator's files for one ticket. Publish `ticket.md`, `lock.json`,
 <the ticket text, verbatim>
 
 ## Symptom
+Repeat this entry once per symptom criterion:
+- criterion: <number>
 - observed: <the wrong behavior the ticket reports, and the command or scenario it gives>
 - expected: <the behavior the ticket expects>
-- criterion: <number>
-- observation: <for a symptom criterion marked no test: command or scenario, state, output>
+- observation: <evidence when needed: command or scenario, state, output>
 
 ## Criteria
 1. <validation criterion>
+
+## Non-goals
+- <behavior, file, or area the ticket deliberately leaves unchanged | None explicitly stated, when the ticket names none>
 
 ## Oracle gate
 1. test: <consumer> / <observable failure> / <independent oracle>
@@ -43,7 +47,7 @@ The `tdd` orchestrator's files for one ticket. Publish `ticket.md`, `lock.json`,
 
 ## Batch
 - <number>: <initial ticket | caller-supplied review findings>
-- base_sha: <HEAD before implementation, on the checks-only path>
+- batch_start_sha: <HEAD when this batch opened; preserved across retries and re-locks>
 - turns: <count so far> / <limit, default 8>
 
 ## Calibration
