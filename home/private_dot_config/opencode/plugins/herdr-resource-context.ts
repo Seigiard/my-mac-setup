@@ -1,6 +1,7 @@
 // @ts-nocheck
-// This runs under the pinned V1 host, where the V2 package is absent at runtime.
-// Type-only V2 imports document the upgrade contract without changing that load path.
+// Type checking is off: this file is checked out in a plain dotfiles repo with no
+// node_modules, and only resolves its imports once deployed under ~/.config/opencode/,
+// where opencode's own dependencies live.
 import { execFile } from "node:child_process"
 import { homedir } from "node:os"
 import { join } from "node:path"
@@ -17,21 +18,6 @@ const RESOURCE_CLI =
   join(process.env.HOME || homedir(), ".local", "bin", "herdr-resource-tree")
 
 type V2Plugin = OpenCodePlugin.Plugin
-
-type V1Plugin = {
-  "experimental.chat.system.transform"?: (
-    input: { sessionID?: string },
-    output: { system?: string[] },
-  ) => Promise<void>
-}
-
-let defineV2: ((plugin: V2Plugin) => V2Plugin) | undefined
-
-try {
-  ;({ Plugin: { define: defineV2 } } = await import("@opencode/plugin"))
-} catch {
-  defineV2 = undefined
-}
 
 function queryContext(sessionID: string): Promise<string | undefined> {
   return new Promise((resolve) => {
@@ -64,7 +50,6 @@ async function resourceContext(sessionID?: string): Promise<string | undefined> 
 
 const plugin = {
   id: "herdr-resource-context",
-  server: HerdrResourceContextPlugin,
   async setup(ctx) {
     if (process.env.HERDR_ENV !== "1") return
 
@@ -83,29 +68,4 @@ const plugin = {
   },
 }
 
-// The V1 export remains only as a compatibility fallback for a temporary
-// rollback; normal installation now selects the V2 Homebrew formula.
-export async function HerdrResourceContextPlugin(): Promise<V1Plugin> {
-  if (process.env.HERDR_ENV !== "1") return {}
-
-  return {
-    "experimental.chat.system.transform": async (input: { sessionID?: string }, output: { system?: string[] }) => {
-      const system = output.system
-
-      if (!system) return
-
-      // Strip before querying so a failed lookup cannot present a prior branch as current.
-      const retained = system.filter((entry) => !generatedContext(entry))
-
-      system.length = 0
-
-      system.push(...retained)
-
-      const context = await resourceContext(input?.sessionID)
-
-      if (context) system.push(context)
-    },
-  }
-}
-
-export default defineV2 ? defineV2(plugin) : plugin
+export default plugin

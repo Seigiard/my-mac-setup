@@ -50,13 +50,14 @@ Fill the spec template into `~/.claude/artifacts/<id>/spec.html` (pf-cycle → a
 
 Before presenting each substantive revision to the user, run the contract spec past opencode on the **frontier tier** and fold in what survives your judgement. This review remains user-mandated on the frontier tier. Implementation runs through the `tdd` chain, which owns its tiers.
 
-V2 has no `run --dir`; the subshell makes the process cwd and `PWD` agree on the epic worktree. The stdin redirect prevents `opencode run` from waiting for EOF. On OpenCode 2 add `--standalone` so the run uses a private server with this shell's environment instead of the shared background service.
+The stdin redirect prevents `opencode run` from waiting for EOF. Add `--standalone` so the run uses a private server with this shell's environment instead of the shared background service.
 
 ```bash
 (
   cd <epic worktree> || exit
   exec opencode run \
     -m openai/gpt-5.6-sol \
+    --standalone \
     -f <screenshot1.png> -f <screenshot2.png> ... \
     "<review prompt>"
 ) < /dev/null

@@ -122,12 +122,12 @@ Work in <checkout> on branch <branch>. Commit prepare and implementation work. C
 Choose the launch mode in this order:
 
 1. `HERDR_ENV=1` and `HERDR_CHILD_PARENT_PANE` is unset: start a visible tab with `herdr-child start --kind opencode --posture rw --model <model> --effort <effort of tier> --cwd <checkout> --prompt-file <prompt> --detach`. Tabs avoid the narrow-pane OpenCode hang. Follow the parent duties in `~/.claude/shared/child-agent-contract.md`; the supervision marker wakes you. Answer a child's `herdr-child ask` from `ticket.md`; pass it to the user only when it needs a product decision. A herdr child goes straight to mode 2 because `herdr-child start` refuses to run from a child pane.
-2. `opencode` is on `PATH`: run the following as a background process that re-invokes you on exit (in Claude Code, the Bash tool's `run_in_background`). V2 has no `run --dir`; the subshell makes the process cwd and `PWD` agree on `<checkout>`. The stdin redirect prevents `opencode run` from waiting for EOF. OpenCode 2 also drops `--variant` and takes the variant as `-m <model>#<variant of tier>`; add `--standalone` there so the run uses a private server with this shell's environment. `~/.claude/shared/long-running-work.md` owns its supervision.
+2. `opencode` is on `PATH`: run the following as a background process that re-invokes you on exit (in Claude Code, the Bash tool's `run_in_background`). The stdin redirect prevents `opencode run` from waiting for EOF. `~/.claude/shared/long-running-work.md` owns its supervision.
 
    ```bash
    (
      cd <checkout> || exit
-     exec opencode run -m <model> --variant <variant of tier> --auto --format json "$(cat <prompt>)"
+     exec opencode run -m <model>#<variant of tier> --standalone --auto --format json "$(cat <prompt>)"
    ) < /dev/null > <run-dir>/<role>-<n>.jsonl 2>&1
    ```
 

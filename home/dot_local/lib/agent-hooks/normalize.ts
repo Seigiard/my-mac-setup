@@ -65,27 +65,19 @@ function readClaude(raw: ParsedEvent): RawRead {
 }
 
 function readOpencode(raw: ParsedEvent): RawRead {
-  // OpenCode V1 supplies `args`; V2 supplies the native tool input directly.
-  const args = raw.args;
+  // V2 supplies the native tool input directly.
   const input = raw.input;
-  const payload = hasArguments(args) ? args : input;
 
   return {
     clientToolName: raw.tool,
     payload: {
-      filePath: payload.filePath || payload.file_path || payload.path,
-      content: joinParts([payload.content, payload.newString]),
-      command: payload.command,
-      query: payload.query,
-      url: payload.url,
+      filePath: input.filePath || input.file_path || input.path,
+      content: joinParts([input.content, input.newString]),
+      command: input.command,
+      query: input.query,
+      url: input.url,
     },
   };
-}
-
-function hasArguments(input: ToolArguments): boolean {
-  // The parsed arguments hold only strings and edit lists; an empty value of
-  // either kind is the schema's fallback, not a supplied argument.
-  return Object.values(input).some((value) => (Array.isArray(value) ? value.length > 0 : value !== ""));
 }
 
 function readPi(raw: ParsedEvent): RawRead {
@@ -158,16 +150,16 @@ const WRITERS: Record<ClientId, Writer> = {
     return { tool_name: toolName, tool_input: input };
   },
   opencode: (toolName, payload, tool) => {
-    const args = commonArguments(payload);
+    const input = commonArguments(payload);
 
-    if (payload.filePath) args.filePath = payload.filePath;
+    if (payload.filePath) input.filePath = payload.filePath;
 
     if (payload.content) {
-      if (tool === "edit") args.newString = payload.content;
-      else args.content = payload.content;
+      if (tool === "edit") input.newString = payload.content;
+      else input.content = payload.content;
     }
 
-    return { tool: toolName, args };
+    return { tool: toolName, input };
   },
   pi: (toolName, payload, tool) => {
     const input = commonArguments(payload);

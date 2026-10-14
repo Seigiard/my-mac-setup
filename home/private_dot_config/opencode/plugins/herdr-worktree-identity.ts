@@ -1,22 +1,13 @@
 // @ts-nocheck
 // OpenCode prompt adapter for herdr-worktree-identity. The engine detaches its
 // model worker before this foreground handshake resolves.
-import type { Plugin as V1Plugin } from "@opencode-ai/plugin"
 import type { Plugin as V2Plugin } from "@opencode/plugin"
 import { homedir } from "node:os"
 import { join } from "node:path"
 
-let defineV2Plugin: ((plugin: V2Plugin.Plugin) => V2Plugin.Plugin) | undefined
-
 let handoffWorktreeIdentity:
   | ((agent: "opencode", sessionID: string, prompt: string) => Promise<void>)
   | undefined
-
-try {
-  ;({ Plugin: { define: defineV2Plugin } } = await import("@opencode/plugin"))
-} catch {
-  defineV2Plugin = undefined
-}
 
 try {
   ;({ handoffWorktreeIdentity } = await import(
@@ -24,33 +15,6 @@ try {
   ))
 } catch {
   handoffWorktreeIdentity = undefined
-}
-
-export const HerdrWorktreeIdentityPlugin: V1Plugin = async () => {
-  if (!handoffWorktreeIdentity || process.env.HERDR_ENV !== "1" || process.env.HERDR_WORKTREE_IDENTITY_ACTIVE) return {}
-
-  const childSessions = new Set<string>()
-
-  return {
-    "chat.message": async (input, output) => {
-      const sessionID = input?.sessionID
-
-      if (!sessionID || childSessions.has(sessionID)) return
-
-      const prompt = (Array.isArray(output?.parts) ? output.parts : [])
-        .flatMap((part: { type: string; text?: string }) => part?.type === "text" && part.text !== undefined ? [part.text] : [])
-        .join("\n")
-
-      if (prompt.trim() !== "") await handoffWorktreeIdentity("opencode", sessionID, prompt)
-    },
-    event: async ({ event }) => {
-      const type = event?.type
-      const info = event?.properties?.info
-
-      if (type === "session.deleted" && info?.id) childSessions.delete(info.id)
-      else if (info?.id && info.parentID) childSessions.add(info.id)
-    },
-  }
 }
 
 async function observeChildSessions(
@@ -108,4 +72,4 @@ const HerdrWorktreeIdentityV2Plugin = {
   },
 } satisfies V2Plugin.Plugin
 
-export default defineV2Plugin?.(HerdrWorktreeIdentityV2Plugin) ?? HerdrWorktreeIdentityPlugin
+export default HerdrWorktreeIdentityV2Plugin

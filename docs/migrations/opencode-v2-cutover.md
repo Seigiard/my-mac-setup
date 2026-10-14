@@ -70,12 +70,14 @@ checkout.
    opencode` when the formula was already installed. Confirm the package comes
    from the current Homebrew formula.
 4. Remove every old mise-managed installation with `mise uninstall --all
-   opencode`. If the stale shim still exists, run `mise reshim`, then require
-   that `~/.local/share/mise/shims/opencode` is absent. Check resolution with
-   the non-interactive PATH used by `herdr-run`, which puts that shims directory
-   first, and record the version from the same check:
+   opencode`. Verify that mise holds no install shipping an `opencode` binary
+   with `mise ls | grep -i opencode` (expect no rows). If the stale shim still
+   exists, run `mise reshim`, then require that `~/.local/share/mise/shims/opencode`
+   is absent. Check resolution with the non-interactive PATH used by `herdr-run`,
+   which puts that shims directory first, and record the version from the same check:
 
    ```sh
+   mise ls | grep -i opencode || echo "No OpenCode in mise installs"
    test ! -e "$HOME/.local/share/mise/shims/opencode"
    brew_opencode="$(brew --prefix)/bin/opencode"
    PATH="$HOME/.local/share/mise/shims:$PATH" /bin/sh -c \
