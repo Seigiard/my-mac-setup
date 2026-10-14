@@ -38,11 +38,11 @@ parent panes and record the exact `opencode --version` and `herdr --version`.
 This repository does not own OpenCode or Herdr runtime semantics, so no local
 source-shape test substitutes for that live check.
 
-The V1 rollback fallback is no longer exercised by a real-V1 test after this
-cutover. Test 1227 (`test_scripts_1227_opencode_v1_worktree_identity_loader_registers_the_named_prompt_handler`)
-skips because the managed setup no longer installs an OpenCode `1.19.0` binary;
-deletion of that test is tracked in #512. This is a named coverage limit, not
-evidence that the V1 rollback path passed.
+The V1 rollback fallback is no longer exercised by any automated test after this
+cutover. Test 1227 (`test_scripts_1227_opencode_v1_worktree_identity_loader_registers_the_named_prompt_handler`),
+which verified the V1 loader and Herdr integration, is deleted under #512 because
+the managed setup no longer installs an OpenCode `1.19.0` binary. The V1 rollback
+path is now a coverage limit: rollback must be verified manually if needed.
 
 ## Deployment Order
 
@@ -69,15 +69,17 @@ checkout.
 3. Run `brew bundle --file ~/.config/brewfiles/Brewfile`, then `brew upgrade
    opencode` when the formula was already installed. Confirm the package comes
    from the current Homebrew formula.
-4. Remove every old mise-managed installation with `mise uninstall --all
-   opencode`. Verify that mise holds no install shipping an `opencode` binary
-   with `mise ls | grep -i opencode` (expect no rows). If the stale shim still
-   exists, run `mise reshim`, then require that `~/.local/share/mise/shims/opencode`
-   is absent. Check resolution with the non-interactive PATH used by `herdr-run`,
-   which puts that shims directory first, and record the version from the same check:
+4. Remove every old mise-managed installation. First check that mise holds no
+   install shipping an `opencode` binary. If any row appears in `mise ls | grep
+   -i opencode`, uninstall every such backend (for example `mise uninstall
+   npm:@opencode/cli`) before running `mise uninstall --all opencode`. Then run
+   `mise reshim` if the stale shim still exists, and require that
+   `~/.local/share/mise/shims/opencode` is absent. Check resolution with the
+   non-interactive PATH used by `herdr-run`, which puts that shims directory
+   first, and record the version from the same check:
 
    ```sh
-   mise ls | grep -i opencode || echo "No OpenCode in mise installs"
+   ! mise ls | grep -i opencode
    test ! -e "$HOME/.local/share/mise/shims/opencode"
    brew_opencode="$(brew --prefix)/bin/opencode"
    PATH="$HOME/.local/share/mise/shims:$PATH" /bin/sh -c \

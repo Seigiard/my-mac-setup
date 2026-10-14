@@ -18,7 +18,7 @@ start_child() {
   local generation="" run_dir="" watcher_pid="" self="" prompt_pid=""
   local prompt_submitted=0 snapshot_policy=require-session
   local skills_count=0 tab_mode=0 label="" tab="" identity="" preserved_tab="" tab_note=""
-  local opencode_version="" opencode_major="" effective_agent=""
+  local opencode_version="" effective_agent=""
   local -a skills=() split_args=() native_args=()
 
   while [ $# -gt 0 ]; do
@@ -103,11 +103,7 @@ start_child() {
     }
     opencode_version="${opencode_version##*v}"
     case "$opencode_version" in
-      2.*) opencode_major=2 ;;
-      1.*)
-        printf 'herdr-child: unsupported OpenCode version: %s\n' "$opencode_version" >&2
-        return 1
-        ;;
+      2.*) ;;
       *)
         printf 'herdr-child: unsupported OpenCode version: %s\n' "$opencode_version" >&2
         return 1

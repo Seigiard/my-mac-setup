@@ -1,4 +1,7 @@
-import type { Plugin } from "@opencode-ai/plugin"
+// @ts-nocheck
+// Type checking is off: this file is checked out in a plain dotfiles repo with no
+// node_modules, and only resolves its imports once deployed under ~/.config/opencode/,
+// where opencode's own dependencies live.
 import { lstatSync, readlinkSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import type { Decision, ToolEventValue } from "../../../dot_local/lib/agent-hooks/types.ts"

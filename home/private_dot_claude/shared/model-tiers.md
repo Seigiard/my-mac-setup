@@ -10,4 +10,4 @@ A skill that starts a child picks its model and reasoning effort by tier, never 
 | `high` | `opus` / `medium` | `openai/gpt-5.6-sol` / `medium` |
 | `high+` | `opus` / `high` | `openai/gpt-5.6-sol` / `high` |
 
-Verified on 2026-10-14 against Claude Code 2.1.287 and OpenCode 2.0.25.
+Verified on 2026-10-14 against Claude Code 2.1.287. OpenCode column awaits re-verification on the installed OpenCode 2 version.
