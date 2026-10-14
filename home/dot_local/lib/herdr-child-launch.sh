@@ -109,17 +109,15 @@ start_child() {
         ;;
     esac
     effective_agent="${configured_agent:-build}"
-    opencode_config="$(python3 - "$model" "$configured_agent" "$effective_agent" "$posture" <<'PY'
+    opencode_config="$(python3 - "$model" "$effective_agent" "$posture" <<'PY'
 import json
 import sys
 
-model, agent, effective_agent, posture = sys.argv[1:]
+model, effective_agent, posture = sys.argv[1:]
 permission = {"question": "deny", "edit": "allow", "shell": "allow"}
 if posture == "ro":
     permission["edit"] = "deny"
-config = {"model": model}
-if agent:
-    config["default_agent"] = agent
+config = {"model": model, "default_agent": effective_agent}
 config["permission"] = permission
 config["agent"] = {effective_agent: {"model": model, "permission": permission}}
 print(json.dumps(config, separators=(",", ":")))
