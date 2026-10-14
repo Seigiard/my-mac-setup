@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Keep the terminal theme and exact extension package set while preserving Pi runtime fields.
+# Keep the terminal theme, exact extension package set, and codemode-only tools while preserving Pi runtime fields.
 
 set -euo pipefail
 
@@ -38,6 +38,10 @@ fi
   settings.defaultModel = "gpt-6.1-sol";
   settings.packages = extensions;
   settings.skills = skills;
+  // Keep codemode active without MCP and route every tool call through it.
+  settings.defaultTools = ["+codemode"];
+  const codemode = settings.codemode !== null && typeof settings.codemode === "object" ? settings.codemode : {};
+  settings.codemode = { ...codemode, mode: "only" };
   process.stdout.write(`${JSON.stringify(settings, null, 2)}\n`);
 })().catch((error) => {
   console.error(error.message);
