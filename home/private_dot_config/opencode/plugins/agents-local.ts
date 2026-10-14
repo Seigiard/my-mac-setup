@@ -41,14 +41,12 @@ try {
   defineV2 = undefined
 }
 
-async function localInstructions(directory: string): Promise<{ block?: string; failed: boolean }> {
-  if (!buildLocalInstructions) return { failed: true }
-
+async function localInstructions(directory: string): Promise<string | undefined> {
   try {
-    return { block: (await buildLocalInstructions(directory)).block, failed: false }
+    return (await buildLocalInstructions(directory)).block
   } catch {
     // Do not restore stale instructions when selection fails.
-    return { failed: true }
+    return undefined
   }
 }
 
@@ -68,7 +66,7 @@ const plugin = {
 
         if (!directory) return
 
-        const { block } = await localInstructions(directory)
+        const block = await localInstructions(directory)
 
         if (block) request.system.push({ type: "text", text: block } satisfies SystemPart)
       } catch {
@@ -94,7 +92,7 @@ export async function AgentsLocalPlugin({ directory }: { directory?: string }): 
       const retained = system.filter((entry) => !isGeneratedLocalInstructionsBlock(entry))
       system.splice(0, system.length, ...retained)
 
-      const { block } = await localInstructions(directory)
+      const block = await localInstructions(directory)
 
       if (block) system.push(block)
     },
