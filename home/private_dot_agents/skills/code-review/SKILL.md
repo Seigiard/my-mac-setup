@@ -99,8 +99,9 @@ Choose the route before preparing the round:
     --context-file <evidence file> --note "<what changed since the previous round>" --wait
   ```
 
-  adding `--workdir <worktree>` for a fetched PR. Collect the round's report, progress log, and
-  terminal status from `<run-dir>/<run>.json`, `.log`, and `.exit`.
+  Add `--workdir <worktree>` for a fetched PR. When the follow-up targets only part of the cumulative
+  change, add one repeatable `--only <pathspec>` per part to review. Collect the round's report,
+  progress log, and terminal status from `<run-dir>/<run>.json`, `.log`, and `.exit`.
 
   When a round reviews values that do not live in Git, such as artifact checksums, digests, or
   version strings, write them as a flat JSON object and pass `--candidate <file>` instead of

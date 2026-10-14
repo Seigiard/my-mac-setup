@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# post-apply: 27 host-safe
+# post-apply: 28 host-safe
 # revmux-round command contract. The fixture Git history and the real revmux
 # setup command are independent inputs; tests exercise only the local wrapper.
 source "$(dirname "${BASH_SOURCE[0]}")/test-dsl.bash"
@@ -245,7 +245,7 @@ function test_revmux_round_005_next_rejects_an_over_limit_scope_without_launchin
   run env PATH="$SHIM_BIN:$PATH" bash "$SCRIPT" next --task fixture --tasks-dir "$TASKS_DIR" \
     --workdir "$FIXTURE_REPO" --out-dir "$BATS_TEST_TMPDIR/out" --note "$note" --wait
   assert_failure 1
-  assert_output --regexp '^error: Note section makes scope\.md [0-9]+ characters; the limit is 1500$'
+  assert_output --regexp '^error: scope\.md is [0-9]+ characters; the limit is 1500$'
   assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
   assert_file_not_exists "$REVMUX_SHIM_RUN_ARGS"
 }
@@ -737,8 +737,139 @@ function test_revmux_round_025_next_rejects_a_missing_context_file_without_creat
   assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
 }
 
-function test_revmux_round_026_next_renders_candidate_values_in_file_order() {
-  _bats_test_init 26 'next renders every candidate value in source file order'
+function test_revmux_round_026_next_limits_git_facts_to_repeatable_pathspecs() {
+  _bats_test_init 26 'next limits scope Git facts to every repeated only pathspec'
+  require_revmux
+  make_round_fixture
+  local scope="$TASKS_DIR/fixture/02-after-fix/input/scope.md"
+  local selected_commits
+  local selected_files
+
+  # #given
+  git -C "$FIXTURE_REPO" reset --hard -q "$FIXTURE_BASE"
+  mkdir -p "$FIXTURE_REPO/app" "$FIXTURE_REPO/docs" "$FIXTURE_REPO/noise"
+  printf 'first app change\n' > "$FIXTURE_REPO/app/first.txt"
+  git -C "$FIXTURE_REPO" add app/first.txt
+  git -C "$FIXTURE_REPO" commit -qm 'add first app file'
+  printf 'first noise change\n' > "$FIXTURE_REPO/noise/first.txt"
+  git -C "$FIXTURE_REPO" add noise/first.txt
+  git -C "$FIXTURE_REPO" commit -qm 'add first noise file'
+  printf 'selected guide change\n' > "$FIXTURE_REPO/docs/guide.md"
+  printf 'unselected docs change\n' > "$FIXTURE_REPO/docs/notes.md"
+  git -C "$FIXTURE_REPO" add docs/guide.md docs/notes.md
+  git -C "$FIXTURE_REPO" commit -qm 'add selected guide with unrelated doc'
+  printf 'second app change\n' > "$FIXTURE_REPO/app/second.txt"
+  git -C "$FIXTURE_REPO" add app/second.txt
+  git -C "$FIXTURE_REPO" commit -qm 'add second app file'
+  printf 'second noise change\n' > "$FIXTURE_REPO/noise/second.txt"
+  git -C "$FIXTURE_REPO" add noise/second.txt
+  git -C "$FIXTURE_REPO" commit -qm 'add second noise file'
+  selected_commits="$(git -C "$FIXTURE_REPO" log --oneline "$FIXTURE_BASE..HEAD" -- app docs/guide.md)"
+  selected_files="$(git -C "$FIXTURE_REPO" diff --name-status "$FIXTURE_BASE..HEAD" -- app docs/guide.md)"
+
+  run git -C "$FIXTURE_REPO" diff --shortstat "$FIXTURE_BASE..HEAD" -- app docs/guide.md
+  assert_success
+  assert_output ' 3 files changed, 3 insertions(+)'
+  run git -C "$FIXTURE_REPO" log --format=%s "$FIXTURE_BASE..HEAD" -- app docs/guide.md
+  assert_success
+  assert_output "$(cat <<'EOF'
+add second app file
+add selected guide with unrelated doc
+add first app file
+EOF
+)"
+  run git -C "$FIXTURE_REPO" diff --name-status "$FIXTURE_BASE..HEAD" -- app docs/guide.md
+  assert_success
+  assert_output "$(cat <<'EOF'
+A	app/first.txt
+A	app/second.txt
+A	docs/guide.md
+EOF
+)"
+
+  # #when
+  run_prepare_only --only app --only docs/guide.md
+
+  # #then
+  assert_success
+  run awk '
+    /^Scale: / || /^Limited to: / { print; next }
+    $0 == "Read the change:" { print; section = 1; fence = 0; next }
+    $0 == "Commits:" { print; section = 1; fence = 0; next }
+    $0 == "Changed files:" { print; section = 1; fence = 0; next }
+    section && $0 == "```" {
+      fence++
+      if (fence == 2) section = 0
+      next
+    }
+    section && fence == 1 { print }
+  ' "$scope"
+  assert_success
+  assert_output "$(cat <<EOF
+Scale: 3 files changed, 3 insertions(+)
+Limited to: app, docs/guide.md
+Read the change:
+git diff $FIXTURE_BASE..HEAD -- app docs/guide.md
+git log --oneline $FIXTURE_BASE..HEAD -- app docs/guide.md
+Commits:
+$selected_commits
+Changed files:
+$selected_files
+EOF
+)"
+}
+
+function test_revmux_round_027_next_rejects_a_dead_only_pathspec_among_matches() {
+  _bats_test_init 27 'next rejects a dead only pathspec even when another pathspec matches'
+  require_revmux
+  make_round_fixture
+  local missing='missing/**/*.md'
+
+  # #given
+  run git -C "$FIXTURE_REPO" diff --name-status "$FIXTURE_BASE..HEAD" -- alpha.txt
+  assert_success
+  assert_output $'A\talpha.txt'
+  run git -C "$FIXTURE_REPO" diff --name-status "$FIXTURE_BASE..HEAD" -- "$missing"
+  assert_success
+  assert_output ''
+
+  # #when
+  run_prepare_only --only alpha.txt --only "$missing"
+
+  # #then
+  assert_failure 1
+  assert_output "error: --only pathspec $missing matches no changes in $FIXTURE_BASE..HEAD"
+  assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
+}
+
+function test_revmux_round_028_next_rejects_only_pathspecs_that_cancel_each_other() {
+  _bats_test_init 28 'next rejects only pathspecs whose combined selection has no changes'
+  require_revmux
+  make_round_fixture
+  local include='alpha.txt'
+  local exclude=':(exclude)alpha.txt'
+
+  # #given
+  run git -C "$FIXTURE_REPO" diff --name-status "$FIXTURE_BASE..HEAD" -- "$include"
+  assert_success
+  assert_output $'A\talpha.txt'
+  run git -C "$FIXTURE_REPO" diff --name-status "$FIXTURE_BASE..HEAD" -- "$exclude"
+  assert_success
+  assert_output $'A\tbeta.txt'
+  run git -C "$FIXTURE_REPO" diff --name-status "$FIXTURE_BASE..HEAD" -- "$include" "$exclude"
+  assert_success
+  assert_output ''
+
+  # #when
+  run_prepare_only --only "$include" --only "$exclude"
+
+  # #then
+  assert_failure 1
+  assert_output "error: combined --only pathspecs match no changes in $FIXTURE_BASE..HEAD"
+  assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
+}
+function test_revmux_round_029_next_renders_candidate_values_in_file_order() {
+  _bats_test_init 29 'next renders every candidate value in source file order'
   require_revmux
 
   # #given
@@ -757,8 +888,8 @@ function test_revmux_round_026_next_renders_candidate_values_in_file_order() {
   assert_output "$(expected_candidate_scope)"
 }
 
-function test_revmux_round_027_next_archives_the_candidate_file_byte_for_byte() {
-  _bats_test_init 27 'next archives the exact candidate file bytes with the round input'
+function test_revmux_round_030_next_archives_the_candidate_file_byte_for_byte() {
+  _bats_test_init 30 'next archives the exact candidate file bytes with the round input'
   require_revmux
 
   # #given
@@ -776,8 +907,8 @@ function test_revmux_round_027_next_archives_the_candidate_file_byte_for_byte() 
   assert_success
 }
 
-function test_revmux_round_028_next_rejects_a_candidate_that_is_not_an_object() {
-  _bats_test_init 28 'next rejects a non-object candidate before creating the round'
+function test_revmux_round_031_next_rejects_a_candidate_that_is_not_an_object() {
+  _bats_test_init 31 'next rejects a non-object candidate before creating the round'
   require_revmux
 
   # #given
@@ -794,8 +925,8 @@ function test_revmux_round_028_next_rejects_a_candidate_that_is_not_an_object() 
   assert_output --regexp '^error: .*not an object.*$'
 }
 
-function test_revmux_round_029_next_rejects_a_nested_candidate_value_and_names_its_key() {
-  _bats_test_init 29 'next names the key whose candidate value is nested'
+function test_revmux_round_032_next_rejects_a_nested_candidate_value_and_names_its_key() {
+  _bats_test_init 32 'next names the key whose candidate value is nested'
   require_revmux
 
   # #given
@@ -812,8 +943,8 @@ function test_revmux_round_029_next_rejects_a_nested_candidate_value_and_names_i
   assert_output --regexp '^error: .*artifact.*$'
 }
 
-function test_revmux_round_030_next_rejects_an_empty_candidate_value_and_names_its_key() {
-  _bats_test_init 30 'next names the key whose candidate value is empty'
+function test_revmux_round_033_next_rejects_an_empty_candidate_value_and_names_its_key() {
+  _bats_test_init 33 'next names the key whose candidate value is empty'
   require_revmux
 
   # #given
@@ -830,8 +961,8 @@ function test_revmux_round_030_next_rejects_an_empty_candidate_value_and_names_i
   assert_output --regexp '^error: .*version.*$'
 }
 
-function test_revmux_round_031_next_rejects_an_invalid_candidate_key_and_names_it() {
-  _bats_test_init 31 'next names a candidate key outside the allowed alphabet'
+function test_revmux_round_034_next_rejects_an_invalid_candidate_key_and_names_it() {
+  _bats_test_init 34 'next names a candidate key outside the allowed alphabet'
   require_revmux
 
   # #given
@@ -848,8 +979,8 @@ function test_revmux_round_031_next_rejects_an_invalid_candidate_key_and_names_i
   assert_output --regexp '^error: .*bad key.*$'
 }
 
-function test_revmux_round_032_next_names_candidate_when_it_alone_exceeds_the_scope_limit() {
-  _bats_test_init 32 'next names Candidate when that section alone exceeds the scope limit'
+function test_revmux_round_035_next_names_candidate_when_it_alone_exceeds_the_scope_limit() {
+  _bats_test_init 35 'next names Candidate when that section alone exceeds the scope limit'
   require_revmux
 
   # #given
@@ -870,8 +1001,8 @@ function test_revmux_round_032_next_names_candidate_when_it_alone_exceeds_the_sc
   assert_output --regexp '^error: .*Candidate.*$'
 }
 
-function test_revmux_round_033_next_names_note_when_note_overflows_with_a_small_candidate() {
-  _bats_test_init 33 'next names Note instead of Candidate when the note exceeds the scope limit'
+function test_revmux_round_036_next_names_note_when_note_overflows_with_a_small_candidate() {
+  _bats_test_init 36 'next names Note instead of Candidate when the note exceeds the scope limit'
   require_revmux
 
   # #given
@@ -890,8 +1021,8 @@ function test_revmux_round_033_next_names_note_when_note_overflows_with_a_small_
   assert_output --regexp '^error: Note section makes scope\.md [0-9]+ characters; the limit is 1500$'
 }
 
-function test_revmux_round_034_next_rejects_a_line_feed_in_a_candidate_value() {
-  _bats_test_init 34 'next rejects a candidate value containing a line feed and names its key'
+function test_revmux_round_037_next_rejects_a_line_feed_in_a_candidate_value() {
+  _bats_test_init 37 'next rejects a candidate value containing a line feed and names its key'
   require_revmux
 
   # #given
@@ -908,8 +1039,8 @@ function test_revmux_round_034_next_rejects_a_line_feed_in_a_candidate_value() {
   assert_output --regexp '^error: .*artifact.*$'
 }
 
-function test_revmux_round_035_next_rejects_a_carriage_return_in_a_candidate_value() {
-  _bats_test_init 35 'next rejects a candidate value containing a carriage return and names its key'
+function test_revmux_round_038_next_rejects_a_carriage_return_in_a_candidate_value() {
+  _bats_test_init 38 'next rejects a candidate value containing a carriage return and names its key'
   require_revmux
 
   # #given
@@ -926,8 +1057,8 @@ function test_revmux_round_035_next_rejects_a_carriage_return_in_a_candidate_val
   assert_output --regexp '^error: .*digest.*$'
 }
 
-function test_revmux_round_036_next_rejects_a_candidate_key_ending_in_a_line_feed() {
-  _bats_test_init 36 'next applies the key alphabet check through a trailing line feed'
+function test_revmux_round_039_next_rejects_a_candidate_key_ending_in_a_line_feed() {
+  _bats_test_init 39 'next applies the key alphabet check through a trailing line feed'
   require_revmux
 
   # #given
@@ -944,8 +1075,8 @@ function test_revmux_round_036_next_rejects_a_candidate_key_ending_in_a_line_fee
   assert_output --regexp '^error: .*linefeed-key.*$'
 }
 
-function test_revmux_round_037_next_rejects_a_candidate_key_ending_in_a_carriage_return() {
-  _bats_test_init 37 'next applies the key alphabet check through a trailing carriage return'
+function test_revmux_round_040_next_rejects_a_candidate_key_ending_in_a_carriage_return() {
+  _bats_test_init 40 'next applies the key alphabet check through a trailing carriage return'
   require_revmux
 
   # #given
@@ -962,8 +1093,8 @@ function test_revmux_round_037_next_rejects_a_candidate_key_ending_in_a_carriage
   assert_output --regexp '^error: .*carriage-key.*$'
 }
 
-function test_revmux_round_038_next_does_not_carry_a_previous_candidate_with_other_context() {
-  _bats_test_init 38 'next omits the previous candidate while carrying other context unchanged'
+function test_revmux_round_041_next_does_not_carry_a_previous_candidate_with_other_context() {
+  _bats_test_init 41 'next omits the previous candidate while carrying other context unchanged'
   require_revmux
 
   # #given
@@ -982,8 +1113,8 @@ function test_revmux_round_038_next_does_not_carry_a_previous_candidate_with_oth
   assert_file_not_exists "$current_context/candidate.json"
 }
 
-function test_revmux_round_039_next_archives_the_current_candidate_instead_of_the_previous_one() {
-  _bats_test_init 39 'next replaces a previous candidate with the candidate passed for this round'
+function test_revmux_round_042_next_archives_the_current_candidate_instead_of_the_previous_one() {
+  _bats_test_init 42 'next replaces a previous candidate with the candidate passed for this round'
   require_revmux
 
   # #given

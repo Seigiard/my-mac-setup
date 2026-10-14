@@ -4,7 +4,8 @@ set -euo pipefail
 usage() {
   printf '%s\n' \
     'usage: revmux-round.sh next --task <id> [--run <NN-label>] [--base <sha>] [--workdir <path>] [--profile <name>]' \
-    '       [--note <text> | --note -] [--candidate <path.json>] [--exclude <text>] [--context-file <path>] [--out-dir <dir>]' \
+    '       [--only <pathspec>]... [--note <text> | --note -] [--candidate <path.json>] [--exclude <text>] [--context-file <path>]' \
+    '       [--out-dir <dir>]' \
     '       [--tasks-dir <dir>] [--prepare-only] [--wait]' \
     '       revmux-round.sh summary <report.json>' >&2
 }
@@ -80,18 +81,50 @@ build_scope() {
   local note="${10}"
   local candidate_given="${11}"
   local candidate_entries="${12}"
+  local only_count="${13}"
   local exclusion
+  local index
+  local pathspec
+  local separator=""
+  local only_values=()
 
-  shift 12
+  shift 13
+  for ((index = 0; index < only_count; index++)); do
+    only_values[$index]="$1"
+    shift
+  done
 
   printf '# Scope\n\n'
   printf 'Round %s of task %s: review the cumulative change against base %s, including the fixes since the previous round.\n\n' \
     "$run_name" "$task" "$base"
   printf 'Tip: %s\n' "$tip"
-  printf 'Scale: %s\n\n' "$scale"
+  printf 'Scale: %s\n' "$scale"
+  if [ "$only_count" -gt 0 ]; then
+    printf 'Limited to: '
+    for pathspec in "${only_values[@]}"; do
+      printf '%s%s' "$separator" "$pathspec"
+      separator=', '
+    done
+    printf '\n'
+  fi
+  printf '\n'
   printf 'Read the change:\n\n```\n'
-  printf 'git diff %s..HEAD\n' "$base"
-  printf 'git log --oneline %s..HEAD\n' "$base"
+  printf 'git diff %s..HEAD' "$base"
+  if [ "$only_count" -gt 0 ]; then
+    printf ' --'
+    for pathspec in "${only_values[@]}"; do
+      printf ' %q' "$pathspec"
+    done
+  fi
+  printf '\n'
+  printf 'git log --oneline %s..HEAD' "$base"
+  if [ "$only_count" -gt 0 ]; then
+    printf ' --'
+    for pathspec in "${only_values[@]}"; do
+      printf ' %q' "$pathspec"
+    done
+  fi
+  printf '\n'
   printf '```\n\nCommits:\n\n```\n%s\n```\n\nChanged files:\n\n```\n%s\n```\n' \
     "$commits" "$changed_files"
   if [ "$candidate_given" = true ]; then
@@ -127,8 +160,10 @@ next() {
   local candidate_given=false
   local candidate_entries=""
   local invalid_candidate_key=""
+  local only_values=()
   local exclude_values=()
   local context_file_values=()
+  local only_count=0
   local exclusion_count=0
   local context_file_count=0
   local out_dir=""
@@ -160,12 +195,14 @@ next() {
   local scale=""
   local commits=""
   local changed_files=""
+  local only_match=""
   local limited_commits=""
   local limited_changed_files=""
   local commit_count=0
   local changed_file_count=0
   local visible_commits=0
   local visible_changed_files=0
+  local scope_args=()
   local scope_text=""
   local scope_characters=0
   local section_scope_characters=0
@@ -181,7 +218,7 @@ next() {
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --task|--run|--base|--workdir|--profile|--out-dir|--tasks-dir|--exclude|--context-file|--candidate)
+      --task|--run|--base|--workdir|--profile|--out-dir|--tasks-dir|--only|--exclude|--context-file|--candidate)
         [ "$#" -gt 1 ] || { usage; return 1; }
         case "$1" in
           --task) task="$2" ;;
@@ -191,6 +228,10 @@ next() {
           --profile) profile="$2" ;;
           --out-dir) out_dir="$2" ;;
           --tasks-dir) tasks_dir="$2"; tasks_dir_given=true ;;
+          --only)
+            only_values[$only_count]="$2"
+            only_count=$((only_count + 1))
+            ;;
           --candidate) candidate_file="$2"; candidate_given=true ;;
           --exclude)
             exclude_values[$exclusion_count]="$2"
@@ -331,12 +372,44 @@ next() {
     candidate_entries="$(jq -r 'to_entries[] | "\(.key): \(.value)"' "$candidate_file")"
   fi
 
+  for ((index = 0; index < only_count; index++)); do
+    candidate="${only_values[$index]}"
+    if ! only_match="$(git -C "$workdir" diff --name-only "$base..HEAD" -- "$candidate")"; then
+      error "cannot evaluate --only pathspec $candidate"
+      return 1
+    fi
+    if [ -z "$only_match" ]; then
+      error "--only pathspec $candidate matches no changes in $base..HEAD"
+      return 1
+    fi
+  done
+
+  if [ "$only_count" -gt 0 ]; then
+    if ! only_match="$(git -C "$workdir" diff --name-only "$base..HEAD" -- "${only_values[@]}")"; then
+      error "cannot evaluate combined --only pathspecs"
+      return 1
+    fi
+    if [ -z "$only_match" ]; then
+      error "combined --only pathspecs match no changes in $base..HEAD"
+      return 1
+    fi
+  fi
+
   tip="$(git -C "$workdir" rev-parse HEAD)"
-  scale="$(git -C "$workdir" diff --shortstat "$base..HEAD")"
+  if [ "$only_count" -gt 0 ]; then
+    scale="$(git -C "$workdir" diff --shortstat "$base..HEAD" -- "${only_values[@]}")"
+  else
+    scale="$(git -C "$workdir" diff --shortstat "$base..HEAD")"
+  fi
   scale="${scale#"${scale%%[![:space:]]*}"}"
   [ -n "$scale" ] || scale="no changes"
-  commits="$(git -C "$workdir" log --oneline "$base..HEAD")"
-  changed_files="$(git -C "$workdir" diff --name-status "$base..HEAD")"
+  if [ "$only_count" -gt 0 ]; then
+    commits="$(git -C "$workdir" log --oneline "$base..HEAD" -- "${only_values[@]}")"
+    changed_files="$(git -C "$workdir" diff --name-status "$base..HEAD" -- "${only_values[@]}")"
+  else
+    commits="$(git -C "$workdir" log --oneline "$base..HEAD")"
+    changed_files="$(git -C "$workdir" diff --name-status "$base..HEAD")"
+  fi
   commit_count="$(count_lines "$commits")"
   changed_file_count="$(count_lines "$changed_files")"
   visible_commits="$commit_count"
@@ -352,16 +425,16 @@ next() {
   while :; do
     limited_commits="$(limit_lines "$commits" "$visible_commits")"
     limited_changed_files="$(limit_lines "$changed_files" "$visible_changed_files")"
-    if [ "$exclusion_count" -gt 0 ]; then
-      scope_text="$(build_scope "$run_name" "$task" "$base" "$tip" "$scale" \
-        "$limited_commits" "$limited_changed_files" "$round_number" "$note_given" "$note" \
-        "$candidate_given" "$candidate_entries" \
-        "${exclude_values[@]}")"
-    else
-      scope_text="$(build_scope "$run_name" "$task" "$base" "$tip" "$scale" \
-        "$limited_commits" "$limited_changed_files" "$round_number" "$note_given" "$note" \
-        "$candidate_given" "$candidate_entries")"
-    fi
+    scope_args=("$run_name" "$task" "$base" "$tip" "$scale" "$limited_commits" \
+      "$limited_changed_files" "$round_number" "$note_given" "$note" \
+      "$candidate_given" "$candidate_entries" "$only_count")
+    for ((index = 0; index < only_count; index++)); do
+      scope_args[${#scope_args[@]}]="${only_values[$index]}"
+    done
+    for ((index = 0; index < exclusion_count; index++)); do
+      scope_args[${#scope_args[@]}]="${exclude_values[$index]}"
+    done
+    scope_text="$(build_scope "${scope_args[@]}")"
     scope_characters="$(printf '%s\n' "$scope_text" | wc -m)"
     scope_characters="${scope_characters//[[:space:]]/}"
     [ "$scope_characters" -le 1500 ] && break
@@ -371,14 +444,22 @@ next() {
     elif [ "$visible_commits" -gt 0 ]; then
       visible_commits=$((visible_commits - 1))
     else
-      scope_without_optional_sections="$(build_scope "$run_name" "$task" "$base" "$tip" "$scale" \
-        "$limited_commits" "$limited_changed_files" "$round_number" false "" false "")"
+      scope_args=("$run_name" "$task" "$base" "$tip" "$scale" "$limited_commits" \
+        "$limited_changed_files" "$round_number" false "" false "" "$only_count")
+      for ((index = 0; index < only_count; index++)); do
+        scope_args[${#scope_args[@]}]="${only_values[$index]}"
+      done
+      scope_without_optional_sections="$(build_scope "${scope_args[@]}")"
       section_scope_characters="$(printf '%s\n' "$scope_without_optional_sections" | wc -m)"
       section_scope_characters="${section_scope_characters//[[:space:]]/}"
 
       if [ "$section_scope_characters" -le 1500 ] && [ "$candidate_given" = true ]; then
-        scope_through_candidate="$(build_scope "$run_name" "$task" "$base" "$tip" "$scale" \
-          "$limited_commits" "$limited_changed_files" "$round_number" false "" true "$candidate_entries")"
+        scope_args=("$run_name" "$task" "$base" "$tip" "$scale" "$limited_commits" \
+          "$limited_changed_files" "$round_number" false "" true "$candidate_entries" "$only_count")
+        for ((index = 0; index < only_count; index++)); do
+          scope_args[${#scope_args[@]}]="${only_values[$index]}"
+        done
+        scope_through_candidate="$(build_scope "${scope_args[@]}")"
         section_scope_characters="$(printf '%s\n' "$scope_through_candidate" | wc -m)"
         section_scope_characters="${section_scope_characters//[[:space:]]/}"
         if [ "$section_scope_characters" -gt 1500 ]; then
@@ -387,9 +468,16 @@ next() {
       fi
 
       if [ -z "$overflow_section" ] && [ "$section_scope_characters" -le 1500 ] && [ "$exclusion_count" -gt 0 ]; then
-        scope_through_exclusions="$(build_scope "$run_name" "$task" "$base" "$tip" "$scale" \
-          "$limited_commits" "$limited_changed_files" "$round_number" false "" \
-          "$candidate_given" "$candidate_entries" "${exclude_values[@]}")"
+        scope_args=("$run_name" "$task" "$base" "$tip" "$scale" "$limited_commits" \
+          "$limited_changed_files" "$round_number" false "" \
+          "$candidate_given" "$candidate_entries" "$only_count")
+        for ((index = 0; index < only_count; index++)); do
+          scope_args[${#scope_args[@]}]="${only_values[$index]}"
+        done
+        for ((index = 0; index < exclusion_count; index++)); do
+          scope_args[${#scope_args[@]}]="${exclude_values[$index]}"
+        done
+        scope_through_exclusions="$(build_scope "${scope_args[@]}")"
         section_scope_characters="$(printf '%s\n' "$scope_through_exclusions" | wc -m)"
         section_scope_characters="${section_scope_characters//[[:space:]]/}"
         if [ "$section_scope_characters" -gt 1500 ]; then
@@ -397,7 +485,8 @@ next() {
         fi
       fi
 
-      if [ -z "$overflow_section" ] && [ "$section_scope_characters" -le 1500 ] && [ "$note_given" = true ]; then
+      if [ -z "$overflow_section" ] && [ "$section_scope_characters" -le 1500 ] \
+        && [ "$note_given" = true ] && [ "$candidate_given" = true ]; then
         overflow_section=Note
       fi
 

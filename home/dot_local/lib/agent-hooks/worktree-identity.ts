@@ -1,8 +1,9 @@
 // Shared subprocess handoff for the Pi and OpenCode worktree-identity adapters.
 
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { isAbsolute, join } from "node:path";
 
 const ENGINE_NAME = "herdr-worktree-identity";
 
@@ -28,11 +29,45 @@ function enginePath(): string {
 function engineArgs(agent: WorktreeIdentityAgent, sessionID: string): string[] {
   const args = ["--agent", agent, "--session", sessionID];
 
+  // OpenCode 2 runs plugins in one shared service, whose env names the pane that
+  // started it, not the prompting pane. The engine finds the pane by session.
+  if (agent === "opencode") return args;
+
   if (process.env.HERDR_PANE_ID) args.push("--pane", process.env.HERDR_PANE_ID);
 
   if (process.env.HERDR_WORKSPACE_ID) args.push("--workspace", process.env.HERDR_WORKSPACE_ID);
 
   return args;
+}
+
+// The engine falls back to the pane's process cwd, which stays at the launch
+// directory when a session moves to another checkout. Write the record the
+// Claude statusline writes: one absolute path under agent-cwd/, keyed by the
+// session id in base64url without padding (encode_key in
+// herdr-worktree-state.sh), renamed into place so a reader never sees half.
+export function recordSessionDirectory(sessionID: string, directory: string): void {
+  if (!sessionID || !isAbsolute(directory)) return;
+
+  try {
+    const root = join(
+      process.env.HERDR_WORKTREE_IDENTITY_STATE_DIR || join(process.env.HOME || homedir(), ".cache", "herdr-worktree-identity"),
+      "agent-cwd",
+    );
+
+    const key = Buffer.from(sessionID).toString("base64url");
+    const tmp = join(root, `.${key}.${process.pid}`);
+
+    mkdirSync(root, { recursive: true });
+
+    try {
+      writeFileSync(tmp, `${directory}\n`);
+      renameSync(tmp, join(root, key));
+    } finally {
+      rmSync(tmp, { force: true });
+    }
+  } catch {
+    // The record only sharpens the engine's checkout choice; never block a prompt on it.
+  }
 }
 
 export function handoffWorktreeIdentity(
