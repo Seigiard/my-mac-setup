@@ -8,15 +8,16 @@ The formula tracks Homebrew's current stable release, rather than a repository
 pin.
 
 On 2026-10-14, `brew info --json=v2 opencode` resolved the `homebrew/core`
-formula to stable `2.0.25`. The live migration probes used
+formula to stable `2.0.25`. The existing live migration probes used
 `@opencode/cli` `2.0.28` and Herdr `0.9.3`. The formula version is installation
 evidence only, not a promise that a later Homebrew update has the same result.
 
 ## Evidence Summary
 
-The prerequisite issues are closed and their documented live evidence is the
-release gate for this cutover. Lifecycle idle is a state observation, not task
-success.
+The prerequisite issues are closed and their documented `2.0.28` live evidence
+is the historical release gate for this cutover. A combined `2.0.25` rerun is
+still pending before this formula can be treated as an equivalent live boundary.
+Lifecycle idle is a state observation, not task success.
 
 | Boundary | Result | Evidence |
 | --- | --- | --- |
@@ -28,11 +29,12 @@ success.
 | Headless chain and spec workflow | Completed with cwd, model, JSONL identity, resume, closed stdin, and terminal-result distinctions observed on V2. | #476, PR #479 |
 
 The reusable probes establish the OpenCode `2.0.28` boundary, not a guarantee
-for every future Homebrew formula update. Before relying on a new formula
-release, rerun the affected live probes and record the exact `opencode
---version` and `herdr --version`. This repository does not own OpenCode or
-Herdr runtime semantics, so no local source-shape test substitutes for that
-live check.
+for the current `2.0.25` formula or every future Homebrew formula update. Run
+the affected live probes from their required parent panes, record the exact
+`opencode --version` and `herdr --version`, and complete the remaining combined
+live slices before relying on this formula release. This repository does not
+own OpenCode or Herdr runtime semantics, so no local source-shape test
+substitutes for that live check.
 
 ## Deployment Order
 
@@ -78,9 +80,8 @@ client version. Generated Herdr files remain installer-owned in both directions.
 
 ## Acceptance Status
 
-#405 is ready for the managed package-owner cutover: the six prerequisite
-slices have recorded V2 evidence, and this change makes Homebrew the only
-normal installer. The user-run deployment and the required final checks remain
-separate completion gates. A new Homebrew formula release requires fresh live
-oracle evidence; a successful process exit or an idle lifecycle state alone is
-not acceptance evidence.
+#405 has the `2.0.28` prerequisite evidence and this change makes Homebrew the
+only normal installer. The `2.0.25` combined live rerun and its remaining
+headless, hook, instruction/resource-context, and worktree-naming slices are
+still required completion gates. A successful process exit or an idle lifecycle
+state alone is not acceptance evidence.
