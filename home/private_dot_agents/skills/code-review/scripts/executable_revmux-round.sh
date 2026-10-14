@@ -332,6 +332,17 @@ next() {
     fi
   done
 
+  if [ "$only_count" -gt 0 ]; then
+    if ! only_match="$(git -C "$workdir" diff --name-only "$base..HEAD" -- "${only_values[@]}")"; then
+      error "cannot evaluate combined --only pathspecs"
+      return 1
+    fi
+    if [ -z "$only_match" ]; then
+      error "combined --only pathspecs match no changes in $base..HEAD"
+      return 1
+    fi
+  fi
+
   tip="$(git -C "$workdir" rev-parse HEAD)"
   if [ "$only_count" -gt 0 ]; then
     scale="$(git -C "$workdir" diff --shortstat "$base..HEAD" -- "${only_values[@]}")"
