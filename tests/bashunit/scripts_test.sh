@@ -455,6 +455,23 @@ function test_scripts_1216_worktree_identity_waits_for_the_first_opencode_sessio
   assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" rename-on-first-opencode-prompt
 }
 
+function test_scripts_12162_worktree_identity_finds_an_opencode_pane_by_session_once_published() {
+  _bats_test_init 12162 'worktree identity finds an OpenCode pane by session once Herdr publishes it'
+  hwi_setup
+  hwi_create_generated_worktree
+  hwi_write_pane pane-1 opencode session-1 workspace-1 "$HWI_CHECKOUT"
+  hwi_delay_snapshot_session_publication
+
+  # OpenCode plugins run in a shared service whose env names another pane, so
+  # the adapter sends no coordinates and the engine resolves the pane itself.
+  run env PATH="$HWI_STUB:$HWI_COMMAND_PATH" HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_STATE" \
+    HERDR_WORKTREE_IDENTITY_PANE_SESSION_RETRY_DELAY=0 \
+    bash "$HWI_ENGINE" --worker --agent opencode --session session-1 <<< 'Rename from the snapshot'
+  assert_success
+  assert_file_exists "$HWI_WORK/snapshot-session-published"
+  assert_equal "$(git -C "$HWI_CHECKOUT" branch --show-current)" rename-from-the-snapshot
+}
+
 function test_scripts_1217_worktree_identity_declines_primary_checkouts_and_unmatched_sessions() {
   _bats_test_init 1217 'worktree identity declines primary checkouts and records unmatched sessions as unresolved'
   hwi_setup
@@ -9852,10 +9869,9 @@ hwi_assert_v2_root_records() {
       [ "$(sed -n "1p" "$call/argv")" = "--agent" ] || exit 1
       [ "$(sed -n "2p" "$call/argv")" = "opencode" ] || exit 1
       [ "$(sed -n "3p" "$call/argv")" = "--session" ] || exit 1
-      [ "$(sed -n "5p" "$call/argv")" = "--pane" ] || exit 1
-      [ "$(sed -n "6p" "$call/argv")" = "pane-opencode" ] || exit 1
-      [ "$(sed -n "7p" "$call/argv")" = "--workspace" ] || exit 1
-      [ "$(sed -n "8p" "$call/argv")" = "workspace-opencode" ] || exit 1
+      # The plugin process env names the pane that started the shared OpenCode
+      # service, not the prompting pane, so it must not reach the engine.
+      [ "$(wc -l < "$call/argv" | tr -d " ")" = 4 ] || exit 1
       session="$(sed -n "4p" "$call/argv")"
       prompt="$(cat "$call/stdin")"
       if grep -Fqx "$prompt" "$call/argv"; then exit 1; fi

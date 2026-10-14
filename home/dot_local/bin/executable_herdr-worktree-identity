@@ -912,6 +912,13 @@ worker() {
       return 0
     fi
     if [ "$status" -ne 0 ]; then
+      # Without --pane, the prompt can reach the engine before Herdr lists the
+      # OpenCode session on any pane.
+      if [ "$agent" = opencode ] && [ "$pane_session_retry" -lt "$PANE_SESSION_RETRY_ATTEMPTS" ]; then
+        pane_session_retry=$((pane_session_retry + 1))
+        sleep "$PANE_SESSION_RETRY_DELAY"
+        continue
+      fi
       record_unresolved pane-unresolved "pane=missing session=$session"
       return 0
     fi
