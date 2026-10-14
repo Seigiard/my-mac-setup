@@ -120,6 +120,17 @@ transcript_facts() {
     def slash_command($text):
       ($text | capture("<command-name>(?<name>/[^<]+)</command-name>(?:\\n<command-args>(?<args>[\\s\\S]*?)</command-args>)?"))
       | .name + (if (.args // "") == "" then "" else " " + .args end);
+    def unwrap_pasted_content:
+      if test("^[[:space:]]*<pasted_content id=\"[^\"]*\">\\n") then
+        sub("^[[:space:]]*<pasted_content id=\"[^\"]*\">\\n"; "")
+        | sub("\\n</pasted_content id=\"[^\"]*\">[[:space:]]*$"; "")
+      else .
+      end;
+    def is_non_parent_protocol_marker($text):
+      ($text | unwrap_pasted_content) as $marker_text
+      | ($marker_text | test("^\\[[a-z]+(-[a-z]+)+ v[0-9]+([ \\n\\]])")) as $is_marker
+      | ($marker_text | test("^\\[parent-(prompt|reply) v[0-9]+([ \\n\\]])")) as $is_parent
+      | ($is_marker and ($is_parent | not));
     def recent_unique:
       reduce .[] as $item
         ([]; if index($item) == null then . + [$item]
@@ -130,7 +141,7 @@ transcript_facts() {
       (.isMeta == true)
       or (.isCompactSummary == true)
       or ((.origin.kind? // "") | IN("task-notification", "system", "hook"))
-      or ($text | test("^\\[[a-z]+(-[a-z]+)+ v[0-9]+([ \\n\\]])"))
+      or is_non_parent_protocol_marker($text)
       or ($text | test("^/compact(?:[[:space:]]|$)"))
       or (is_human_slash_command($text)
           and (($text | capture("<command-name>(?<name>/[^<]+)</command-name>") | .name) == "/compact"))
