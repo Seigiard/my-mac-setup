@@ -82,6 +82,7 @@ async function loadV2Plugin(coreDir?: string, pluginPath = PLUGIN_PATH): Promise
 
   const module = await importV2Plugin(home, pluginPath);
   const host = await setupV2Plugin(module, home);
+
   const coreModule =
     coreDir === undefined ? undefined : await import(join(coreDir, "index.ts")).catch(() => undefined);
 
@@ -286,9 +287,11 @@ describe("OpenCode V2 execute.before translation", () => {
     const denied = corpus
       .policyFixtures("zsh-reserved-name-guard")
       .find((candidate) => candidate.name === "zsh/flags the status capture idiom");
+
     const allowed = corpus
       .policyFixtures("zsh-reserved-name-guard")
       .find((candidate) => candidate.name === "zsh/an ordinary name zsh accepts is not blocked");
+
     const host = await loadV2Plugin(CORE_DIR);
 
     // #when both commands reach the V2 callback
@@ -305,9 +308,11 @@ describe("OpenCode V2 execute.before translation", () => {
     const denied = corpus
       .policyFixtures("fff-grep-guard")
       .find((candidate) => candidate.name === "fff/multi-token bare query is denied");
+
     const allowed = corpus
       .policyFixtures("fff-grep-guard")
       .find((candidate) => candidate.name === "fff/single identifier passes");
+
     const host = await loadV2Plugin(CORE_DIR);
 
     // #when Code Mode's nested events reach the V2 callback
@@ -349,9 +354,11 @@ describe("OpenCode V2 execute.before translation", () => {
     );
     const throwingHost = await loadV2Plugin(throwing);
     const denyingHost = await loadV2Plugin(CORE_DIR);
+
     const denied = corpus
       .policyFixtures("zsh-reserved-name-guard")
       .find((candidate) => candidate.name === "zsh/blocks status");
+
     const raw = { tool: "shell", input: denied.payload };
 
     // #when the same valid V2 callback path sees integration failure and policy denial
@@ -390,6 +397,8 @@ describe("OpenCode V2 resident core identity (R1, KTD5)", () => {
     const stateDir = join(home, ".local", "state", "agent-hooks");
     const startedAt = selfcheck.processStartTime(process.pid);
 
+    // SAFETY: the request names exactly one client, so the report's first
+    // entry is that client's resident identity.
     return selfcheck.inspectIdentity({
       stateDir,
       deployedHash,
@@ -409,6 +418,7 @@ describe("OpenCode V2 resident core identity (R1, KTD5)", () => {
     if (!existsSync(copiedDependencies)) {
       symlinkSync(join(import.meta.dir, "../node_modules"), copiedDependencies);
     }
+
     mkdirSync(join(home, ".local", "lib"), { recursive: true });
     symlinkSync(coreDir, join(home, ".local", "lib", "agent-hooks"));
 
@@ -419,6 +429,7 @@ describe("OpenCode V2 resident core identity (R1, KTD5)", () => {
     const guard = join(coreDir, "policies", "zsh-reserved-name-guard.ts");
     const source = await Bun.file(guard).text();
     await Bun.write(guard, source.replace("if (found.length === 0) return ALLOW;", "return ALLOW;"));
+
     const result = Bun.spawnSync([process.execPath, "-e", `
       const { dispatch } = await import(${JSON.stringify(join(coreDir, "index.ts"))});
       console.log(dispatch("opencode", { tool: "shell", input: { command: ${JSON.stringify(denied.payload.command)} } }).verdict);

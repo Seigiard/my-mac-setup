@@ -30,16 +30,20 @@ const CORE_DIR = join(HOME, ".local", "lib", "agent-hooks")
 // the runtime actually resolves a different core module.
 const RESIDENT_CORE_HASHES = Symbol.for("agent-hooks.opencode.resident-core-hashes")
 
+type Dispatch = (client: string, rawEvent: ToolEventValue) => Decision
+
 type ResidentCoreRegistryHost = {
-  [key: symbol]: Map<unknown, string> | undefined
+  [key: symbol]: Map<Dispatch, string> | undefined
 }
 
+// SAFETY: the registry lives under one process-wide symbol key that only this
+// adapter writes, so the slot is absent or holds the map created below.
 const residentCoreRegistryHost = globalThis as typeof globalThis & ResidentCoreRegistryHost
 
-const residentCoreHashes: Map<unknown, string> =
+const residentCoreHashes: Map<Dispatch, string> =
   residentCoreRegistryHost[RESIDENT_CORE_HASHES] ?? (residentCoreRegistryHost[RESIDENT_CORE_HASHES] = new Map())
 
-function residentCoreHash(dispatch: unknown, coreHash: () => string): string {
+function residentCoreHash(dispatch: Dispatch, coreHash: () => string): string {
   const known = residentCoreHashes.get(dispatch)
 
   if (known !== undefined) return known
@@ -53,7 +57,7 @@ function residentCoreHash(dispatch: unknown, coreHash: () => string): string {
 // Load-time import rather than per-call (KTD5): a failure is front-loaded into
 // a plugin that registers nothing, which is the honest fail-open shape — an
 // installed handler that silently allows would look alive to a reader.
-let dispatch: ((client: string, rawEvent: ToolEventValue) => Decision) | undefined
+let dispatch: Dispatch | undefined
 
 try {
   const core = await import(join(CORE_DIR, "index.ts"))
@@ -101,9 +105,11 @@ export const AgentHooksPlugin: Plugin = async () => {
 async function loadV2Dispatch(home: string): Promise<typeof dispatch> {
   try {
     const corePath = join(home, ".local", "lib", "agent-hooks")
+
     const coreDir = lstatSync(corePath).isSymbolicLink()
       ? resolve(dirname(corePath), readlinkSync(corePath))
       : corePath
+
     const core = await import(join(coreDir, "index.ts"))
 
     if (core.dispatch && home !== "") {
@@ -125,12 +131,18 @@ async function loadV2Dispatch(home: string): Promise<typeof dispatch> {
   }
 }
 
+// The V2 host hands execute.before the native tool event; the core parses it
+// with its own schema, so the adapter forwards it as the untyped event value.
+type V2ToolHookHost = {
+  tool: { hook: (name: "execute.before", handler: (event: ToolEventValue) => Promise<void>) => Promise<void> }
+}
+
 // V1 reads server() from the default definition; V2 reads setup(). Both call
 // one adapter, so each loader registers exactly one Hooks handler.
 export default {
   id: "agent-hooks",
   server: AgentHooksPlugin,
-  async setup(ctx: { tool: { hook: (name: string, handler: (event: unknown) => Promise<void>) => Promise<unknown> } }) {
+  async setup(ctx: V2ToolHookHost) {
     const v2Dispatch = await loadV2Dispatch(process.env.HOME ?? "")
 
     if (!v2Dispatch) return
@@ -139,7 +151,7 @@ export default {
       let decision: Decision | undefined
 
       try {
-        decision = v2Dispatch(CLIENT, event as ToolEventValue)
+        decision = v2Dispatch(CLIENT, event)
       } catch {
         return
       }

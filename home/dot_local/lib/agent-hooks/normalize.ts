@@ -83,9 +83,9 @@ function readOpencode(raw: ParsedEvent): RawRead {
 }
 
 function hasArguments(input: ToolArguments): boolean {
-  return Object.values(input).some((value) =>
-    typeof value === "string" ? value !== "" : Array.isArray(value) && value.length > 0,
-  );
+  // The parsed arguments hold only strings and edit lists; an empty value of
+  // either kind is the schema's fallback, not a supplied argument.
+  return Object.values(input).some((value) => (Array.isArray(value) ? value.length > 0 : value !== ""));
 }
 
 function readPi(raw: ParsedEvent): RawRead {

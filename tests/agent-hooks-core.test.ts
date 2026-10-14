@@ -38,8 +38,6 @@ afterEach(() => {
 
 const RESERVED_COMMAND = "status=$? && exit $status";
 
-const BARE_QUERY = "two bare tokens";
-
 type Invocations = Record<string, number>;
 
 function countingPolicy(policy: any, invocations: Invocations): any {
