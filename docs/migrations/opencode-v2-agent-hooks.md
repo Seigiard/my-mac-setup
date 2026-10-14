@@ -4,10 +4,11 @@ title: OpenCode 2 agent-hooks boundary
 
 # OpenCode 2 Agent-Hooks Boundary
 
-The normal OpenCode pin remains V1. One default definition, `agent-hooks`,
-provides `server()` for the V1 loader and `setup()` for the V2 loader. Both
-entrypoints call the same adapter. V1 selects `server()` and V2 selects
-`setup()`, so either loader registers exactly one Hooks handler.
+The isolated V2 probe that established this boundary left the then-normal V1
+pin unchanged. One default definition, `agent-hooks`, provides `server()` for
+the V1 loader and `setup()` for the V2 loader. Both entrypoints call the same
+adapter. V1 selects `server()` and V2 selects `setup()`, so either loader
+registers exactly one Hooks handler.
 
 OpenCode 2.0.28 was exercised through standalone root sessions with a local,
 deterministic OpenAI-compatible provider. The adapter observed and dispatched

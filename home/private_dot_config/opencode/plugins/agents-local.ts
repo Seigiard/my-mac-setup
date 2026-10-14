@@ -78,8 +78,8 @@ const plugin = {
   },
 }
 
-// V1 remains the normal pin until the upgrade lands; the dynamic V2 bridge
-// keeps this file loadable in that host while preserving V1 selection coverage.
+// The V1 export remains only as a compatibility fallback for a temporary
+// rollback; normal installation now selects the V2 Homebrew formula.
 export async function AgentsLocalPlugin({ directory }: { directory?: string }): Promise<V1Plugin> {
   if (!buildLocalInstructions || !isGeneratedLocalInstructionsBlock || !directory) return {}
 

@@ -83,8 +83,8 @@ const plugin = {
   },
 }
 
-// V1 remains the normal pin until the upgrade lands; the dynamic V2 bridge
-// keeps this file loadable in that host while preserving V1 projection coverage.
+// The V1 export remains only as a compatibility fallback for a temporary
+// rollback; normal installation now selects the V2 Homebrew formula.
 export async function HerdrResourceContextPlugin(): Promise<V1Plugin> {
   if (process.env.HERDR_ENV !== "1") return {}
 
