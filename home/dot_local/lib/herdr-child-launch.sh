@@ -6,11 +6,11 @@ start_child() {
   require_parent
 
   local -a original_args=("$@")
-  local kind="" name="" posture="ro" cwd="$PWD" model="" effort=""
+  local kind="" name="" posture="ro" cwd="$PWD" model="" effort="" variant=""
   local configured_agent="" prompt="" prompt_file="" direction="" direction_explicit=0
   local mode="" mode_count=0 timeout="30000" supervision_timeout="$DEFAULT_SUPERVISION_TIMEOUT"
   local supervision_timeout_set=0
-  local pane="" list_json="" split_json="" parent_identity="" child_identity=""
+  local pane="" list_json="" split_json="" parent_identity="" child_identity="" opencode_config=""
   local parent_terminal="" parent_session="" child_terminal="" child_session=""
   local verified_terminal="" pre_delay_session="" child_session_json="" child_identity_status=0
   local launch_terminal="" occupied_names="" registered=0
@@ -18,6 +18,7 @@ start_child() {
   local generation="" run_dir="" watcher_pid="" self="" prompt_pid=""
   local prompt_submitted=0 snapshot_policy=require-session
   local skills_count=0 tab_mode=0 label="" tab="" identity="" preserved_tab="" tab_note=""
+  local opencode_version="" opencode_major="" effective_agent=""
   local -a skills=() split_args=() native_args=()
 
   while [ $# -gt 0 ]; do
@@ -27,6 +28,7 @@ start_child() {
       --cwd) [ $# -ge 2 ] || fail_usage '--cwd needs a value'; cwd="$2"; shift 2 ;;
       --model) [ $# -ge 2 ] || fail_usage '--model needs a value'; model="$2"; shift 2 ;;
       --effort) [ $# -ge 2 ] || fail_usage '--effort needs a value'; effort="$2"; shift 2 ;;
+      --variant) [ $# -ge 2 ] || fail_usage '--variant needs a value'; variant="$2"; shift 2 ;;
       --skills) [ $# -ge 2 ] || fail_usage '--skills needs a value'; skills+=("$2"); skills_count=$((skills_count + 1)); shift 2 ;;
       --agent) [ $# -ge 2 ] || fail_usage '--agent needs a value'; configured_agent="$2"; shift 2 ;;
       --prompt) [ $# -ge 2 ] || fail_usage '--prompt needs a value'; prompt="$2"; shift 2 ;;
@@ -89,9 +91,51 @@ start_child() {
   if [ "$kind" = pi ] && [ "$posture" = ro ]; then
     fail_usage 'pi does not support read-only posture: its return channel requires bash (R10)'
   fi
-  if [ -n "$effort" ] && [ "$kind" = opencode ]; then fail_usage "--effort is not supported for $kind"; fi
+  if [ -n "$effort" ]; then
+    case "$effort" in low|medium|high|xhigh|max) ;; *) fail_usage '--effort must be low, medium, high, xhigh, or max' ;; esac
+  fi
+  if [ -n "$variant" ] && [ "$kind" != opencode ]; then fail_usage '--variant is only supported for opencode'; fi
+  if [ "$kind" = opencode ] && [ -n "$effort" ] && [ -n "$variant" ]; then
+    fail_usage '--effort cannot be combined with --variant'
+  fi
   if [ "$skills_count" -gt 0 ] && [ "$kind" = opencode ]; then fail_usage '--skills is not supported for opencode'; fi
   if [ -n "$configured_agent" ] && [ "$kind" != opencode ]; then fail_usage "--agent is not supported for $kind"; fi
+  if [ "$kind" = opencode ]; then
+    [ -n "$model" ] || model='openai/gpt-5.5'
+    opencode_version="$(opencode --version 2>/dev/null)" || {
+      printf 'herdr-child: could not determine OpenCode version\n' >&2
+      return 1
+    }
+    opencode_version="${opencode_version##*v}"
+    case "$opencode_version" in
+      1.*) opencode_major=1 ;;
+      2.*) opencode_major=2 ;;
+      *)
+        printf 'herdr-child: unsupported OpenCode version: %s\n' "$opencode_version" >&2
+        return 1
+        ;;
+    esac
+    effective_agent="${configured_agent:-build}"
+    opencode_config="$(python3 - "$model" "$effective_agent" "$posture" "${variant:-$effort}" <<'PY'
+import json
+import sys
+
+model, effective_agent, posture, variant = sys.argv[1:]
+permission = {"question": "deny", "edit": "allow", "shell": "allow"}
+if posture == "ro":
+    permission["edit"] = "deny"
+config = {"model": model, "default_agent": effective_agent}
+config["permission"] = permission
+config["agent"] = {effective_agent: {"model": model, "permission": permission}}
+if variant:
+    config["agent"][effective_agent]["variant"] = variant
+print(json.dumps(config, separators=(",", ":")))
+PY
+)" || {
+      printf 'herdr-child: could not prepare OpenCode configuration\n' >&2
+      return 1
+    }
+  fi
 
   list_json="$(herdr agent list)" || {
     printf 'herdr-child: could not list live agents\n' >&2
@@ -166,12 +210,12 @@ EOF
   if [ "$tab_mode" -eq 1 ]; then
     split_args=(tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$cwd" --no-focus
       --env HERDR_CHILD_LAUNCH=1 --env "HERDR_CHILD_PARENT_PANE=$HERDR_PANE_ID"
-      --env "HERDR_CHILD_LAUNCH_MODE=$mode")
+      --env "HERDR_CHILD_LAUNCH_MODE=$mode" --env "HOME=$HOME" --env "PATH=$PATH")
     [ -z "$label" ] || split_args+=(--label "$label")
   else
     split_args=(pane split "$HERDR_PANE_ID" --direction "$direction" --cwd "$cwd" --no-focus
       --env HERDR_CHILD_LAUNCH=1 --env "HERDR_CHILD_PARENT_PANE=$HERDR_PANE_ID"
-      --env "HERDR_CHILD_LAUNCH_MODE=$mode")
+      --env "HERDR_CHILD_LAUNCH_MODE=$mode" --env "HOME=$HOME" --env "PATH=$PATH")
   fi
   if [ -n "$parent_terminal" ] && [ -n "$parent_session" ]; then
     split_args+=(--env "HERDR_CHILD_PARENT_TERMINAL=$parent_terminal"
@@ -183,16 +227,7 @@ EOF
     esac
   fi
 
-  case "$kind:$posture" in
-    opencode:ro)
-      # Deny the interactive question and edit tools; the shell stays available for callbacks.
-      split_args+=(--env 'OPENCODE_PERMISSION={"question":"deny","edit":"deny"}')
-      ;;
-    opencode:rw)
-      # Deny only the interactive question tool in read-write work.
-      split_args+=(--env 'OPENCODE_PERMISSION={"question":"deny"}')
-      ;;
-  esac
+  [ -z "$opencode_config" ] || split_args+=(--env "OPENCODE_CONFIG_CONTENT=$opencode_config")
 
   cleanup_pane() {
     local context="${1:-cleanup}" fresh_json="" current_terminal=""
@@ -380,10 +415,12 @@ EOF
       fi
       ;;
     opencode)
-      # Keep the consult's cross-model default when the caller does not select a model.
-      [ -n "$model" ] || model='openai/gpt-5.5'
-      native_args+=(--model "$model")
-      [ -z "$configured_agent" ] || native_args+=(--agent "$configured_agent")
+      if [ "$opencode_major" = 2 ]; then
+        native_args+=(--standalone)
+      else
+        native_args+=(--model "$model")
+        [ -z "$configured_agent" ] || native_args+=(--agent "$configured_agent")
+      fi
       ;;
     pi)
       # Pi cannot provide the callback shell under read-only, so only read-write reaches this branch.
@@ -443,6 +480,11 @@ EOF
 
   list_json="$(herdr agent list)" || {
     printf 'herdr-child: accepted alias could not be verified after agent start\n' >&2
+    cleanup_pane post-registration-validation || true
+    return 1
+  }
+  name="$(printf '%s' "$list_json" | json_current_name_for_pane "$pane")" || {
+    printf 'herdr-child: accepted child name could not be resolved after agent start\n' >&2
     cleanup_pane post-registration-validation || true
     return 1
   }

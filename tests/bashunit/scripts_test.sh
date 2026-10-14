@@ -50,6 +50,7 @@ setup() {
   unset HERDR_CHILD_TEST_REAP_OWNER_VERIFIED
   unset HERDR_CHILD_TEST_NOW_SEQ
   unset HERDR_CHILD_TEST_TAKEOVER_METADATA_PUBLISHED
+  unset STUB_CANONICAL_NAME
   unset CHILD_REAP_PID
   CHILD_STUBS=()
   # U2 exercises authorization only. Do not let an installed local model CLI
@@ -142,6 +143,7 @@ child_reap_all_stubs() {
 }
 
 teardown() {
+  hwi_adapter_reap_all
   hwi_teardown
   local stub
   for stub in ${CHILD_STUBS[@]+"${CHILD_STUBS[@]}"}; do
@@ -2170,110 +2172,9 @@ PY
 # ask-in-herdr skill script
 # ===========================================
 
-PRE_EXTERNAL_SECRET_SCAN="$SOURCE_ROOT/dot_local/bin/executable_pre-external-secret-scan"
 ASK_HERDR_DIR="$SOURCE_ROOT/private_dot_agents/skills/ask-in-herdr/scripts"
 ASK_HERDR_SCRIPT="$ASK_HERDR_DIR/executable_ask.sh"
 ASK_HERDR_FOLLOW_UP="$ASK_HERDR_DIR/executable_follow-up.sh"
-
-function test_scripts_1225_pre_external_secret_scan_accepts_clean_references_and_rejects_a_real_leak() {
-  _bats_test_init 1225 'pre-external secret scan accepts clean references and rejects a real leak'
-  if ! command_exists gitleaks; then
-    [ "${MMS_DISPOSABLE_HOME:-0}" != 1 ] || fail "gitleaks is missing from the disposable-home test process"
-    skip "gitleaks is not installed"
-  fi
-  local clean_dir="$BATS_TEST_TMPDIR/scan-clean"
-  local leak_dir="$BATS_TEST_TMPDIR/scan-leak"
-  local token
-  mkdir -p "$clean_dir" "$leak_dir"
-  printf '%s\n' 'onepasswordRead "op://Private/Example/credential"' > "$clean_dir/config.tmpl"
-  token='ghp_''A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8'
-  printf 'token=%s # gitleaks:allow\n' "$token" > "$leak_dir/config"
-  cat > "$leak_dir/.gitleaks.toml" <<'TOML'
-title = "checkout-controlled empty rules"
-TOML
-
-  run bash "$PRE_EXTERNAL_SECRET_SCAN" "$clean_dir"
-  assert_success
-  assert_output --partial 'pre-external secret scan clean'
-
-  run bash -c 'printf "%s\n" '\''onepasswordRead "op://Private/Example/credential"'\'' | bash "$1" --stdin "$2"' \
-    _ "$PRE_EXTERNAL_SECRET_SCAN" "$clean_dir"
-  assert_success
-  assert_output --partial 'pre-external secret scan clean: <stdin>'
-
-  run bash "$PRE_EXTERNAL_SECRET_SCAN" "$clean_dir" "$leak_dir"
-  assert_failure 1
-  # One phrase, not two fragments: split, the refusal banner and the finding
-  # could come from different lines -- a clean directory scanned after a failed
-  # one satisfies both.
-  assert_output --partial 'pre-external secret gate REFUSED: FOUND secrets in '
-  refute_output --partial "$token"
-
-  run bash -c 'printf "prompt=%s\n" "$3" | bash "$1" --stdin "$2"' \
-    _ "$PRE_EXTERNAL_SECRET_SCAN" "$clean_dir" "$token"
-  assert_failure 1
-  assert_output --partial 'FOUND secrets in <stdin>'
-  refute_output --partial "$token"
-
-  local option_parent="$BATS_TEST_TMPDIR/scan-option"
-  mkdir -p "$option_parent/--exit-code=0"
-  printf 'token=%s\n' "$token" > "$option_parent/--exit-code=0/config"
-  run bash -c 'cd "$1" && bash "$2" --exit-code=0' \
-    _ "$option_parent" "$PRE_EXTERNAL_SECRET_SCAN"
-  assert_failure 1
-  assert_output --partial 'FOUND secrets'
-
-  local linked_root="$BATS_TEST_TMPDIR/scan-linked-root"
-  mkdir -p "$linked_root"
-  ln -s "$leak_dir" "$linked_root/outside"
-  run bash "$PRE_EXTERNAL_SECRET_SCAN" "$linked_root"
-  assert_failure 1
-  assert_output --partial 'directory symlink escapes scan root'
-
-  run env SE_SKIP_SECRET_SCAN=1 bash "$PRE_EXTERNAL_SECRET_SCAN" "$leak_dir"
-  assert_success
-  assert_output --partial 'SKIPPED by operator'
-
-  run env SE_SKIP_SECRET_SCAN=false bash "$PRE_EXTERNAL_SECRET_SCAN" "$leak_dir"
-  assert_failure 1
-  assert_output --partial 'FOUND secrets'
-
-  run env GITLEAKS_CONFIG_TOML='title = "ambient empty rules"' \
-    bash "$PRE_EXTERNAL_SECRET_SCAN" "$leak_dir"
-  assert_failure 1
-  assert_output --partial 'FOUND secrets'
-}
-
-function test_scripts_1226_pre_external_secret_scan_fails_closed_without_a_clean_scanner_verdict() {
-  _bats_test_init 1226 'pre-external secret scan fails closed without a clean scanner verdict'
-  local empty_bin="$BATS_TEST_TMPDIR/scan-empty-bin"
-  local bad_bin="$BATS_TEST_TMPDIR/scan-bad-bin"
-  local scan_dir="$BATS_TEST_TMPDIR/scan-input"
-  mkdir -p "$empty_bin" "$bad_bin" "$scan_dir"
-  cat > "$bad_bin/gitleaks" <<'SH'
-#!/bin/sh
-exit 7
-SH
-  chmod +x "$bad_bin/gitleaks"
-
-  run env PATH="$empty_bin:/usr/bin:/bin" /bin/bash "$PRE_EXTERNAL_SECRET_SCAN" "$scan_dir"
-  assert_failure 1
-  # One line each. Split, the refusal reason and the "nothing was sent"
-  # reassurance need not come from the same gate, and all three gates below
-  # print the reassurance.
-  assert_output 'pre-external secret gate REFUSED: gitleaks is not on PATH. Nothing was sent externally.'
-
-  run env PATH="$bad_bin:/usr/bin:/bin" /bin/bash "$PRE_EXTERNAL_SECRET_SCAN" "$scan_dir"
-  assert_failure 1
-  # Partial: the scanned path is resolved through /private on macOS, so the
-  # line cannot be matched whole; the merged phrase still binds the reason and
-  # the exit code to one gate.
-  assert_output --partial 'pre-external secret gate REFUSED: gitleaks exited with unexpected code 7 while scanning '
-
-  run bash "$PRE_EXTERNAL_SECRET_SCAN" "$scan_dir/missing"
-  assert_failure 1
-  assert_output "pre-external secret gate REFUSED: scan target does not exist: $scan_dir/missing. Nothing was sent externally."
-}
 
 ask_live_stub() {
   child_new_stub
@@ -2336,23 +2237,6 @@ case "${1:-}" in
   *) exit 2 ;;
 esac
 SH
-  cat > "$CHILD_STUB/pre-external-secret-scan" <<'SH'
-#!/usr/bin/env bash
-printf '%q ' "$@" >> "$CHILD_STUB/scan.log"; printf '\n' >> "$CHILD_STUB/scan.log"
-scan_count=0
-[ ! -f "$CHILD_STUB/scan-count" ] || read -r scan_count < "$CHILD_STUB/scan-count"
-scan_count=$((scan_count + 1))
-printf '%s\n' "$scan_count" > "$CHILD_STUB/scan-count"
-[ "${STUB_SCAN_FAIL_AT:-0}" -ne "$scan_count" ] || exit 1
-if [ -n "${STUB_SCAN_MATCH:-}" ]; then
-  for scan_arg in "$@"; do
-    if [ -f "$scan_arg" ] && grep -q -- "$STUB_SCAN_MATCH" "$scan_arg"; then exit 1; fi
-    if [ "${STUB_SCAN_DIRS:-0}" = 1 ] && [ -d "$scan_arg" ] && \
-       grep -R -q -- "$STUB_SCAN_MATCH" "$scan_arg"; then exit 1; fi
-  done
-fi
-exit "${STUB_SCAN_STATUS:-0}"
-SH
   cat > "$CHILD_STUB/herdr" <<'SH'
 #!/usr/bin/env bash
 printf '%q ' "$@" >> "$CHILD_STUB/herdr.log"; printf '\n' >> "$CHILD_STUB/herdr.log"
@@ -2382,7 +2266,7 @@ case "$1 $2" in
   *) exit 2 ;;
 esac
 SH
-  chmod +x "$CHILD_STUB/herdr-child" "$CHILD_STUB/herdr" "$CHILD_STUB/pre-external-secret-scan"
+  chmod +x "$CHILD_STUB/herdr-child" "$CHILD_STUB/herdr"
 }
 
 function test_scripts_1051_ask_in_herdr_script_requires_arguments() {
@@ -2433,27 +2317,9 @@ function test_scripts_1053_ask_sh_refuses_outside_herdr_and_when_herdr_child_is_
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=refused"
 }
 
-function test_scripts_1227_ask_sh_refuses_before_launch_when_the_secret_scan_is_not_clean() {
-  _bats_test_init 1227 'ask.sh refuses before launch when the secret scan is not clean'
+function test_scripts_1228_ask_in_herdr_follow_up_delivers_messages() {
+  _bats_test_init 1228 'ask-in-herdr follow-up delivers messages'
   ask_live_stub
-  run env PATH="$CHILD_STUB:$PATH" STUB_SCAN_MATCH=question-secret-marker HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_SCRIPT" claude question-secret-marker --skills "$ASK_HERDR_DIR"
-  assert_failure 2
-  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=refused"
-  assert_file_not_exists "$CHILD_STUB/child.log"
-  assert_file_contains "$CHILD_STUB/scan.log" "$PWD"
-  assert_file_contains "$CHILD_STUB/scan.log" "$ASK_HERDR_DIR"
-}
-
-function test_scripts_1228_ask_in_herdr_follow_up_rescans_the_question_before_prompting() {
-  _bats_test_init 1228 'ask-in-herdr follow-up rescans the question before prompting'
-  ask_live_stub
-  run env PATH="$CHILD_STUB:$PATH" STUB_SCAN_MATCH=follow-up-secret-marker HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_FOLLOW_UP" prompt red-wolf wT:p9 follow-up-secret-marker
-  assert_failure 2
-  assert_line --index "$(( ${#lines[@]} - 1 ))" 'follow-up.sh: status=refused'
-  assert_file_not_exists "$CHILD_STUB/child.log"
-
   run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$ASK_HERDR_FOLLOW_UP" prompt red-wolf wT:p9 clean-question
   assert_success
@@ -2465,47 +2331,6 @@ function test_scripts_1228_ask_in_herdr_follow_up_rescans_the_question_before_pr
   assert_success
   assert_line --index "$(( ${#lines[@]} - 1 ))" 'follow-up.sh: status=delivered'
   assert_file_contains "$CHILD_STUB/child.log" '^reply --to red-wolf --pane wT:p9 clean-decision'
-
-  ask_live_stub
-  local secret_cwd="$BATS_TEST_TMPDIR/follow-up-secret-cwd"
-  mkdir -p "$secret_cwd"
-  printf '%s\n' follow-up-secret-marker > "$secret_cwd/secret"
-  run env PATH="$CHILD_STUB:$PATH" STUB_SCAN_MATCH=follow-up-secret-marker STUB_SCAN_DIRS=1 \
-    STUB_PANE_CWD="$secret_cwd" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_FOLLOW_UP" prompt red-wolf wT:p9 clean-question
-  assert_failure 2
-  # Exit 2 is also an argument-parse refusal, so the trailer names the reason.
-  assert_line --index "$(( ${#lines[@]} - 1 ))" 'follow-up.sh: status=refused'
-  assert_file_not_exists "$CHILD_STUB/child.log"
-
-  ask_live_stub
-  local clean_cwd="$BATS_TEST_TMPDIR/follow-up-clean-cwd"
-  local secret_skills="$BATS_TEST_TMPDIR/follow-up-secret-skills"
-  mkdir -p "$clean_cwd" "$secret_skills"
-  printf '%s\n' follow-up-secret-marker > "$secret_skills/secret"
-  run env PATH="$CHILD_STUB:$PATH" STUB_SCAN_MATCH=follow-up-secret-marker STUB_SCAN_DIRS=1 \
-    STUB_PANE_CWD="$clean_cwd" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_FOLLOW_UP" prompt red-wolf wT:p9 clean-question --skills "$secret_skills"
-  assert_failure 2
-  assert_line --index "$(( ${#lines[@]} - 1 ))" 'follow-up.sh: status=refused'
-  assert_file_not_exists "$CHILD_STUB/child.log"
-
-  # Control for both directory-scan refusals: the same scanning configuration over a
-  # clean pane cwd and a clean --skills tree must still deliver. Without it a
-  # follow-up.sh that refuses whenever --skills is present passes both refusals, and
-  # the delivering legs above never exercise a scanner that reads directories.
-  ask_live_stub
-  local clean_scan_cwd="$BATS_TEST_TMPDIR/follow-up-clean-scan-cwd"
-  local clean_skills="$BATS_TEST_TMPDIR/follow-up-clean-skills"
-  mkdir -p "$clean_scan_cwd" "$clean_skills"
-  printf '%s\n' 'no marker in this tree' > "$clean_scan_cwd/notes"
-  printf '%s\n' 'no marker in this tree' > "$clean_skills/SKILL.md"
-  run env PATH="$CHILD_STUB:$PATH" STUB_SCAN_MATCH=follow-up-secret-marker STUB_SCAN_DIRS=1 \
-    STUB_PANE_CWD="$clean_scan_cwd" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_FOLLOW_UP" prompt red-wolf wT:p9 clean-question --skills "$clean_skills"
-  assert_success
-  assert_line --index "$(( ${#lines[@]} - 1 ))" 'follow-up.sh: status=delivered'
-  assert_file_contains "$CHILD_STUB/child.log" '^prompt --to red-wolf --pane wT:p9 --wait clean-question'
 
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_PROMPT_STATUS=124 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
@@ -2786,16 +2611,6 @@ function test_scripts_1068_ask_sh_reports_no_report_after_one_failed_recovery() 
   assert_file_exists "$CHILD_STUB/recover.log"
   run grep -c 'prompt' "$CHILD_STUB/recover.log"
   assert_output '1'
-}
-
-function test_scripts_1229_ask_sh_reports_refusal_when_the_recovery_scan_is_not_clean() {
-  _bats_test_init 1229 'ask.sh reports refusal when the recovery scan is not clean'
-  ask_live_stub
-  run env PATH="$CHILD_STUB:$PATH" STUB_REPORT=none STUB_SCAN_FAIL_AT=2 \
-    HERDR_ENV=1 HERDR_PANE_ID=wT:p0 bash "$ASK_HERDR_SCRIPT" claude question
-  assert_failure 2
-  assert_line --index "$(( ${#lines[@]} - 1 ))" 'ask.sh: status=refused'
-  assert_file_not_exists "$CHILD_STUB/recover.log"
 }
 
 function test_scripts_1069_ask_sh_returns_a_recovered_report_as_a_normal_answer() {
@@ -3113,7 +2928,7 @@ PY
 # herdr-child launch and return contract
 # ===========================================
 
-HERDR_CHILD="$SOURCE_ROOT/dot_local/bin/executable_herdr-child"
+HERDR_CHILD="${HERDR_CHILD_UNDER_TEST:-$SOURCE_ROOT/dot_local/bin/executable_herdr-child}"
 
 child_stub_herdr() {
   export HERDR_ALIAS_TEST_SEED=tests
@@ -3186,7 +3001,7 @@ case "${1:-} ${2:-}" in
       printf '{"error":{"code":"timeout","message":"startup timed out"}}\n' >&2
       exit 1
     fi
-    printf '%s' "${3:-child}" > "$CHILD_STUB/started-name"
+    printf '%s' "${STUB_CANONICAL_NAME:-${3:-child}}" > "$CHILD_STUB/started-name"
     printf '{"result":{"agent":{"interactive_ready":true}}}\n' ;;
   "agent get")
     child_name="$(cat "$CHILD_STUB/started-name" 2>/dev/null || printf child)"
@@ -3266,6 +3081,17 @@ case "${1:-} ${2:-}" in
 esac
 SH
   chmod +x "$CHILD_STUB/herdr"
+  cat > "$CHILD_STUB/opencode" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version) printf '%s\n' "${STUB_OPENCODE_VERSION:-opencode v2.0.28}" ;;
+  *)
+    printf 'unexpected fake opencode invocation: %s\n' "$*" >&2
+    exit 2
+    ;;
+esac
+SH
+  chmod +x "$CHILD_STUB/opencode"
   cat > "$CHILD_STUB/herdr-resource-tree" <<'SH'
 #!/usr/bin/env bash
 printf '%q ' "$@" >> "$CHILD_STUB/resource-tree.log"
@@ -3300,6 +3126,7 @@ child_start() {
   # apart they are, so the shipped one-second spacing is pure scaffolding here.
   env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     STUB_START_CONTEXT=1 \
+    STUB_CANONICAL_NAME="${STUB_CANONICAL_NAME:-}" \
     HERDR_CHILD_PANE_BUSY_RETRY_DELAY=0.01 \
     HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY="${HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY:-0}" \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
@@ -5978,25 +5805,270 @@ child_logged_value() {
   grep -o "$1=[^ ]*" "$CHILD_STUB/calls.log" | head -n1 | sed 's/\\\(.\)/\1/g'
 }
 
-function test_scripts_061_herdr_child_maps_opencode_permissions_model_and() {
-  _bats_test_init 61 'herdr-child maps opencode permissions, model, and configured agent'
-  child_stub_herdr
-  # OPENCODE_PERMISSION is a literal opencode parses: a loose match accepts
-  # {"question":"allow",...,"x":"deny"} just as happily, so the key-to-value
-  # pairing only holds if the whole value is asserted.
-  run child_start --kind opencode --agent reviewer --model custom/model --wait
-  assert_success
-  assert_equal "$(child_logged_value OPENCODE_PERMISSION)" \
-    'OPENCODE_PERMISSION={"question":"deny","edit":"deny"}'
-  assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--model custom/model --agent reviewer'
+function test_scripts_0612_herdr_child_propagates_caller_home_and_path_to_a_split_pane() {
+  _bats_test_init 0612 'herdr-child propagates caller HOME and PATH to a split pane'
 
-  : > "$CHILD_STUB/calls.log"
-  run child_start --kind opencode --posture rw --wait
+  # #given
+  local caller_home="$BATS_TEST_TMPDIR/caller-home" caller_path="/usr/bin:/bin"
+  child_stub_herdr
+  mkdir -p "$caller_home"
+  local expected_path="$CHILD_STUB:$caller_path"
+
+  # #when
+  HOME="$caller_home" PATH="$caller_path" run child_start --kind claude --direction right --wait
+
+  # #then
   assert_success
-  assert_equal "$(child_logged_value OPENCODE_PERMISSION)" \
-    'OPENCODE_PERMISSION={"question":"deny"}'
-  run grep -q 'OPENCODE_PERMISSION=.*edit' "$CHILD_STUB/calls.log"
-  assert_failure
+  run child_logged_value HOME
+  assert_success
+  assert_output "HOME=$caller_home"
+  run child_logged_value PATH
+  assert_success
+  assert_output "PATH=$expected_path"
+}
+
+function test_scripts_0613_herdr_child_propagates_caller_home_and_path_to_a_new_tab() {
+  _bats_test_init 0613 'herdr-child propagates caller HOME and PATH to a new tab'
+
+  # #given
+  local caller_home="$BATS_TEST_TMPDIR/caller-home" caller_path="/usr/bin:/bin"
+  child_stub_herdr
+  mkdir -p "$caller_home"
+  local expected_path="$CHILD_STUB:$caller_path"
+
+  # #when
+  HOME="$caller_home" PATH="$caller_path" HERDR_WORKSPACE_ID=w1 \
+    run child_start --kind claude --tab --wait
+
+  # #then
+  assert_success
+  run child_logged_value HOME
+  assert_success
+  assert_output "HOME=$caller_home"
+  run child_logged_value PATH
+  assert_success
+  assert_output "PATH=$expected_path"
+}
+
+function test_scripts_0614_herdr_child_returns_the_canonical_post_start_alias() {
+  _bats_test_init 0614 'herdr-child returns the canonical post-start alias'
+
+  # #given
+  child_stub_herdr
+  local canonical_name=canonical-child
+  export STUB_CANONICAL_NAME="$canonical_name"
+
+  # #when
+  run child_start \
+    --kind opencode --agent plan --model opencode/cat-jam-free --wait
+
+  # #then
+  assert_success
+  assert_output "{\"agent\":\"$canonical_name\",\"pane\":\"wT:p9\"}"
+}
+
+function test_scripts_061_herdr_child_maps_opencode_permissions_model_and() {
+  _bats_test_init 61 'herdr-child launches read-only OpenCode with merged configuration'
+  child_stub_herdr
+
+  # #given — the caller selects V2 values that conflict with managed defaults.
+
+  # #when
+  run child_start --kind opencode --agent plan --model opencode/cat-jam-free --wait
+
+  # #then
+  assert_success
+  assert_output "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
+  run python3 - "$(child_logged_value OPENCODE_CONFIG_CONTENT)" <<'PY'
+import json
+import sys
+
+name, value = sys.argv[1].split("=", 1)
+assert name == "OPENCODE_CONFIG_CONTENT", repr(name)
+assert json.loads(value) == {
+    "model": "opencode/cat-jam-free",
+    "default_agent": "plan",
+    "permission": {"question": "deny", "edit": "deny", "shell": "allow"},
+    "agent": {
+        "plan": {
+            "model": "opencode/cat-jam-free",
+            "permission": {"question": "deny", "edit": "deny", "shell": "allow"},
+        },
+    },
+}
+PY
+  assert_success
+  run python3 - "$CHILD_STUB/calls.log" <<'PY'
+import sys
+
+line = next(line for line in open(sys.argv[1], encoding="utf-8") if line.startswith("agent start "))
+assert "--standalone" in line, line
+assert "--model" not in line, line
+assert "--agent" not in line, line
+PY
+  assert_success
+}
+
+function test_scripts_0617_herdr_child_maps_opencode_effort_levels_to_agent_vari() {
+  _bats_test_init 617 'herdr-child maps every OpenCode effort level to the agent variant'
+
+  # #given
+  local effort
+  child_stub_herdr
+
+  for effort in low medium high xhigh max; do
+    : > "$CHILD_STUB/calls.log"
+
+    # #when
+    run child_start --kind opencode --agent plan --model opencode/cat-jam-free \
+      --effort "$effort" --wait
+
+    # #then
+    assert_success
+    run python3 - "$(child_logged_value OPENCODE_CONFIG_CONTENT)" "$effort" <<'PY'
+import json
+import sys
+
+name, value = sys.argv[1].split("=", 1)
+variant = sys.argv[2]
+assert name == "OPENCODE_CONFIG_CONTENT", repr(name)
+assert json.loads(value) == {
+    "model": "opencode/cat-jam-free",
+    "default_agent": "plan",
+    "permission": {"question": "deny", "edit": "deny", "shell": "allow"},
+    "agent": {
+        "plan": {
+            "model": "opencode/cat-jam-free",
+            "permission": {"question": "deny", "edit": "deny", "shell": "allow"},
+            "variant": variant,
+        },
+    },
+}
+PY
+    assert_success
+  done
+}
+
+function test_scripts_0618_herdr_child_passes_an_opencode_native_variant_unchanged() {
+  _bats_test_init 618 'herdr-child passes an OpenCode native variant unchanged'
+
+  # #given
+  child_stub_herdr
+
+  # #when
+  run child_start --kind opencode --agent plan --model opencode/cat-jam-free \
+    --variant thinking --wait
+
+  # #then
+  assert_success
+  run python3 - "$(child_logged_value OPENCODE_CONFIG_CONTENT)" <<'PY'
+import json
+import sys
+
+name, value = sys.argv[1].split("=", 1)
+assert name == "OPENCODE_CONFIG_CONTENT", repr(name)
+assert json.loads(value)["agent"]["plan"]["variant"] == "thinking"
+PY
+  assert_success
+}
+
+function test_scripts_0611_herdr_child_maps_open_read_write_permissions_model_and() {
+  _bats_test_init 611 'herdr-child launches read-write OpenCode with merged configuration'
+  child_stub_herdr
+
+  # #given — a read-write child requests a different supported V2 model and agent.
+
+  # #when
+  run child_start --kind opencode --posture rw --agent build --model opencode/big-pickle --wait
+
+  # #then
+  assert_success
+  assert_output "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
+  run python3 - "$(child_logged_value OPENCODE_CONFIG_CONTENT)" <<'PY'
+import json
+import sys
+
+name, value = sys.argv[1].split("=", 1)
+assert name == "OPENCODE_CONFIG_CONTENT", repr(name)
+assert json.loads(value) == {
+    "model": "opencode/big-pickle",
+    "default_agent": "build",
+    "permission": {"question": "deny", "edit": "allow", "shell": "allow"},
+    "agent": {
+        "build": {
+            "model": "opencode/big-pickle",
+            "permission": {"question": "deny", "edit": "allow", "shell": "allow"},
+        },
+    },
+}
+PY
+  assert_success
+}
+
+function test_scripts_0615_herdr_child_selects_build_when_no_agent_is_requested() {
+  _bats_test_init 615 'herdr-child selects build without --agent'
+  child_stub_herdr
+
+  # #given — an omitted agent must select build despite a client default conflict.
+
+  # #when
+  run child_start --kind opencode --wait
+
+  # #then
+  assert_success
+  run python3 - "$(child_logged_value OPENCODE_CONFIG_CONTENT)" <<'PY'
+import json
+import sys
+
+name, value = sys.argv[1].split("=", 1)
+assert name == "OPENCODE_CONFIG_CONTENT", repr(name)
+actual = json.loads(value)
+expected = {
+    "model": "openai/gpt-5.5",
+    "default_agent": "build",
+    "permission": {"question": "deny", "edit": "deny", "shell": "allow"},
+    "agent": {
+        "build": {
+            "model": "openai/gpt-5.5",
+            "permission": {"question": "deny", "edit": "deny", "shell": "allow"},
+        },
+    },
+}
+assert actual == expected, actual
+PY
+  assert_success
+  run python3 - "$CHILD_STUB/calls.log" <<'PY'
+import sys
+
+line = next(line for line in open(sys.argv[1], encoding="utf-8") if line.startswith("agent start "))
+assert "--standalone" in line, line
+assert "--model" not in line, line
+assert "--agent" not in line, line
+PY
+  assert_success
+}
+
+function test_scripts_0616_herdr_child_uses_the_v1_native_model_and_agent_transport() {
+  _bats_test_init 616 'herdr-child keeps native model and agent selectors for OpenCode 1'
+  child_stub_herdr
+
+  # #given — the pinned OpenCode 1.19.0 accepts native model and agent selectors.
+
+  # #when
+  STUB_OPENCODE_VERSION=1.19.0 run child_start \
+    --kind opencode --agent plan --model opencode/cat-jam-free --wait
+
+  # #then
+  assert_success
+  run python3 - "$CHILD_STUB/calls.log" <<'PY'
+import sys
+
+line = next(line for line in open(sys.argv[1], encoding="utf-8") if line.startswith("agent start "))
+assert "--standalone" not in line, line
+assert "--model opencode/cat-jam-free" in line, line
+assert "--agent plan" in line, line
+PY
+  assert_success
 }
 
 function test_scripts_062_herdr_child_maps_pi_model_effort_skills_and_ques() {
@@ -6015,18 +6087,87 @@ function test_scripts_062_herdr_child_maps_pi_model_effort_skills_and_ques() {
   assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--model custom/model --thinking high'
 }
 
+function test_scripts_0619_herdr_child_rejects_unknown_claude_effort_before_start() {
+  _bats_test_init 619 'herdr-child rejects an unknown Claude effort before starting'
+
+  # #given
+  local level
+  child_stub_herdr
+
+  # #when
+  run child_start --kind claude --posture rw --effort none --wait
+
+  # #then
+  assert_failure 2
+  for level in low medium high xhigh max; do
+    [[ "$output" == *"$level"* ]] || fail "usage error did not name accepted effort level: $level"
+  done
+  [ ! -f "$CHILD_STUB/calls.log" ]
+}
+
+function test_scripts_06191_herdr_child_rejects_unknown_opencode_effort_before_start() {
+  _bats_test_init 6191 'herdr-child rejects an unknown OpenCode effort before starting'
+
+  # #given
+  local level
+  child_stub_herdr
+
+  # #when
+  run child_start --kind opencode --posture rw --effort none --wait
+
+  # #then
+  assert_failure 2
+  for level in low medium high xhigh max; do
+    [[ "$output" == *"$level"* ]] || fail "usage error did not name accepted effort level: $level"
+  done
+  [ ! -f "$CHILD_STUB/calls.log" ]
+}
+
+function test_scripts_06192_herdr_child_rejects_unknown_pi_effort_before_start() {
+  _bats_test_init 6192 'herdr-child rejects an unknown Pi effort before starting'
+
+  # #given
+  local level
+  child_stub_herdr
+
+  # #when
+  run child_start --kind pi --posture rw --effort none --wait
+
+  # #then
+  assert_failure 2
+  for level in low medium high xhigh max; do
+    [[ "$output" == *"$level"* ]] || fail "usage error did not name accepted effort level: $level"
+  done
+  [ ! -f "$CHILD_STUB/calls.log" ]
+}
+
 function test_scripts_063_herdr_child_rejects_native_options_that_the_sele() {
   _bats_test_init 63 'herdr-child rejects native options that the selected kind cannot map'
   child_stub_herdr
-  run child_start --kind opencode --effort high --wait
+  run child_start --kind claude --variant thinking --wait
   assert_failure 2
-  assert_output --partial "--effort is not supported for opencode"
+  assert_output --partial "--variant is only supported for opencode"
   run child_start --kind pi --posture rw --agent reviewer --wait
   assert_failure 2
   assert_output --partial "--agent is not supported for pi"
   run child_start --kind opencode --skills A --wait
   assert_failure 2
   assert_output --partial "--skills is not supported for opencode"
+  [ ! -f "$CHILD_STUB/calls.log" ]
+}
+
+function test_scripts_0620_herdr_child_rejects_opencode_effort_and_variant_togethe() {
+  _bats_test_init 620 'herdr-child rejects OpenCode effort and variant together before starting'
+
+  # #given
+  child_stub_herdr
+
+  # #when
+  run child_start --kind opencode --effort high --variant thinking --wait
+
+  # #then
+  assert_failure 2
+  assert_output --partial "--effort cannot be combined with --variant"
   [ ! -f "$CHILD_STUB/calls.log" ]
 }
 
@@ -9674,9 +9815,35 @@ function tear_down() {
 HWI_CLAUDE_HOOK="$SOURCE_ROOT/private_dot_claude/hooks/executable_herdr-worktree-identity-hook.sh"
 HWI_OPENCODE_PLUGIN_SOURCE="$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-worktree-identity.ts"
 HRC_CLAUDE_HOOK="$SOURCE_ROOT/private_dot_claude/hooks/executable_herdr-resource-context.sh"
+HWI_ADAPTER_ROOTS=()
+
+hwi_adapter_register_root() {
+  HWI_ADAPTER_ROOTS+=("$1")
+}
+
+hwi_adapter_reap_all() {
+  local root pid_file pid attempt
+  for root in ${HWI_ADAPTER_ROOTS[@]+"${HWI_ADAPTER_ROOTS[@]}"}; do
+    [[ -d "$root" ]] || continue
+    : > "$root/release"
+    for pid_file in "$root"/call-*/recorder.pid; do
+      [[ -s "$pid_file" ]] || continue
+      pid="$(cat "$pid_file")"
+      attempt=0
+      while kill -0 "$pid" 2>/dev/null && [[ "$attempt" -lt 100 ]]; do
+        attempt=$((attempt + 1))
+        sleep 0.01
+      done
+      kill -0 "$pid" 2>/dev/null || continue
+      kill -TERM "$pid" 2>/dev/null || true
+    done
+  done
+  HWI_ADAPTER_ROOTS=()
+}
 
 hwi_adapter_stub_engine() {
   local root="$1"
+  hwi_adapter_register_root "$root"
   mkdir -p "$root"
   cat > "$root/engine" <<'SH'
 #!/usr/bin/env bash
@@ -9687,9 +9854,18 @@ printf '%s\n' "$@" > "$call/argv"
 cat > "$call/stdin"
 : > "$call/ready"
 (
+  cleanup() {
+    [[ -z "${HWI_ADAPTER_TEST_AUDIT_DIR:-}" ]] || : > "$HWI_ADAPTER_TEST_AUDIT_DIR/recorder-$$.stopped"
+  }
+  trap cleanup EXIT
   while [ ! -e "$HWI_ADAPTER_TEST_DIR/release" ]; do sleep 0.01; done
   : > "$call/released"
 ) &
+printf '%s\n' "$!" > "$call/recorder.pid"
+if [[ -n "${HWI_ADAPTER_TEST_AUDIT_DIR:-}" ]]; then
+  mkdir -p "$HWI_ADAPTER_TEST_AUDIT_DIR"
+  printf '%s\n' "$!" > "$HWI_ADAPTER_TEST_AUDIT_DIR/recorder-$$.pid"
+fi
 exit 0
 SH
   chmod +x "$root/engine"
@@ -9705,6 +9881,46 @@ hwi_wait_for_file() {
     return 0
   fi
   return 1
+}
+
+hwi_opencode_v1_binary() {
+  local mise_data_dir
+  mise_data_dir="${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}"
+  printf '%s\n' "${HWI_OPENCODE_V1_BINARY:-$mise_data_dir/installs/opencode/1.19.0/opencode}"
+}
+
+hwi_assert_v2_root_records() {
+  local root="$1" calls
+  calls="$(find "$root" -mindepth 1 -maxdepth 1 -type d -name 'call-*' | wc -l | tr -d ' ')"
+  assert_equal "$calls" 2
+
+  # Pair each prompt with the session the engine received. Separate prompt and
+  # session assertions would accept the roots if their deliveries were swapped.
+  run sh -c '
+    set -eu
+    records="$1/records"
+    trap "rm -f \"$records\"" EXIT
+    for call in "$1"/call-*; do
+      [ "$(sed -n "1p" "$call/argv")" = "--agent" ] || exit 1
+      [ "$(sed -n "2p" "$call/argv")" = "opencode" ] || exit 1
+      [ "$(sed -n "3p" "$call/argv")" = "--session" ] || exit 1
+      [ "$(sed -n "5p" "$call/argv")" = "--pane" ] || exit 1
+      [ "$(sed -n "6p" "$call/argv")" = "pane-opencode" ] || exit 1
+      [ "$(sed -n "7p" "$call/argv")" = "--workspace" ] || exit 1
+      [ "$(sed -n "8p" "$call/argv")" = "workspace-opencode" ] || exit 1
+      session="$(sed -n "4p" "$call/argv")"
+      prompt="$(cat "$call/stdin")"
+      if grep -Fqx "$prompt" "$call/argv"; then exit 1; fi
+      printf "%s\\t%s\\n" "$session" "$prompt"
+    done > "$records"
+    LC_ALL=C sort "$records"
+  ' _ "$root"
+  assert_success
+  assert_output $'session-root-a\tOpenCode V2 root A sentinel\nsession-root-b\tOpenCode V2 root B sentinel'
+  : > "$root/release"
+  for call in "$root"/call-*; do
+    hwi_wait_for_file "$call/released" || fail "recorder did not stop after release: $call"
+  done
 }
 
 function test_scripts_1222_claude_worktree_identity_hook_hands_off_prompt_on_stdin() {
@@ -9728,7 +9944,8 @@ function test_scripts_1222_claude_worktree_identity_hook_hands_off_prompt_on_std
   assert_file_contains "$call/argv" '^pane-claude$'
   hwi_wait_for_file "$call/ready" || fail 'the external engine did not enter slow derivation'
   assert_file_not_exists "$call/released"
-  : > "$root/release"
+  # This is the same release path teardown uses if a later assertion aborts.
+  hwi_adapter_reap_all
   hwi_wait_for_file "$call/released" || fail 'the slow derivation was not released'
 }
 
@@ -10003,61 +10220,230 @@ function test_scripts_1248_claude_resource_context_states_one_outage_once() {
 }
 
 function test_scripts_1224_opencode_worktree_identity_plugin_uses_deployed_consumer_boundary() {
-  _bats_test_init 1224 'deployed opencode plugin gates and delivers every prompt on stdin'
+  _bats_test_init 1224 'deployed OpenCode V2 plugin cleans up and excludes native and observed children'
   command_exists bun || skip 'bun is required'
-  local root home deployed
+  local root home deployed native_child_root observed_child_root
   root="$BATS_TEST_TMPDIR/opencode-adapter"
   home="$root/home"
   deployed="$home/.config/opencode/plugins"
-  mkdir -p "$deployed" "$home/.local/lib"
-  hwi_adapter_stub_engine "$root"
+  mkdir -p "$deployed/node_modules/@opencode/plugin" "$home/.local/lib"
   ln -s "$SOURCE_ROOT/dot_local/lib/agent-hooks" "$home/.local/lib/agent-hooks"
-  ln -s "$HWI_OPENCODE_PLUGIN_SOURCE" "$deployed/herdr-worktree-identity.ts"
+  cp "$HWI_OPENCODE_PLUGIN_SOURCE" "$deployed/herdr-worktree-identity.ts"
+  cat > "$deployed/node_modules/@opencode/plugin/package.json" <<'JSON'
+{"name":"@opencode/plugin","type":"module","exports":"./index.js"}
+JSON
+  cat > "$deployed/node_modules/@opencode/plugin/index.js" <<'JS'
+export const Plugin = { define: (plugin) => plugin };
+JS
   cat > "$root/run.ts" <<'TS'
-const { HerdrWorktreeIdentityPlugin } = await import(process.env.HWI_OPENCODE_PLUGIN!);
-const plugin = await HerdrWorktreeIdentityPlugin();
-await plugin["chat.message"]?.(
-  { sessionID: "session-opencode" },
-  { parts: [{ type: "text", text: "OpenCode stdin sentinel" }] },
-);
-await plugin["chat.message"]?.(
-  { sessionID: "session-opencode" },
-  { parts: [{ type: "text", text: "Second OpenCode prompt" }] },
-);
+const { default: plugin } = await import(process.env.HWI_OPENCODE_PLUGIN!);
+let promptHook;
+let nextEvent;
+let stopped = false;
+let aborted = false;
+let disposed = false;
+const sessions = new Map([
+  ["session-root-a", { id: "session-root-a" }],
+  ["session-root-b", { id: "session-root-b" }],
+  ["session-child", { id: "session-child", parentID: "session-root-a" }],
+]);
+const eventStream = {
+  async *[Symbol.asyncIterator]() {
+    while (!stopped) yield await new Promise((resolve) => (nextEvent = resolve));
+  },
+};
+let cleanup;
+if (typeof plugin?.setup === "function") {
+  cleanup = await plugin.setup({
+    session: {
+      hook: async (name, hook) => {
+        if (name === "prompt") promptHook = hook;
+        return { dispose: async () => { disposed = true; } };
+      },
+      get: async ({ sessionID }) => {
+        if (process.env.HWI_TEST_CHILD_LOOKUP_FAIL === "1" && sessionID === "session-child") {
+          throw new Error("child lookup unavailable");
+        }
+        const session = sessions.get(sessionID);
+        if (!session) throw new Error(`missing V2 session ${sessionID}`);
+        return session;
+      },
+    },
+    event: {
+      subscribe: ({ signal }) => {
+        signal.addEventListener("abort", () => {
+          aborted = true;
+          stopped = true;
+          nextEvent?.({ type: "session.deleted", data: { sessionID: "session-root-a" } });
+        }, { once: true });
+        return eventStream;
+      },
+    },
+  });
+}
+if (process.env.EXPECT_DISABLED === "1") {
+  if (promptHook !== undefined) throw new Error("disabled plugin registered a prompt hook");
+  stopped = true;
+  nextEvent?.({ type: "session.deleted", data: { sessionID: "session-root-a" } });
+} else if (typeof promptHook === "function") {
+  for (let attempt = 0; typeof nextEvent !== "function" && attempt < 100; attempt++) {
+    await Promise.resolve();
+  }
+  if (typeof nextEvent !== "function") throw new Error("OpenCode V2 event subscription did not start");
+  if (process.env.HWI_TEST_PREOBSERVED_CHILD === "1") {
+    nextEvent({ type: "session.created", data: { sessionID: "session-child", parentID: "session-root-a" } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  await promptHook({
+    sessionID: "session-child",
+    messageID: "message-child",
+    prompt: { text: "OpenCode V2 child sentinel" },
+  });
+  await Promise.all([
+    promptHook({
+      sessionID: "session-root-a",
+      messageID: "message-root-a",
+      prompt: { text: "OpenCode V2 root A sentinel" },
+    }),
+    promptHook({
+      sessionID: "session-root-b",
+      messageID: "message-root-b",
+      prompt: { text: "OpenCode V2 root B sentinel" },
+    }),
+  ]);
+  if (typeof cleanup !== "function") throw new Error("OpenCode V2 plugin did not return cleanup");
+  await Promise.race([
+    cleanup(),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("OpenCode V2 cleanup did not finish after abort")), 250)),
+  ]);
+  if (!aborted) throw new Error("OpenCode V2 cleanup did not abort its event subscription");
+  if (!disposed) throw new Error("OpenCode V2 cleanup did not dispose the prompt hook");
+}
 TS
+  native_child_root="$root/native-child"
+  hwi_adapter_stub_engine "$native_child_root"
   run env HOME="$home" HERDR_ENV=1 HERDR_PANE_ID=pane-opencode HERDR_WORKSPACE_ID=workspace-opencode \
-    HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" HWI_ADAPTER_TEST_DIR="$root" \
+    HERDR_WORKTREE_IDENTITY_ENGINE="$native_child_root/engine" HWI_ADAPTER_TEST_DIR="$native_child_root" \
     HWI_OPENCODE_PLUGIN="$deployed/herdr-worktree-identity.ts" bun "$root/run.ts"
   assert_success
-  local calls
-  calls="$(find "$root" -mindepth 1 -maxdepth 1 -type d -name 'call-*' | wc -l | tr -d ' ')"
-  assert_equal "$calls" 2
-  run sh -c 'cat "$1"/call-*/stdin' _ "$root"
-  assert_success
-  assert_output --partial 'OpenCode stdin sentinel'
-  assert_output --partial 'Second OpenCode prompt'
-  # Per-line and in order, as the Claude sibling (1222) asserts it. A bare
-  # `opencode` match would also be satisfied by `pane-opencode`, so a plugin
-  # that dropped `--agent` and passed only the pane id would still pass.
-  run sh -c 'cat "$1"/call-*/argv' _ "$root"
-  assert_success
-  refute_line --partial 'OpenCode stdin sentinel'
-  refute_line --partial 'Second OpenCode prompt'
-  assert_line --index 0 '--agent'
-  assert_line --index 1 'opencode'
-  assert_line --index 2 '--session'
-  assert_line --index 3 'session-opencode'
-  assert_line --index 4 '--pane'
-  assert_line --index 5 'pane-opencode'
-  assert_line --index 6 '--workspace'
-  assert_line --index 7 'workspace-opencode'
-  : > "$root/release"
+  hwi_assert_v2_root_records "$native_child_root"
 
-  run env HOME="$home" HERDR_ENV= HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" \
+  observed_child_root="$root/observed-child"
+  hwi_adapter_stub_engine "$observed_child_root"
+  run env HOME="$home" HERDR_ENV=1 HERDR_PANE_ID=pane-opencode HERDR_WORKSPACE_ID=workspace-opencode \
+    HERDR_WORKTREE_IDENTITY_ENGINE="$observed_child_root/engine" HWI_ADAPTER_TEST_DIR="$observed_child_root" \
+    HWI_OPENCODE_PLUGIN="$deployed/herdr-worktree-identity.ts" HWI_TEST_PREOBSERVED_CHILD=1 \
+    HWI_TEST_CHILD_LOOKUP_FAIL=1 bun "$root/run.ts"
+  assert_success
+  hwi_assert_v2_root_records "$observed_child_root"
+
+  run env EXPECT_DISABLED=1 HOME="$home" HERDR_ENV= HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" \
     HWI_ADAPTER_TEST_DIR="$root/gated" HWI_OPENCODE_PLUGIN="$deployed/herdr-worktree-identity.ts" bun "$root/run.ts"
   assert_success
   assert_file_not_exists "$root/gated"
-  run env HOME="$home" HERDR_ENV=1 HERDR_WORKTREE_IDENTITY_ACTIVE=1 HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" \
+  run env EXPECT_DISABLED=1 HOME="$home" HERDR_ENV=1 HERDR_WORKTREE_IDENTITY_ACTIVE=1 HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" \
+    HWI_ADAPTER_TEST_DIR="$root/reentry" HWI_OPENCODE_PLUGIN="$deployed/herdr-worktree-identity.ts" bun "$root/run.ts"
+  assert_success
+  assert_file_not_exists "$root/reentry"
+}
+
+function test_scripts_1227_opencode_v1_worktree_identity_loader_registers_the_named_prompt_handler() {
+  _bats_test_init 1227 'OpenCode V1 worktree identity loader reaches the named root prompt handler'
+  local installed_opencode_v1 opencode_v1 mise_home
+  installed_opencode_v1="$(hwi_opencode_v1_binary)"
+  [[ -x "$installed_opencode_v1" ]] || skip 'pinned OpenCode 1.19.0 binary is required'
+  mise_home="$BATS_TEST_TMPDIR/opencode-v1-mise-home"
+  mkdir -p "$mise_home/.local/share/mise/installs/opencode/1.19.0"
+  ln -s "$installed_opencode_v1" "$mise_home/.local/share/mise/installs/opencode/1.19.0/opencode"
+  opencode_v1="$(HOME="$mise_home" HWI_OPENCODE_V1_BINARY= hwi_opencode_v1_binary)"
+  run "$opencode_v1" --version
+  assert_success
+  assert_output '1.19.0'
+  local root="$BATS_TEST_TMPDIR/opencode-v1-loader" home="$BATS_TEST_TMPDIR/opencode-v1-loader/home"
+  local deployed="$home/.config/opencode/plugins" prompt='OpenCode V1 root sentinel'
+  mkdir -p "$deployed" "$home/.local/lib"
+  hwi_adapter_stub_engine "$root"
+  ln -s "$SOURCE_ROOT/dot_local/lib/agent-hooks" "$home/.local/lib/agent-hooks"
+  cp "$HWI_OPENCODE_PLUGIN_SOURCE" "$deployed/herdr-worktree-identity.ts"
+
+  # A deliberately missing model makes `run` stop after host admission while
+  # still delivering the user's message to a successfully loaded V1 plugin.
+  run env HOME="$home" HERDR_ENV=1 HERDR_PANE_ID=pane-opencode-v1 HERDR_WORKSPACE_ID=workspace-opencode-v1 \
+    HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" HWI_ADAPTER_TEST_DIR="$root" \
+    "$opencode_v1" --print-logs --log-level DEBUG run --model missing/model "$prompt" < /dev/null
+  assert_failure
+  assert_output --partial 'Model not found: missing/model.'
+  local host_log="$output"
+
+  local call calls created_session
+  calls="$(find "$root" -mindepth 1 -maxdepth 1 -type d -name 'call-*' | wc -l | tr -d ' ')"
+  assert_equal "$calls" 1
+  call="$(find "$root" -mindepth 1 -maxdepth 1 -type d -name 'call-*' | head -n 1)"
+  [[ -n "$call" ]] || fail 'pinned OpenCode V1 loader did not register the named chat.message handler'
+  assert_file_contains "$call/stdin" '^"OpenCode V1 root sentinel"$'
+  assert_file_not_contains "$call/argv" "$prompt"
+  created_session="$(printf '%s\n' "$host_log" | sed -n 's/.*message=created id=\([^ ]*\).*/\1/p' | head -n 1)"
+  [[ -n "$created_session" ]] || fail 'OpenCode V1 did not report the session that received the prompt'
+  run paste -sd ' ' "$call/argv"
+  assert_success
+  assert_output "--agent opencode --session $created_session --pane pane-opencode-v1 --workspace workspace-opencode-v1"
+  : > "$root/release"
+  hwi_wait_for_file "$call/released" || fail 'V1 recorder did not stop after release'
+}
+
+function test_scripts_1229_opencode_v1_worktree_identity_named_handler_preserves_prompt_and_child_gates() {
+  _bats_test_init 1229 'OpenCode V1 worktree identity handler excludes child and empty prompts'
+  command_exists bun || skip 'bun is required'
+  local root="$BATS_TEST_TMPDIR/opencode-v1-handler" home="$BATS_TEST_TMPDIR/opencode-v1-handler/home"
+  local deployed="$home/.config/opencode/plugins"
+  mkdir -p "$deployed" "$home/.local/lib"
+  hwi_adapter_stub_engine "$root"
+  ln -s "$SOURCE_ROOT/dot_local/lib/agent-hooks" "$home/.local/lib/agent-hooks"
+  cp "$HWI_OPENCODE_PLUGIN_SOURCE" "$deployed/herdr-worktree-identity.ts"
+  cat > "$root/run.ts" <<'TS'
+const { HerdrWorktreeIdentityPlugin } = await import(process.env.HWI_OPENCODE_PLUGIN!);
+const plugin = await HerdrWorktreeIdentityPlugin();
+
+if (process.env.EXPECT_DISABLED === "1") {
+  if (Object.keys(plugin).length !== 0) throw new Error("disabled V1 plugin registered hooks");
+} else {
+  await plugin.event?.({
+    event: { type: "session.created", properties: { info: { id: "session-child", parentID: "session-root" } } },
+  });
+  await plugin["chat.message"]?.(
+    { sessionID: "session-child" },
+    { parts: [{ type: "text", text: "OpenCode V1 child sentinel" }] },
+  );
+  await plugin["chat.message"]?.(
+    { sessionID: "session-root" },
+    { parts: [] },
+  );
+  await plugin["chat.message"]?.(
+    { sessionID: "session-root" },
+    { parts: [{ type: "text", text: "OpenCode V1 root sentinel" }] },
+  );
+}
+TS
+  run env HOME="$home" HERDR_ENV=1 HERDR_PANE_ID=pane-opencode-v1 HERDR_WORKSPACE_ID=workspace-opencode-v1 \
+    HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" HWI_ADAPTER_TEST_DIR="$root" \
+    HWI_OPENCODE_PLUGIN="$deployed/herdr-worktree-identity.ts" bun "$root/run.ts"
+  assert_success
+  local calls call
+  calls="$(find "$root" -mindepth 1 -maxdepth 1 -type d -name 'call-*' | wc -l | tr -d ' ')"
+  assert_equal "$calls" 1
+  call="$(find "$root" -mindepth 1 -maxdepth 1 -type d -name 'call-*' | head -n 1)"
+  assert_file_contains "$call/stdin" '^OpenCode V1 root sentinel$'
+  run paste -sd ' ' "$call/argv"
+  assert_success
+  assert_output '--agent opencode --session session-root --pane pane-opencode-v1 --workspace workspace-opencode-v1'
+  : > "$root/release"
+  hwi_wait_for_file "$call/released" || fail 'V1 recorder did not stop after release'
+
+  run env EXPECT_DISABLED=1 HOME="$home" HERDR_ENV= HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" \
+    HWI_ADAPTER_TEST_DIR="$root/gated" HWI_OPENCODE_PLUGIN="$deployed/herdr-worktree-identity.ts" bun "$root/run.ts"
+  assert_success
+  assert_file_not_exists "$root/gated"
+  run env EXPECT_DISABLED=1 HOME="$home" HERDR_ENV=1 HERDR_WORKTREE_IDENTITY_ACTIVE=1 HERDR_WORKTREE_IDENTITY_ENGINE="$root/engine" \
     HWI_ADAPTER_TEST_DIR="$root/reentry" HWI_OPENCODE_PLUGIN="$deployed/herdr-worktree-identity.ts" bun "$root/run.ts"
   assert_success
   assert_file_not_exists "$root/reentry"
@@ -10429,7 +10815,7 @@ handoff_session_start_run() {
 }
 
 function test_scripts_2831_handoff_injector_places_the_handoff_in_model_context() {
-  _bats_test_init 2831 'handoff injector emits additionalContext and never systemMessage'
+  _bats_test_init 2831 'handoff injector puts the handoff in additionalContext and only the goal in systemMessage'
   local store="$BATS_TEST_TMPDIR/cache" file
   mkdir -p "$BATS_TEST_TMPDIR/home"
   file="$(handoff_stage_stored "$store" injected '## Goal
@@ -10437,9 +10823,10 @@ finish the injector
 ## Key Details
 the build id is 7731-ZARBLAX')"
 
-  # KTD8, R15. This is the field the whole vendoring exists for: systemMessage
-  # renders to the operator and never reaches the model, which is a handoff
-  # that was shown rather than handed off.
+  # KTD8, R15. additionalContext is the field the whole vendoring exists for:
+  # systemMessage renders to the operator and never reaches the model, which is
+  # a handoff that was shown rather than handed off. systemMessage may ride
+  # beside it, carrying the goal alone so the operator can check it.
   run handoff_session_start_run injected compact
   assert_success
   local response="$output"
@@ -10449,14 +10836,57 @@ the build id is 7731-ZARBLAX')"
   run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
   assert_success
   assert_output --partial '7731-ZARBLAX'
-  run jq -e 'has("systemMessage") | not' <<< "$response"
+  run jq -r '.systemMessage' <<< "$response"
   assert_success
+  assert_output $'-----\n🎯 Compact goal\n\nfinish the injector\n-----'
 
   # Consumed once. A second start finds nothing to inject.
   assert_file_not_exists "$file"
   run handoff_session_start_run injected compact
   assert_success
   assert_output ''
+}
+
+function test_scripts_2834_handoff_injector_shows_the_goal_only_when_the_handoff_names_one() {
+  _bats_test_init 2834 'handoff injector omits systemMessage without a goal section and caps a runaway goal'
+  local store="$BATS_TEST_TMPDIR/cache" long
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+
+  # A handoff that lost its `## Goal` section is still injected for the model;
+  # the operator just gets no message to read.
+  handoff_stage_stored "$store" bare '## Key Details
+only details, no goal' > /dev/null
+  run handoff_session_start_run bare compact
+  assert_success
+  local response="$output"
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+  assert_output --partial 'only details, no goal'
+  run jq -e 'has("systemMessage") | not' <<< "$response"
+  assert_success
+
+  # A multi-line goal collapses to one line, and the heading after it is not
+  # part of it. A goal with no closing heading is cut at 300 characters.
+  handoff_stage_stored "$store" auto '## Goal
+ship the
+hook change
+
+## Key Details
+secret-detail' > /dev/null
+  run handoff_session_start_run auto compact
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output $'-----\n🎯 Compact goal\n\nship the hook change\n-----'
+
+  long="$(printf 'x%.0s' $(seq 1 400))"
+  handoff_stage_stored "$store" replaced "## Goal
+$long" > /dev/null
+  run handoff_session_start_run replaced compact
+  assert_success
+  run jq -r '.systemMessage | length' <<< "$output"
+  assert_success
+  assert_output '329'
 }
 
 function test_scripts_2832_handoff_injector_takes_only_this_sessions_handoff() {

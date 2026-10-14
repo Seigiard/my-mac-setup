@@ -21,16 +21,16 @@ bash ~/.agents/skills/ask-in-herdr/scripts/ask.sh <agent> "<question>" [flags]
 |---|---|
 | `--rw` | Give the child a read-write posture. The default is read-only. |
 | `--model M` | Override the model. |
-| `--effort L` | Set Claude effort or Pi thinking level. Pi defaults to `medium`. |
+| `--effort L` | Set Claude effort, Pi thinking level, or OpenCode variant. Pi defaults to `medium`. |
 | `--cwd DIR` | Set the child working directory. |
 | `--skills DIR` | Add a claude or pi skill directory. Repeat the flag for multiple directories. |
 | `--agent NAME` | Select a configured opencode agent. |
 
 The script refuses to run when `HERDR_ENV` is unset or `herdr-child` is unavailable. It has no headless mode and no `--headless` flag.
 
-## Secret boundary
+## Follow-up delivery
 
-Before starting a child, the script runs `pre-external-secret-scan` over the working directory, the complete question, and every added skill path. Only a clean gitleaks verdict permits launch; a detected secret, unavailable scanner, invalid path, timeout, or unexpected scanner result returns `status=refused` before content reaches the external model. Set `SE_SKIP_SECRET_SCAN=1` only as an explicit per-invocation waiver; the script reports that the input was sent unscanned. Every ordinary follow-up and blocked-child reply must use the skill's `follow-up.sh` wrapper, which derives the live pane's working directory and repeats the scan before delivery.
+Every ordinary follow-up and blocked-child reply must use the skill's `follow-up.sh` wrapper. For an ordinary follow-up, run `bash ~/.agents/skills/ask-in-herdr/scripts/follow-up.sh prompt <alias> <pane-id> '<task>'`. For a blocked-child decision, replace `prompt` with `reply`. The wrapper reports delivery state; read the peer's resulting answer from its pane through the normal Herdr flow.
 
 ## Models and tool posture
 
@@ -43,6 +43,7 @@ If the caller supplies no model, opencode uses `openai/gpt-5.5` and pi uses `ope
 | `pi` | Refused. Pi cannot keep the callback shell while withholding its write-capable shell. | Under `--rw`, excludes `ask_user`; `--skills` maps to `--skill`. |
 
 Read-only means no file-writing tools. It is not an enforced write boundary because every started claude or opencode child keeps an unscoped shell. Filesystem containment belongs to the child sandbox work.
+The child can read every file under `--cwd`; choose a directory whose contents may reach an external model.
 
 ## Answer transport
 
@@ -62,12 +63,12 @@ Only `status=answered` puts an answer on stdout, and it comes from the report fi
 | `ask.sh: status=blocked` | 1 | The child settled at `blocked`. The transport is retained. |
 | `ask.sh: status=working` | 124 | The wait did not settle. The child pane remains live, stdout can be partial, and the transport is retained. |
 | `ask.sh: status=undelivered` | 1 | The pane, start, or initial prompt failed before a usable answer existed. |
-| `ask.sh: status=refused` | 2 | Arguments or posture are invalid, or the pre-external secret scan refused launch. |
+| `ask.sh: status=refused` | 2 | Arguments or posture are invalid, or the required Herdr environment is unavailable. |
 | `ask.sh: status=no-report` | 3 | The child settled, but no report file existed after the recovery request. |
 | `ask.sh: status=empty-report` | 4 | The report file existed but was empty after the recovery request. |
 | `ask.sh: status=bad-report` | 5 | The report path was a symlink or not a regular file. It was never read. |
 
-The script prints a close hint on stderr before the status line. `herdr-child` allocates the alias; the script consumes the returned alias-plus-pane pair and verifies its terminal identity before exposing output. Keep the pane for a managed follow-up, or close it with the reported `herdr-child reap --to <alias> --pane <pane-id>` command. Use `bash ~/.agents/skills/ask-in-herdr/scripts/follow-up.sh prompt <alias> <pane-id> '<task>'` for an ordinary follow-up and replace `prompt` with `reply` for a blocked-child decision, repeating every original `--skills` path. The wrapper reports delivery state; read the peer's resulting answer from its pane through the normal Herdr flow.
+The script prints a close hint on stderr before the status line. `herdr-child` allocates the alias; the script consumes the returned alias-plus-pane pair and verifies its terminal identity before exposing output. Keep the pane for a managed follow-up, or close it with the reported `herdr-child reap --to <alias> --pane <pane-id>` command.
 
 For `status=answered`, the script also submits a cleanup reminder to the parent agent's pane. Herdr queues that prompt while the parent is working. The reminder is best effort: a delivery failure prints a warning but does not discard or downgrade the answer already read.
 
