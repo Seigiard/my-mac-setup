@@ -122,9 +122,18 @@ Work in <checkout> on branch <branch>. Commit prepare and implementation work. C
 Choose the launch mode in this order:
 
 1. `HERDR_ENV=1` and `HERDR_CHILD_PARENT_PANE` is unset: start a visible tab with `herdr-child start --kind opencode --posture rw --model <model> --effort <effort of tier> --cwd <checkout> --prompt-file <prompt> --detach`. Tabs avoid the narrow-pane OpenCode hang. Follow the parent duties in `~/.claude/shared/child-agent-contract.md`; the supervision marker wakes you. Answer a child's `herdr-child ask` from `ticket.md`; pass it to the user only when it needs a product decision. A herdr child goes straight to mode 2 because `herdr-child start` refuses to run from a child pane.
-2. `opencode` is on `PATH`: run `opencode run --dir <checkout> -m <model> --variant <variant of tier> --auto --format json "$(cat <prompt>)" < /dev/null > <run-dir>/<role>-<n>.jsonl 2>&1` as a background process that re-invokes you on exit (in Claude Code, the Bash tool's `run_in_background`). The stdin redirect prevents `opencode run` from waiting for EOF. `~/.claude/shared/long-running-work.md` owns its supervision.
+2. `opencode` is on `PATH`: run the following as a background process that re-invokes you on exit (in Claude Code, the Bash tool's `run_in_background`). V2 has no `run --dir`; the subshell makes the process cwd and `PWD` agree on `<checkout>`. The stdin redirect prevents `opencode run` from waiting for EOF. OpenCode 2 also drops `--variant` and takes the variant as `-m <model>#<variant of tier>`; add `--standalone` there so the run uses a private server with this shell's environment. `~/.claude/shared/long-running-work.md` owns its supervision.
+
+   ```bash
+   (
+     cd <checkout> || exit
+     exec opencode run -m <model> --variant <variant of tier> --auto --format json "$(cat <prompt>)"
+   ) < /dev/null > <run-dir>/<role>-<n>.jsonl 2>&1
+   ```
+
+   Keep the process exit status and the JSONL events separate. An `error` event or a log that ends without a final answer is incomplete work; a zero process exit alone is not a task-success verdict.
 3. Otherwise no child can start. Stop.
 
-**Resuming a child** for a handoff gap keeps its session, tier, and attempt number, and counts as one turn. In herdr mode: `herdr-child prompt --to <name> --pane <pane-id> --detach '<the missing items>'`. In headless mode: `opencode run --dir <checkout> -m <model> --variant <variant of tier> --session <id> --auto --format json '<the missing items>' < /dev/null >> <run-dir>/<role>-<n>-resume.jsonl 2>&1`, where the id is the `sessionID` in the attempt's JSONL log. Every resumed turn of the attempt appends to that file in order.
+**Resuming a child** for a handoff gap keeps its session, tier, and attempt number, and counts as one turn. In herdr mode: `herdr-child prompt --to <name> --pane <pane-id> --detach '<the missing items>'`. In headless mode: the same subshell command with `--session <id>` added and `'<the missing items>'` as the prompt, appending to `<run-dir>/<role>-<n>-resume.jsonl`, where the id is the `sessionID` in the attempt's JSONL log. Every resumed turn of the attempt appends to that file in order.
 
 The child's answer is its report file; its tool output and logs are the evidence the report cites. In herdr mode, reap each child with `herdr-child reap` in the turn that records its accepted result or final diagnosis, following the lifecycle rule of the `herdr` skill. In headless mode, confirm the process has exited before the next phase starts.

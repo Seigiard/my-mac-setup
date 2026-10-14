@@ -50,21 +50,19 @@ Fill the spec template into `~/.claude/artifacts/<id>/spec.html` (pf-cycle → a
 
 Before presenting each substantive revision to the user, run the contract spec past opencode on the **frontier tier** and fold in what survives your judgement. This review remains user-mandated on the frontier tier. Implementation runs through the `tdd` chain, which owns its tiers.
 
-Commit the revision on `<epic-branch>`, then run the review in a disposable detached worktree. This is a disposable working copy, not a sandbox: changing cwd directs ordinary relative native and shell writes there, but the shell can still access absolute or discovered paths. Linked worktrees share Git refs and configuration with the epic checkout. The review prompt supplies cooperative scope, not write protection. Capture the epic worktree's complete porcelain status before and after; that comparison detects only persistent non-ignored changes in the epic worktree and rejects those changes even when the review itself returns text.
-
-Write the prompt below to a file. Choose a new durable `$review_run` directory outside the epic checkout, with an existing parent. Launch through the managed helper, attaching every story render as a real PNG:
+V2 has no `run --dir`; the subshell makes the process cwd and `PWD` agree on the epic worktree. The stdin redirect prevents `opencode run` from waiting for EOF. On OpenCode 2 add `--standalone` so the run uses a private server with this shell's environment instead of the shared background service.
 
 ```bash
-opencode-headless.py launch --run "$review_run" --cwd "$epic_checkout" \
-  --review-ref "$epic_branch" --model openai/gpt-5.6-sol \
-  --prompt-file "$review_prompt" -f "$story_png_1" -f "$story_png_2"
+(
+  cd <epic worktree> || exit
+  exec opencode run \
+    -m openai/gpt-5.6-sol \
+    -f <screenshot1.png> -f <screenshot2.png> ... \
+    "<review prompt>"
+) < /dev/null
 ```
 
-The helper owns cwd/PWD, closed stdin, detached worktree, native session recovery, and the epic-status comparison. It prints a JSON result and saves each turn's `events.jsonl`, `stderr.log`, `status.json`, `session.json`, and `answer.txt` under `$review_run/turn-NNNN/`. Triage only the returned `answer` path when `classification` is `transport-ok`; `failure` and `incomplete` retain recovery state and return nonzero. `~/.claude/shared/long-running-work.md` owns supervision of the synchronous helper.
-
-For another turn, write its prompt and run `opencode-headless.py resume --run "$review_run" --prompt-file "$continuation_prompt"` from any shell; add `-f` for any new attachments. The saved model, cwd, baseline, and native session remain in force. After the final continuation settles, or explicit abandonment, run `opencode-headless.py cleanup --run "$review_run"`. Require exit `0` and `classification: cleaned`: the disposable worktree and recovery state are gone, and turn logs remain. A failed cleanup retains recovery state; resolve it before reporting completion. An unproven native stop requires operator recovery: retain the run and report the blocker.
-
-Use the current frontier model if the `openai/gpt-5.6-sol` slug has rotated, and record the selected slug in the run report. The prompt's cooperative scope and the limited epic-worktree porcelain comparison are the review boundary; they are not filesystem protection.
+Run **without** `--auto`, but do not treat this as a read-only boundary: opencode can still execute a tool when the effective permission policy allows it. The review prompt below is the mutation boundary. Pass **every screenshot as a real PNG via repeated `-f` flags** — inlined base64 is opaque to the model. If the frontier slug has rotated off `openai/gpt-5.6-sol`, use the current frontier model and note the new slug in your report.
 
 The review prompt, filled in:
 
