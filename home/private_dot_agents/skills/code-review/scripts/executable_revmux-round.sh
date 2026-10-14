@@ -150,6 +150,10 @@ next() {
   local scope=""
   local goal=""
   local context=""
+  local scope_without_optional_sections=""
+  local scope_through_candidate=""
+  local scope_through_exclusions=""
+  local overflow_section=""
   local goal_state=absent
   local context_files=0
   local tip=""
@@ -164,6 +168,7 @@ next() {
   local visible_changed_files=0
   local scope_text=""
   local scope_characters=0
+  local section_scope_characters=0
   local goal_characters=0
   local round_number=""
   local json_file=""
@@ -303,7 +308,7 @@ next() {
       return 1
     fi
 
-    invalid_candidate_key="$(jq -r '([to_entries[] | select(.key | test("^[A-Za-z0-9_.-]+$") | not) | .key] | first // empty) | @json' "$candidate_file")"
+    invalid_candidate_key="$(jq -r '([to_entries[] | select(.key | ((test("^[A-Za-z0-9_.-]+$") and (test("[\\r\\n]") | not)) | not)) | .key] | first // empty) | @json' "$candidate_file")"
     if [ -n "$invalid_candidate_key" ]; then
       error "candidate key $invalid_candidate_key is invalid"
       return 1
@@ -316,6 +321,11 @@ next() {
     invalid_candidate_key="$(jq -r '([to_entries[] | select(.value == "") | .key] | first // empty) | @json' "$candidate_file")"
     if [ -n "$invalid_candidate_key" ]; then
       error "candidate value for key $invalid_candidate_key is empty"
+      return 1
+    fi
+    invalid_candidate_key="$(jq -r '([to_entries[] | select(.value | test("[\\r\\n]")) | .key] | first // empty) | @json' "$candidate_file")"
+    if [ -n "$invalid_candidate_key" ]; then
+      error "candidate value for key $invalid_candidate_key contains a line break"
       return 1
     fi
     candidate_entries="$(jq -r 'to_entries[] | "\(.key): \(.value)"' "$candidate_file")"
@@ -361,8 +371,38 @@ next() {
     elif [ "$visible_commits" -gt 0 ]; then
       visible_commits=$((visible_commits - 1))
     else
-      if [ "$candidate_given" = true ]; then
-        error "Candidate section makes scope.md $scope_characters characters; the limit is 1500"
+      scope_without_optional_sections="$(build_scope "$run_name" "$task" "$base" "$tip" "$scale" \
+        "$limited_commits" "$limited_changed_files" "$round_number" false "" false "")"
+      section_scope_characters="$(printf '%s\n' "$scope_without_optional_sections" | wc -m)"
+      section_scope_characters="${section_scope_characters//[[:space:]]/}"
+
+      if [ "$section_scope_characters" -le 1500 ] && [ "$candidate_given" = true ]; then
+        scope_through_candidate="$(build_scope "$run_name" "$task" "$base" "$tip" "$scale" \
+          "$limited_commits" "$limited_changed_files" "$round_number" false "" true "$candidate_entries")"
+        section_scope_characters="$(printf '%s\n' "$scope_through_candidate" | wc -m)"
+        section_scope_characters="${section_scope_characters//[[:space:]]/}"
+        if [ "$section_scope_characters" -gt 1500 ]; then
+          overflow_section=Candidate
+        fi
+      fi
+
+      if [ -z "$overflow_section" ] && [ "$section_scope_characters" -le 1500 ] && [ "$exclusion_count" -gt 0 ]; then
+        scope_through_exclusions="$(build_scope "$run_name" "$task" "$base" "$tip" "$scale" \
+          "$limited_commits" "$limited_changed_files" "$round_number" false "" \
+          "$candidate_given" "$candidate_entries" "${exclude_values[@]}")"
+        section_scope_characters="$(printf '%s\n' "$scope_through_exclusions" | wc -m)"
+        section_scope_characters="${section_scope_characters//[[:space:]]/}"
+        if [ "$section_scope_characters" -gt 1500 ]; then
+          overflow_section=Exclusions
+        fi
+      fi
+
+      if [ -z "$overflow_section" ] && [ "$section_scope_characters" -le 1500 ] && [ "$note_given" = true ]; then
+        overflow_section=Note
+      fi
+
+      if [ -n "$overflow_section" ]; then
+        error "$overflow_section section makes scope.md $scope_characters characters; the limit is 1500"
       else
         error "scope.md is $scope_characters characters; the limit is 1500"
       fi

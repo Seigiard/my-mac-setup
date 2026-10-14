@@ -104,7 +104,9 @@ Choose the route before preparing the round:
 
   When a round reviews values that do not live in Git, such as artifact checksums, digests, or
   version strings, write them as a flat JSON object and pass `--candidate <file>` instead of
-  putting them in `--note`. Use `--note` for prose about what changed since the previous round.
+  putting them in `--note`. Candidate keys must match `[A-Za-z0-9_.-]+`; values must be non-empty,
+  single-line strings. The rendered Candidate section counts toward the 1500-character scope
+  limit. Use `--note` for prose about what changed since the previous round.
 
 Reuse the task ID and create a new round each time. Carry the original goal and every exclusion
 recorded so far forward; on the revmux route that is one `--exclude` per exclusion. Let revmux
