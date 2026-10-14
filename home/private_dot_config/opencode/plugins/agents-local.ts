@@ -4,7 +4,6 @@
 // where opencode's own dependencies live.
 import { join } from "node:path"
 import type { SystemPart } from "@opencode/ai"
-import type { Plugin as OpenCodePlugin } from "@opencode/plugin"
 import type { SessionRequest } from "@opencode/plugin/promise/session"
 
 const HOME = process.env.HOME ?? ""
