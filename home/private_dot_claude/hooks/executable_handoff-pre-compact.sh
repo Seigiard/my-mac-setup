@@ -16,7 +16,7 @@
 # as a plugin because plugin files are overwritten on update and neither of
 # the two defects below could be kept fixed (KD2).
 #
-# Three deliberate departures from upstream:
+# Four deliberate departures from upstream:
 #   - The pending handoff lives under ~/.cache, keyed by session id, instead of
 #     `.git/handoff-pending/`. `mkdir -p .git/handoff-pending` fails outright in
 #     a linked worktree, where `.git` is a file, and there is no `.git` at all
@@ -30,6 +30,8 @@
 #   - The extraction prompt includes a locally derived `<transcript_facts>`
 #     block so paths, commits, and the last operator request come from the
 #     transcript rather than the forked model's memory.
+#   - A bare `/compact` gets a filled `<goal>` block that asks the fork to name
+#     the unfinished work, instead of leaving the goal empty.
 #
 # Fails open: any missing dependency, unreadable input, or failed extraction
 # exits 0 and lets compaction proceed unchanged.
@@ -116,7 +118,7 @@ transcript_facts() {
       (.origin.kind? == "human")
       and ($text | test("<command-name>/[^<]+</command-name>"));
     def slash_command($text):
-      ($text | capture("<command-name>(?<name>/[^<]+)</command-name>(?:\\n<command-args>(?<args>[^<]*)</command-args>)?"))
+      ($text | capture("<command-name>(?<name>/[^<]+)</command-name>(?:\\n<command-args>(?<args>[\\s\\S]*?)</command-args>)?"))
       | .name + (if (.args // "") == "" then "" else " " + .args end);
     def recent_unique:
       reduce .[] as $item
@@ -128,10 +130,12 @@ transcript_facts() {
       (.isMeta == true)
       or (.isCompactSummary == true)
       or ((.origin.kind? // "") | IN("task-notification", "system", "hook"))
-      or ($text | test("(?i)(^|\\n)(hook feedback:|system reminder:)|<system-reminder>|<task-notification>|<local-command-(stdout|stderr)>|<(local|bash)-(stdout|stderr)>|^\\[Request interrupted by user( for tool use)?\\]"))
-      or ((is_human_slash_command($text) | not)
-          and ($text | test("(?i)<command-name>|<command-message>")))
-      or ($text | test("(?i)^\\[(child-supervision|child-ask|peer-message) v[0-9]+ "));
+      or ($text | test("(?i)^\\[(child-supervision|child-ask|peer-message) v[0-9]+ "))
+      or ($text | test("^/compact(?:[[:space:]]|$)"))
+      or (is_human_slash_command($text)
+          and (($text | capture("<command-name>(?<name>/[^<]+)</command-name>") | .name) == "/compact"))
+      or ((.origin.kind? != "human")
+          and ($text | test("(?i)(^|\\n)(hook feedback:|system reminder:)|<system-reminder>|<task-notification>|<local-command-(stdout|stderr)>|<(local|bash)-(stdout|stderr)>|<bash-input>|^\\[Request interrupted by user( for tool use)?\\]|<command-name>|<command-message>")));
 
     . as $records
     | [ $records[]
@@ -276,6 +280,7 @@ Constraints:
 - File paths only, not full code snippets (the agent can read files)
 - Include verbatim quotes for anything where paraphrasing risks drift
 - Copy file paths, commit hashes and subjects, and the last user request exactly from <transcript_facts>; do not paraphrase or infer replacements.
+- Fact values are JSON string literals; the character < is written as \\u003c. Decode each literal and copy its text exactly into the handoff without changing or paraphrasing it.
 - If the goal is unclear or disconnected from session context, say so explicitly in your analysis and provide best-effort handoff
 
 Do not:
