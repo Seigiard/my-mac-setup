@@ -15,7 +15,7 @@ evidence only, not a promise that a later Homebrew update has the same result.
 ## Evidence Summary
 
 The prerequisite issues are closed. Their documented `2.0.28` live evidence is
-the historical release gate for this cutover. The caller accepted that
+the historical release gate for this cutover. The maintainer accepted that
 per-slice evidence for criteria 2, 4, 5, and 6 on 2026-10-14; those criteria
 were not rerun as combined `2.0.25` scenarios. Lifecycle idle is a state
 observation, not task success.
@@ -23,20 +23,26 @@ observation, not task success.
 | Boundary | Result | Evidence |
 | --- | --- | --- |
 | Criterion 2: combined tools, pane context, and worktree naming | Per-slice V2 evidence passed on OpenCode `2.0.28`; no combined `2.0.25` rerun. | #472, #473, #474; [agent-hooks boundary](opencode-v2-agent-hooks.md), PR #484, PR #497 |
-| Criterion 3: full-TUI child lifecycle | Passed on OpenCode `2.0.25` with all four managed plugins active together. Model, agent, posture, callback, follow-up, attribution, and safe reaping were verified. | `controls/combined-v2-homebrew-2.0.25-parent-run4/`: `result=passed`, `terminal-result=passed`, `provider-verification.json=true`, `preflight.opencode-version.txt` |
+| Criterion 3: full-TUI child lifecycle | Passed in a 2026-10-14 parent-pane run on OpenCode `2.0.25` with all four managed plugins active together. Model, agent, posture, callback, follow-up, attribution, and safe reaping were verified. | The run returned `result=passed` and `terminal-result=passed`; provider verification confirmed the effective model, posture, and tool permissions. |
 | Criterion 4: headless chain and spec workflow | Per-slice V2 evidence passed on OpenCode `2.0.28`; no combined `2.0.25` rerun. Cwd, model, JSONL identity, resume, closed stdin, and terminal-result distinctions were observed. | #476, PR #479 |
 | Criterion 5: peer addresses and messages | Per-slice V2 evidence passed on OpenCode `2.0.28`; no combined `2.0.25` rerun. Distinct automatic peer addresses, queued delivery, and reused-pane behavior were observed. | #471, [full-TUI probe](../opencode-v2-full-tui-probe.md) |
 | Criterion 6: Herdr TUI registration and install order | Per-slice V2 evidence passed on OpenCode `2.0.28`; no combined `2.0.25` rerun. Generated files remained installer-owned. | #475, PR #501 |
 
 The reusable per-slice probes establish the OpenCode `2.0.28` boundary, and the
-combined parent-pane run establishes the full-TUI child-lifecycle boundary for
-the current `2.0.25` formula. The caller accepted the per-slice evidence for
+2026-10-14 combined parent-pane run establishes the full-TUI child-lifecycle
+boundary for the current `2.0.25` formula. The maintainer accepted the per-slice evidence for
 criteria 2, 4, 5, and 6; it is not equivalent to combined `2.0.25` evidence.
 These results are not a guarantee for every future Homebrew formula update.
 For a later formula update, run the affected live probes from their required
 parent panes and record the exact `opencode --version` and `herdr --version`.
 This repository does not own OpenCode or Herdr runtime semantics, so no local
 source-shape test substitutes for that live check.
+
+The V1 rollback fallback is no longer exercised by a real-V1 test after this
+cutover. Test 1227 (`test_scripts_1227_opencode_v1_worktree_identity_loader_registers_the_named_prompt_handler`)
+skips because the managed setup no longer installs an OpenCode `1.19.0` binary;
+deletion of that test is tracked in #512. This is a named coverage limit, not
+evidence that the V1 rollback path passed.
 
 ## Deployment Order
 
@@ -135,9 +141,10 @@ both directions.
 
 #405 has the `2.0.28` prerequisite evidence and this change makes Homebrew the
 only normal installer. Criterion 3 is accepted as passed on OpenCode `2.0.25`
-with all four managed plugins active together in parent run 4; its artifacts
-are under `controls/combined-v2-homebrew-2.0.25-parent-run4/`. Criteria 2, 4,
+with all four managed plugins active together in the 2026-10-14 parent run; it
+returned `result=passed` and `terminal-result=passed` while verifying model,
+agent, posture, callback, follow-up, attribution, and safe reaping. Criteria 2, 4,
 5, and 6 remain represented by their per-slice OpenCode `2.0.28` evidence only,
-which the caller accepted on 2026-10-14; no combined `2.0.25` rerun was claimed
+which the maintainer accepted on 2026-10-14; no combined `2.0.25` rerun was claimed
 for those criteria. A successful process exit or an idle lifecycle state alone
 is not acceptance evidence.
