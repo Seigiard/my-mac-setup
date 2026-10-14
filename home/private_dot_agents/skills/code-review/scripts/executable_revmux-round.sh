@@ -486,7 +486,7 @@ next() {
       fi
 
       if [ -z "$overflow_section" ] && [ "$section_scope_characters" -le 1500 ] \
-        && [ "$note_given" = true ] && [ "$candidate_given" = true ]; then
+        && [ "$note_given" = true ]; then
         overflow_section=Note
       fi
 

@@ -245,7 +245,7 @@ function test_revmux_round_005_next_rejects_an_over_limit_scope_without_launchin
   run env PATH="$SHIM_BIN:$PATH" bash "$SCRIPT" next --task fixture --tasks-dir "$TASKS_DIR" \
     --workdir "$FIXTURE_REPO" --out-dir "$BATS_TEST_TMPDIR/out" --note "$note" --wait
   assert_failure 1
-  assert_output --regexp '^error: scope\.md is [0-9]+ characters; the limit is 1500$'
+  assert_output --regexp '^error: Note section makes scope\.md [0-9]+ characters; the limit is 1500$'
   assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
   assert_file_not_exists "$REVMUX_SHIM_RUN_ARGS"
 }
