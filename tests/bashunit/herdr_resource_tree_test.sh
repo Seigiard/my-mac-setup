@@ -2017,8 +2017,18 @@ SH
 #!/usr/bin/env bash
 exec "$TREE_RESOURCE_CLI" "$@"
 SH
+  cat > "$front_bin/opencode" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version) printf '%s\n' 'opencode v2.0.28' ;;
+  *)
+    printf 'unexpected fake opencode invocation: %s\n' "$*" >&2
+    exit 2
+    ;;
+esac
+SH
   cp "$BATS_TEST_DIRNAME/helpers/herdr_alias_allocator" "$front_bin/herdr-pane-labels"
-  chmod +x "$front_bin/herdr" "$front_bin/herdr-resource-tree" "$front_bin/herdr-pane-labels"
+  chmod +x "$front_bin/herdr" "$front_bin/herdr-resource-tree" "$front_bin/opencode" "$front_bin/herdr-pane-labels"
 
   cat > "$native_bin/herdr" <<'SH'
 #!/usr/bin/env bash

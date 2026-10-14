@@ -50,6 +50,7 @@ setup() {
   unset HERDR_CHILD_TEST_REAP_OWNER_VERIFIED
   unset HERDR_CHILD_TEST_NOW_SEQ
   unset HERDR_CHILD_TEST_TAKEOVER_METADATA_PUBLISHED
+  unset STUB_CANONICAL_NAME
   unset CHILD_REAP_PID
   CHILD_STUBS=()
   # U2 exercises authorization only. Do not let an installed local model CLI
@@ -2927,7 +2928,7 @@ PY
 # herdr-child launch and return contract
 # ===========================================
 
-HERDR_CHILD="$SOURCE_ROOT/dot_local/bin/executable_herdr-child"
+HERDR_CHILD="${HERDR_CHILD_UNDER_TEST:-$SOURCE_ROOT/dot_local/bin/executable_herdr-child}"
 
 child_stub_herdr() {
   export HERDR_ALIAS_TEST_SEED=tests
@@ -3000,7 +3001,7 @@ case "${1:-} ${2:-}" in
       printf '{"error":{"code":"timeout","message":"startup timed out"}}\n' >&2
       exit 1
     fi
-    printf '%s' "${3:-child}" > "$CHILD_STUB/started-name"
+    printf '%s' "${STUB_CANONICAL_NAME:-${3:-child}}" > "$CHILD_STUB/started-name"
     printf '{"result":{"agent":{"interactive_ready":true}}}\n' ;;
   "agent get")
     child_name="$(cat "$CHILD_STUB/started-name" 2>/dev/null || printf child)"
@@ -3080,6 +3081,17 @@ case "${1:-} ${2:-}" in
 esac
 SH
   chmod +x "$CHILD_STUB/herdr"
+  cat > "$CHILD_STUB/opencode" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version) printf '%s\n' "${STUB_OPENCODE_VERSION:-opencode v2.0.28}" ;;
+  *)
+    printf 'unexpected fake opencode invocation: %s\n' "$*" >&2
+    exit 2
+    ;;
+esac
+SH
+  chmod +x "$CHILD_STUB/opencode"
   cat > "$CHILD_STUB/herdr-resource-tree" <<'SH'
 #!/usr/bin/env bash
 printf '%q ' "$@" >> "$CHILD_STUB/resource-tree.log"
@@ -3114,6 +3126,7 @@ child_start() {
   # apart they are, so the shipped one-second spacing is pure scaffolding here.
   env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     STUB_START_CONTEXT=1 \
+    STUB_CANONICAL_NAME="${STUB_CANONICAL_NAME:-}" \
     HERDR_CHILD_PANE_BUSY_RETRY_DELAY=0.01 \
     HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY="${HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY:-0}" \
     HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" \
@@ -5792,25 +5805,207 @@ child_logged_value() {
   grep -o "$1=[^ ]*" "$CHILD_STUB/calls.log" | head -n1 | sed 's/\\\(.\)/\1/g'
 }
 
-function test_scripts_061_herdr_child_maps_opencode_permissions_model_and() {
-  _bats_test_init 61 'herdr-child maps opencode permissions, model, and configured agent'
-  child_stub_herdr
-  # OPENCODE_PERMISSION is a literal opencode parses: a loose match accepts
-  # {"question":"allow",...,"x":"deny"} just as happily, so the key-to-value
-  # pairing only holds if the whole value is asserted.
-  run child_start --kind opencode --agent reviewer --model custom/model --wait
-  assert_success
-  assert_equal "$(child_logged_value OPENCODE_PERMISSION)" \
-    'OPENCODE_PERMISSION={"question":"deny","edit":"deny"}'
-  assert_file_contains "$CHILD_STUB/calls.log" 'agent start.*--model custom/model --agent reviewer'
+function test_scripts_0612_herdr_child_propagates_caller_home_and_path_to_a_split_pane() {
+  _bats_test_init 0612 'herdr-child propagates caller HOME and PATH to a split pane'
 
-  : > "$CHILD_STUB/calls.log"
-  run child_start --kind opencode --posture rw --wait
+  # #given
+  local caller_home="$BATS_TEST_TMPDIR/caller-home" caller_path="/usr/bin:/bin"
+  child_stub_herdr
+  mkdir -p "$caller_home"
+  local expected_path="$CHILD_STUB:$caller_path"
+
+  # #when
+  HOME="$caller_home" PATH="$caller_path" run child_start --kind claude --direction right --wait
+
+  # #then
   assert_success
-  assert_equal "$(child_logged_value OPENCODE_PERMISSION)" \
-    'OPENCODE_PERMISSION={"question":"deny"}'
-  run grep -q 'OPENCODE_PERMISSION=.*edit' "$CHILD_STUB/calls.log"
-  assert_failure
+  run child_logged_value HOME
+  assert_success
+  assert_output "HOME=$caller_home"
+  run child_logged_value PATH
+  assert_success
+  assert_output "PATH=$expected_path"
+}
+
+function test_scripts_0613_herdr_child_propagates_caller_home_and_path_to_a_new_tab() {
+  _bats_test_init 0613 'herdr-child propagates caller HOME and PATH to a new tab'
+
+  # #given
+  local caller_home="$BATS_TEST_TMPDIR/caller-home" caller_path="/usr/bin:/bin"
+  child_stub_herdr
+  mkdir -p "$caller_home"
+  local expected_path="$CHILD_STUB:$caller_path"
+
+  # #when
+  HOME="$caller_home" PATH="$caller_path" HERDR_WORKSPACE_ID=w1 \
+    run child_start --kind claude --tab --wait
+
+  # #then
+  assert_success
+  run child_logged_value HOME
+  assert_success
+  assert_output "HOME=$caller_home"
+  run child_logged_value PATH
+  assert_success
+  assert_output "PATH=$expected_path"
+}
+
+function test_scripts_0614_herdr_child_returns_the_canonical_post_start_alias() {
+  _bats_test_init 0614 'herdr-child returns the canonical post-start alias'
+
+  # #given
+  child_stub_herdr
+  local canonical_name=canonical-child
+  export STUB_CANONICAL_NAME="$canonical_name"
+
+  # #when
+  run child_start \
+    --kind opencode --agent plan --model opencode/cat-jam-free --wait
+
+  # #then
+  assert_success
+  assert_output "{\"agent\":\"$canonical_name\",\"pane\":\"wT:p9\"}"
+}
+
+function test_scripts_061_herdr_child_maps_opencode_permissions_model_and() {
+  _bats_test_init 61 'herdr-child launches read-only OpenCode with merged configuration'
+  child_stub_herdr
+
+  # #given — the caller selects V2 values that conflict with managed defaults.
+
+  # #when
+  run child_start --kind opencode --agent plan --model opencode/cat-jam-free --wait
+
+  # #then
+  assert_success
+  assert_output "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
+  run python3 - "$(child_logged_value OPENCODE_CONFIG_CONTENT)" <<'PY'
+import json
+import sys
+
+name, value = sys.argv[1].split("=", 1)
+assert name == "OPENCODE_CONFIG_CONTENT", repr(name)
+assert json.loads(value) == {
+    "model": "opencode/cat-jam-free",
+    "default_agent": "plan",
+    "permission": {"question": "deny", "edit": "deny", "shell": "allow"},
+    "agent": {
+        "plan": {
+            "model": "opencode/cat-jam-free",
+            "permission": {"question": "deny", "edit": "deny", "shell": "allow"},
+        },
+    },
+}
+PY
+  assert_success
+  run python3 - "$CHILD_STUB/calls.log" <<'PY'
+import sys
+
+line = next(line for line in open(sys.argv[1], encoding="utf-8") if line.startswith("agent start "))
+assert "--standalone" in line, line
+assert "--model" not in line, line
+assert "--agent" not in line, line
+PY
+  assert_success
+}
+
+function test_scripts_0611_herdr_child_maps_open_read_write_permissions_model_and() {
+  _bats_test_init 611 'herdr-child launches read-write OpenCode with merged configuration'
+  child_stub_herdr
+
+  # #given — a read-write child requests a different supported V2 model and agent.
+
+  # #when
+  run child_start --kind opencode --posture rw --agent build --model opencode/big-pickle --wait
+
+  # #then
+  assert_success
+  assert_output "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
+  run python3 - "$(child_logged_value OPENCODE_CONFIG_CONTENT)" <<'PY'
+import json
+import sys
+
+name, value = sys.argv[1].split("=", 1)
+assert name == "OPENCODE_CONFIG_CONTENT", repr(name)
+assert json.loads(value) == {
+    "model": "opencode/big-pickle",
+    "default_agent": "build",
+    "permission": {"question": "deny", "edit": "allow", "shell": "allow"},
+    "agent": {
+        "build": {
+            "model": "opencode/big-pickle",
+            "permission": {"question": "deny", "edit": "allow", "shell": "allow"},
+        },
+    },
+}
+PY
+  assert_success
+}
+
+function test_scripts_0615_herdr_child_selects_build_when_no_agent_is_requested() {
+  _bats_test_init 615 'herdr-child selects build without --agent'
+  child_stub_herdr
+
+  # #given — an omitted agent must select build despite a client default conflict.
+
+  # #when
+  run child_start --kind opencode --wait
+
+  # #then
+  assert_success
+  run python3 - "$(child_logged_value OPENCODE_CONFIG_CONTENT)" <<'PY'
+import json
+import sys
+
+name, value = sys.argv[1].split("=", 1)
+assert name == "OPENCODE_CONFIG_CONTENT", repr(name)
+actual = json.loads(value)
+expected = {
+    "model": "openai/gpt-5.5",
+    "default_agent": "build",
+    "permission": {"question": "deny", "edit": "deny", "shell": "allow"},
+    "agent": {
+        "build": {
+            "model": "openai/gpt-5.5",
+            "permission": {"question": "deny", "edit": "deny", "shell": "allow"},
+        },
+    },
+}
+assert actual == expected, actual
+PY
+  assert_success
+  run python3 - "$CHILD_STUB/calls.log" <<'PY'
+import sys
+
+line = next(line for line in open(sys.argv[1], encoding="utf-8") if line.startswith("agent start "))
+assert "--standalone" in line, line
+assert "--model" not in line, line
+assert "--agent" not in line, line
+PY
+  assert_success
+}
+
+function test_scripts_0616_herdr_child_uses_the_v1_native_model_and_agent_transport() {
+  _bats_test_init 616 'herdr-child keeps native model and agent selectors for OpenCode 1'
+  child_stub_herdr
+
+  # #given — the pinned OpenCode 1.19.0 accepts native model and agent selectors.
+
+  # #when
+  STUB_OPENCODE_VERSION=1.19.0 run child_start \
+    --kind opencode --agent plan --model opencode/cat-jam-free --wait
+
+  # #then
+  assert_success
+  run python3 - "$CHILD_STUB/calls.log" <<'PY'
+import sys
+
+line = next(line for line in open(sys.argv[1], encoding="utf-8") if line.startswith("agent start "))
+assert "--standalone" not in line, line
+assert "--model opencode/cat-jam-free" in line, line
+assert "--agent plan" in line, line
+PY
+  assert_success
 }
 
 function test_scripts_062_herdr_child_maps_pi_model_effort_skills_and_ques() {
