@@ -77,15 +77,8 @@ else
 fi
 
 transcript_facts() {
-  local path="$1" records facts edited commits last_user sibling
+  local path="$1" records facts edited commits last_user
 
-  # Source-tree tests pass fixture paths relative to home/, while fixtures live
-  # beside it in the checkout. Use that sibling only when the exact path is not
-  # readable and the sibling exists.
-  if [ ! -r "$path" ] && [[ "$path" == */home/tests/* ]]; then
-    sibling="${path%/home/tests/*}/tests/${path#*/home/tests/}"
-    [ -r "$sibling" ] && path="$sibling"
-  fi
   if [ -z "$path" ] || [ ! -r "$path" ]; then
     printf '<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: None\n</transcript_facts>'
     return 0
