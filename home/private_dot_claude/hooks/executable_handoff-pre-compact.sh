@@ -140,7 +140,7 @@ transcript_facts() {
     def is_harness($text):
       (.isMeta == true)
       or (.isCompactSummary == true)
-      or ((.origin.kind? // "") | IN("task-notification", "system", "hook"))
+      or ((.origin.kind? // "human") != "human")
       or is_non_parent_protocol_marker($text)
       or ($text | test("^/compact(?:[[:space:]]|$)"))
       or (is_human_slash_command($text)
@@ -152,8 +152,8 @@ transcript_facts() {
       if .type == "attachment"
          and (.attachment.type? == "queued_command")
          and (.attachment.commandMode? == "prompt")
-         and ((.attachment.prompt? | type) == "string")
-      then {type: "user", message: {role: "user", content: .attachment.prompt}, origin: .attachment.origin?}
+         and ((.attachment.prompt? | type) | IN("string", "array"))
+      then {type: "user", message: {role: "user", content: .attachment.prompt}, origin: .attachment.origin?, isMeta: .attachment.isMeta?}
       else .
       end;
 
