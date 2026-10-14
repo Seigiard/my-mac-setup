@@ -1,0 +1,5 @@
+{"type":"user","message":{"role":"user","content":"[draft] tidy the hook"},"origin":{"kind":"human"},"userType":"external"}
+{"type":"user","message":{"role":"user","content":"[child-settled v1 agent=worker pane=w1:p2]"},"origin":{"kind":"human"}}
+{"type":"user","message":{"role":"user","content":"[parent-prompt v1 from=red-frog]\n\ntext"},"origin":{"kind":"human"}}
+{"type":"user","message":{"role":"user","content":"[parent-reply v2 generation=abc]"},"origin":{"kind":"human"}}
+{"type":"user","message":{"role":"user","content":"[peer-message v1]\nbody"},"origin":{"kind":"human"}}
