@@ -1,16 +1,17 @@
 # revmux runtime knobs. Precedence: command line, ./.revmux/config, this file, built-in default.
 # Layers merge per key, so only the keys set here differ from what ships.
 
-# `dual-model` runs every `lean` lens group twice, once on claude and once on codex. It covers
-# more cases than `lean`, so it stays the default. Every round costs roughly twice what `lean`
-# costs. `code-review` picks a narrower profile when the gap in a diff is small.
-profile = dual-model
+# `mixed` runs each `lean` lens group once, on the model that found more of its gating findings
+# across the `dual-model` archive, and `docs+tests` on both. It replaced `dual-model` as the
+# default because that archive showed the second agent of a pair rarely added a finding, while
+# the second model did; `mixed` keeps both models at six agents instead of ten. `dual-model`
+# stays available by name. `code-review` picks a narrower profile when the gap in a diff is small.
+profile = mixed
 
-# `dual-model` runs ten agents, and six at a time keeps both halves of a pair in one wave: the
-# roster lists pairs adjacently, so 6 + 4 splits between pairs where 5 + 5 would split the
-# third pair down the middle. That matters because each agent runs the diff command in
-# `scope.md` itself. Two halves launched ten minutes apart would read different material from a
-# working tree still being edited, and comparing them is the whole point of the roster.
+# Six agents in one wave. Each agent runs the diff command in `scope.md` itself, so two waves
+# launched minutes apart would read different material from a working tree still being edited;
+# a cap that holds the whole roster avoids that. `dual-model` has ten agents and runs as 6 + 4,
+# which keeps both halves of each adjacent pair in the same wave.
 max-parallel = 6
 
 # One pool for every round, whatever directory it was launched from. `tasks-dir`
