@@ -10570,6 +10570,43 @@ function test_scripts_2844_handoff_pre_compact_hands_the_extractor_a_usable_goal
   assert_equal "$block" 'The operator did not state a goal. Read the session and name the goal yourself: the work that is underway and still unfinished at the point of compaction. Treat what you name as the goal for every step below, and open your handoff by stating it.'
 }
 
+function test_scripts_50900_handoff_pre_compact_instructs_the_extractor_about_last_requests_and_inferences() {
+  _bats_test_init 50900 'handoff pre-compact tells the extractor how to report the last request and inferences'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local prompt="$BATS_TEST_TMPDIR/prompt.txt"
+
+  # #given
+  mkdir -p "$stub"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'last=""; for arg in "$@"; do last="$arg"; done\n'
+    printf 'printf "%%s" "$last" > "%s"\n' "$prompt"
+    printf 'printf "extracted\\n"\n'
+  } > "$stub/claude"
+  chmod +x "$stub/claude"
+
+  # #when
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload prompt-contract "$root" manual 'resume the interrupted work')"
+
+  # #then
+  assert_success
+  assert_file_exists "$prompt"
+  assert_file_contains "$prompt" '## Last request'
+  assert_file_contains "$prompt" 'Last user request'
+  assert_file_contains "$prompt" 'Status:'
+  assert_file_contains "$prompt" 'Answered'
+  assert_file_contains "$prompt" 'Partially answered'
+  assert_file_contains "$prompt" 'Not answered'
+  assert_file_contains "$prompt" 'what to check first'
+  assert_file_contains "$prompt" '<claim>, verify with: <exact command>'
+  assert_file_contains "$prompt" 'Maximum 400 words'
+  run grep -Fq '3-7 bullet points' "$prompt"
+  assert_failure
+}
+
 function test_scripts_508_handoff_pre_compact_feeds_transcript_facts_to_the_extractor() {
   _bats_test_init 508 'handoff pre-compact gives the extractor successful transcript facts before its goal'
   local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
@@ -11358,6 +11395,7 @@ handoff_store_path() {
     injected) encoded=aW5qZWN0ZWQ ;;
     log-writable) encoded=bG9nLXdyaXRhYmxl ;;
     log-unwritable) encoded=bG9nLXVud3JpdGFibGU ;;
+    last-request) encoded=bGFzdC1yZXF1ZXN0 ;;
     neighbour) encoded=bmVpZ2hib3Vy ;;
     startup) encoded=c3RhcnR1cA ;;
     replaced) encoded=cmVwbGFjZWQ ;;
@@ -11422,6 +11460,43 @@ the build id is 7731-ZARBLAX')"
   assert_output ''
 }
 
+function test_scripts_50901_handoff_injector_shows_a_recognized_last_request_status() {
+  _bats_test_init 50901 'handoff injector shows a recognized last-request status beside the goal'
+  local store="$BATS_TEST_TMPDIR/cache"
+  local response
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+  handoff_stage_stored "$store" last-request $'## Goal\nanswer the waiting operator\n\n## Last request\nCan you answer this now?\nStatus: Not answered\nCheck the status extractor first.\n\n## Key Details\nThe operator is waiting.' > /dev/null
+
+  # #when
+  run handoff_session_start_run last-request compact
+
+  # #then
+  assert_success
+  response="$output"
+  run jq -r '.systemMessage' <<< "$response"
+  assert_success
+  assert_output $'-----\n🎯 Compact goal\n\nanswer the waiting operator\n\nStatus: Not answered\n-----'
+}
+
+function test_scripts_50902_handoff_injector_preserves_a_last_request_handoff_byte_for_byte() {
+  _bats_test_init 50902 'handoff injector gives the model the stored last-request handoff unchanged'
+  local store="$BATS_TEST_TMPDIR/cache"
+  local content response
+  mkdir -p "$BATS_TEST_TMPDIR/home"
+  content=$'## Goal\nanswer the waiting operator\n\n## Last request\nCan you answer this now?\nStatus: Not answered\nCheck the status extractor first.\n\n## Key Details\nThe operator is waiting.'
+  handoff_stage_stored "$store" last-request "$content" > /dev/null
+
+  # #when
+  run handoff_session_start_run last-request compact
+
+  # #then
+  assert_success
+  response="$output"
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+  assert_equal "$output" "$content"
+}
+
 function test_scripts_2834_handoff_injector_shows_the_goal_only_when_the_handoff_names_one() {
   _bats_test_init 2834 'handoff injector omits systemMessage without a goal section and caps a runaway goal'
   local store="$BATS_TEST_TMPDIR/cache" long
@@ -11449,6 +11524,30 @@ hook change
 ## Key Details
 secret-detail' > /dev/null
   run handoff_session_start_run auto compact
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output $'-----\n🎯 Compact goal\n\nship the hook change\n-----'
+
+  # A status outside Last request is ordinary handoff text, not operator state.
+  handoff_stage_stored "$store" last-request '## Goal
+ship the hook change
+
+## Key Details
+Status: Not answered' > /dev/null
+  run handoff_session_start_run last-request compact
+  assert_success
+  run jq -r '.systemMessage' <<< "$output"
+  assert_success
+  assert_output $'-----\n🎯 Compact goal\n\nship the hook change\n-----'
+
+  handoff_stage_stored "$store" injected '## Goal
+ship the hook change
+
+## Last request
+Please continue.
+Status: Waiting for a reply' > /dev/null
+  run handoff_session_start_run injected compact
   assert_success
   run jq -r '.systemMessage' <<< "$output"
   assert_success
