@@ -1,0 +1,2 @@
+{"type":"user","message":{"role":"user","content":"<command-message>implement</command-message>\n<command-name>/implement</command-name>\n<command-args>https://github.com/Seigiard/my-mac-setup/issues/508</command-args>"},"origin":{"kind":"human"}}
+{"type":"user","message":{"role":"user","content":"<command-message>clear</command-message>\n<command-name>/clear</command-name>"}}

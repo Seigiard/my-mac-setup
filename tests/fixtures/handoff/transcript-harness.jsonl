@@ -6,3 +6,4 @@
 {"type":"user","message":{"role":"user","content":"[peer-message v1 from=worker]"},"origin":{"kind":"human"}}
 {"type":"user","message":{"role":"user","content":"<bash-stdout>completed</bash-stdout>"}}
 {"type":"user","message":{"role":"user","content":"<bash-stderr>warning</bash-stderr>"}}
+{"type":"user","message":{"role":"user","content":"[child-ask v1 agent=worker pane=w1:p2]"},"origin":{"kind":"human"}}
