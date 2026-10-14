@@ -6,7 +6,6 @@ import { execFile } from "node:child_process"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import type { SystemPart } from "@opencode/ai"
-import type { Plugin as OpenCodePlugin } from "@opencode/plugin"
 import type { SessionRequest } from "@opencode/plugin/promise/session"
 
 const HEADING = "## Herdr Agent Resource Context (generated)"

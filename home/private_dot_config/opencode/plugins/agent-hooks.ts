@@ -19,8 +19,6 @@ import type { Decision, ToolEventValue } from "../../../dot_local/lib/agent-hook
 
 const CLIENT = "opencode"
 
-const HOME = process.env.HOME ?? ""
-
 // Adapter modules can be re-evaluated while their runtime imports keep the
 // prior core resident. Keying by dispatch preserves that loaded identity until
 // the runtime actually resolves a different core module.
