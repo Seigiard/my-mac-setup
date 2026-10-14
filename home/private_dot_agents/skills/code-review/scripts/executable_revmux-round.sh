@@ -4,7 +4,8 @@ set -euo pipefail
 usage() {
   printf '%s\n' \
     'usage: revmux-round.sh next --task <id> [--run <NN-label>] [--base <sha>] [--workdir <path>] [--profile <name>]' \
-    '       [--note <text> | --note -] [--exclude <text>] [--context-file <path>] [--out-dir <dir>]' \
+    '       [--only <pathspec>]... [--note <text> | --note -] [--exclude <text>] [--context-file <path>]' \
+    '       [--out-dir <dir>]' \
     '       [--tasks-dir <dir>] [--prepare-only] [--wait]' \
     '       revmux-round.sh summary <report.json>' >&2
 }
@@ -78,18 +79,50 @@ build_scope() {
   local round_number="$8"
   local note_given="$9"
   local note="${10}"
+  local only_count="${11}"
   local exclusion
+  local index
+  local pathspec
+  local separator=""
+  local only_values=()
 
-  shift 10
+  shift 11
+  for ((index = 0; index < only_count; index++)); do
+    only_values[$index]="$1"
+    shift
+  done
 
   printf '# Scope\n\n'
   printf 'Round %s of task %s: review the cumulative change against base %s, including the fixes since the previous round.\n\n' \
     "$run_name" "$task" "$base"
   printf 'Tip: %s\n' "$tip"
-  printf 'Scale: %s\n\n' "$scale"
+  printf 'Scale: %s\n' "$scale"
+  if [ "$only_count" -gt 0 ]; then
+    printf 'Limited to: '
+    for pathspec in "${only_values[@]}"; do
+      printf '%s%s' "$separator" "$pathspec"
+      separator=', '
+    done
+    printf '\n'
+  fi
+  printf '\n'
   printf 'Read the change:\n\n```\n'
-  printf 'git diff %s..HEAD\n' "$base"
-  printf 'git log --oneline %s..HEAD\n' "$base"
+  printf 'git diff %s..HEAD' "$base"
+  if [ "$only_count" -gt 0 ]; then
+    printf ' --'
+    for pathspec in "${only_values[@]}"; do
+      printf ' %q' "$pathspec"
+    done
+  fi
+  printf '\n'
+  printf 'git log --oneline %s..HEAD' "$base"
+  if [ "$only_count" -gt 0 ]; then
+    printf ' --'
+    for pathspec in "${only_values[@]}"; do
+      printf ' %q' "$pathspec"
+    done
+  fi
+  printf '\n'
   printf '```\n\nCommits:\n\n```\n%s\n```\n\nChanged files:\n\n```\n%s\n```\n' \
     "$commits" "$changed_files"
   if [ "$#" -gt 0 ]; then
@@ -118,8 +151,10 @@ next() {
   local profile=""
   local note=""
   local note_given=false
+  local only_values=()
   local exclude_values=()
   local context_file_values=()
+  local only_count=0
   local exclusion_count=0
   local context_file_count=0
   local out_dir=""
@@ -147,12 +182,14 @@ next() {
   local scale=""
   local commits=""
   local changed_files=""
+  local only_match=""
   local limited_commits=""
   local limited_changed_files=""
   local commit_count=0
   local changed_file_count=0
   local visible_commits=0
   local visible_changed_files=0
+  local scope_args=()
   local scope_text=""
   local scope_characters=0
   local goal_characters=0
@@ -167,7 +204,7 @@ next() {
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --task|--run|--base|--workdir|--profile|--out-dir|--tasks-dir|--exclude|--context-file)
+      --task|--run|--base|--workdir|--profile|--out-dir|--tasks-dir|--only|--exclude|--context-file)
         [ "$#" -gt 1 ] || { usage; return 1; }
         case "$1" in
           --task) task="$2" ;;
@@ -177,6 +214,10 @@ next() {
           --profile) profile="$2" ;;
           --out-dir) out_dir="$2" ;;
           --tasks-dir) tasks_dir="$2"; tasks_dir_given=true ;;
+          --only)
+            only_values[$only_count]="$2"
+            only_count=$((only_count + 1))
+            ;;
           --exclude)
             exclude_values[$exclusion_count]="$2"
             exclusion_count=$((exclusion_count + 1))
@@ -279,12 +320,33 @@ next() {
     }
   done
 
+  for ((index = 0; index < only_count; index++)); do
+    candidate="${only_values[$index]}"
+    if ! only_match="$(git -C "$workdir" diff --name-only "$base..HEAD" -- "$candidate")"; then
+      error "cannot evaluate --only pathspec $candidate"
+      return 1
+    fi
+    if [ -z "$only_match" ]; then
+      error "--only pathspec $candidate matches no changes in $base..HEAD"
+      return 1
+    fi
+  done
+
   tip="$(git -C "$workdir" rev-parse HEAD)"
-  scale="$(git -C "$workdir" diff --shortstat "$base..HEAD")"
+  if [ "$only_count" -gt 0 ]; then
+    scale="$(git -C "$workdir" diff --shortstat "$base..HEAD" -- "${only_values[@]}")"
+  else
+    scale="$(git -C "$workdir" diff --shortstat "$base..HEAD")"
+  fi
   scale="${scale#"${scale%%[![:space:]]*}"}"
   [ -n "$scale" ] || scale="no changes"
-  commits="$(git -C "$workdir" log --oneline "$base..HEAD")"
-  changed_files="$(git -C "$workdir" diff --name-status "$base..HEAD")"
+  if [ "$only_count" -gt 0 ]; then
+    commits="$(git -C "$workdir" log --oneline "$base..HEAD" -- "${only_values[@]}")"
+    changed_files="$(git -C "$workdir" diff --name-status "$base..HEAD" -- "${only_values[@]}")"
+  else
+    commits="$(git -C "$workdir" log --oneline "$base..HEAD")"
+    changed_files="$(git -C "$workdir" diff --name-status "$base..HEAD")"
+  fi
   commit_count="$(count_lines "$commits")"
   changed_file_count="$(count_lines "$changed_files")"
   visible_commits="$commit_count"
@@ -300,14 +362,15 @@ next() {
   while :; do
     limited_commits="$(limit_lines "$commits" "$visible_commits")"
     limited_changed_files="$(limit_lines "$changed_files" "$visible_changed_files")"
-    if [ "$exclusion_count" -gt 0 ]; then
-      scope_text="$(build_scope "$run_name" "$task" "$base" "$tip" "$scale" \
-        "$limited_commits" "$limited_changed_files" "$round_number" "$note_given" "$note" \
-        "${exclude_values[@]}")"
-    else
-      scope_text="$(build_scope "$run_name" "$task" "$base" "$tip" "$scale" \
-        "$limited_commits" "$limited_changed_files" "$round_number" "$note_given" "$note")"
-    fi
+    scope_args=("$run_name" "$task" "$base" "$tip" "$scale" "$limited_commits" \
+      "$limited_changed_files" "$round_number" "$note_given" "$note" "$only_count")
+    for ((index = 0; index < only_count; index++)); do
+      scope_args[${#scope_args[@]}]="${only_values[$index]}"
+    done
+    for ((index = 0; index < exclusion_count; index++)); do
+      scope_args[${#scope_args[@]}]="${exclude_values[$index]}"
+    done
+    scope_text="$(build_scope "${scope_args[@]}")"
     scope_characters="$(printf '%s\n' "$scope_text" | wc -m)"
     scope_characters="${scope_characters//[[:space:]]/}"
     [ "$scope_characters" -le 1500 ] && break
