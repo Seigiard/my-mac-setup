@@ -11082,8 +11082,8 @@ function test_scripts_5090_handoff_pre_compact_keeps_a_human_request_that_mentio
   assert_equal "$facts" "$expected"
 }
 
-function test_scripts_5091_handoff_pre_compact_ignores_any_herdr_protocol_marker() {
-  _bats_test_init 5091 'handoff pre-compact does not select unlisted Herdr protocol markers'
+function test_scripts_5091_handoff_pre_compact_keeps_lifecycle_markers_but_selects_a_parent_prompt() {
+  _bats_test_init 5091 'handoff pre-compact keeps lifecycle markers as harnesses but selects a parent prompt'
   local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
   local prompt="$BATS_TEST_TMPDIR/prompt.txt" transcript="$BATS_TEST_DIRNAME/fixtures/handoff/transcript-herdr-protocol.jsonl"
   local facts expected
@@ -11109,7 +11109,131 @@ function test_scripts_5091_handoff_pre_compact_ignores_any_herdr_protocol_marker
   # #then
   assert_success
   facts="$(sed -n '/^<transcript_facts>$/,/^<\/transcript_facts>$/p' "$prompt")"
-  expected=$'<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: "[draft] tidy the hook"\n</transcript_facts>'
+  expected=$'<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: "[parent-prompt v1 from=red-frog]\\n\\nPlease continue the test preparation."\n</transcript_facts>'
+  assert_equal "$facts" "$expected"
+}
+
+function test_scripts_5092_handoff_pre_compact_ignores_pasted_lifecycle_markers() {
+  _bats_test_init 5092 'handoff pre-compact does not select pasted lifecycle markers'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local prompt="$BATS_TEST_TMPDIR/prompt.txt" transcript="$BATS_TEST_DIRNAME/fixtures/handoff/transcript-pasted-protocol.jsonl"
+  local facts expected
+
+  # #given
+  assert_file_exists "$transcript"
+  mkdir -p "$stub"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'last=""; for arg in "$@"; do last="$arg"; done\n'
+    printf 'printf "%%s" "$last" > "%s"\n' "$prompt"
+    printf 'printf "extracted\\n"\n'
+  } > "$stub/claude"
+  chmod +x "$stub/claude"
+
+  # #when
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(jq -nc --arg session pasted-protocol --arg cwd "$root" --arg transcript "$transcript" \
+      '{session_id: $session, cwd: $cwd, trigger: "manual", custom_instructions: "write the handoff", transcript_path: $transcript, hook_event_name: "PreCompact"}')"
+
+  # #then
+  assert_success
+  facts="$(sed -n '/^<transcript_facts>$/,/^<\/transcript_facts>$/p' "$prompt")"
+  expected=$'<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: "Keep the original operator request."\n</transcript_facts>'
+  assert_equal "$facts" "$expected"
+}
+
+function test_scripts_5093_handoff_pre_compact_keeps_pasted_operator_text() {
+  _bats_test_init 5093 'handoff pre-compact selects a pasted operator request that is not a marker'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local prompt="$BATS_TEST_TMPDIR/prompt.txt" transcript="$BATS_TEST_DIRNAME/fixtures/handoff/transcript-pasted-operator.jsonl"
+  local facts expected
+
+  # #given
+  assert_file_exists "$transcript"
+  mkdir -p "$stub"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'last=""; for arg in "$@"; do last="$arg"; done\n'
+    printf 'printf "%%s" "$last" > "%s"\n' "$prompt"
+    printf 'printf "extracted\\n"\n'
+  } > "$stub/claude"
+  chmod +x "$stub/claude"
+
+  # #when
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(jq -nc --arg session pasted-operator --arg cwd "$root" --arg transcript "$transcript" \
+      '{session_id: $session, cwd: $cwd, trigger: "manual", custom_instructions: "write the handoff", transcript_path: $transcript, hook_event_name: "PreCompact"}')"
+
+  # #then
+  assert_success
+  facts="$(sed -n '/^<transcript_facts>$/,/^<\/transcript_facts>$/p' "$prompt")"
+  expected=$'<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: "\\n\\n\\u003cpasted_content id=\\"9971\\">\\nContinue the pasted operator request.\\n\\u003c/pasted_content id=\\"9971\\">\\n"\n</transcript_facts>'
+  assert_equal "$facts" "$expected"
+}
+
+function test_scripts_5094_handoff_pre_compact_selects_a_pasted_parent_prompt() {
+  _bats_test_init 5094 'handoff pre-compact selects a pasted parent prompt verbatim'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local prompt="$BATS_TEST_TMPDIR/prompt.txt" transcript="$BATS_TEST_DIRNAME/fixtures/handoff/transcript-pasted-parent-prompt.jsonl"
+  local facts expected
+
+  # #given
+  assert_file_exists "$transcript"
+  mkdir -p "$stub"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'last=""; for arg in "$@"; do last="$arg"; done\n'
+    printf 'printf "%%s" "$last" > "%s"\n' "$prompt"
+    printf 'printf "extracted\\n"\n'
+  } > "$stub/claude"
+  chmod +x "$stub/claude"
+
+  # #when
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(jq -nc --arg session pasted-parent-prompt --arg cwd "$root" --arg transcript "$transcript" \
+      '{session_id: $session, cwd: $cwd, trigger: "manual", custom_instructions: "write the handoff", transcript_path: $transcript, hook_event_name: "PreCompact"}')"
+
+  # #then
+  assert_success
+  facts="$(sed -n '/^<transcript_facts>$/,/^<\/transcript_facts>$/p' "$prompt")"
+  expected=$'<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: "\\n\\n\\u003cpasted_content id=\\"9972\\">\\n[parent-prompt v1 from=red-frog]\\n\\nPlease continue from the parent.\\n\\u003c/pasted_content id=\\"9972\\">\\n"\n</transcript_facts>'
+  assert_equal "$facts" "$expected"
+}
+
+function test_scripts_5095_handoff_pre_compact_selects_a_parent_reply() {
+  _bats_test_init 5095 'handoff pre-compact selects a parent reply after lifecycle markers'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local prompt="$BATS_TEST_TMPDIR/prompt.txt" transcript="$BATS_TEST_DIRNAME/fixtures/handoff/transcript-parent-reply.jsonl"
+  local facts expected
+
+  # #given
+  assert_file_exists "$transcript"
+  mkdir -p "$stub"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'last=""; for arg in "$@"; do last="$arg"; done\n'
+    printf 'printf "%%s" "$last" > "%s"\n' "$prompt"
+    printf 'printf "extracted\\n"\n'
+  } > "$stub/claude"
+  chmod +x "$stub/claude"
+
+  # #when
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(jq -nc --arg session parent-reply --arg cwd "$root" --arg transcript "$transcript" \
+      '{session_id: $session, cwd: $cwd, trigger: "manual", custom_instructions: "write the handoff", transcript_path: $transcript, hook_event_name: "PreCompact"}')"
+
+  # #then
+  assert_success
+  facts="$(sed -n '/^<transcript_facts>$/,/^<\/transcript_facts>$/p' "$prompt")"
+  expected=$'<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: "[parent-reply v2 generation=abc]"\n</transcript_facts>'
   assert_equal "$facts" "$expected"
 }
 
