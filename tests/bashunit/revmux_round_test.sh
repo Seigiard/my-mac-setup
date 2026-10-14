@@ -142,6 +142,54 @@ run_prepare_only() {
     --workdir "$FIXTURE_REPO" --prepare-only "$@"
 }
 
+write_valid_candidate() {
+  cat > "$1" <<'JSON'
+{
+  "artifact.name": "alerter-26.5.tar.gz",
+  "sha-256": "0123456789abcdef",
+  "build_version": "26.5",
+  "revision2": "final"
+}
+JSON
+}
+
+expected_candidate_scope() {
+  cat <<EOF
+# Scope
+
+Round 02-after-fix of task fixture: review the cumulative change against base $FIXTURE_BASE, including the fixes since the previous round.
+
+Tip: $FIXTURE_TIP
+Scale: 2 files changed, 2 insertions(+)
+
+Read the change:
+
+\`\`\`
+git diff $FIXTURE_BASE..HEAD
+git log --oneline $FIXTURE_BASE..HEAD
+\`\`\`
+
+Commits:
+
+\`\`\`
+$FIXTURE_COMMITS
+\`\`\`
+
+Changed files:
+
+\`\`\`
+$FIXTURE_CHANGED
+\`\`\`
+
+Candidate:
+
+artifact.name: alerter-26.5.tar.gz
+sha-256: 0123456789abcdef
+build_version: 26.5
+revision2: final
+EOF
+}
+
 function test_revmux_round_001_next_writes_the_authored_git_facts_and_argument_note() {
   _bats_test_init 1 'next writes fixture Git facts in the prescribed scope layout'
   require_revmux
@@ -687,4 +735,137 @@ function test_revmux_round_025_next_rejects_a_missing_context_file_without_creat
   assert_failure 1
   assert_output "error: context file $missing not found"
   assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
+}
+
+function test_revmux_round_026_next_renders_candidate_values_in_file_order() {
+  _bats_test_init 26 'next renders every candidate value in source file order'
+  require_revmux
+
+  # #given
+  make_round_fixture
+  local candidate="$BATS_TEST_TMPDIR/candidate.json"
+  local scope="$TASKS_DIR/fixture/02-after-fix/input/scope.md"
+  write_valid_candidate "$candidate"
+
+  # #when
+  run_prepare_only --candidate "$candidate"
+
+  # #then
+  assert_success
+  run cat "$scope"
+  assert_success
+  assert_output "$(expected_candidate_scope)"
+}
+
+function test_revmux_round_027_next_archives_the_candidate_file_byte_for_byte() {
+  _bats_test_init 27 'next archives the exact candidate file bytes with the round input'
+  require_revmux
+
+  # #given
+  make_round_fixture
+  local candidate="$BATS_TEST_TMPDIR/candidate.json"
+  local archived="$TASKS_DIR/fixture/02-after-fix/input/context/candidate.json"
+  write_valid_candidate "$candidate"
+
+  # #when
+  run_prepare_only --candidate "$candidate"
+
+  # #then
+  assert_success
+  run cmp "$candidate" "$archived"
+  assert_success
+}
+
+function test_revmux_round_028_next_rejects_a_candidate_that_is_not_an_object() {
+  _bats_test_init 28 'next rejects a non-object candidate before creating the round'
+  require_revmux
+
+  # #given
+  make_round_fixture
+  local candidate="$BATS_TEST_TMPDIR/invalid.json"
+  printf '["artifact"]\n' > "$candidate"
+
+  # #when
+  run_prepare_only --candidate "$candidate"
+
+  # #then
+  assert_failure 1
+  assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
+  assert_output --regexp '^error: .*not an object.*$'
+}
+
+function test_revmux_round_029_next_rejects_a_nested_candidate_value_and_names_its_key() {
+  _bats_test_init 29 'next names the key whose candidate value is nested'
+  require_revmux
+
+  # #given
+  make_round_fixture
+  local candidate="$BATS_TEST_TMPDIR/invalid.json"
+  printf '{"artifact":{"name":"alerter-26.5.tar.gz"}}\n' > "$candidate"
+
+  # #when
+  run_prepare_only --candidate "$candidate"
+
+  # #then
+  assert_failure 1
+  assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
+  assert_output --regexp '^error: .*artifact.*$'
+}
+
+function test_revmux_round_030_next_rejects_an_empty_candidate_value_and_names_its_key() {
+  _bats_test_init 30 'next names the key whose candidate value is empty'
+  require_revmux
+
+  # #given
+  make_round_fixture
+  local candidate="$BATS_TEST_TMPDIR/invalid.json"
+  printf '{"version":""}\n' > "$candidate"
+
+  # #when
+  run_prepare_only --candidate "$candidate"
+
+  # #then
+  assert_failure 1
+  assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
+  assert_output --regexp '^error: .*version.*$'
+}
+
+function test_revmux_round_031_next_rejects_an_invalid_candidate_key_and_names_it() {
+  _bats_test_init 31 'next names a candidate key outside the allowed alphabet'
+  require_revmux
+
+  # #given
+  make_round_fixture
+  local candidate="$BATS_TEST_TMPDIR/invalid.json"
+  printf '{"bad key":"value"}\n' > "$candidate"
+
+  # #when
+  run_prepare_only --candidate "$candidate"
+
+  # #then
+  assert_failure 1
+  assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
+  assert_output --regexp '^error: .*bad key.*$'
+}
+
+function test_revmux_round_032_next_names_candidate_when_it_alone_exceeds_the_scope_limit() {
+  _bats_test_init 32 'next names Candidate when that section alone exceeds the scope limit'
+  require_revmux
+
+  # #given
+  make_round_fixture
+  local candidate="$BATS_TEST_TMPDIR/large.json"
+  {
+    printf '{"blob":"'
+    LC_ALL=C head -c 1501 /dev/zero | tr '\0' x
+    printf '"}\n'
+  } > "$candidate"
+
+  # #when
+  run_prepare_only --candidate "$candidate"
+
+  # #then
+  assert_failure 1
+  assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
+  assert_output --regexp '^error: .*Candidate.*$'
 }
