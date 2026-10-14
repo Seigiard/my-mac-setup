@@ -13,6 +13,7 @@ const normalize: any = await import(join(CORE_DIR, "normalize.ts"));
 const selfcheck: any = await import(join(CORE_DIR, "selfcheck.ts"));
 
 import * as corpus from "./fixtures/agent-hooks/fixtures.ts";
+import { OPENCODE_V2_CAPTURED_EVENTS } from "./fixtures/agent-hooks/opencode-v2.ts";
 
 const CLIENTS = ["claude", "opencode", "pi"] as const;
 
@@ -36,8 +37,6 @@ afterEach(() => {
 // same coverage without new test code.
 
 const RESERVED_COMMAND = "status=$? && exit $status";
-
-const BARE_QUERY = "two bare tokens";
 
 type Invocations = Record<string, number>;
 
@@ -187,6 +186,47 @@ describe("normalization of the three arg dialects", () => {
     expect(normalize.normalizeEvent("claude", null, TEST_REGISTRY)).toBeUndefined();
     expect(normalize.normalizeEvent("nosuchclient", {}, TEST_REGISTRY)).toBeUndefined();
   });
+
+  for (const [name, raw, tool, payload] of [
+    [
+      "shell",
+      OPENCODE_V2_CAPTURED_EVENTS.shell,
+      "bash",
+      { ...EMPTY_PAYLOAD, command: "printf 'shell-control\\n' > shell-effect.txt" },
+    ],
+    [
+      "write",
+      OPENCODE_V2_CAPTURED_EVENTS.write,
+      "write",
+      { ...EMPTY_PAYLOAD, filePath: "/tmp/agent-hooks-v2/write-effect.txt", content: "write-control\n" },
+    ],
+    [
+      "edit",
+      OPENCODE_V2_CAPTURED_EVENTS.edit,
+      "edit",
+      { ...EMPTY_PAYLOAD, filePath: "/tmp/agent-hooks-v2/edit-effect.txt", content: "edit-after\n" },
+    ],
+    [
+      "nested FFF grep",
+      OPENCODE_V2_CAPTURED_EVENTS.nestedFffGrep,
+      "fff-grep",
+      { ...EMPTY_PAYLOAD, query: "TDD_FFF_CONTROL" },
+    ],
+  ] as const) {
+    test(`the captured V2 ${name} input preserves its canonical policy fields`, () => {
+      // #given a native or nested event captured from OpenCode 2.0.28
+      // #when it is normalized at the core boundary
+      const normalized = normalize.normalizeEvent("opencode", raw, TEST_REGISTRY);
+
+      // #then its V2 tool name and payload reach one exact canonical event
+      expect(normalized).toEqual({
+        client: "opencode",
+        clientToolName: raw.tool,
+        tool,
+        ...payload,
+      });
+    });
+  }
 });
 
 // --- scenario 2: first deny wins --------------------------------------------

@@ -65,18 +65,27 @@ function readClaude(raw: ParsedEvent): RawRead {
 }
 
 function readOpencode(raw: ParsedEvent): RawRead {
+  // OpenCode V1 supplies `args`; V2 supplies the native tool input directly.
   const args = raw.args;
+  const input = raw.input;
+  const payload = hasArguments(args) ? args : input;
 
   return {
     clientToolName: raw.tool,
     payload: {
-      filePath: args.filePath || args.file_path,
-      content: joinParts([args.content, args.newString]),
-      command: args.command,
-      query: args.query,
-      url: args.url,
+      filePath: payload.filePath || payload.file_path || payload.path,
+      content: joinParts([payload.content, payload.newString]),
+      command: payload.command,
+      query: payload.query,
+      url: payload.url,
     },
   };
+}
+
+function hasArguments(input: ToolArguments): boolean {
+  // The parsed arguments hold only strings and edit lists; an empty value of
+  // either kind is the schema's fallback, not a supplied argument.
+  return Object.values(input).some((value) => (Array.isArray(value) ? value.length > 0 : value !== ""));
 }
 
 function readPi(raw: ParsedEvent): RawRead {
