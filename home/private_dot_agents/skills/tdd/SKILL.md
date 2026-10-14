@@ -1,6 +1,6 @@
 ---
 name: tdd
-description: Implement one ticket test-first through delegated children. Use for a feature, a bug fix, or a review fix handed off by another skill.
+description: Implement one ticket through delegated children, with an oracle gate before testing. Use for a feature, a bug fix, or a review fix handed off by another skill.
 ---
 
 # Test-driven development
@@ -56,8 +56,9 @@ Done when the worktree is clean and `ticket.md` holds the ticket, its criteria, 
    - **Oracle:** each test matches its report's oracle line, and the line holds against the oracle gate and the false-green rules in `~/.claude/shared/testing.md`.
    - **Controls:** every control in the report's table has valid evidence, and its observed result matches the independent expected result. The helpers and fixtures the brief requires are covered. For unavailable live dependencies, follow the repository's verification rules and record the exact unverified boundary.
    - **Plan:** each uncalibrated negative or aggregate assertion has an owner test and a finite regression plan in `ticket.md`.
+    - **Reconciliation:** every criterion is reconciled with the report: each zero-test criterion has either an accepted **no test** reason or a diagnosis that blocks it. A mixed result stays pending until every disposition and required observation is recorded.
 
-   A report of zero tests with a reason for every criterion, and no movement from `base_sha`, moves those criteria to **no test**; a symptom criterion whose faithful test reached its assertion and passed is [not reproduced](#responding-to-a-failure) instead, and one moved to **no test** for another reason goes through the [observation gate](#the-chain) before step 4. On acceptance, write the lock: the branch tip becomes `lock_sha`, and the changed files become the locked paths. On rejection, record the diagnosis, [preserve the candidate](#preserving-a-candidate), then reset the branch (`git reset --hard <base_sha>`, then `git clean -fd`) and take the diagnosis's route. Done when the work is locked, or the ticket is on the checks-only path.
+   After reconciliation, a report with no tests, a reason for every criterion, and no movement from `base_sha` moves those criteria to **no test**. For a mixed result, an accepted zero-test reason moves that criterion to **no test**, so step 1's observation gate applies before acceptance; lock the remaining test changes only after reconciliation. A symptom criterion whose faithful test reached its assertion and passed is [not reproduced](#responding-to-a-failure). On acceptance, write the lock: the branch tip becomes `lock_sha`, and the changed files become the locked paths. On rejection, record the diagnosis, [preserve the candidate](#preserving-a-candidate), then reset the branch (`git reset --hard <base_sha>`, then `git clean -fd`) and take the diagnosis's route. Done when the work is locked, or the ticket is on the checks-only path.
 4. **Implementer.** Start an implementer (brief: `implementer.md`). It writes code until the locked tests pass and the criteria hold. Done when the child has settled and its report names its commit, the changed paths, the evidence for the test command and each check, and anything left undone.
 5. **Validation.** All of these must hold for the same state:
    - the lock diff exits 0 (skip on the checks-only path);
@@ -90,27 +91,15 @@ Every dispatched or resumed child is one **turn** of its batch. Before each disp
 
 ## Calibration
 
-An assertion is **uncalibrated** until an observed regression makes it red for its stated reason. A test that is green before production exists, or stops at an earlier assertion, provides no such evidence for the protected assertion.
-
-Use this for uncalibrated negative or aggregate assertions, or a masking helper or fixture found in review. The preparation report names the finite plan in `ticket.md`: criterion, owner test, protected assertion, smallest regression, and mutation paths. A known-bad revision or an already observed faithful mutation supplies the same evidence while the protected state is unchanged.
-
-`Non-goals` constrains final behavior, not temporary mutation paths. A non-goal that says "never touch path X" needs a different mutation plan, resolved before the calibrate child starts.
-
-After the lock and test command are green, record `calibration_sha` and start a test writer in **calibrate** mode ([brief](test-writer.md#calibrate)) with the planned temporary production paths. Tests and fixtures stay unchanged; the child returns the branch to `calibration_sha` before reporting, including on failure.
-
-Inspect the saved mutation diffs and command logs. Each named regression needs red on its protected assertion and valid green evidence for the restored state. Require unchanged HEAD, `git diff --exit-code <calibration_sha>`, and a clean worktree. Complete the agreed regression list.
-
-- **Calibrated:** record the commands, results, and protected state in Verdicts. Reuse this evidence until that code, its owner tests, fixtures, or regression plan changes.
-- **Suspect test:** a faithful regression stayed green. Record the counterexample and take the suspect-test route under [Entering mid-chain](#entering-mid-chain) within the current batch.
-- **Blocked:** no faithful regression or environment can be established, or restoration cannot be verified. Diagnose and report the limit; a skipped or setup-failing mutation is not calibrated.
+Before assessing a lock with uncalibrated negative or aggregate assertions or a review that finds a masking helper or fixture, read [calibration.md](calibration.md).
 
 ## Responding to a failure
 
-Before recovering from any failed or incomplete settlement, read `recovery.md`. Record its diagnosis and follow its route before any reset, restore, or dispatch.
+Before recovering from any failed or incomplete settlement, read [recovery.md](recovery.md).
 
 ### Preserving a candidate
 
-Before any reset, restore, or `git clean`, follow Preserving a candidate in `recovery.md`.
+Before any reset, restore, or `git clean`, follow [Preserving a candidate](recovery.md#preserving-a-candidate).
 
 ## Dispatch
 
