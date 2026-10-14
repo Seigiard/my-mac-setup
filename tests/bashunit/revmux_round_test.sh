@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# post-apply: 27 host-safe
+# post-apply: 28 host-safe
 # revmux-round command contract. The fixture Git history and the real revmux
 # setup command are independent inputs; tests exercise only the local wrapper.
 source "$(dirname "${BASH_SOURCE[0]}")/test-dsl.bash"
@@ -686,5 +686,137 @@ function test_revmux_round_025_next_rejects_a_missing_context_file_without_creat
   run_prepare_only --context-file "$missing"
   assert_failure 1
   assert_output "error: context file $missing not found"
+  assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
+}
+
+function test_revmux_round_026_next_limits_git_facts_to_repeatable_pathspecs() {
+  _bats_test_init 26 'next limits scope Git facts to every repeated only pathspec'
+  require_revmux
+  make_round_fixture
+  local scope="$TASKS_DIR/fixture/02-after-fix/input/scope.md"
+  local selected_commits
+  local selected_files
+
+  # #given
+  git -C "$FIXTURE_REPO" reset --hard -q "$FIXTURE_BASE"
+  mkdir -p "$FIXTURE_REPO/app" "$FIXTURE_REPO/docs" "$FIXTURE_REPO/noise"
+  printf 'first app change\n' > "$FIXTURE_REPO/app/first.txt"
+  git -C "$FIXTURE_REPO" add app/first.txt
+  git -C "$FIXTURE_REPO" commit -qm 'add first app file'
+  printf 'first noise change\n' > "$FIXTURE_REPO/noise/first.txt"
+  git -C "$FIXTURE_REPO" add noise/first.txt
+  git -C "$FIXTURE_REPO" commit -qm 'add first noise file'
+  printf 'selected guide change\n' > "$FIXTURE_REPO/docs/guide.md"
+  printf 'unselected docs change\n' > "$FIXTURE_REPO/docs/notes.md"
+  git -C "$FIXTURE_REPO" add docs/guide.md docs/notes.md
+  git -C "$FIXTURE_REPO" commit -qm 'add selected guide with unrelated doc'
+  printf 'second app change\n' > "$FIXTURE_REPO/app/second.txt"
+  git -C "$FIXTURE_REPO" add app/second.txt
+  git -C "$FIXTURE_REPO" commit -qm 'add second app file'
+  printf 'second noise change\n' > "$FIXTURE_REPO/noise/second.txt"
+  git -C "$FIXTURE_REPO" add noise/second.txt
+  git -C "$FIXTURE_REPO" commit -qm 'add second noise file'
+  selected_commits="$(git -C "$FIXTURE_REPO" log --oneline "$FIXTURE_BASE..HEAD" -- app docs/guide.md)"
+  selected_files="$(git -C "$FIXTURE_REPO" diff --name-status "$FIXTURE_BASE..HEAD" -- app docs/guide.md)"
+
+  run git -C "$FIXTURE_REPO" diff --shortstat "$FIXTURE_BASE..HEAD" -- app docs/guide.md
+  assert_success
+  assert_output ' 3 files changed, 3 insertions(+)'
+  run git -C "$FIXTURE_REPO" log --format=%s "$FIXTURE_BASE..HEAD" -- app docs/guide.md
+  assert_success
+  assert_output "$(cat <<'EOF'
+add second app file
+add selected guide with unrelated doc
+add first app file
+EOF
+)"
+  run git -C "$FIXTURE_REPO" diff --name-status "$FIXTURE_BASE..HEAD" -- app docs/guide.md
+  assert_success
+  assert_output "$(cat <<'EOF'
+A	app/first.txt
+A	app/second.txt
+A	docs/guide.md
+EOF
+)"
+
+  # #when
+  run_prepare_only --only app --only docs/guide.md
+
+  # #then
+  assert_success
+  run awk '
+    /^Scale: / || /^Limited to: / { print; next }
+    $0 == "Read the change:" { print; section = 1; fence = 0; next }
+    $0 == "Commits:" { print; section = 1; fence = 0; next }
+    $0 == "Changed files:" { print; section = 1; fence = 0; next }
+    section && $0 == "```" {
+      fence++
+      if (fence == 2) section = 0
+      next
+    }
+    section && fence == 1 { print }
+  ' "$scope"
+  assert_success
+  assert_output "$(cat <<EOF
+Scale: 3 files changed, 3 insertions(+)
+Limited to: app, docs/guide.md
+Read the change:
+git diff $FIXTURE_BASE..HEAD -- app docs/guide.md
+git log --oneline $FIXTURE_BASE..HEAD -- app docs/guide.md
+Commits:
+$selected_commits
+Changed files:
+$selected_files
+EOF
+)"
+}
+
+function test_revmux_round_027_next_rejects_a_dead_only_pathspec_among_matches() {
+  _bats_test_init 27 'next rejects a dead only pathspec even when another pathspec matches'
+  require_revmux
+  make_round_fixture
+  local missing='missing/**/*.md'
+
+  # #given
+  run git -C "$FIXTURE_REPO" diff --name-status "$FIXTURE_BASE..HEAD" -- alpha.txt
+  assert_success
+  assert_output $'A\talpha.txt'
+  run git -C "$FIXTURE_REPO" diff --name-status "$FIXTURE_BASE..HEAD" -- "$missing"
+  assert_success
+  assert_output ''
+
+  # #when
+  run_prepare_only --only alpha.txt --only "$missing"
+
+  # #then
+  assert_failure 1
+  assert_output "error: --only pathspec $missing matches no changes in $FIXTURE_BASE..HEAD"
+  assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
+}
+
+function test_revmux_round_028_next_rejects_only_pathspecs_that_cancel_each_other() {
+  _bats_test_init 28 'next rejects only pathspecs whose combined selection has no changes'
+  require_revmux
+  make_round_fixture
+  local include='alpha.txt'
+  local exclude=':(exclude)alpha.txt'
+
+  # #given
+  run git -C "$FIXTURE_REPO" diff --name-status "$FIXTURE_BASE..HEAD" -- "$include"
+  assert_success
+  assert_output $'A\talpha.txt'
+  run git -C "$FIXTURE_REPO" diff --name-status "$FIXTURE_BASE..HEAD" -- "$exclude"
+  assert_success
+  assert_output $'A\tbeta.txt'
+  run git -C "$FIXTURE_REPO" diff --name-status "$FIXTURE_BASE..HEAD" -- "$include" "$exclude"
+  assert_success
+  assert_output ''
+
+  # #when
+  run_prepare_only --only "$include" --only "$exclude"
+
+  # #then
+  assert_failure 1
+  assert_output "error: combined --only pathspecs match no changes in $FIXTURE_BASE..HEAD"
   assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
 }
