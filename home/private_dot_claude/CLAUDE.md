@@ -19,6 +19,8 @@ Use `code-review` by default; it runs the review loop and delegates fixes. When 
 
 For follow-up revmux rounds, use the **Follow-up profile selection** policy in `code-review` without a separate approval question. It preserves an explicit user profile choice.
 
+For revmux archive housekeeping, the thresholds are 100MB and 50MB: stay silent while `totals.size_mb` is under 100MB, and above it propose cleanup back to roughly 50MB. These replace the skill's 20MB and 10MB.
+
 </important>
 
 <important if="you are about to start, background, or wait on a long-running process that has no supervision of its own — build, test run, dev server, migration, remote job">
