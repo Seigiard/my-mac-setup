@@ -112,6 +112,12 @@ transcript_facts() {
         end;
     def bounded_text:
       if length > 4000 then .[0:4000] + " [truncated]" else . end;
+    def is_human_slash_command($text):
+      (.origin.kind? == "human")
+      and ($text | test("<command-name>/[^<]+</command-name>"));
+    def slash_command($text):
+      ($text | capture("<command-name>(?<name>/[^<]+)</command-name>(?:\\n<command-args>(?<args>[^<]*)</command-args>)?"))
+      | .name + (if (.args // "") == "" then "" else " " + .args end);
     def recent_unique:
       reduce .[] as $item
         ([]; if index($item) == null then . + [$item]
@@ -122,7 +128,10 @@ transcript_facts() {
       (.isMeta == true)
       or (.isCompactSummary == true)
       or ((.origin.kind? // "") | IN("task-notification", "system", "hook"))
-      or ($text | test("(?i)(^|\\n)(hook feedback:|system reminder:)|<system-reminder>|<task-notification>|<command-name>|<command-message>|<local-command-(stdout|stderr)>|<(local|bash)-(stdout|stderr)>|^\\[Request interrupted by user( for tool use)?\\]|^\\[(child-supervision v1|child-ask v2|peer-message v1) "));
+      or ($text | test("(?i)(^|\\n)(hook feedback:|system reminder:)|<system-reminder>|<task-notification>|<local-command-(stdout|stderr)>|<(local|bash)-(stdout|stderr)>|^\\[Request interrupted by user( for tool use)?\\]"))
+      or ((is_human_slash_command($text) | not)
+          and ($text | test("(?i)<command-name>|<command-message>")))
+      or ($text | test("(?i)^\\[(child-supervision|child-ask|peer-message) v[0-9]+ "));
 
     . as $records
     | [ $records[]
@@ -176,7 +185,11 @@ transcript_facts() {
             | select(($record | is_harness($text)) | not)
             | select(((message_content | type) != "array") or
                      ((message_content | any(.[]?; .type == "tool_result")) | not))
-            | $text | bounded_text
+            | if ($record | is_human_slash_command($text)) then
+                slash_command($text)
+              else $text
+              end
+            | bounded_text
           ]
         | {edited: $edited, commits: $commits, last_user: (last // null)}
   ' 2>/dev/null) || {
