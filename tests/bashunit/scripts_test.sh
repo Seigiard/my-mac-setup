@@ -10511,7 +10511,7 @@ the build id is 7731-ZARBLAX')"
   assert_output --partial '7731-ZARBLAX'
   run jq -r '.systemMessage' <<< "$response"
   assert_success
-  assert_output 'Handoff goal: finish the injector'
+  assert_output $'-----\n🎯 Compact goal\n\nfinish the injector\n-----'
 
   # Consumed once. A second start finds nothing to inject.
   assert_file_not_exists "$file"
@@ -10550,7 +10550,7 @@ secret-detail' > /dev/null
   assert_success
   run jq -r '.systemMessage' <<< "$output"
   assert_success
-  assert_output 'Handoff goal: ship the hook change'
+  assert_output $'-----\n🎯 Compact goal\n\nship the hook change\n-----'
 
   long="$(printf 'x%.0s' $(seq 1 400))"
   handoff_stage_stored "$store" replaced "## Goal
@@ -10559,7 +10559,7 @@ $long" > /dev/null
   assert_success
   run jq -r '.systemMessage | length' <<< "$output"
   assert_success
-  assert_output '315'
+  assert_output '329'
 }
 
 function test_scripts_2832_handoff_injector_takes_only_this_sessions_handoff() {

@@ -53,7 +53,7 @@ fi
 
 rm -f "$store" 2> /dev/null || true
 
-# The operator never sees additionalContext, so show them the one line they
+# The operator never sees additionalContext, so show them the one block they
 # can check: the goal the extractor settled on. It is read from the `## Goal`
 # section of the handoff and stops at the next heading. A handoff without that
 # section yields no message rather than a guess.
@@ -75,7 +75,7 @@ jq -n --arg context "$content" --arg goal "$goal" '
       }
     }
     + (if $g == "" then {}
-       else {systemMessage: ("Handoff goal: " + (if ($g | length) > 300 then $g[0:300] + "…" else $g end))}
+       else {systemMessage: ("-----\n🎯 Compact goal\n\n" + (if ($g | length) > 300 then $g[0:300] + "…" else $g end) + "\n-----")}
        end)
 ' 2>/dev/null || exit 0
 
