@@ -9,29 +9,48 @@ let handoffWorktreeIdentity:
   | ((agent: "opencode", sessionID: string, prompt: string) => Promise<void>)
   | undefined
 
+let recordSessionDirectory: ((sessionID: string, directory: string) => void) | undefined
+
 try {
-  ;({ handoffWorktreeIdentity } = await import(
+  ;({ handoffWorktreeIdentity, recordSessionDirectory } = await import(
     join(process.env.HOME || homedir(), ".local", "lib", "agent-hooks", "worktree-identity.ts"),
   ))
 } catch {
   handoffWorktreeIdentity = undefined
+  recordSessionDirectory = undefined
 }
 
-async function observeChildSessions(
-  events: AsyncIterable<{ type?: string; data?: { sessionID?: string; parentID?: string } }>,
-  childSessions: Set<string>,
-): Promise<void> {
+type SessionEvent = {
+  type?: string
+  data?: { sessionID?: string; parentID?: string; location?: { directory?: string } }
+}
+
+// `/cd` and workspace moves change a session's location without changing the
+// OpenCode process cwd, which is all herdr sees on the pane.
+async function observeSessions(events: AsyncIterable<SessionEvent>, childSessions: Set<string>): Promise<void> {
   try {
     for await (const event of events) {
       if (event.type === "session.created" && event.data?.sessionID && event.data.parentID) {
         childSessions.add(event.data.sessionID)
       } else if (event.type === "session.deleted" && event.data?.sessionID) {
         childSessions.delete(event.data.sessionID)
+      } else if (event.type === "session.moved" && event.data?.sessionID && event.data.location?.directory) {
+        recordSessionDirectory?.(event.data.sessionID, event.data.location.directory)
       }
     }
   } catch {
-    // Event observation is only used to reject child prompts. A disconnected
-    // stream must not interfere with OpenCode prompt admission.
+    // A disconnected stream must not interfere with OpenCode prompt admission.
+    // The prompt hook still records the location before each handoff.
+  }
+}
+
+async function recordCurrentDirectory(session: Pick<V2Plugin.SessionDomain, "get">, sessionID: string): Promise<void> {
+  try {
+    const directory = (await session.get({ sessionID })).location?.directory
+
+    if (directory) recordSessionDirectory?.(sessionID, directory)
+  } catch {
+    // Without a location the engine falls back to the pane cwd, as before.
   }
 }
 
@@ -56,11 +75,12 @@ const HerdrWorktreeIdentityV2Plugin = {
 
     const childSessions = new Set<string>()
     const controller = new AbortController()
-    const observing = observeChildSessions(event.subscribe({ signal: controller.signal }), childSessions)
+    const observing = observeSessions(event.subscribe({ signal: controller.signal }), childSessions)
 
     const registration = await session.hook("prompt", async ({ prompt, sessionID }) => {
       if (await isChildSession(session, sessionID, childSessions) || prompt.text.trim() === "") return
 
+      await recordCurrentDirectory(session, sessionID)
       await handoffWorktreeIdentity("opencode", sessionID, prompt.text)
     })
 

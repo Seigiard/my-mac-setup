@@ -10185,9 +10185,9 @@ let stopped = false;
 let aborted = false;
 let disposed = false;
 const sessions = new Map([
-  ["session-root-a", { id: "session-root-a" }],
-  ["session-root-b", { id: "session-root-b" }],
-  ["session-child", { id: "session-child", parentID: "session-root-a" }],
+  ["session-root-a", { id: "session-root-a", location: { directory: process.env.HWI_TEST_DIR_A } }],
+  ["session-root-b", { id: "session-root-b", location: { directory: process.env.HWI_TEST_DIR_B } }],
+  ["session-child", { id: "session-child", parentID: "session-root-a", location: { directory: process.env.HWI_TEST_DIR_CHILD } }],
 ]);
 const eventStream = {
   async *[Symbol.asyncIterator]() {
@@ -10253,6 +10253,12 @@ if (process.env.EXPECT_DISABLED === "1") {
       prompt: { text: "OpenCode V2 root B sentinel" },
     }),
   ]);
+  // A move after the last prompt reaches the record only through the event.
+  nextEvent({
+    type: "session.moved",
+    data: { sessionID: "session-root-b", location: { directory: process.env.HWI_TEST_DIR_MOVED } },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
   if (typeof cleanup !== "function") throw new Error("OpenCode V2 plugin did not return cleanup");
   await Promise.race([
     cleanup(),
@@ -10262,6 +10268,8 @@ if (process.env.EXPECT_DISABLED === "1") {
   if (!disposed) throw new Error("OpenCode V2 cleanup did not dispose the prompt hook");
 }
 TS
+  local -x HWI_TEST_DIR_A="$root/checkout-a" HWI_TEST_DIR_B="$root/checkout-b"
+  local -x HWI_TEST_DIR_CHILD="$root/checkout-child" HWI_TEST_DIR_MOVED="$root/checkout-moved"
   native_child_root="$root/native-child"
   hwi_adapter_stub_engine "$native_child_root"
   run env HOME="$home" HERDR_ENV=1 HERDR_PANE_ID=pane-opencode HERDR_WORKSPACE_ID=workspace-opencode \
@@ -10269,6 +10277,20 @@ TS
     HWI_OPENCODE_PLUGIN="$deployed/herdr-worktree-identity.ts" bun "$root/run.ts"
   assert_success
   hwi_assert_v2_root_records "$native_child_root"
+
+  # The engine's reader resolves agent-cwd/<encode_key session>. Each root holds
+  # its location; root B's move after its prompt wins; a child writes nothing.
+  run bash -c '
+    set -eu
+    . "$1"
+    for session in session-root-a session-root-b session-child; do
+      file="$2/agent-cwd/$(encode_key "$session")"
+      if [ -f "$file" ]; then printf "%s=%s\n" "$session" "$(cat "$file")"; else printf "%s=none\n" "$session"; fi
+    done
+  ' _ "$SOURCE_ROOT/dot_local/lib/herdr-worktree-state.sh" "$home/.cache/herdr-worktree-identity"
+  assert_success
+  assert_output "session-root-a=$HWI_TEST_DIR_A"$'\n'"session-root-b=$HWI_TEST_DIR_MOVED"$'\n'"session-child=none"
+  rm -rf "$home/.cache/herdr-worktree-identity"
 
   observed_child_root="$root/observed-child"
   hwi_adapter_stub_engine "$observed_child_root"
