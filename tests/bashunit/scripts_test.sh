@@ -172,6 +172,19 @@ teardown() {
 # herdr-worktree-identity state library
 # ===========================================
 
+function test_scripts_1208_herdr_process_api_is_one() {
+  _bats_test_init 1208 'shared process library exposes API version one'
+  local process_library="$SOURCE_ROOT/dot_local/lib/herdr-process.sh"
+
+  # #given a fresh shell that can only receive the API from the sourced library
+  # #when it sources the shared process library
+  run env -i PATH="$PATH" bash -c 'source "$1"; printf "%s" "$HERDR_PROCESS_API"' _ "$process_library"
+
+  # #then it exposes the version the herdr-pane-labels shim requires
+  assert_success
+  assert_output '1'
+}
+
 function test_scripts_1209_shared_process_identity_is_stable_and_preserves_unknown_legacy_markers() {
   _bats_test_init 1209 'shared process identity is stable and preserves unknown legacy markers'
   local process_library="$SOURCE_ROOT/dot_local/lib/herdr-process.sh"
