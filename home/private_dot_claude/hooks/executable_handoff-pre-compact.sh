@@ -16,7 +16,7 @@
 # as a plugin because plugin files are overwritten on update and neither of
 # the two defects below could be kept fixed (KD2).
 #
-# Two deliberate departures from upstream:
+# Three deliberate departures from upstream:
 #   - The pending handoff lives under ~/.cache, keyed by session id, instead of
 #     `.git/handoff-pending/`. `mkdir -p .git/handoff-pending` fails outright in
 #     a linked worktree, where `.git` is a file, and there is no `.git` at all
@@ -27,6 +27,9 @@
 #     starts. An interrupted compaction leaves a handoff behind, and without
 #     this the injector would deliver it after the next compaction, describing
 #     a session state the operator has already moved past (R16).
+#   - The extraction prompt includes a locally derived `<transcript_facts>`
+#     block so paths, commits, and the last operator request come from the
+#     transcript rather than the forked model's memory.
 #
 # Fails open: any missing dependency, unreadable input, or failed extraction
 # exits 0 and lets compaction proceed unchanged.
@@ -77,7 +80,7 @@ else
 fi
 
 transcript_facts() {
-  local path="$1" records facts edited commits last_user
+  local path="$1" records facts
 
   if [ -z "$path" ] || [ ! -r "$path" ]; then
     printf '<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: None\n</transcript_facts>'
@@ -107,6 +110,8 @@ transcript_facts() {
           [ .[] | select(.type == "text") | (.text // "") ] | join("")
         else ""
         end;
+    def bounded_text:
+      if length > 4000 then .[0:4000] + " [truncated]" else . end;
     def recent_unique:
       reduce .[] as $item
         ([]; if index($item) == null then . + [$item]
@@ -115,8 +120,9 @@ transcript_facts() {
       | .[-20:];
     def is_harness($text):
       (.isMeta == true)
+      or (.isCompactSummary == true)
       or ((.origin.kind? // "") | IN("task-notification", "system", "hook"))
-      or ($text | test("(?i)(^|\\n)(hook feedback:|system reminder:)|<system-reminder>|<task-notification>|<command-name>|<command-message>|<local-command-stdout>|\\[Request interrupted by user\\]"));
+      or ($text | test("(?i)(^|\\n)(hook feedback:|system reminder:)|<system-reminder>|<task-notification>|<command-name>|<command-message>|<local-command-(stdout|stderr)>|<(local|bash)-(stdout|stderr)>|^\\[Request interrupted by user( for tool use)?\\]|^\\[(child-supervision v1|child-ask v2|peer-message v1) "));
 
     . as $records
     | [ $records[]
@@ -168,9 +174,9 @@ transcript_facts() {
             | ($record | text_content) as $text
             | select(($text | length) > 0)
             | select(($record | is_harness($text)) | not)
-            | select(($record.message.content? | type) != "array" or
-                     ([.[]? | select(.type == "tool_result")] | length) == 0)
-            | $text
+            | select(((message_content | type) != "array") or
+                     ((message_content | any(.[]?; .type == "tool_result")) | not))
+            | $text | bounded_text
           ]
         | {edited: $edited, commits: $commits, last_user: (last // null)}
   ' 2>/dev/null) || {
@@ -178,33 +184,24 @@ transcript_facts() {
     return 0
   }
 
-  edited=$(printf '%s' "$facts" | jq -r '.edited[]?' 2>/dev/null) || edited=''
-  commits=$(printf '%s' "$facts" | jq -r '.commits[]?' 2>/dev/null) || commits=''
-  last_user=$(printf '%s' "$facts" | jq -r '.last_user // empty' 2>/dev/null) || last_user=''
-
-  printf '<transcript_facts>\n'
-  if [ -n "$edited" ]; then
-    printf 'Files edited:\n'
-    while IFS= read -r path; do
-      [ -n "$path" ] && printf -- '- %s\n' "$path"
-    done <<< "$edited"
-  else
-    printf 'Files edited: None\n'
-  fi
-  if [ -n "$commits" ]; then
-    printf 'Commits made:\n'
-    while IFS= read -r commit; do
-      [ -n "$commit" ] && printf -- '- %s\n' "$commit"
-    done <<< "$commits"
-  else
-    printf 'Commits made: None\n'
-  fi
-  if [ -n "$last_user" ]; then
-    printf 'Last user request: %s\n' "$last_user"
-  else
-    printf 'Last user request: None\n'
-  fi
-  printf '</transcript_facts>'
+  printf '%s' "$facts" | jq -r '
+    def json_literal: tojson | gsub("<"; "\\u003c");
+    "<transcript_facts>",
+    (if (.edited | length) > 0 then
+       "Files edited:", (.edited[] | "- " + json_literal)
+     else "Files edited: None"
+     end),
+    (if (.commits | length) > 0 then
+       "Commits made:", (.commits[] | "- " + json_literal)
+     else "Commits made: None"
+     end),
+    (if .last_user == null then "Last user request: None"
+     else "Last user request: " + (.last_user | json_literal)
+     end),
+    "</transcript_facts>"
+  ' 2>/dev/null || {
+    printf '<transcript_facts>\nFiles edited: None\nCommits made: None\nLast user request: None\n</transcript_facts>'
+  }
 }
 
 facts_block=$(transcript_facts "$transcript_path") || exit 0
