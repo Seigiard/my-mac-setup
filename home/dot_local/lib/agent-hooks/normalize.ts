@@ -38,7 +38,7 @@ const argumentsWithFallback = argumentsSchema.catch(() => argumentsSchema.parse(
 
 const eventSchema = z.object({
   tool_name: text, tool: text, toolName: text,
-  tool_input: argumentsWithFallback, args: argumentsWithFallback, input: argumentsWithFallback,
+  tool_input: argumentsWithFallback, input: argumentsWithFallback,
 });
 
 type ParsedEvent = z.infer<typeof eventSchema>;

@@ -9,10 +9,10 @@ import type { Decision, ToolEventValue } from "../../../dot_local/lib/agent-hook
 // OpenCode 2 transport for the shared agent-hooks dispatch core.
 //
 // Every policy lives in ~/.local/lib/agent-hooks; this file only translates.
-// In: opencode hands `tool.execute.before` the tool name on `tool` and the
-// call arguments on `input`, so the core's opencode dialect is composed here
-// as {tool, input}. Out: a deny is a thrown Error whose message is the core's
-// already-prefixed reason; an allow is a plain return.
+// In: opencode hands `ctx.tool.hook("execute.before", …)` the tool name on
+// `tool` and the call arguments on `input`, so the core's opencode dialect is
+// composed here as {tool, input}. Out: a deny is a thrown Error whose message
+// is the core's already-prefixed reason; an allow is a plain return.
 //
 // Fails open in every direction (R4): no core on disk, a core that will not
 // import, or a dispatch that throws must all let the tool call proceed.
