@@ -28,7 +28,7 @@ The chain **stops**, reporting the diagnoses and the run directory, when:
 - the worktree is dirty before the chain, or no child can start;
 - a diagnosis returns;
 - a bug is not reproduced;
-- a capability failure happens on `high`, or a prerequisite cannot be restored;
+- a capability failure happens on `high+`, or a prerequisite cannot be restored;
 - another dispatch is needed and the batch has no turns left;
 - the caller must decide an oracle or a product question.
 
