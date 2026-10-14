@@ -1,7 +1,7 @@
 # OpenCode 2 Full-TUI Probe
 
-This is an opt-in live probe for the OpenCode 2 full TUI. It does not change
-the normal OpenCode 1 pin or any source-managed configuration.
+This was an opt-in live probe for the OpenCode 2 full TUI. It did not change
+the then-normal OpenCode 1 pin or any source-managed configuration.
 
 The probe was last exercised on 2026-10-13 with OpenCode `2.0.28` from
 `@opencode/cli` and Herdr `0.9.3`.
