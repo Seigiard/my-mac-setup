@@ -316,7 +316,7 @@ Then provide your handoff in this exact structure:
 [When an item is inferred rather than observed, write it as: <claim>, verify with: <exact command>]
 
 ## Last request
-[Quote the operator's last real message verbatim from the facts block above]
+[Quote the operator's last real message verbatim from the facts block above as a Markdown blockquote, with every line prefixed by \`> \`]
 Status: [Use exactly one of: Answered, Partially answered, Not answered]
 [When the request is not fully answered, name what to check first]
 
