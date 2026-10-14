@@ -179,6 +179,7 @@ timeout_seconds="${HANDOFF_TIMEOUT_SECONDS:-110}"
 case "$timeout_seconds" in
   '' | *[!0-9]*) timeout_seconds=110 ;;
 esac
+[ "$timeout_seconds" -le 110 ] || timeout_seconds=110
 
 claude --resume "$session_id" --fork-session \
   --model haiku --print "$prompt" > "$extracted" 2> /dev/null < /dev/null &
@@ -195,12 +196,23 @@ while kill -0 "$claude_pid" 2> /dev/null; do
 done
 
 status=0
-wait "$claude_pid" || status=$?
-
 if [ "$timed_out" -eq 1 ]; then
+  # SIGTERM is cooperative. Do not let a process that ignores it outlive the
+  # hook's 120-second Claude Code limit.
+  kill "$claude_pid" 2> /dev/null || true
+  grace_started=$SECONDS
+  while kill -0 "$claude_pid" 2> /dev/null; do
+    if [ "$((SECONDS - grace_started))" -ge 5 ]; then
+      kill -KILL "$claude_pid" 2> /dev/null || true
+      break
+    fi
+    sleep 0.1
+  done
+  wait "$claude_pid" 2> /dev/null || true
   store_failure timeout
   exit 0
 fi
+wait "$claude_pid" || status=$?
 [ "$status" -eq 0 ] || {
   store_failure fork
   exit 0
@@ -217,7 +229,7 @@ record=$(jq -n --rawfile content "$extracted" --arg goal "$goal" --arg trigger "
 }
 
 context_usage_atomic_write "$store" "$record" 2> /dev/null || {
-  log_outcome write
+  store_failure write
   exit 0
 }
 log_outcome stored

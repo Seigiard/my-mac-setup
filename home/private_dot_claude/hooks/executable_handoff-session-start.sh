@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # SessionStart injector for the goal-focused handoff.
 #
-# After a compaction finishes, place the handoff the PreCompact builder
-# produced into the model's context, then delete it.
+# After a compaction finishes, place a stored handoff into the model's context
+# or show the operator why the builder could not deliver one, then delete it.
 #
 # Vendored from kylesnowschwartz/claude-handoff at 26f5b4c (MIT, Copyright (c)
 # 2025 Kyle Snow Schwartz), inactive since 2026-01-05.
@@ -18,8 +18,9 @@
 # another session is left where it is; the session that owns it will consume
 # or clear it (R16).
 #
-# Fails open: any missing dependency, unreadable input, or absent handoff
-# exits 0 and silent.
+# Fails open: any missing dependency, unreadable input, or absent store record
+# exits 0 and silent. A recognized failure record produces only the operator
+# message; it never becomes model context.
 
 set -uo pipefail
 
