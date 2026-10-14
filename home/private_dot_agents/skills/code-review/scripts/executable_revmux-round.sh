@@ -430,6 +430,10 @@ next() {
     cp -R "$previous_round/input/context/." "$context"
   fi
 
+  if [ "$candidate_given" = false ]; then
+    rm -f "$context/candidate.json"
+  fi
+
   for ((index = 0; index < context_file_count; index++)); do
     candidate="${context_file_values[$index]}"
     mkdir -p "$context"
