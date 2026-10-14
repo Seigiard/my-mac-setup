@@ -15,8 +15,6 @@ const HOOKS = ["context", "compaction", "generate", "title"]
 
 type LocalInstructionsBlock = { block?: string }
 
-type V2Plugin = OpenCodePlugin.Plugin
-
 let buildLocalInstructions: ((cwd: string) => Promise<LocalInstructionsBlock>) | undefined
 
 let isGeneratedLocalInstructionsBlock: ((block: string) => boolean) | undefined

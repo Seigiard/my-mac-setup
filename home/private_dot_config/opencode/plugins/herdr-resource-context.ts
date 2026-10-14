@@ -17,8 +17,6 @@ const RESOURCE_CLI =
   process.env.HERDR_RESOURCE_CONTEXT_CLI ??
   join(process.env.HOME || homedir(), ".local", "bin", "herdr-resource-tree")
 
-type V2Plugin = OpenCodePlugin.Plugin
-
 function queryContext(sessionID: string): Promise<string | undefined> {
   return new Promise((resolve) => {
     execFile(

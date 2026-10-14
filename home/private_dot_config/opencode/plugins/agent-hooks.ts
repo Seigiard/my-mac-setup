@@ -21,8 +21,6 @@ const CLIENT = "opencode"
 
 const HOME = process.env.HOME ?? ""
 
-const CORE_DIR = join(HOME, ".local", "lib", "agent-hooks")
-
 // Adapter modules can be re-evaluated while their runtime imports keep the
 // prior core resident. Keying by dispatch preserves that loaded identity until
 // the runtime actually resolves a different core module.
