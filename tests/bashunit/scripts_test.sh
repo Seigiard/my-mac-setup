@@ -10615,6 +10615,50 @@ function test_scripts_50900_handoff_pre_compact_instructs_the_extractor_about_la
   assert_failure
 }
 
+function test_scripts_50904_handoff_pre_compact_exempts_the_verbatim_last_request_from_the_word_cap() {
+  _bats_test_init 50904 'handoff pre-compact tells the extractor that the verbatim last request is outside the word cap'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local prompt="$BATS_TEST_TMPDIR/prompt.txt" constraints cap exemption
+
+  # #given
+  mkdir -p "$stub"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'last=""; for arg in "$@"; do last="$arg"; done\n'
+    printf 'printf "%%s" "$last" > "%s"\n' "$prompt"
+    printf 'printf "extracted\\n"\n'
+  } > "$stub/claude"
+  chmod +x "$stub/claude"
+  cap='- Maximum 400 words in the <handoff> section'
+  exemption='- The verbatim quote in ## Last request does not count toward the 400-word cap'
+
+  # #when
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload word-cap-exemption "$root" manual 'resume the interrupted work')"
+
+  # #then
+  assert_success
+  assert_file_exists "$prompt"
+  constraints="$(sed -n '/^Constraints:$/,/^Do not:$/p' "$prompt")"
+  run awk -v cap="$cap" -v exemption="$exemption" '
+    $0 == cap {
+      found = 1
+      if (getline && $0 == exemption) exit 0
+      printf "expected %s immediately after %s, got %s\n", exemption, cap, $0
+      exit 1
+    }
+    END {
+      if (!found) {
+        printf "missing %s\n", cap
+        exit 1
+      }
+    }
+  ' <<< "$constraints"
+  assert_success
+}
+
 function test_scripts_50903_handoff_pre_compact_requires_a_blockquoted_last_request() {
   _bats_test_init 50903 'handoff pre-compact tells the extractor to blockquote every line of the last request'
   local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
