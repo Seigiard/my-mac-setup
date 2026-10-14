@@ -961,3 +961,44 @@ function test_revmux_round_037_next_rejects_a_candidate_key_ending_in_a_carriage
   assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
   assert_output --regexp '^error: .*carriage-key.*$'
 }
+
+function test_revmux_round_038_next_does_not_carry_a_previous_candidate_with_other_context() {
+  _bats_test_init 38 'next omits the previous candidate while carrying other context unchanged'
+  require_revmux
+
+  # #given
+  make_round_fixture
+  local previous_context="$PREVIOUS_ROUND/input/context"
+  local current_context="$TASKS_DIR/fixture/02-after-fix/input/context"
+  printf '{"artifact":"previous-round.tar.gz"}\n' > "$previous_context/candidate.json"
+
+  # #when
+  run_prepare_only
+
+  # #then
+  assert_success
+  run cmp "$previous_context/review.md" "$current_context/review.md"
+  assert_success
+  assert_file_not_exists "$current_context/candidate.json"
+}
+
+function test_revmux_round_039_next_archives_the_current_candidate_instead_of_the_previous_one() {
+  _bats_test_init 39 'next replaces a previous candidate with the candidate passed for this round'
+  require_revmux
+
+  # #given
+  make_round_fixture
+  local previous_candidate="$PREVIOUS_ROUND/input/context/candidate.json"
+  local current_candidate="$BATS_TEST_TMPDIR/current-candidate.json"
+  local archived_candidate="$TASKS_DIR/fixture/02-after-fix/input/context/candidate.json"
+  printf '{"artifact":"previous-round.tar.gz"}\n' > "$previous_candidate"
+  printf '{"artifact":"current-round.tar.gz","version":"27.0"}\n' > "$current_candidate"
+
+  # #when
+  run_prepare_only --candidate "$current_candidate"
+
+  # #then
+  assert_success
+  run cmp "$current_candidate" "$archived_candidate"
+  assert_success
+}
