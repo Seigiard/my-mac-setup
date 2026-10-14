@@ -29,6 +29,10 @@ function enginePath(): string {
 function engineArgs(agent: WorktreeIdentityAgent, sessionID: string): string[] {
   const args = ["--agent", agent, "--session", sessionID];
 
+  // OpenCode 2 runs plugins in one shared service, whose env names the pane that
+  // started it, not the prompting pane. The engine finds the pane by session.
+  if (agent === "opencode") return args;
+
   if (process.env.HERDR_PANE_ID) args.push("--pane", process.env.HERDR_PANE_ID);
 
   if (process.env.HERDR_WORKSPACE_ID) args.push("--workspace", process.env.HERDR_WORKSPACE_ID);

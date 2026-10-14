@@ -45,6 +45,13 @@ if [ "$1" = pane ] && [ "$2" = get ]; then
 fi
 if [ "$1" = api ] && [ "$2" = snapshot ]; then
   [ ! -e "$HWI_WORK/fail-snapshot" ] || exit 1
+  if [ -e "$HWI_WORK/delay-snapshot-session-publication" ] && [ ! -e "$HWI_WORK/snapshot-session-published" ]; then
+    payload="$(cat "$HWI_SNAPSHOT_JSON")"
+    cp "$HWI_WORK/published-snapshot.json" "$HWI_SNAPSHOT_JSON"
+    : > "$HWI_WORK/snapshot-session-published"
+    printf '%s\n' "$payload"
+    exit 0
+  fi
   cat "$HWI_SNAPSHOT_JSON"
   exit 0
 fi
@@ -87,6 +94,14 @@ hwi_delay_pane_session_publication() {
     '{result:{pane:{pane_id:$pane,agent:$agent,agent_session:{value:$session},workspace_id:$workspace,cwd:$cwd}}}' \
     > "$HWI_WORK/published-pane.json"
   : > "$HWI_WORK/delay-pane-session-publication"
+}
+
+# The first snapshot read lists no pane for the session; later reads list the
+# current pane fixture, as Herdr does once the agent publishes its session.
+hwi_delay_snapshot_session_publication() {
+  jq '{result:{snapshot:{panes:[.result.pane]}}}' "$HWI_PANE_JSON" > "$HWI_WORK/published-snapshot.json"
+  printf '%s\n' '{"result":{"snapshot":{"panes":[]}}}' > "$HWI_SNAPSHOT_JSON"
+  : > "$HWI_WORK/delay-snapshot-session-publication"
 }
 
 hwi_write_snapshot_without_match() {

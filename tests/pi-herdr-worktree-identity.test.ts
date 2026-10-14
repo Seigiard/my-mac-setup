@@ -96,17 +96,10 @@ describe("Pi worktree identity prompt capture", () => {
       argv: ["--agent", "pi", "--session", "session-pi", "--pane", "pane-shared", "--workspace", "workspace-shared"],
       stdin: "Pi shared sentinel",
     });
+    // Same env, but OpenCode's plugin env names the pane that started its
+    // shared service, so only Pi forwards pane coordinates.
     expect(records).toContainEqual({
-      argv: [
-        "--agent",
-        "opencode",
-        "--session",
-        "session-opencode",
-        "--pane",
-        "pane-shared",
-        "--workspace",
-        "workspace-shared",
-      ],
+      argv: ["--agent", "opencode", "--session", "session-opencode"],
       stdin: "OpenCode shared sentinel",
     });
   });
