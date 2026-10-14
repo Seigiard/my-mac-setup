@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   printf '%s\n' \
     'usage: revmux-round.sh next --task <id> [--run <NN-label>] [--base <sha>] [--workdir <path>] [--profile <name>]' \
-    '       [--only <pathspec>]... [--note <text> | --note -] [--exclude <text>] [--context-file <path>]' \
+    '       [--only <pathspec>]... [--note <text> | --note -] [--candidate <path.json>] [--exclude <text>] [--context-file <path>]' \
     '       [--out-dir <dir>]' \
     '       [--tasks-dir <dir>] [--prepare-only] [--wait]' \
     '       revmux-round.sh summary <report.json>' >&2
@@ -79,14 +79,16 @@ build_scope() {
   local round_number="$8"
   local note_given="$9"
   local note="${10}"
-  local only_count="${11}"
+  local candidate_given="${11}"
+  local candidate_entries="${12}"
+  local only_count="${13}"
   local exclusion
   local index
   local pathspec
   local separator=""
   local only_values=()
 
-  shift 11
+  shift 13
   for ((index = 0; index < only_count; index++)); do
     only_values[$index]="$1"
     shift
@@ -125,6 +127,9 @@ build_scope() {
   printf '\n'
   printf '```\n\nCommits:\n\n```\n%s\n```\n\nChanged files:\n\n```\n%s\n```\n' \
     "$commits" "$changed_files"
+  if [ "$candidate_given" = true ]; then
+    printf '\nCandidate:\n\n%s\n' "$candidate_entries"
+  fi
   if [ "$#" -gt 0 ]; then
     printf '\nExclusions:\n\n'
     for exclusion in "$@"; do
@@ -151,6 +156,10 @@ next() {
   local profile=""
   local note=""
   local note_given=false
+  local candidate_file=""
+  local candidate_given=false
+  local candidate_entries=""
+  local invalid_candidate_key=""
   local only_values=()
   local exclude_values=()
   local context_file_values=()
@@ -176,6 +185,10 @@ next() {
   local scope=""
   local goal=""
   local context=""
+  local scope_without_optional_sections=""
+  local scope_through_candidate=""
+  local scope_through_exclusions=""
+  local overflow_section=""
   local goal_state=absent
   local context_files=0
   local tip=""
@@ -192,6 +205,7 @@ next() {
   local scope_args=()
   local scope_text=""
   local scope_characters=0
+  local section_scope_characters=0
   local goal_characters=0
   local round_number=""
   local json_file=""
@@ -204,7 +218,7 @@ next() {
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --task|--run|--base|--workdir|--profile|--out-dir|--tasks-dir|--only|--exclude|--context-file)
+      --task|--run|--base|--workdir|--profile|--out-dir|--tasks-dir|--only|--exclude|--context-file|--candidate)
         [ "$#" -gt 1 ] || { usage; return 1; }
         case "$1" in
           --task) task="$2" ;;
@@ -218,6 +232,7 @@ next() {
             only_values[$only_count]="$2"
             only_count=$((only_count + 1))
             ;;
+          --candidate) candidate_file="$2"; candidate_given=true ;;
           --exclude)
             exclude_values[$exclusion_count]="$2"
             exclusion_count=$((exclusion_count + 1))
@@ -320,6 +335,43 @@ next() {
     }
   done
 
+  if [ "$candidate_given" = true ]; then
+    [ -f "$candidate_file" ] || {
+      error "candidate file $candidate_file not found"
+      return 1
+    }
+    if ! jq empty "$candidate_file" >/dev/null 2>&1; then
+      error "candidate file $candidate_file is not valid JSON"
+      return 1
+    fi
+    if ! jq -se 'length == 1 and (.[0] | type == "object")' "$candidate_file" >/dev/null; then
+      error "candidate file $candidate_file is not an object"
+      return 1
+    fi
+
+    invalid_candidate_key="$(jq -r '([to_entries[] | select(.key | ((test("^[A-Za-z0-9_.-]+$") and (test("[\\r\\n]") | not)) | not)) | .key] | first // empty) | @json' "$candidate_file")"
+    if [ -n "$invalid_candidate_key" ]; then
+      error "candidate key $invalid_candidate_key is invalid"
+      return 1
+    fi
+    invalid_candidate_key="$(jq -r '([to_entries[] | select((.value | type) != "string") | .key] | first // empty) | @json' "$candidate_file")"
+    if [ -n "$invalid_candidate_key" ]; then
+      error "candidate value for key $invalid_candidate_key is not a string"
+      return 1
+    fi
+    invalid_candidate_key="$(jq -r '([to_entries[] | select(.value == "") | .key] | first // empty) | @json' "$candidate_file")"
+    if [ -n "$invalid_candidate_key" ]; then
+      error "candidate value for key $invalid_candidate_key is empty"
+      return 1
+    fi
+    invalid_candidate_key="$(jq -r '([to_entries[] | select(.value | test("[\\r\\n]")) | .key] | first // empty) | @json' "$candidate_file")"
+    if [ -n "$invalid_candidate_key" ]; then
+      error "candidate value for key $invalid_candidate_key contains a line break"
+      return 1
+    fi
+    candidate_entries="$(jq -r 'to_entries[] | "\(.key): \(.value)"' "$candidate_file")"
+  fi
+
   for ((index = 0; index < only_count; index++)); do
     candidate="${only_values[$index]}"
     if ! only_match="$(git -C "$workdir" diff --name-only "$base..HEAD" -- "$candidate")"; then
@@ -374,7 +426,8 @@ next() {
     limited_commits="$(limit_lines "$commits" "$visible_commits")"
     limited_changed_files="$(limit_lines "$changed_files" "$visible_changed_files")"
     scope_args=("$run_name" "$task" "$base" "$tip" "$scale" "$limited_commits" \
-      "$limited_changed_files" "$round_number" "$note_given" "$note" "$only_count")
+      "$limited_changed_files" "$round_number" "$note_given" "$note" \
+      "$candidate_given" "$candidate_entries" "$only_count")
     for ((index = 0; index < only_count; index++)); do
       scope_args[${#scope_args[@]}]="${only_values[$index]}"
     done
@@ -391,7 +444,57 @@ next() {
     elif [ "$visible_commits" -gt 0 ]; then
       visible_commits=$((visible_commits - 1))
     else
-      error "scope.md is $scope_characters characters; the limit is 1500"
+      scope_args=("$run_name" "$task" "$base" "$tip" "$scale" "$limited_commits" \
+        "$limited_changed_files" "$round_number" false "" false "" "$only_count")
+      for ((index = 0; index < only_count; index++)); do
+        scope_args[${#scope_args[@]}]="${only_values[$index]}"
+      done
+      scope_without_optional_sections="$(build_scope "${scope_args[@]}")"
+      section_scope_characters="$(printf '%s\n' "$scope_without_optional_sections" | wc -m)"
+      section_scope_characters="${section_scope_characters//[[:space:]]/}"
+
+      if [ "$section_scope_characters" -le 1500 ] && [ "$candidate_given" = true ]; then
+        scope_args=("$run_name" "$task" "$base" "$tip" "$scale" "$limited_commits" \
+          "$limited_changed_files" "$round_number" false "" true "$candidate_entries" "$only_count")
+        for ((index = 0; index < only_count; index++)); do
+          scope_args[${#scope_args[@]}]="${only_values[$index]}"
+        done
+        scope_through_candidate="$(build_scope "${scope_args[@]}")"
+        section_scope_characters="$(printf '%s\n' "$scope_through_candidate" | wc -m)"
+        section_scope_characters="${section_scope_characters//[[:space:]]/}"
+        if [ "$section_scope_characters" -gt 1500 ]; then
+          overflow_section=Candidate
+        fi
+      fi
+
+      if [ -z "$overflow_section" ] && [ "$section_scope_characters" -le 1500 ] && [ "$exclusion_count" -gt 0 ]; then
+        scope_args=("$run_name" "$task" "$base" "$tip" "$scale" "$limited_commits" \
+          "$limited_changed_files" "$round_number" false "" \
+          "$candidate_given" "$candidate_entries" "$only_count")
+        for ((index = 0; index < only_count; index++)); do
+          scope_args[${#scope_args[@]}]="${only_values[$index]}"
+        done
+        for ((index = 0; index < exclusion_count; index++)); do
+          scope_args[${#scope_args[@]}]="${exclude_values[$index]}"
+        done
+        scope_through_exclusions="$(build_scope "${scope_args[@]}")"
+        section_scope_characters="$(printf '%s\n' "$scope_through_exclusions" | wc -m)"
+        section_scope_characters="${section_scope_characters//[[:space:]]/}"
+        if [ "$section_scope_characters" -gt 1500 ]; then
+          overflow_section=Exclusions
+        fi
+      fi
+
+      if [ -z "$overflow_section" ] && [ "$section_scope_characters" -le 1500 ] \
+        && [ "$note_given" = true ]; then
+        overflow_section=Note
+      fi
+
+      if [ -n "$overflow_section" ]; then
+        error "$overflow_section section makes scope.md $scope_characters characters; the limit is 1500"
+      else
+        error "scope.md is $scope_characters characters; the limit is 1500"
+      fi
       return 1
     fi
   done
@@ -416,11 +519,20 @@ next() {
     cp -R "$previous_round/input/context/." "$context"
   fi
 
+  if [ "$candidate_given" = false ]; then
+    rm -f "$context/candidate.json"
+  fi
+
   for ((index = 0; index < context_file_count; index++)); do
     candidate="${context_file_values[$index]}"
     mkdir -p "$context"
     cp "$candidate" "$context/${candidate##*/}"
   done
+
+  if [ "$candidate_given" = true ]; then
+    mkdir -p "$context"
+    cp "$candidate_file" "$context/candidate.json"
+  fi
 
   if [ -d "$context" ]; then
     count_files "$context"
