@@ -157,18 +157,16 @@ Work in <checkout> on branch <branch>. Commit prepare and implementation work. C
 Choose the launch mode in this order:
 
 1. `HERDR_ENV=1` and `HERDR_CHILD_PARENT_PANE` is unset: start a visible tab with `herdr-child start --kind opencode --posture rw --model <model> --cwd <checkout> --prompt-file <prompt> --detach`. Tabs avoid the narrow-pane OpenCode hang. Follow the parent duties in `~/.claude/shared/child-agent-contract.md`; the supervision marker wakes you. Answer a child's `herdr-child ask` from `ticket.md`; pass it to the user only when it needs a product decision. A herdr child goes straight to mode 2 because `herdr-child start` refuses to run from a child pane.
-2. `opencode` is on `PATH`: run the following as a background process that re-invokes you on exit (in Claude Code, the Bash tool's `run_in_background`). V2 has no `run --dir`; the subshell makes the process cwd and `PWD` agree on `<checkout>`. The stdin redirect prevents `opencode run` from waiting for EOF.
+2. `opencode` is on `PATH`: choose a new `<run-dir>/<role>-<n>.headless` directory and run the managed helper as a background process that re-invokes you on exit (in Claude Code, the Bash tool's `run_in_background`):
 
    ```bash
-   (
-     cd <checkout> || exit
-     exec opencode run -m <model> --auto --format json "$(cat <prompt>)"
-   ) < /dev/null > <run-dir>/<role>-<n>.jsonl 2>&1
+   opencode-headless.py launch --run "<run-dir>/<role>-<n>.headless" \
+     --cwd "<checkout>" --model "<model>" --auto --prompt-file "<prompt>"
    ```
 
-   Keep the process exit status and the final JSONL event separate. Extract `sessionID` from a machine-readable event for a resume. A nonzero process result with an `error` event is a command failure. A process interrupted before a terminal event or answer is incomplete work. Task success requires the report and its required evidence as well as a successful process result; a zero exit alone is not a task-success verdict. Keep the process status and JSONL for every classification. `~/.claude/shared/long-running-work.md` owns supervision.
+   The helper runs directly in the checkout with matching `PWD` and closed stdin. Its JSON result names the turn's artifacts; `turn-NNNN/` retains `events.jsonl`, `stderr.log`, `status.json`, `session.json`, and `answer.txt`. `classification: transport-ok` and exit `0` establish transport completion only: task acceptance still requires the report and its evidence. `failure` and `incomplete` return nonzero and retain recovery state. `exit_code` is the OpenCode process result, separate from classification. An unproven native stop requires operator recovery: retain the run and report the blocker. `~/.claude/shared/long-running-work.md` owns supervision.
 3. Otherwise no child can start. Stop.
 
-**Resuming a child** for a handoff gap keeps its session, tier, and attempt number, and counts as one turn. In herdr mode: `herdr-child prompt --to <name> --pane <pane-id> --detach '<the missing items>'`. In headless mode, repeat the same subshell command with `--session <id>`, where `<id>` is the `sessionID` in the attempt's JSONL log, and write a new JSONL file for the resumed turn. Keep stdin closed and verify the continuation in that log.
+**Resuming a child** for a handoff gap keeps its session, tier, and attempt number, and counts as one turn. In herdr mode: `herdr-child prompt --to <name> --pane <pane-id> --detach '<the missing items>'`. In headless mode, write the missing items to a prompt file and run `opencode-headless.py resume --run "<run-dir>/<role>-<n>.headless" --prompt-file "<continuation-prompt>"`. The helper recovers the native session and captures a new turn without overwriting earlier evidence.
 
-The child's answer is its report file; its tool output and logs are the evidence the report cites. In herdr mode, reap each child with `herdr-child reap` in the turn that records its accepted result or final diagnosis, following the lifecycle rule of the `herdr` skill. In headless mode, confirm the process has exited before the next phase starts.
+The child's answer is its report file; its tool output and logs are the evidence the report cites. In herdr mode, reap each child with `herdr-child reap` in the turn that records its accepted result or final diagnosis, following the lifecycle rule of the `herdr` skill. In headless mode, after the final turn settles or explicit abandonment, run `opencode-headless.py cleanup --run "<run-dir>/<role>-<n>.headless"` and require exit `0` with `classification: cleaned` before the next phase. Cleanup retains turn logs and the direct checkout.

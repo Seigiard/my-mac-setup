@@ -52,23 +52,17 @@ Before presenting each substantive revision to the user, run the contract spec p
 
 Commit the revision on `<epic-branch>`, then run the review in a disposable detached worktree. This is a disposable working copy, not a sandbox: changing cwd directs ordinary relative native and shell writes there, but the shell can still access absolute or discovered paths. Linked worktrees share Git refs and configuration with the epic checkout. The review prompt supplies cooperative scope, not write protection. Capture the epic worktree's complete porcelain status before and after; that comparison detects only persistent non-ignored changes in the epic worktree and rejects those changes even when the review itself returns text.
 
-Run the lifecycle as ordered steps. Keep the state and artifact paths durable so a later shell can continue the same review without reconstructing them.
+Write the prompt below to a file. Choose a new durable `$review_run` directory outside the epic checkout, with an existing parent. Launch through the managed helper, attaching every story render as a real PNG:
 
-1. **Prepare.** Create the detached review worktree from `<epic-branch>` and record the epic checkout, review cwd, artifact directory, JSONL/status/text paths, and native session path under `frontier-review-state`. Save the complete `git status --porcelain=v1` baseline for the epic checkout before launching. The step is complete when the review cwd exists and every continuation input, including the baseline, has a saved path.
-2. **Launch.** Use a subshell whose `cd` sets both the process cwd and `PWD`; V2 has no `run --dir`. Request the frontier model, attach every story render as a real PNG with repeated `-f` flags, close stdin, and capture JSONL plus process status. A short launch shape is:
+```bash
+opencode-headless.py launch --run "$review_run" --cwd "$epic_checkout" \
+  --review-ref "$epic_branch" --model openai/gpt-5.6-sol \
+  --prompt-file "$review_prompt" -f "$story_png_1" -f "$story_png_2"
+```
 
-   ```bash
-   (
-     cd "$review_worktree" || exit
-     exec opencode run --format json --model openai/gpt-5.6-sol \
-       -f "$story_png_1" -f "$story_png_2" "<review prompt>"
-   ) < /dev/null > "$review_log" 2>&1
-   ```
+The helper owns cwd/PWD, closed stdin, detached worktree, native session recovery, and the epic-status comparison. It prints a JSON result and saves each turn's `events.jsonl`, `stderr.log`, `status.json`, `session.json`, and `answer.txt` under `$review_run/turn-NNNN/`. Triage only the returned `answer` path when `classification` is `transport-ok`; `failure` and `incomplete` retain recovery state and return nonzero. `~/.claude/shared/long-running-work.md` owns supervision of the synchronous helper.
 
-   Extract the native session ID from that JSONL, persist it with the process status, and extract text events into the review-text artifact. Capture the epic checkout's after-status for comparison. The step is complete only when the launch evidence contains its status, JSONL, native session identity, extracted text artifact, and before/after status.
-3. **Classify.** Accept review text only when process status is `0`, JSONL has no `error` event, extracted text is nonempty, the session identity is present, and the epic before/after status matches. Treat an `error` event or ordinary command failure as command failure. Treat an externally interrupted run that ends before terminal review text as incomplete work. Neither is a review result; parse and triage only the extracted review-text artifact, never terminal output. The step is complete when the run has one of these explicit evidence-backed classifications.
-4. **Continue.** If the review needs another turn, start a separate shell. Read the saved cwd, artifact paths, baseline, and session ID (recover it from the saved initial JSONL when an interrupted shell did not persist it), then resume with that same native session and closed stdin. Capture a new JSONL, status, same-session identity, and extracted text, and repeat the unchanged-epic check. Keep the worktree and state while any continuation can still settle; clean only after all continuations settle or the run is explicitly abandoned. The step is complete when every continuation is either accepted by the same evidence checks or classified as failure/incomplete with recovery state retained.
-5. **Clean up.** From the saved state, remove the disposable worktree only after the final continuation or explicit abandonment, then independently verify that the path is absent before removing `frontier-review-state`. If removal fails or the path remains, retain the recovery state, return nonzero, and do not report completion. The step is complete only when both the disposable cwd and recovery state are confirmed absent.
+For another turn, write its prompt and run `opencode-headless.py resume --run "$review_run" --prompt-file "$continuation_prompt"` from any shell; add `-f` for any new attachments. The saved model, cwd, baseline, and native session remain in force. After the final continuation settles, or explicit abandonment, run `opencode-headless.py cleanup --run "$review_run"`. Require exit `0` and `classification: cleaned`: the disposable worktree and recovery state are gone, and turn logs remain. A failed cleanup retains recovery state; resolve it before reporting completion. An unproven native stop requires operator recovery: retain the run and report the blocker.
 
 Use the current frontier model if the `openai/gpt-5.6-sol` slug has rotated, and record the selected slug in the run report. The prompt's cooperative scope and the limited epic-worktree porcelain comparison are the review boundary; they are not filesystem protection.
 

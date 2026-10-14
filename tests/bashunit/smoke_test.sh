@@ -22,6 +22,16 @@ function test_smoke_001_python3_is_present_and_at_least_3_9_the_floor_re() {
   assert_success
 }
 
+function test_smoke_002_opencode_headless_managed_entrypoint_runs() {
+  _bats_test_init 2 'managed headless helper runs with the deployed interpreter'
+  # given
+  assert_file_executable "$HOME/.local/bin/opencode-headless.py"
+  # when
+  run "$HOME/.local/bin/opencode-headless.py" --help
+  # then
+  assert_success
+}
+
 function test_smoke_003_post_apply_suite_wrapper_rejects_an_unknown_mode() {
   _bats_test_init 3 'post-apply suite wrapper rejects an unknown mode with usage'
   local repository_root

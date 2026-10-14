@@ -7,7 +7,7 @@ The `tdd` orchestrator's files for one ticket. Publish `ticket.md`, `lock.json`,
 | `ticket.md` | the ticket and every decision about it (layout below) |
 | `lock.json` | the lock record (layout below) |
 | `<role>-<n>.prompt.md`, `<role>-<n>.report.md` | one prompt and one report per child, numbered per role from 1 |
-| `<role>-<n>.jsonl` | the headless child's log, when launched with `opencode run` |
+| `<role>-<n>.headless/` | helper recovery state and per-turn JSONL, process status, native session, stderr, and extracted text; logs remain after cleanup |
 | `controls/`, `calibration-<n>.*` | temporary control scripts, their output, and saved mutation diffs and logs |
 
 ## ticket.md
