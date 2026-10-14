@@ -12,6 +12,7 @@ That English is plain English: short sentences, common words, one idea per sente
 - When a reply (an explanation, a clarification, or an answer to a question) is longer than 5 sentences, start it with a 1–2 line TL;DR.
 - When you ask me a question and I reply with a question of my own, answer mine first, stop and wait for my decision. A question back means I'm still deciding.
 - Write long texts (replies longer than 5 sentences, and long text in files) using ASD-STE100 (Simplified Technical English) style but in language of communication. Write short replies in normal.
+- Write for a zero-context reader: a human later, or another agent, who saw none of this session. This covers replies, commit messages, issues, comments, and handoffs. Name the file, the decision, and the result in the text itself.
 
 <important if="you are reviewing code or running a pre-PR review">
 
