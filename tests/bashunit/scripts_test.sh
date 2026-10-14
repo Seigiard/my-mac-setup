@@ -10715,6 +10715,121 @@ function test_scripts_2844_handoff_pre_compact_hands_the_extractor_a_usable_goal
   assert_equal "$block" 'The operator did not state a goal. Read the session and name the goal yourself: the work that is underway and still unfinished at the point of compaction. Treat what you name as the goal for every step below, and open your handoff by stating it.'
 }
 
+function test_scripts_508_handoff_pre_compact_feeds_transcript_facts_to_the_extractor() {
+  _bats_test_init 508 'handoff pre-compact gives the extractor successful transcript facts before its goal'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local prompt="$BATS_TEST_TMPDIR/prompt.txt" transcript="$SOURCE_ROOT/tests/fixtures/handoff/transcript-facts.jsonl"
+  local file facts_line goal_line
+
+  mkdir -p "$stub"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'last=""; for arg in "$@"; do last="$arg"; done\n'
+    printf 'printf "%%s" "$last" > "%s"\n' "$prompt"
+    printf 'printf "extracted\\n"\n'
+  } > "$stub/claude"
+  chmod +x "$stub/claude"
+
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(jq -nc --arg session facts --arg cwd "$root" --arg transcript "$transcript" \
+      '{session_id: $session, cwd: $cwd, trigger: "manual", custom_instructions: "write the handoff", transcript_path: $transcript, hook_event_name: "PreCompact"}')"
+  assert_success
+  assert_file_exists "$prompt"
+  run grep -Fq '/repo/config/active.toml' "$prompt"
+  assert_success
+  run grep -Fq '/repo/scripts/refresh.sh' "$prompt"
+  assert_success
+  run grep -Fq '/repo/notes/plan.ipynb' "$prompt"
+  assert_success
+  run grep -Fq '1a2b3c4 Preserve transcript facts' "$prompt"
+  assert_success
+  run grep -Fq 'Please preserve the selected transcript facts exactly.' "$prompt"
+  assert_success
+  run grep -Fq '/repo/private/failed.txt' "$prompt"
+  assert_failure
+  run grep -Fq '/repo/reference-only.md' "$prompt"
+  assert_failure
+  run grep -Fq '<task-notification>Background task finished.</task-notification>' "$prompt"
+  assert_failure
+  run grep -Fq '<command-name>/clear</command-name>' "$prompt"
+  assert_failure
+  run grep -Fq '<local-command-stdout>Conversation cleared.</local-command-stdout>' "$prompt"
+  assert_failure
+  run grep -Fq '[Request interrupted by user]' "$prompt"
+  assert_failure
+  run grep -Fq 'Base directory for this skill: /repo/.claude/skills/example' "$prompt"
+  assert_failure
+  facts_line="$(grep -n -m 1 '/repo/config/active.toml' "$prompt" | cut -d: -f1)"
+  goal_line="$(grep -n -m 1 '<goal>' "$prompt" | cut -d: -f1)"
+  run bash -c '[ "$1" -lt "$2" ]' _ "$facts_line" "$goal_line"
+  assert_success
+  file="$store/ZmFjdHM.json"
+  assert_file_exists "$file"
+}
+
+function test_scripts_5081_handoff_pre_compact_uses_empty_facts_for_a_missing_transcript() {
+  _bats_test_init 5081 'handoff pre-compact stores a handoff with empty facts when its transcript is missing'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local prompt="$BATS_TEST_TMPDIR/prompt.txt" missing="$BATS_TEST_TMPDIR/missing.jsonl" file
+
+  mkdir -p "$stub"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'last=""; for arg in "$@"; do last="$arg"; done\n'
+    printf 'printf "%%s" "$last" > "%s"\n' "$prompt"
+    printf 'printf "extracted\\n"\n'
+  } > "$stub/claude"
+  chmod +x "$stub/claude"
+
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(jq -nc --arg session missing-facts --arg cwd "$root" --arg transcript "$missing" \
+      '{session_id: $session, cwd: $cwd, trigger: "manual", custom_instructions: "write the handoff", transcript_path: $transcript, hook_event_name: "PreCompact"}')"
+  assert_success
+  run grep -Fxq 'Files edited: None' "$prompt"
+  assert_success
+  run grep -Fxq 'Commits made: None' "$prompt"
+  assert_success
+  run grep -Fxq 'Last user request: None' "$prompt"
+  assert_success
+  file="$store/bWlzc2luZy1mYWN0cw.json"
+  assert_file_exists "$file"
+}
+
+function test_scripts_5082_handoff_pre_compact_uses_empty_facts_for_a_malformed_transcript() {
+  _bats_test_init 5082 'handoff pre-compact stores a handoff with empty facts when its transcript is malformed'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local prompt="$BATS_TEST_TMPDIR/prompt.txt" transcript="$BATS_TEST_TMPDIR/malformed.jsonl" file
+
+  mkdir -p "$stub"
+  printf '{not valid JSONL}\n' > "$transcript"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'last=""; for arg in "$@"; do last="$arg"; done\n'
+    printf 'printf "%%s" "$last" > "%s"\n' "$prompt"
+    printf 'printf "extracted\\n"\n'
+  } > "$stub/claude"
+  chmod +x "$stub/claude"
+
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(jq -nc --arg session malformed-facts --arg cwd "$root" --arg transcript "$transcript" \
+      '{session_id: $session, cwd: $cwd, trigger: "manual", custom_instructions: "write the handoff", transcript_path: $transcript, hook_event_name: "PreCompact"}')"
+  assert_success
+  run grep -Fxq 'Files edited: None' "$prompt"
+  assert_success
+  run grep -Fxq 'Commits made: None' "$prompt"
+  assert_success
+  run grep -Fxq 'Last user request: None' "$prompt"
+  assert_success
+  file="$store/bWFsZm9ybWVkLWZhY3Rz.json"
+  assert_file_exists "$file"
+}
+
 function test_scripts_2837_handoff_hooks_fail_open_without_a_home() {
   _bats_test_init 2837 'handoff hooks fail open when HOME is unset'
   local hook

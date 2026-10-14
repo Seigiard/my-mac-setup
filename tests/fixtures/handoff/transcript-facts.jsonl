@@ -1,0 +1,18 @@
+{"type":"user","message":{"role":"user","content":"Please preserve the selected transcript facts exactly."},"origin":{"kind":"human"},"userType":"external"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"edit-good","name":"Edit","input":{"file_path":"/repo/config/active.toml","old_string":"old","new_string":"new"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"edit-good","content":"updated","is_error":false}]},"toolUseResult":{"success":true}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"write-good","name":"Write","input":{"file_path":"/repo/scripts/refresh.sh","content":"#!/usr/bin/env bash"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"write-good","content":"written","is_error":false}]},"toolUseResult":{"success":true}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"notebook-good","name":"NotebookEdit","input":{"notebook_path":"/repo/notes/plan.ipynb","new_source":"print('ready')"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"notebook-good","content":"updated","is_error":false}]},"toolUseResult":{"success":true}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"read-only","name":"Read","input":{"file_path":"/repo/reference-only.md"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"read-only","content":"reference","is_error":false}]},"toolUseResult":{"success":true}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"edit-failed","name":"Edit","input":{"file_path":"/repo/private/failed.txt","old_string":"old","new_string":"new"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"edit-failed","content":"Exit code 1\nfile not found","is_error":true}]},"toolUseResult":"Exit code 1\nfile not found"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"bash-commit","name":"Bash","input":{"command":"git commit -m 'Preserve transcript facts'"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"bash-commit","content":"[feature/facts 1a2b3c4] Preserve transcript facts\n 2 files changed, 4 insertions(+)","is_error":false}]},"toolUseResult":{"stdout":"[feature/facts 1a2b3c4] Preserve transcript facts\n 2 files changed, 4 insertions(+)","is_error":false}}
+{"type":"user","message":{"role":"user","content":"<task-notification>Background task finished.</task-notification>"},"origin":{"kind":"task-notification"}}
+{"type":"user","message":{"role":"user","content":"<command-name>/clear</command-name>\n<command-message>Clear the conversation.</command-message>"}}
+{"type":"user","message":{"role":"user","content":"<local-command-stdout>Conversation cleared.</local-command-stdout>"}}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Base directory for this skill: /repo/.claude/skills/example"}]},"isMeta":true}
