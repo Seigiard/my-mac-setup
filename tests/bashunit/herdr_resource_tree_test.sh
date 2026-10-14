@@ -1905,13 +1905,18 @@ Resources:
 
   cat > "$TREE_WORK/opencode-model-request.ts" <<'TS'
 const module = await import(process.env.HRC_OPENCODE_PLUGIN!)
-const hooks = await module.HerdrResourceContextPlugin({})
-const system = ["base"]
-await hooks["experimental.chat.system.transform"](
-  { sessionID: process.argv[2], model: {} },
-  { system },
-)
-console.log(JSON.stringify(system))
+const hooks: Record<string, (request: any) => Promise<void>> = {}
+await module.default.setup({
+  session: {
+    hook: async (name: string, hook: (request: any) => Promise<void>) => {
+      hooks[name] = hook
+      return { dispose: async () => {} }
+    },
+  },
+})
+const system = [{ type: "text", text: "base" }]
+await hooks.context({ sessionID: process.argv[2], system })
+console.log(JSON.stringify(system.map((part) => part.text)))
 TS
   HERDR_ENV=1 HERDR_RESOURCE_CONTEXT_CLI="$TREE_CLI" \
     HRC_OPENCODE_PLUGIN="$HRC_OPENCODE_PLUGIN" \
