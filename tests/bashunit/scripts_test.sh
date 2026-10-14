@@ -185,6 +185,23 @@ function test_scripts_1208_herdr_process_api_is_one() {
   assert_output '1'
 }
 
+function test_scripts_12081_herdr_process_api_does_not_leak_to_children() {
+  _bats_test_init 12081 'shared process API version stays local to the sourcing shell'
+  local process_library="$SOURCE_ROOT/dot_local/lib/herdr-process.sh"
+
+  # #given a fresh parent shell and its descendant
+  # #when the parent sources the shared process library
+  run env -i PATH="$PATH" bash -c '
+    source "$1"
+    printf "parent=%s\\n" "$HERDR_PROCESS_API"
+    bash -c '\''printf "child=%s" "${HERDR_PROCESS_API-unset}"'\''
+  ' _ "$process_library"
+
+  # #then only the sourcing shell exposes the version
+  assert_success
+  assert_output $'parent=1\nchild=unset'
+}
+
 function test_scripts_1209_shared_process_identity_is_stable_and_preserves_unknown_legacy_markers() {
   _bats_test_init 1209 'shared process identity is stable and preserves unknown legacy markers'
   local process_library="$SOURCE_ROOT/dot_local/lib/herdr-process.sh"
