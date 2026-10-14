@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# post-apply: 27 host-safe
+# post-apply: 28 host-safe
 # revmux-round command contract. The fixture Git history and the real revmux
 # setup command are independent inputs; tests exercise only the local wrapper.
 source "$(dirname "${BASH_SOURCE[0]}")/test-dsl.bash"
@@ -746,6 +746,7 @@ EOF
   assert_success
   run awk '
     /^Scale: / || /^Limited to: / { print; next }
+    $0 == "Read the change:" { print; section = 1; fence = 0; next }
     $0 == "Commits:" { print; section = 1; fence = 0; next }
     $0 == "Changed files:" { print; section = 1; fence = 0; next }
     section && $0 == "```" {
@@ -759,6 +760,9 @@ EOF
   assert_output "$(cat <<EOF
 Scale: 3 files changed, 3 insertions(+)
 Limited to: app, docs/guide.md
+Read the change:
+git diff $FIXTURE_BASE..HEAD -- app docs/guide.md
+git log --oneline $FIXTURE_BASE..HEAD -- app docs/guide.md
 Commits:
 $selected_commits
 Changed files:
@@ -786,6 +790,33 @@ function test_revmux_round_027_next_rejects_a_dead_only_pathspec_among_matches()
 
   # #then
   assert_failure 1
-  assert_output --partial "$missing"
+  assert_output "error: --only pathspec $missing matches no changes in $FIXTURE_BASE..HEAD"
+  assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
+}
+
+function test_revmux_round_028_next_rejects_only_pathspecs_that_cancel_each_other() {
+  _bats_test_init 28 'next rejects only pathspecs whose combined selection has no changes'
+  require_revmux
+  make_round_fixture
+  local include='alpha.txt'
+  local exclude=':(exclude)alpha.txt'
+
+  # #given
+  run git -C "$FIXTURE_REPO" diff --name-status "$FIXTURE_BASE..HEAD" -- "$include"
+  assert_success
+  assert_output $'A\talpha.txt'
+  run git -C "$FIXTURE_REPO" diff --name-status "$FIXTURE_BASE..HEAD" -- "$exclude"
+  assert_success
+  assert_output $'A\tbeta.txt'
+  run git -C "$FIXTURE_REPO" diff --name-status "$FIXTURE_BASE..HEAD" -- "$include" "$exclude"
+  assert_success
+  assert_output ''
+
+  # #when
+  run_prepare_only --only "$include" --only "$exclude"
+
+  # #then
+  assert_failure 1
+  assert_output "error: combined --only pathspecs match no changes in $FIXTURE_BASE..HEAD"
   assert_dir_not_exists "$TASKS_DIR/fixture/02-after-fix"
 }
