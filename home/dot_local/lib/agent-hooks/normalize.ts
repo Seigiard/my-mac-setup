@@ -3,7 +3,7 @@
 // Field names come from the shipped adapters, which are the authority on what
 // each client actually sends:
 //   claude   tool_input.content / file_path / new_string / edits[].new_string
-//   opencode args.content / filePath | file_path / newString
+//   opencode input.content / path / newString (OpenCode 2.x)
 //   pi       input.content / path / edits[].newText / command | cmd / query | pattern
 // Content is aggregated across the full-content and edit fields alike: a Write
 // call carries its text only in `content`, and dropping it would let full-file
@@ -71,7 +71,7 @@ function readOpencode(raw: ParsedEvent): RawRead {
   return {
     clientToolName: raw.tool,
     payload: {
-      filePath: input.filePath || input.file_path || input.path,
+      filePath: input.path,
       content: joinParts([input.content, input.newString]),
       command: input.command,
       query: input.query,
@@ -152,7 +152,7 @@ const WRITERS: Record<ClientId, Writer> = {
   opencode: (toolName, payload, tool) => {
     const input = commonArguments(payload);
 
-    if (payload.filePath) input.filePath = payload.filePath;
+    if (payload.filePath) input.path = payload.filePath;
 
     if (payload.content) {
       if (tool === "edit") input.newString = payload.content;

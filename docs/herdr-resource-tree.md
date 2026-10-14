@@ -313,7 +313,7 @@ emits an unavailable reminder that explicitly invalidates the earlier generated
 context without claiming the branch is empty.
 
 OpenCode's adapter queries with the native `sessionID` at
-`experimental.chat.system.transform`, the model-request boundary used for
+the `context` session hook via `setup`, the model-request boundary used for
 ordinary, resumed, and compaction requests. Each successful query replaces any
 earlier generated resource-context system entry; a successful empty projection
 removes it. A failed query replaces any generated entry with an explicit

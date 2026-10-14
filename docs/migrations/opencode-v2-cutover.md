@@ -100,16 +100,22 @@ on `PATH` and silently run the old binary after Homebrew installs V2.
 
 ## Rollback
 
-Binary rollback and client-data migration are separate operations. The
-`<v1-backup>` path below is the `v1_backup` directory recorded before
-deployment; it must remain distinct from the V2 backup created during rollback.
+After this cutover under #512, the managed plugins, herdr-child scripts, and
+agent-hooks normalizer support only OpenCode 2. A complete rollback to OpenCode 1.x
+requires restoring the chezmoi source to before #512 (commit d274a58 or earlier),
+not just the binary and client data. Binary rollback and client-data migration are
+separate operations. The `<v1-backup>` path below is the `v1_backup` directory
+recorded before deployment; it must remain distinct from the V2 backup created
+during rollback.
 
 To return to the previous binary, install the desired prior formula version
 using the maintainer's supported Homebrew procedure, or reinstall the prior
 mise tool only as an explicit temporary owner change. Do not leave both
 Homebrew and mise installations on `PATH`; verify the selected binary with
 `command -v opencode` and `opencode --version`. Restore Homebrew as the sole
-owner after the temporary rollback is no longer needed.
+owner after the temporary rollback is no longer needed. You must also check out
+and apply the chezmoi source from before #512 (commit d274a58 or earlier) to use
+OpenCode 1.x, as the current managed plugins and scripts do not support V1.
 
 Changing the binary does not migrate or erase persistent OpenCode data. Before
 rollback, stop OpenCode and back up the current V2 state to a new, separate

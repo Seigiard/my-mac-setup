@@ -27,7 +27,7 @@ export type ToolArguments = {
 
 export type EncodedEvent =
   | { tool_name: string; tool_input: ToolArguments }
-  | { tool: string; args: ToolArguments }
+  | { tool: string; input: ToolArguments }
   | { toolName: string; input: ToolArguments };
 
 /** Canonical tool kinds. Client-specific spellings are registry data. */
