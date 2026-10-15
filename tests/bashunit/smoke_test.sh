@@ -1004,7 +1004,7 @@ function test_smoke_1061_herdr_pane_labels_keeps_chezmoi_process_library_and_exp
 
   # Alias choice belongs upstream; this deployment only owns the shim boundary
   # and the compatible managed library it sources.
-  run herdr-pane-labels --alias-candidates smoke-1061
+  run "$HOME/.local/bin/herdr-pane-labels" --alias-candidates smoke-1061
   assert_success
 }
 
