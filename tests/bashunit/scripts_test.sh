@@ -12116,6 +12116,46 @@ STUB
   assert_file_not_exists "$(handoff_store_path "$store" fork)"
 }
 
+function test_scripts_2848_handoff_pre_compact_forks_on_the_sessions_own_model() {
+  _bats_test_init 2848 'handoff pre-compact runs its fork on the model the session last answered with'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local args="$BATS_TEST_TMPDIR/claude-args" transcript="$BATS_TEST_TMPDIR/transcript.jsonl"
+  mkdir -p "$stub" "$root/home"
+  cat > "$stub/claude" << 'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$HANDOFF_TEST_ARGS"
+printf 'a handoff'
+STUB
+  chmod +x "$stub/claude"
+
+  # Prompt caching is per model, so only the session's own model reads the
+  # forked prefix from cache. The last real answer names it; a model name the
+  # operator pasted into a message is escaped text and must not win.
+  {
+    jq -nc '{type: "assistant", message: {model: "claude-sonnet-5-5", content: []}}'
+    jq -nc '{type: "assistant", message: {model: "claude-opus-5-5", content: []}}'
+    jq -nc '{type: "user", message: {content: "{\"model\":\"claude-pasted-1\"}"}}'
+  } > "$transcript"
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" HANDOFF_TEST_ARGS="$args" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload outer "$root" manual 'a goal' | jq -c --arg path "$transcript" '.transcript_path = $path')"
+  assert_success
+  run grep -A1 -x -- '--model' "$args"
+  assert_success
+  assert_output $'--model\nclaude-opus-5-5'
+
+  # With no transcript to read, the fork falls back to a 1M-window model.
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" HANDOFF_TEST_ARGS="$args" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload outer "$root" manual 'a goal')"
+  assert_success
+  run grep -A1 -x -- '--model' "$args"
+  assert_success
+  assert_output $'--model\nsonnet'
+}
+
 # ===========================================
 # update-pins
 #

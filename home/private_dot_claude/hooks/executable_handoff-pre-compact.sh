@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # PreCompact handoff builder.
 #
-# On any compaction, fork the session before it is compacted and have a
-# low-effort model extract only what serves the goal. The result is stored for the
+# On any compaction, fork the session before it is compacted and have the
+# session's own model, at low effort, extract only what serves the goal. The result is stored for the
 # SessionStart injector to place in the model's context once compaction
 # finishes.
 #
@@ -380,11 +380,20 @@ case "$timeout_seconds" in
 esac
 [ "$timeout_seconds" -le 230 ] || timeout_seconds=230
 
-# The fork must hold the whole pre-compaction context. Haiku's 200k window could
-# not hold a 341k-token session, so the fork compacted itself instead of
-# answering. Sonnet has a 1M window.
+# The fork runs on the session's own model. Prompt caching is per model, so the
+# same model reads the forked prefix from cache: on Sonnet a 341k-token Opus
+# session took 94 seconds to read cold. The model must also hold the whole
+# pre-compaction context; Haiku's 200k window could not, and the fork compacted
+# itself instead of answering. Sonnet, the fallback, has a 1M window.
+# Escaped "model" keys inside message text never match this unescaped pattern.
+fork_model=""
+if [ -n "$transcript_path" ] && [ -r "$transcript_path" ]; then
+  fork_model=$(grep -o '"model":"claude-[A-Za-z0-9.-]*"' "$transcript_path" 2> /dev/null | tail -n 1 | cut -d '"' -f 4)
+fi
+[ -n "$fork_model" ] || fork_model=sonnet
+
 HANDOFF_FORK=1 claude --resume "$session_id" --fork-session \
-  --model sonnet --effort low --print "$prompt" > "$extracted" 2> /dev/null < /dev/null &
+  --model "$fork_model" --effort low --print "$prompt" > "$extracted" 2> /dev/null < /dev/null &
 claude_pid=$!
 started=$SECONDS
 timed_out=0
