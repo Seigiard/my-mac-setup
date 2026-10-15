@@ -112,9 +112,9 @@ rows = [["state_icon", "workspace"], [{ token = "$branch", dim = false }, "$git_
 # agent entry reads:
 #   `$headline`      row 1, the machine glyph and the workspace name
 #   `$agent_line`    row 2, the pane label `<agent-icon> <color-animal>` after
-#                    three no-break spaces, so the icon sits indented
+#                    four Braille blanks (U+2800), so the icon sits
+#                    indented; herdr trims real spaces, U+00A0 included
 #   `$space_origin`  row 2 after ` · `, the space a worktree space was cut from
-#   `$child_gap`     row 3, one no-break space a child agent publishes
 # herdr hides a row whose tokens are all empty. A space whose label already is
 # the repository name publishes no origin, so its second row shows the agent
 # alone. The branch lives in the space rows above, so it is not repeated here.
@@ -147,15 +147,14 @@ rows = [["state_icon", "workspace"], [{ token = "$branch", dim = false }, "$git_
 # refreshes the token on each sweep, so a renamed space shows its new name a
 # few seconds later than the built-in `workspace` token would.
 # An agent that another agent started collapses to one row,
-# "- <agent-icon> <color-animal>", and a blank row below it: the plugin asks
-# `herdr-resource-tree` which agents have a parent, leaves their
-# `$space_origin` and `$agent_line` empty and publishes `$child_gap`. herdr's
-# `row_gap` would space every entry, not only children. The parent's entry above already shows the machine, the workspace and
+# "- <agent-icon> <color-animal>": the plugin asks `herdr-resource-tree` which
+# agents have a parent and leaves their `$space_origin` and `$agent_line`
+# empty. `row_gap = 1` puts a blank row between all entries. The parent's entry above already shows the machine, the workspace and
 # the origin. The headline is bold only for a parent: the `starts_with = "- "`
 # rule matches the child's dash and drops the bold, so a child reads as
 # subordinate to the entry it belongs to.
 [ui.sidebar.agents]
-row_gap = 0
+row_gap = 1
 rows = [
   [
     { token = "state_text", rules = [
@@ -172,9 +171,6 @@ rows = [
   [
     { token = "$agent_line", dim = false },
     { token = "$space_origin", dim = false, fg = "#878580" },
-  ],
-  [
-    { token = "$child_gap" },
   ],
 ]
 
