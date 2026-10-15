@@ -148,7 +148,9 @@ rows = [["state_icon", "workspace"], [{ token = "$branch", dim = false }, "$git_
 # "- <agent-icon> <color-animal>": the plugin asks `herdr-resource-tree` which
 # agents have a parent and leaves their `$space_origin` and `$agent_line`
 # empty. The parent's entry above already shows the machine, the workspace and
-# the origin.
+# the origin. The headline is bold only for a parent: the `starts_with = "- "`
+# rule matches the child's dash and drops the bold, so a child reads as
+# subordinate to the entry it belongs to.
 [ui.sidebar.agents]
 row_gap = 0
 rows = [
@@ -160,7 +162,9 @@ rows = [
       { equals = "󰝦", fg = "#9F9D96" },
       { equals = "󰇘", fg = "#B7B5AC" },
     ] },
-    { token = "$headline", dim = false },
+    { token = "$headline", dim = false, bold = true, rules = [
+      { starts_with = "- ", bold = false },
+    ] },
   ],
   [
     { token = "$space_origin", dim = false, fg = "#878580" },
