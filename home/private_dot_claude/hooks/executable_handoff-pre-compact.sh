@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # PreCompact handoff builder.
 #
-# On any compaction, fork the session before it is compacted and have a cheap
-# model extract only what serves the goal. The result is stored for the
+# On any compaction, fork the session before it is compacted and have a
+# low-effort model extract only what serves the goal. The result is stored for the
 # SessionStart injector to place in the model's context once compaction
 # finishes.
 #
@@ -38,6 +38,11 @@
 # delivery failures are saved for the SessionStart hook to show the operator.
 
 set -uo pipefail
+
+# The extraction fork is itself a Claude Code session with this hook installed.
+# If it compacts, this hook would fork it again, and each fork would fork the
+# next until the outer timeout killed the chain. One observed run left 49 forks.
+[ -z "${HANDOFF_FORK:-}" ] || exit 0
 
 command -v jq > /dev/null 2>&1 || exit 0
 
@@ -375,8 +380,11 @@ case "$timeout_seconds" in
 esac
 [ "$timeout_seconds" -le 230 ] || timeout_seconds=230
 
-claude --resume "$session_id" --fork-session \
-  --model haiku --print "$prompt" > "$extracted" 2> /dev/null < /dev/null &
+# The fork must hold the whole pre-compaction context. Haiku's 200k window could
+# not hold a 341k-token session, so the fork compacted itself instead of
+# answering. Sonnet has a 1M window.
+HANDOFF_FORK=1 claude --resume "$session_id" --fork-session \
+  --model sonnet --effort low --print "$prompt" > "$extracted" 2> /dev/null < /dev/null &
 claude_pid=$!
 started=$SECONDS
 timed_out=0

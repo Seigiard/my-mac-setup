@@ -11708,6 +11708,8 @@ handoff_store_path() {
     neighbour) encoded=bmVpZ2hib3Vy ;;
     startup) encoded=c3RhcnR1cA ;;
     replaced) encoded=cmVwbGFjZWQ ;;
+    outer) encoded=b3V0ZXI ;;
+    fork) encoded=Zm9yaw ;;
     *) printf 'no literal store name for session id %s\n' "$2" >&2; return 1 ;;
   esac
   printf '%s/%s.json' "$1" "$encoded"
@@ -12078,6 +12080,40 @@ function test_scripts_2846_handoff_pre_compact_logs_each_run_without_blocking_on
   assert_output ''
   assert_equal "$(jq -r '.handoff_content' < "$writable")" 'same stored handoff'
   assert_equal "$(jq -r '.handoff_content' < "$unwritable")" 'same stored handoff'
+}
+
+function test_scripts_2847_handoff_pre_compact_never_forks_its_own_extraction_fork() {
+  _bats_test_init 2847 'handoff pre-compact stays out of the compaction of its own extraction fork'
+  local root="$BATS_TEST_TMPDIR" store="$BATS_TEST_TMPDIR/cache" stub="$BATS_TEST_TMPDIR/stub"
+  local calls="$BATS_TEST_TMPDIR/claude-calls" file
+  mkdir -p "$stub" "$root/home"
+  file="$(handoff_store_path "$store" outer)"
+
+  # The extraction fork is a Claude Code session with the same hooks. When it
+  # compacts, it runs this hook again for its own session. The stub plays that
+  # fork: it records the call, compacts once more, then answers. Depth is capped
+  # so a missing guard fails with a count instead of hanging the suite.
+  cat > "$stub/claude" << 'STUB'
+#!/usr/bin/env bash
+printf 'call\n' >> "$HANDOFF_TEST_CALLS"
+if [ "$(wc -l < "$HANDOFF_TEST_CALLS")" -lt 3 ]; then
+  jq -nc --arg cwd "$HANDOFF_TEST_ROOT" \
+    '{session_id: "fork", cwd: $cwd, trigger: "auto", hook_event_name: "PreCompact"}' |
+    bash "$HANDOFF_TEST_HOOK" > /dev/null
+fi
+printf 'the outer handoff'
+STUB
+  chmod +x "$stub/claude"
+
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
+    HANDOFF_TEST_CALLS="$calls" HANDOFF_TEST_ROOT="$root" HANDOFF_TEST_HOOK="$(handoff_pre_compact_hook)" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload outer "$root" manual 'the outer goal')"
+  assert_success
+  assert_equal "$(wc -l < "$calls" | tr -d '[:space:]')" '1'
+  assert_equal "$(jq -r '.handoff_content' < "$file")" 'the outer handoff'
+  assert_file_not_exists "$(handoff_store_path "$store" fork)"
 }
 
 # ===========================================
