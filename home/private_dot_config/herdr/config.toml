@@ -108,10 +108,10 @@ row_gap = 0
 rows = [["state_icon", "workspace"], [{ token = "$branch", dim = false }, "$git_status"]]
 
 # Keep workspace and pane as separate built-in tokens so Herdr preserves their
-# distinct styles. herdr-pane-labels assigns `<agent-prefix>:<color-animal>`
+# distinct styles. herdr-pane-labels assigns `<agent-icon> <color-animal>`
 # labels, rebuilds tab labels, and publishes the Git location tokens.
 # The second row pairs the alias with `$space_origin`, the space a worktree
-# space was cut from, so an agent reads "platform <sep> oc:navy-loach" below
+# space was cut from, so an agent reads "platform <sep> <icon> navy-loach" below
 # the worktree name. A space whose label already is the repository name
 # publishes no origin and the alias stands alone. The branch lives in the
 # space rows above, so it is not repeated here.
