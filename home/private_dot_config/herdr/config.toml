@@ -107,14 +107,15 @@ tab_bar_right_separator = "  |  "
 row_gap = 0
 rows = [["state_icon", "workspace"], [{ token = "$branch", dim = false }, "$git_status"]]
 
-# Keep workspace and pane as separate built-in tokens so Herdr preserves their
-# distinct styles. herdr-pane-labels assigns `<agent-icon> <color-animal>`
-# labels, rebuilds tab labels, and publishes the Git location tokens.
-# The second row pairs the alias with `$space_origin`, the space a worktree
-# space was cut from, so an agent reads "platform <sep> <icon> navy-loach" below
-# the worktree name. A space whose label already is the repository name
-# publishes no origin and the alias stands alone. The branch lives in the
-# space rows above, so it is not repeated here.
+# herdr-pane-labels assigns `<agent-icon> <color-animal>` labels, rebuilds tab
+# labels, publishes the Git location tokens, and publishes the three pane
+# tokens an agent entry reads, one per row:
+#   `$headline`      the machine glyph and the workspace name
+#   `$space_origin`  the space a worktree space was cut from
+#   `$agent_line`    the pane label, `<agent-icon> <color-animal>`
+# herdr hides a row whose tokens are all empty. A space whose label already is
+# the repository name publishes no origin, so its entry has two rows. The
+# branch lives in the space rows above, so it is not repeated here.
 # herdr dims an agent's secondary row by default; `dim = false` lifts that,
 # and the explicit hexes set the reading order: workspace tx-black > origin
 # base-500 > alias base-400. Inline token styles accept only strict
@@ -137,16 +138,17 @@ rows = [["state_icon", "workspace"], [{ token = "$branch", dim = false }, "$git_
 # and rows accept no literal text — only token values. A pane whose shell has
 # not reported yet, or one on a machine without this dotfiles checkout, simply
 # shows no glyph and the row still renders.
-# The row reads `$machine_workspace` instead of `$machine` and `workspace` side
-# by side: herdr joins adjacent tokens with ` · ` and has no setting to change
-# it (herdrdev/herdr#2045, closed as not planned). herdr-pane-labels publishes
+# The first row reads `$headline` instead of `$machine` and `workspace` side by
+# side: herdr joins adjacent tokens with ` · ` and has no setting to change it
+# (herdrdev/herdr#2045, closed as not planned). herdr-pane-labels publishes
 # the glyph and the workspace name as that one token with a plain gap. It
 # refreshes the token on each sweep, so a renamed space shows its new name a
 # few seconds later than the built-in `workspace` token would.
-# An agent that another agent started reads "- <name>" instead: the plugin
-# asks `herdr-resource-tree` which agents have a parent, and a child runs on
-# its parent's machine, so the glyph would add nothing. Its second row also
-# drops `$space_origin`, which the parent's entry above already shows.
+# An agent that another agent started collapses to one row,
+# "- <agent-icon> <color-animal>": the plugin asks `herdr-resource-tree` which
+# agents have a parent and leaves their `$space_origin` and `$agent_line`
+# empty. The parent's entry above already shows the machine, the workspace and
+# the origin.
 [ui.sidebar.agents]
 row_gap = 0
 rows = [
@@ -158,11 +160,13 @@ rows = [
       { equals = "󰝦", fg = "#9F9D96" },
       { equals = "󰇘", fg = "#B7B5AC" },
     ] },
-    { token = "$machine_workspace", dim = false },
+    { token = "$headline", dim = false },
   ],
   [
     { token = "$space_origin", dim = false, fg = "#878580" },
-    { token = "pane", dim = false, fg = "#9F9D96" },
+  ],
+  [
+    { token = "$agent_line", dim = false, fg = "#9F9D96" },
   ],
 ]
 
