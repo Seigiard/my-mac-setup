@@ -137,6 +137,12 @@ rows = [["state_icon", "workspace"], [{ token = "$branch", dim = false }, "$git_
 # and rows accept no literal text — only token values. A pane whose shell has
 # not reported yet, or one on a machine without this dotfiles checkout, simply
 # shows no glyph and the row still renders.
+# The row reads `$machine_workspace` instead of `$machine` and `workspace` side
+# by side: herdr joins adjacent tokens with ` · ` and has no setting to change
+# it (herdrdev/herdr#2045, closed as not planned). herdr-pane-labels publishes
+# the glyph and the workspace name as that one token with a plain gap. It
+# refreshes the token on each sweep, so a renamed space shows its new name a
+# few seconds later than the built-in `workspace` token would.
 [ui.sidebar.agents]
 # Agents are the one sidebar section where entries are read one at a time
 # rather than scanned as a list, so they get the blank separator row that
@@ -151,8 +157,7 @@ rows = [
       { equals = "󰝦", fg = "#9F9D96" },
       { equals = "󰇘", fg = "#B7B5AC" },
     ] },
-    "$machine",
-    { token = "workspace", dim = false },
+    { token = "$machine_workspace", dim = false },
   ],
   [
     { token = "$space_origin", dim = false, fg = "#878580" },
