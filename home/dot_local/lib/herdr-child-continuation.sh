@@ -281,14 +281,6 @@ EOF
       exit 1
     fi
     run_dir="$STATE_DIR/runs/$generation"
-    if [ "$(state_value "$run_dir/launch.state" generation)" != "$generation" ] || \
-       [ "$(state_value "$run_dir/launch.state" parent_terminal)" != "$stored_parent_terminal" ] || \
-       [ "$(state_value "$run_dir/launch.state" parent_session)" != "$stored_parent_session" ] || \
-       [ "$(state_value "$run_dir/launch.state" child_terminal)" != "$stored_child_terminal" ] || \
-       [ "$(state_value "$run_dir/launch.state" child_session)" != "$stored_child_session" ]; then
-      printf 'herdr-child: detached child supervision state is unavailable or inconsistent; waiting label remains published\n' >&2
-      exit 1
-    fi
     if { [ -n "${HERDR_CHILD_PARENT_TERMINAL:-}" ] || [ -n "${HERDR_CHILD_PARENT_SESSION:-}" ]; } && \
        { [ "${HERDR_CHILD_PARENT_TERMINAL:-}" != "$stored_parent_terminal" ] || \
          [ "${HERDR_CHILD_PARENT_SESSION:-}" != "$stored_parent_session" ]; }; then
@@ -297,13 +289,32 @@ EOF
     fi
     route_terminal="$stored_parent_terminal"
     route_session="$stored_parent_session"
-    if ! persist_callback_state "$run_dir" in-progress "$event"; then
-      printf 'herdr-child: callback intent could not be persisted; waiting label remains published\n' >&2
-      exit 1
-    fi
-    message="[child-ask v2 generation=$generation event=$event agent=$current_name pane=$HERDR_PANE_ID]
+    if [ -d "$run_dir" ]; then
+      if [ "$(state_value "$run_dir/launch.state" generation)" != "$generation" ] || \
+         [ "$(state_value "$run_dir/launch.state" parent_terminal)" != "$stored_parent_terminal" ] || \
+         [ "$(state_value "$run_dir/launch.state" parent_session)" != "$stored_parent_session" ] || \
+         [ "$(state_value "$run_dir/launch.state" child_terminal)" != "$stored_child_terminal" ] || \
+         [ "$(state_value "$run_dir/launch.state" child_session)" != "$stored_child_session" ]; then
+        printf 'herdr-child: detached child supervision state is unavailable or inconsistent; waiting label remains published\n' >&2
+        exit 1
+      fi
+      if ! persist_callback_state "$run_dir" in-progress "$event"; then
+        printf 'herdr-child: callback intent could not be persisted; waiting label remains published\n' >&2
+        exit 1
+      fi
+      message="[child-ask v2 generation=$generation event=$event agent=$current_name pane=$HERDR_PANE_ID]
 
 $1"
+    else
+      # A settled watcher may retire its run directory while the detached
+      # child continues working. The surviving pane tokens still identify
+      # the child and parent, but there is no supervision owner for this
+      # callback, so use the attached marker and do not persist callback state.
+      run_dir=""
+      message="[child-ask v1 agent=$current_name pane=$HERDR_PANE_ID]
+
+$1"
+    fi
   else
     if [ "${HERDR_CHILD_LAUNCH_MODE:-}" = detach ] || \
        { [ -z "${HERDR_CHILD_LAUNCH_MODE:-}" ] && [ -n "${HERDR_CHILD_PARENT_TERMINAL:-}" ]; }; then

@@ -5127,6 +5127,160 @@ function test_scripts_047_herdr_child_detached_ask_follows_parent_identity() {
   assert_failure
 }
 
+function test_scripts_0471_herdr_child_retired_detached_ask_uses_stored_parent_identity() {
+  _bats_test_init 471 'herdr-child retired detached ask routes once by stored parent identity without callback state'
+  child_lifecycle_stub_herdr
+  local generation=retired-generation run_dir="$CHILD_STUB/state/runs/retired-generation"
+  printf 'orange-panda\n' > "$CHILD_STUB/started-name"
+  printf '%s\n' "$generation" > "$CHILD_STUB/generation"
+  printf 'wT:p7\n' > "$CHILD_STUB/parent-pane"
+
+  # #given a detached child whose retired generation remains in pane tokens only
+  assert_dir_not_exists "$run_dir"
+  # #when the child asks with its launch-pane route deliberately stale
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_LAUNCH=1 \
+    HERDR_CHILD_LAUNCH_MODE=detach HERDR_CHILD_PARENT_PANE=wT:p0 \
+    HERDR_CHILD_PARENT_TERMINAL=term-parent HERDR_CHILD_PARENT_SESSION=parent-session \
+    bash "$HERDR_CHILD" ask 'Which path?'
+
+  # #then it delivers one accepted v1 callback to the identity-resolved parent
+  assert_success
+  assert_output 'Question delivered. End this turn and wait for the parent reply.'
+  assert_file_contains "$CHILD_STUB/calls.log" 'child-ask v1'
+  run grep -c '^agent prompt wT:p7' "$CHILD_STUB/calls.log"
+  assert_success
+  assert_output 1
+  run grep -q '^agent prompt wT:p0' "$CHILD_STUB/calls.log"
+  assert_failure
+  assert_file_contains "$CHILD_STUB/successful-prompts.log" '^\[child-ask v1 agent=orange-panda pane=wT:p9\]$'
+  assert_file_contains "$CHILD_STUB/successful-prompts.log" '^Which path[?]$'
+  assert_dir_not_exists "$run_dir"
+}
+
+function test_scripts_0472_herdr_child_retired_detached_ask_rejects_disagreeing_run_state() {
+  _bats_test_init 472 'herdr-child detached ask keeps rejecting a present run with disagreeing launch state'
+  child_lifecycle_stub_herdr
+  local generation=retired-generation run_dir="$CHILD_STUB/state/runs/retired-generation"
+  printf 'orange-panda\n' > "$CHILD_STUB/started-name"
+  printf '%s\n' "$generation" > "$CHILD_STUB/generation"
+  mkdir -p "$run_dir"
+  cat > "$run_dir/launch.state" <<EOF
+generation=$generation
+parent_terminal=term-parent
+parent_session=stale-parent-session
+child_terminal=term-child
+child_session=child-session
+EOF
+
+  # #given a live detached child whose surviving run state disagrees with its tokens
+  # #when it asks the parent
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_LAUNCH=1 \
+    HERDR_CHILD_LAUNCH_MODE=detach HERDR_CHILD_PARENT_PANE=wT:p0 \
+    HERDR_CHILD_PARENT_TERMINAL=term-parent HERDR_CHILD_PARENT_SESSION=parent-session \
+    bash "$HERDR_CHILD" ask 'Which path?'
+
+  # #then it fails closed before delivering a callback
+  assert_failure 1
+  assert_output 'herdr-child: detached child supervision state is unavailable or inconsistent; waiting label remains published'
+  run grep -q 'child-ask' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+function test_scripts_0473_herdr_child_retired_detached_ask_rejects_conflicting_parent_environment() {
+  _bats_test_init 473 'herdr-child retired detached ask rejects a captured parent identity that conflicts with tokens'
+  child_lifecycle_stub_herdr
+  printf 'orange-panda\n' > "$CHILD_STUB/started-name"
+  printf 'retired-generation\n' > "$CHILD_STUB/generation"
+
+  # #given a retired detached generation and a conflicting inherited parent identity
+  # #when the child asks the parent
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_LAUNCH=1 \
+    HERDR_CHILD_LAUNCH_MODE=detach HERDR_CHILD_PARENT_PANE=wT:p0 \
+    HERDR_CHILD_PARENT_TERMINAL=term-other HERDR_CHILD_PARENT_SESSION=other-session \
+    bash "$HERDR_CHILD" ask 'Which path?'
+
+  # #then it rejects the conflict without delivering a callback
+  assert_failure 1
+  assert_output 'herdr-child: captured parent identity conflicts with detached metadata; waiting label remains published'
+  run grep -q 'child-ask' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+function test_scripts_0474_herdr_child_retired_detached_ask_rejects_missing_stored_parent() {
+  _bats_test_init 474 'herdr-child retired detached ask rejects an unresolvable stored parent identity'
+  child_lifecycle_stub_herdr
+  printf 'orange-panda\n' > "$CHILD_STUB/started-name"
+  printf 'retired-generation\n' > "$CHILD_STUB/generation"
+  printf 'replacement-parent-session\n' > "$CHILD_STUB/parent-session"
+
+  # #given a retired detached generation whose stored parent no longer has its captured session
+  # #when the child asks the parent
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_LAUNCH=1 \
+    HERDR_CHILD_LAUNCH_MODE=detach HERDR_CHILD_PARENT_PANE=wT:p0 \
+    HERDR_CHILD_PARENT_TERMINAL=term-parent HERDR_CHILD_PARENT_SESSION=parent-session \
+    bash "$HERDR_CHILD" ask 'Which path?'
+
+  # #then it fails closed instead of using the stale launch pane
+  assert_failure 1
+  assert_output 'herdr-child: captured parent identity could not be resolved; waiting label remains published'
+  run grep -q 'child-ask' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+function test_scripts_0475_herdr_child_retired_detached_ask_rejects_changed_child_identity() {
+  _bats_test_init 475 'herdr-child retired detached ask keeps rejecting tokens that do not identify the live child'
+  child_lifecycle_stub_herdr
+  printf 'orange-panda\n' > "$CHILD_STUB/started-name"
+  printf 'retired-generation\n' > "$CHILD_STUB/generation"
+  printf 'term-replacement\n' > "$CHILD_STUB/child-terminal"
+
+  # #given a retired detached generation whose token child terminal is no longer live
+  # #when the child asks the parent
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_LAUNCH=1 \
+    HERDR_CHILD_LAUNCH_MODE=detach HERDR_CHILD_PARENT_PANE=wT:p0 \
+    HERDR_CHILD_PARENT_TERMINAL=term-parent HERDR_CHILD_PARENT_SESSION=parent-session \
+    bash "$HERDR_CHILD" ask 'Which path?'
+
+  # #then it fails closed without delivering a callback
+  assert_failure 1
+  assert_output 'herdr-child: detached child metadata is unavailable or inconsistent; waiting label remains published'
+  run grep -q 'child-ask' "$CHILD_STUB/calls.log"
+  assert_failure
+}
+
+function test_scripts_0476_herdr_child_reply_to_a_retired_detached_ask_rearms_supervision() {
+  _bats_test_init 476 'herdr-child reply after a retired detached ask starts a new detached generation'
+  child_lifecycle_stub_herdr
+  local old_generation=retired-generation new_generation
+  printf 'orange-panda\n' > "$CHILD_STUB/started-name"
+  printf '%s\n' "$old_generation" > "$CHILD_STUB/generation"
+
+  # #given a detached child with retired supervision tokens but no run directory
+  # #when it asks and its parent replies
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p9 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_LAUNCH=1 \
+    HERDR_CHILD_LAUNCH_MODE=detach HERDR_CHILD_PARENT_PANE=wT:p0 \
+    HERDR_CHILD_PARENT_TERMINAL=term-parent HERDR_CHILD_PARENT_SESSION=parent-session \
+    bash "$HERDR_CHILD" ask 'Which path?'
+  assert_success
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_TEST_WATCHER_PID_FILE="$CHILD_STUB/watcher.pid" \
+    HERDR_CHILD_POLL_INTERVAL=0.01 HERDR_CHILD_TEST_SKIP_RETRY_SLEEP=1 \
+    bash "$HERDR_CHILD" reply --to orange-panda --pane wT:p9 'Use path A'
+
+  # #then reply preserves detached continuation and advances supervision ownership
+  assert_success
+  assert_output --partial '"supervision":{"status":"armed"'
+  new_generation="$(cat "$CHILD_STUB/generation")"
+  [ "$new_generation" != "$old_generation" ] || fail 'reply retained the retired supervision generation'
+  assert_file_contains "$CHILD_STUB/calls.log" 'parent-reply v2'
+}
+
 function test_scripts_048_herdr_child_attached_ask_follows_captured_parent() {
   _bats_test_init 48 'herdr-child attached ask follows captured parent identity after the parent moves'
   child_stub_herdr
