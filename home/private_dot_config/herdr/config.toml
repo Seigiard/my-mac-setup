@@ -112,7 +112,7 @@ rows = [["state_icon", "workspace"], [{ token = "$branch", dim = false }, "$git_
 # agent entry reads:
 #   `$headline`      row 1, the machine glyph and the workspace name
 #   `$agent_line`    row 2, the pane label `<agent-icon> <color-animal>` after
-#                    four Braille blanks (U+2800), so the icon sits
+#                    three Braille blanks (U+2800), so the icon sits
 #                    indented; herdr trims real spaces, U+00A0 included
 #   `$space_origin`  row 2 after ` · `, the space a worktree space was cut from
 # herdr hides a row whose tokens are all empty. A space whose label already is
