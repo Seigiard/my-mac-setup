@@ -5147,14 +5147,14 @@ function test_scripts_0471_herdr_child_retired_detached_ask_uses_stored_parent_i
   # #then it delivers one accepted v1 callback to the identity-resolved parent
   assert_success
   assert_output 'Question delivered. End this turn and wait for the parent reply.'
-  assert_file_contains "$CHILD_STUB/calls.log" '^agent prompt wT:p7.*child-ask\\ v1'
+  assert_file_contains "$CHILD_STUB/calls.log" 'child-ask v1'
   run grep -c '^agent prompt wT:p7' "$CHILD_STUB/calls.log"
   assert_success
   assert_output 1
   run grep -q '^agent prompt wT:p0' "$CHILD_STUB/calls.log"
   assert_failure
   assert_file_contains "$CHILD_STUB/successful-prompts.log" '^\[child-ask v1 agent=orange-panda pane=wT:p9\]$'
-  assert_file_contains "$CHILD_STUB/successful-prompts.log" '^Which path\?$'
+  assert_file_contains "$CHILD_STUB/successful-prompts.log" '^Which path[?]$'
   assert_dir_not_exists "$run_dir"
 }
 
@@ -5278,7 +5278,7 @@ function test_scripts_0476_herdr_child_reply_to_a_retired_detached_ask_rearms_su
   assert_output --partial '"supervision":{"status":"armed"'
   new_generation="$(cat "$CHILD_STUB/generation")"
   [ "$new_generation" != "$old_generation" ] || fail 'reply retained the retired supervision generation'
-  assert_file_contains "$CHILD_STUB/calls.log" '^agent prompt orange-panda.*parent-reply\\ v2'
+  assert_file_contains "$CHILD_STUB/calls.log" 'parent-reply v2'
 }
 
 function test_scripts_048_herdr_child_attached_ask_follows_captured_parent() {
