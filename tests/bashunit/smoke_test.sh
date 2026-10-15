@@ -989,13 +989,23 @@ function test_smoke_1060_herdr_pane_labels_is_installed_as_a_github_package() {
   assert_success
 }
 
-function test_smoke_1061_herdr_pane_labels_keeps_runtime_and_aliases_package_owned() {
-  _bats_test_init 1061 'herdr pane labels keeps runtime and aliases package-owned'
+function test_smoke_1061_herdr_pane_labels_keeps_chezmoi_process_library_and_exposes_package_interface() {
+  _bats_test_init 1061 'herdr pane labels keeps the chezmoi process library and exposes its package interface'
   require_working_herdr
-  assert_file_exists "$HOME/.local/bin/herdr-pane-labels"
-  assert_file_executable "$HOME/.local/bin/herdr-pane-labels"
-  assert_file_exists "$HOME/.local/lib/herdr-aliases.sh"
-  assert_file_exists "$HOME/.local/lib/herdr-pane-labels.version"
+  local process_library="$HOME/.local/lib/herdr-process.sh"
+  local source_process_library="$SOURCE_ROOT/dot_local/lib/herdr-process.sh"
+
+  # The package may own its private support files. This managed library has
+  # consumers beyond the package, so its deployed bytes must remain ours.
+  assert_file_exists "$source_process_library"
+  assert_file_exists "$process_library"
+  run cmp -s "$source_process_library" "$process_library"
+  assert_success
+
+  # Alias choice belongs upstream; this deployment only owns the shim boundary
+  # and the compatible managed library it sources.
+  run herdr-pane-labels --alias-candidates smoke-1061
+  assert_success
 }
 
 # ===========================================
