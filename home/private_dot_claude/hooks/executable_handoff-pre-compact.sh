@@ -55,10 +55,16 @@ handoff_file() {
   printf '%s/%s.json' "$HANDOFF_STORE" "$(context_usage_encode_key "$1")"
 }
 
+# Extraction time and transcript size show where the timeout boundary lies.
+# Either is null when the run ended before it was known.
 log_outcome() {
-  local outcome="$1" record directory
+  local outcome="$1" record directory elapsed=""
+  [ -z "${started:-}" ] || elapsed=$((SECONDS - started))
   record=$(jq -nc --arg session_id "$session_id" --arg trigger "$trigger" --arg goal "$goal" --arg outcome "$outcome" \
-    '{session_id: $session_id, trigger: $trigger, goal: $goal, outcome: $outcome}' 2> /dev/null) || return 0
+    --arg elapsed "$elapsed" --arg transcript_bytes "${transcript_bytes:-}" \
+    '{session_id: $session_id, trigger: $trigger, goal: $goal, outcome: $outcome,
+      elapsed_seconds: ($elapsed | if . == "" then null else tonumber end),
+      transcript_bytes: ($transcript_bytes | if . == "" then null else tonumber end)}' 2> /dev/null) || return 0
   directory="${HANDOFF_LOG_FILE%/*}"
   [ "$directory" != "$HANDOFF_LOG_FILE" ] || directory="."
   [ -d "$directory" ] || mkdir -p "$directory" 2> /dev/null || return 0
@@ -268,6 +274,12 @@ transcript_facts() {
 
 facts_block=$(transcript_facts "$transcript_path") || exit 0
 
+transcript_bytes=""
+if [ -n "$transcript_path" ] && [ -r "$transcript_path" ]; then
+  transcript_bytes=$(wc -c < "$transcript_path" 2> /dev/null | tr -d '[:space:]') || transcript_bytes=""
+  case "$transcript_bytes" in *[!0-9]*) transcript_bytes="" ;; esac
+fi
+
 # Clear before extracting, never after. An extraction that fails from here on
 # must leave no handoff at all rather than the previous compaction's.
 rm -f "$store" 2> /dev/null || true
@@ -353,13 +365,15 @@ extracted=$(mktemp "${TMPDIR:-/tmp}/handoff.XXXXXX" 2> /dev/null) || {
 }
 trap 'rm -f "$extracted"' EXIT
 
-# Claude Code terminates this hook at 120 seconds. Polling avoids relying on a
-# platform-specific timeout command while still recording an earlier timeout.
-timeout_seconds="${HANDOFF_TIMEOUT_SECONDS:-110}"
+# Claude Code terminates this hook at 240 seconds, the `timeout` registered in
+# private_settings.json.tmpl. The 10-second margin leaves room for the SIGTERM
+# grace period below. Polling avoids relying on a platform-specific timeout
+# command while still recording an earlier timeout.
+timeout_seconds="${HANDOFF_TIMEOUT_SECONDS:-230}"
 case "$timeout_seconds" in
-  '' | *[!0-9]*) timeout_seconds=110 ;;
+  '' | *[!0-9]*) timeout_seconds=230 ;;
 esac
-[ "$timeout_seconds" -le 110 ] || timeout_seconds=110
+[ "$timeout_seconds" -le 230 ] || timeout_seconds=230
 
 claude --resume "$session_id" --fork-session \
   --model haiku --print "$prompt" > "$extracted" 2> /dev/null < /dev/null &
@@ -378,7 +392,7 @@ done
 status=0
 if [ "$timed_out" -eq 1 ]; then
   # SIGTERM is cooperative. Do not let a process that ignores it outlive the
-  # hook's 120-second Claude Code limit.
+  # hook's 240-second Claude Code limit.
   kill "$claude_pid" 2> /dev/null || true
   grace_started=$SECONDS
   while kill -0 "$claude_pid" 2> /dev/null; do

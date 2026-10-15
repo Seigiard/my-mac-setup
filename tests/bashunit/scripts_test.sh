@@ -11885,6 +11885,35 @@ function test_scripts_2846_handoff_pre_compact_logs_each_run_without_blocking_on
   assert_success
   assert_output $'["log-writable","manual","first log goal","stored"]\n["log-writable","auto","","stored"]\n["broken","manual","failed log goal","fork"]'
 
+  # Extraction time and transcript size locate the timeout boundary. A run
+  # with no transcript logs a null size; a run with one logs its exact bytes.
+  run jq -Rc 'fromjson | [(.elapsed_seconds | type), .transcript_bytes]' < "$log"
+  assert_success
+  assert_output $'["number",null]\n["number",null]\n["number",null]'
+  local transcript="$BATS_TEST_DIRNAME/fixtures/handoff/transcript-facts.jsonl" sized="$root/sized.jsonl"
+  handoff_stub_claude "$stub" 'sized handoff'
+  run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" HANDOFF_LOG_FILE="$sized" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload sized "$root" manual 'sized goal' | jq -c --arg path "$transcript" '.transcript_path = $path')"
+  assert_success
+  run jq -Rc 'fromjson | [.outcome, (.elapsed_seconds | type), .transcript_bytes]' < "$sized"
+  assert_success
+  assert_output "[\"stored\",\"number\",$(wc -c < "$transcript" | tr -d '[:space:]')]"
+
+  # A run that fails before extraction starts has no elapsed time to report.
+  local no_claude="$root/no-claude" before="$root/before.jsonl"
+  mkdir -p "$no_claude"
+  ln -s "$(command -v jq)" "$no_claude/jq"
+  run env PATH="$no_claude:/usr/bin:/bin" HOME="$root/home" HANDOFF_STORE_DIR="$store" HANDOFF_LOG_FILE="$before" \
+    CONTEXT_USAGE_LIBRARY="$(context_usage_lib)" CONTEXT_USAGE_STATE_DIR="$root/usage" \
+    bash "$(handoff_pre_compact_hook)" \
+    <<< "$(handoff_payload before "$root" manual 'no extractor')"
+  assert_success
+  run jq -Rc 'fromjson | [.outcome, .elapsed_seconds]' < "$before"
+  assert_success
+  assert_output '["dependency",null]'
+
   : > "$blocked"
   handoff_stub_claude "$stub" 'same stored handoff'
   run env PATH="$stub:$PATH" HOME="$root/home" HANDOFF_STORE_DIR="$store" \
