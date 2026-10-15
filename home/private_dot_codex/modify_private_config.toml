@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Own only the managed Codex feature flags in ~/.codex/config.toml. Codex and
+# its installers write everything else here at runtime (project trust, hook
+# hashes, marketplaces, the nono block), so every other line passes through.
+#
+# awk, not a TOML library: modify_ scripts run before mise installs a Python
+# with tomllib, and the line edit keeps comments and marker blocks intact.
+
+set -euo pipefail
+
+awk '
+  function managed() { print "code_mode = true" }
+
+  # A table header is recognised only outside multi-line strings, so text
+  # such as developer_instructions cannot open or close a table.
+  ml == 0 && /^[ \t]*\[/ {
+    in_features = ($0 ~ /^[ \t]*\[[ \t]*features[ \t]*\][ \t]*(#.*)?$/)
+    print
+    if (in_features) { managed(); done = 1 }
+    next
+  }
+
+  ml == 0 && in_features && /^[ \t]*code_mode[ \t]*=/ { next }
+
+  {
+    print
+    line = $0
+    basic = gsub(/"""/, "", line)
+    literal = gsub(/'\'''\'''\''/, "", line)
+    if (ml == 0 && basic % 2 == 1) ml = 1
+    else if (ml == 0 && literal % 2 == 1) ml = 2
+    else if (ml == 1 && basic % 2 == 1) ml = 0
+    else if (ml == 2 && literal % 2 == 1) ml = 0
+  }
+
+  END {
+    if (!done) {
+      if (NR > 0) print ""
+      print "[features]"
+      managed()
+    }
+  }
+'
