@@ -46,12 +46,13 @@ implementation, helper scripts, documentation, CI, releases, and behavior
 tests. It supports Herdr 0.7.0 or newer on macOS and Linux and declares Python
 3.9 and fzf 0.56 as runtime dependencies.
 
-Dotfiles installs an immutable reviewed commit with `herdr plugin install
-Seigiard/herdr-command-palette --ref <commit> -y`, enables
+Dotfiles installs the default branch with `herdr plugin install
+Seigiard/herdr-command-palette -y`, enables
 `seigi.command-palette`, and removes the former local plugin directory. The
 cutover uninstalls `seigi.command-palette` only when Herdr reports
 `source.kind = local`; a subsequent apply updates the GitHub-managed package in
-place. Updating means reviewing a newer package release and changing the pin.
+place. `herdr-auto-update` trusts the `Seigiard` owner and fast-forwards the
+package on Herdr start; there is no pin to change.
 Removal is `herdr plugin uninstall seigi.command-palette`; the separately
 managed command file is intentionally preserved.
 
@@ -70,7 +71,7 @@ links remain intact. Dotfiles retains only deployment and personal-policy work.
 
 The package installs into a clean home without this checkout and leaves its
 Herdr config directory empty instead of seeding or competing with chezmoi.
-Implementation tests move with the package. This repository verifies the pinned
+Implementation tests move with the package. This repository verifies the
 installer, local-to-GitHub cutover, stable keybindings, one-file policy, runtime
 dependencies, and disposable-home deployment.
 

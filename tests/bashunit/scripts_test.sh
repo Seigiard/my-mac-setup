@@ -1904,18 +1904,18 @@ SH
   assert_failure
   run grep -Fx "plugin install dio16/herdr-auto-update -y" "$calls"
   assert_success
-  # The pinned commit is an installation choice with no oracle outside the
-  # template it is copied from, so these match the install command and the
-  # shape of a pinned ref. A ref bump must not edit a test.
-  run grep -Ex "plugin install Seigiard/herdr-command-palette --ref [0-9a-f]{40} -y" "$calls"
+  # Owned Seigiard packages follow their default branch, so they install
+  # without a ref. The third-party wakeup package stays on a pinned commit,
+  # matched by shape so a ref bump does not edit a test.
+  run grep -Fx "plugin install Seigiard/herdr-command-palette -y" "$calls"
   assert_success
-  run grep -Ex "plugin install Seigiard/herdr-pane-labels --ref [0-9a-f]{40} -y" "$calls"
+  run grep -Fx "plugin install Seigiard/herdr-pane-labels -y" "$calls"
   assert_success
   run grep -Fx "plugin enable seigi.pane-labels" "$calls"
   assert_success
   run grep -Fx "plugin enable seigi.command-palette" "$calls"
   assert_success
-  run grep -Ex "plugin install Seigiard/herdr-worktree-setup --ref [0-9a-f]{40} -y" "$calls"
+  run grep -Fx "plugin install Seigiard/herdr-worktree-setup -y" "$calls"
   assert_success
   run grep -Fx "plugin enable seigi.worktree-setup" "$calls"
   assert_success
@@ -1967,9 +1967,9 @@ SH
   assert_failure
   run grep -Fx "plugin uninstall seigi.worktree-setup" "$calls"
   assert_failure
-  run grep -Ex "plugin install Seigiard/herdr-command-palette --ref [0-9a-f]{40} -y" "$calls"
+  run grep -Fx "plugin install Seigiard/herdr-command-palette -y" "$calls"
   assert_success
-  run grep -Ex "plugin install Seigiard/herdr-worktree-setup --ref [0-9a-f]{40} -y" "$calls"
+  run grep -Fx "plugin install Seigiard/herdr-worktree-setup -y" "$calls"
   assert_success
   # Absent from the registry, so the retired-plugin uninstall in 0851 must not run.
   run grep -F "herdr-focus-notify" "$calls"
@@ -2181,15 +2181,13 @@ TOML
   assert_output 'server_not_running'
 }
 
-function test_scripts_08524_worktree_setup_is_installed_enabled_and_pinned() {
-  _bats_test_init 8524 'standalone Worktree Setup is installed enabled and pinned to the reviewed commit'
+function test_scripts_08524_worktree_setup_is_installed_enabled_and_unpinned() {
+  _bats_test_init 8524 'standalone Worktree Setup is installed enabled and follows its default branch'
   command_exists herdr && herdr --version >/dev/null 2>&1 \
     || skip "a working upstream herdr is not installed"
   [[ "${MMS_DISPOSABLE_HOME:-}" == 1 ]] || skip "requires the disposable post-apply registry"
-  # This is the one test that keeps the pinned commit as a literal. Here it is not
-  # copied from the template being exercised: the real herdr reports the commit it
-  # actually resolved, so the literal compares two independent sides. Every other
-  # site matches the shape of a pinned ref instead.
+  # The real herdr reports what it resolved: no requested ref, because the
+  # owned package follows its default branch and herdr-auto-update moves it.
   local plugin_json
   run env -i HOME="$HOME" PATH="$PATH" \
     HERDR_SOCKET_PATH="/tmp/mms-herdr-worktree-setup-$$.sock" herdr plugin list --json
@@ -2211,7 +2209,7 @@ source = plugin["source"]
 assert plugin["enabled"] is True, plugin
 assert source["kind"] == "github", source
 assert source["owner"] == "Seigiard" and source["repo"] == "herdr-worktree-setup", source
-assert source["resolved_commit"] == "70048c616979719aa592df36f37ec076227b2ac8", source
+assert "requested_ref" not in source, source
 PY
   assert_success
 }

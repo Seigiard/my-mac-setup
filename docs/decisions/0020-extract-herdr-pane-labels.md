@@ -33,7 +33,9 @@ Own the reusable implementation, private runtime libraries, manifest,
 diagnostics, lifecycle actions, behavior tests, documentation, CI, and
 releases in
 [`Seigiard/herdr-pane-labels`](https://github.com/Seigiard/herdr-pane-labels).
-The reviewed deployment pin is commit `aba61eb788c5fe0630dc570d96fd14683e2f63c7` (`v0.2.3`). The plugin ID remains
+Dotfiles installs the package from its default branch without a pin;
+`herdr-auto-update` trusts the `Seigiard` owner and fast-forwards it on Herdr
+start. The plugin ID remains
 `seigi.pane-labels`; the `sweep` action and event scopes remain compatible.
 
 The package owns alias policy and exposes one supported consumer boundary:

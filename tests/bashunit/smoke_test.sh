@@ -255,7 +255,7 @@ function test_smoke_009_herdr_plugin_updates_are_automatic_and_owner_res() {
   # both match, and a commented-out allowlist is exactly the state this
   # security boundary has to go red on.
   assert_file_contains "$config" '^auto_update = true$'
-  assert_file_contains "$config" '^trusted_owners = \["dio16"\]$'
+  assert_file_contains "$config" '^trusted_owners = \["dio16", "Seigiard"\]$'
 }
 
 # ===========================================

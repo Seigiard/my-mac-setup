@@ -32,14 +32,14 @@ behavior and is not assumed to pass through the provenance PATH wrapper.
 Own the reusable implementation, manifest, behavioral tests, documentation, CI,
 and releases in
 [`Seigiard/herdr-worktree-setup`](https://github.com/Seigiard/herdr-worktree-setup).
-The package is installed and enabled at reviewed immutable commit
-`70048c616979719aa592df36f37ec076227b2ac8` (release `v0.1.1`).
+The package is installed and enabled from its default branch without a pin;
+`herdr-auto-update` trusts the `Seigiard` owner and fast-forwards it on Herdr
+start.
 
 Keep the repository-keyed `copy`, `steps`, and `fresh-base` policy in
 `config.toml` managed by this repository. A one-time chezmoi migration replaces
-the old local plugin with the pinned package and retains the old files when
-installation or enablement fails. The normal GitHub plugin installer owns later
-reviewed updates; uninstalling the package does not remove the policy file.
+the old local plugin with the package and retains the old files when
+installation or enablement fails. `herdr-auto-update` owns later updates; uninstalling the package does not remove the policy file.
 
 The package writes `herdr-generated-worktree` atomically in the Git per-worktree
 administrative directory, with the generated branch on line one. It observes
