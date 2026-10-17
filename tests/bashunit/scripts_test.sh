@@ -1921,6 +1921,10 @@ SH
   assert_success
   run grep -Ex "plugin install usrivastava92/herdr-wakeup/plugin --ref [0-9a-f]{40} -y" "$calls"
   assert_success
+  run grep -Ex "plugin install jmarbutt/herdr-spaces-pr-status --ref [0-9a-f]{40} -y" "$calls"
+  assert_success
+  run grep -Fx "plugin enable jmarbutt.spaces-pr-status" "$calls"
+  assert_success
   # The retired focus-notify install is removed and never reinstalled; 08511
   # is the control where it is absent and nothing touches it.
   run grep -Fx "plugin uninstall herdr-focus-notify" "$calls"
@@ -1997,7 +2001,7 @@ SH
 printf '%s\n' "$*" >> "$HERDR_CALLS"
 case "$*" in
   "plugin list --json")
-    printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","enabled":true,"source":{"kind":"github"}},{"plugin_id":"seigi.pane-labels","enabled":true,"source":{"kind":"github"}},{"plugin_id":"seigi.worktree-setup","enabled":true,"source":{"kind":"github"}}]}}'
+    printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","enabled":true,"source":{"kind":"github"}},{"plugin_id":"seigi.pane-labels","enabled":true,"source":{"kind":"github"}},{"plugin_id":"seigi.worktree-setup","enabled":true,"source":{"kind":"github"}},{"plugin_id":"jmarbutt.spaces-pr-status","enabled":true,"source":{"kind":"github"}}]}}'
     ;;
   "plugin enable "*)
     printf '%s\n' '{"id":"cli:plugin","error":{"code":"server_not_running","message":"offline"}}'

@@ -135,6 +135,15 @@ an agent works, then retains the assertion for 20 minutes after the final agent
 goes quiet. Updating it uses the same reviewed-pin policy; implementation and
 behavioral tests stay upstream.
 
+Chezmoi also installs
+[`jmarbutt/herdr-spaces-pr-status`](https://github.com/jmarbutt/herdr-spaces-pr-status)
+at a reviewed commit. It shows pull request state, check counts, and review
+state on each space through the `$pr`, `$pr_checks`, and `$pr_review` tokens
+in `~/.config/herdr/config.toml`. It needs `gh` and Node 20 or newer. Its owner
+is outside the `herdr-auto-update` allowlist, so updating it means reviewing a
+new commit and changing the pin in
+`run_onchange_after_7-install-herdr-github-plugins.sh.tmpl`.
+
 ### Role-based SSH access
 
 The managed roles and aliases are:
