@@ -26,11 +26,13 @@ tap "schpet/tap", trusted: true
 tap "letstri/tap", trusted: true
 tap "crmne/tap", trusted: true
 tap "umputun/apps", trusted: true
+tap "abue-ammar/tinycast", trusted: true
 
 # CLI tools (macOS only)
 brew "python"       # recovery requires Python 3.10+ for a shared monotonic clock
 brew "schpet/tap/linear"
 brew "letstri/tap/druk"
+brew "coreutils"    # gtimeout, which agents use to bound long commands
 
 # ImageMagick delegates. imagemagick lives in Brewfile, but it reaches these
 # two by shelling out at runtime (`gs` for the pdf/ps/eps delegates,
@@ -54,6 +56,7 @@ cask "nicosuave/tap/memex-app", trusted: true
 
 # Fonts
 cask "font-jetbrains-mono-nerd-font"
+cask "font-iosevka-nerd-font"
 cask "font-iosevka-term-nerd-font"
 cask "font-symbols-only-nerd-font"
 
@@ -64,7 +67,7 @@ cask "zed"
 cask "obsidian"
 
 # Productivity
-cask "raycast"
+cask "abue-ammar/tinycast/tinycast"
 cask "marta"
 cask "ticktick"
 cask "linear"
@@ -80,9 +83,9 @@ cask "karabiner-elements"
 cask "the-unarchiver"
 cask "imageoptim"
 cask "tailscale-app"
-cask "lunar"
 cask "vorssaint"
 cask "orbstack"
+cask "localsend"
 
 # Media
 cask "spotify"
@@ -98,6 +101,7 @@ cask "zen"
 cask "telegram"
 cask "slack"
 cask "zoom"
+cask "discord"
 
 # Design
 cask "figma"

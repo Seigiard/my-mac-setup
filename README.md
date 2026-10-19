@@ -91,7 +91,6 @@ After running chezmoi, configure these manually:
 
 ### Apps
 
-- **Raycast** — Import `*.rayconfig` backup
 - **SetApp** — Install: Bartender, CleanMyMac, CleanShot X, CloudMounter
 
 ### System
