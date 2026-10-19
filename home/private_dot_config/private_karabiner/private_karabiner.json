@@ -250,6 +250,26 @@
                         ]
                     },
                     {
+                        "description": "Cmd+Space → Seigiard Eng, then pass Cmd+Space through",
+                        "manipulators": [
+                            {
+                                "from": {
+                                    "key_code": "spacebar",
+                                    "modifiers": { "mandatory": ["command"] }
+                                },
+                                "to": [
+                                    { "select_input_source": { "input_source_id": "^org.sil.ukelele.keyboardlayout.seigiardlayout.english-seigiardtypography$" } },
+                                    { "shell_command": "hidutil property --set '{\"UserKeyMapping\": []}'" },
+                                    {
+                                        "key_code": "spacebar",
+                                        "modifiers": ["left_command"]
+                                    }
+                                ],
+                                "type": "basic"
+                            }
+                        ]
+                    },
+                    {
                         "description": "Left Cmd → Seigiard Eng, Right Cmd → Seigiard Cyr",
                         "manipulators": [
                             {
