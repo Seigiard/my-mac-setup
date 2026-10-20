@@ -13,4 +13,4 @@ git add <paths of the slice>
 git commit -F <message-file> -- <paths of the slice>
 ```
 
-Confirm with `git status` and report each hash with its subject. Commit only; a push or a PR is a separate request.
+Confirm with `git status` and report each hash with its subject. Whether to push or open a PR follows the two-way-door rule in `~/.claude/CLAUDE.md`.

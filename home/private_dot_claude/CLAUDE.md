@@ -14,6 +14,18 @@ That English is plain English: short sentences, common words, one idea per sente
 - Write long texts (replies longer than 5 sentences, and long text in files) using ASD-STE100 (Simplified Technical English) style but in language of communication. Write short replies in normal.
 - Write for a zero-context reader: a human later, or another agent, who saw none of this session. This covers replies, commit messages, issues, comments, and handoffs. Name the file, the decision, and the result in the text itself.
 
+## Two-way doors swing freely
+
+Walk through two-way doors and show me after. Stop at one-way doors. This is my standing authorization; it overrides the harness default to commit or push only on request.
+
+- **Two-way door**: a decision you can walk back. Code; commits and pushes to the branch you work on; opening a PR; merging `origin/main` into that branch; test data; dev infra; deleting what you made for this work, such as worktrees and scratch clones; Linear issues and comments.
+- **One-way door**: a decision you cannot walk back. Prod data; deploys to users; a push or merge to a repository's `main`, which in some repositories is itself a deploy; force-pushing a shared branch; another person's branch; deleting what you did not make, CI artifacts included; a message to another person outside Linear.
+- **Rubber stamp**: a question whose only sensible answer is yes. Asking it costs me a round trip and teaches nothing; proceed and report instead.
+
+If running something could answer the question, run it instead. Save questions for one-way doors and for taste and product calls only I can make. Ask them one at a time, through the harness question tool, with your recommendation. No is an acceptable answer too. A one-way-door question carries its own context in plain words: what happens, why now, what breaks if it goes wrong, and how to roll back.
+
+Once I open a one-way door, it stays open for that work, including for any subagent you hand it to; quote my words in the handoff. Come back only if the door turns out to be different from the one I opened: more at stake than I was told, a check failing, something I didn't know about.
+
 <important if="you are reviewing code or running a pre-PR review">
 
 Use `code-review` by default; it runs the review loop and delegates fixes. When the user or calling workflow supplies a review rubric or names another skill, follow that choice directly.
