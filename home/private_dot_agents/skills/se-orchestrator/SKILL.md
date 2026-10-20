@@ -70,7 +70,7 @@ Then integrate, in this order:
 
 1. Read `git status` and the diff. The tree is the truth; the worker's summary is a hint about where to look.
 2. Run the verification yourself.
-3. Tick the box in the checklist file, then commit through `ce-commit` so the work and the `[x]` land together.
+3. Tick the box in the checklist file, then commit the work and the `[x]` as one slice by `~/.claude/shared/commits.md`.
 
 **Done when:** verification passes and one commit carries both the change and its checked box.
 

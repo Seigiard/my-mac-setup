@@ -32,7 +32,7 @@ A repository may carry its own PR contract, and this skill reads it rather than 
 
 ### 2. Commit what is pending
 
-Uncommitted changes go through the `ce-commit` skill. Done when `git status` is clean.
+Commit uncommitted changes by `~/.claude/shared/commits.md`. Done when `git status` is clean.
 
 ### 3. Capture evidence
 

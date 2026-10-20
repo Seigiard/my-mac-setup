@@ -36,6 +36,12 @@ Read `~/.claude/shared/testing.md`. It carries the oracle gate that decides whet
 
 </important>
 
+<important if="you are about to make a git commit">
+
+Read `~/.claude/shared/commits.md`. It carries how a working tree is sliced into commits, the message rule, and the staging form that keeps other index entries out of the commit.
+
+</important>
+
 <important if="you are writing, changing, or reviewing comments in code">
 
 Read `~/.claude/shared/comments.md`. It carries what a comment is for, what happens to commented-out code, and which structural markers always stay.
