@@ -41,7 +41,7 @@ Fill the research template's sections in `research.html` (pf-cycle → artifact 
 
 ## Present and iterate
 
-Present the research narrative in chat: the published artifact link plus a tight summary of the vision and the open questions. When the user starts answering the open questions, walk them one per turn, each as a self-contained decision brief: the question in plain words with no session labels, the options with their consequences, your recommendation. Fold each round into `research.html`, rebuild it with `assemble.py`, and republish until the user confirms the narrative matches the theory in their head — run the **missing-prior analysis** (pf-cycle) on every round: feedback that reveals a missing prior updates repo context, not just the narrative.
+Present the research narrative in chat: the published artifact link plus a tight summary of the vision and the open questions. When the user starts answering the open questions, read `~/.claude/shared/decision-brief.md` and walk them one per turn, each as a decision brief. Fold each round into `research.html`, rebuild it with `assemble.py`, and republish until the user confirms the narrative matches the theory in their head — run the **missing-prior analysis** (pf-cycle) on every round: feedback that reveals a missing prior updates repo context, not just the narrative.
 
 **Pure research — no Linear writes.** This step changes nothing anywhere: no epic, no issues, no comments. If an epic already exists, read it as history and store artifacts under its id; otherwise store them under a short kebab topic slug (`~/.claude/artifacts/<topic-slug>/`). The whole cycle works off this directory — Linear stays untouched unless the user explicitly asks for it (pf-cycle → Linear is opt-in).
 

@@ -20,7 +20,7 @@ description: "Implement a spec's ticket graph through the tdd chain in separate 
 5. For each frontier ticket, create a worktree and ticket branch from the integration branch tip with `git worktree add -b <ticket-branch> <path> <integration-branch>`. Run the `tdd` chain there as that ticket's orchestrator. Several frontier tickets may run at once.
    Done when each frontier ticket has a running or completed chain in its own worktree.
 
-6. Per ticket, run only the chain's validation. Do not run a per-ticket review. If a chain stops, mark the ticket blocked; its dependents wait, the independent frontier continues, and ask the user at once with the ticket, run directory, and reason. If a child cannot start, report its reason and run directory to the user and stop. Do not wait for other chains before asking.
+6. Per ticket, run only the chain's validation. Do not run a per-ticket review. If a chain stops, mark the ticket blocked; its dependents wait, the independent frontier continues, and ask the user at once as a decision brief that names the ticket; read `~/.claude/shared/decision-brief.md` before drafting it. If a child cannot start, report its reason and run directory to the user and stop. Do not wait for other chains before asking.
    Done when every completed chain is validated or every stopped chain is reported as blocked.
 
 7. When a chain succeeds, merge its ticket branch into the integration branch yourself with `git merge --no-ff`. A clean merge needs no child. If the merge conflicts, abort it with `git merge --abort` and start a fresh medium-tier child to redo the merge, resolve the conflicts, and commit.
