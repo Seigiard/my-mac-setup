@@ -36,6 +36,10 @@ chezmoi_full_fixture() {
     MMS_CHEZMOI_FIXTURE_POSTHOG_PERSONAL_API_KEY=mms-test-posthog-canary \
     MMS_CHEZMOI_FIXTURE_VRT_R2_ACCESS_KEY_ID=mms-test-vrt-r2-access-key-canary \
     MMS_CHEZMOI_FIXTURE_VRT_R2_SECRET_ACCESS_KEY=mms-test-vrt-r2-secret-key-canary \
+    MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_WRITE_ACCESS_KEY_ID=mms-test-agent-reports-write-key-id-canary \
+    MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY=mms-test-agent-reports-write-secret-canary \
+    MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_ACCESS_KEY_ID=mms-test-agent-reports-read-key-id-canary \
+    MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_SECRET_ACCESS_KEY=mms-test-agent-reports-read-secret-canary \
     chezmoi_unattended full-fixture "$@"
 }
 
@@ -50,6 +54,10 @@ chezmoi_full_fixture_finite_stdin() {
     MMS_CHEZMOI_FIXTURE_POSTHOG_PERSONAL_API_KEY=mms-test-posthog-canary \
     MMS_CHEZMOI_FIXTURE_VRT_R2_ACCESS_KEY_ID=mms-test-vrt-r2-access-key-canary \
     MMS_CHEZMOI_FIXTURE_VRT_R2_SECRET_ACCESS_KEY=mms-test-vrt-r2-secret-key-canary \
+    MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_WRITE_ACCESS_KEY_ID=mms-test-agent-reports-write-key-id-canary \
+    MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY=mms-test-agent-reports-write-secret-canary \
+    MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_ACCESS_KEY_ID=mms-test-agent-reports-read-key-id-canary \
+    MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_SECRET_ACCESS_KEY=mms-test-agent-reports-read-secret-canary \
     chezmoi_unattended_finite_stdin full-fixture "$@"
 }
 

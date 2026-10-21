@@ -72,7 +72,9 @@ fi
 # -------------------------------------------
 # Editor
 # -------------------------------------------
-export EDITOR="zed"
+# --wait blocks until the tab closes. Without it `chezmoi edit` re-encrypts and
+# deletes its temp copy at once, so edits to the secrets are silently lost.
+export EDITOR="zed --wait"
 
 # -------------------------------------------
 # Linear CLI
@@ -91,6 +93,10 @@ export OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1
 export VRT_R2_BUCKET="membrane-visual-regression-testing"
 export VRT_R2_ENDPOINT="https://e9d416b8a5d9a9bd386258cc37fd3a98.r2.cloudflarestorage.com"
 export VRT_R2_PUBLIC_DOMAIN="vrt.membrane-dev.com"
+
+# Agent reports on R2 (github.com/Seigiard/agent-reports). The key pairs
+# come from the machine secrets below.
+export AGENT_REPORTS_ACCOUNT_ID="6c456b00c8ae327062190493eea76047"
 
 {{ if .is_darwin }}
 # -------------------------------------------
@@ -120,6 +126,10 @@ export OPENROUTER_API_KEY={{ env "MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY" | quot
 export POSTHOG_PERSONAL_API_KEY={{ env "MMS_CHEZMOI_FIXTURE_POSTHOG_PERSONAL_API_KEY" | quote }}
 export VRT_R2_ACCESS_KEY_ID={{ env "MMS_CHEZMOI_FIXTURE_VRT_R2_ACCESS_KEY_ID" | quote }}
 export VRT_R2_SECRET_ACCESS_KEY={{ env "MMS_CHEZMOI_FIXTURE_VRT_R2_SECRET_ACCESS_KEY" | quote }}
+export AGENT_REPORTS_WRITE_ACCESS_KEY_ID={{ env "MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_WRITE_ACCESS_KEY_ID" | quote }}
+export AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY={{ env "MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY" | quote }}
+export AGENT_REPORTS_READ_ACCESS_KEY_ID={{ env "MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_ACCESS_KEY_ID" | quote }}
+export AGENT_REPORTS_READ_SECRET_ACCESS_KEY={{ env "MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_SECRET_ACCESS_KEY" | quote }}
 {{- else if and $unattended (ne $unattendedProfile "host-partial") }}
 {{-   fail "invalid unattended chezmoi profile" }}
 {{- else if and $ageIdentity (stat $ageIdentity) }}
@@ -143,4 +153,8 @@ export OPENROUTER_API_KEY={{ $secrets.OPENROUTER_API_KEY | quote }}
 export POSTHOG_PERSONAL_API_KEY={{ $secrets.POSTHOG_PERSONAL_API_KEY | quote }}
 export VRT_R2_ACCESS_KEY_ID={{ $secrets.VRT_R2_ACCESS_KEY_ID | quote }}
 export VRT_R2_SECRET_ACCESS_KEY={{ $secrets.VRT_R2_SECRET_ACCESS_KEY | quote }}
+export AGENT_REPORTS_WRITE_ACCESS_KEY_ID={{ $secrets.AGENT_REPORTS_WRITE_ACCESS_KEY_ID | quote }}
+export AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY={{ $secrets.AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY | quote }}
+export AGENT_REPORTS_READ_ACCESS_KEY_ID={{ $secrets.AGENT_REPORTS_READ_ACCESS_KEY_ID | quote }}
+export AGENT_REPORTS_READ_SECRET_ACCESS_KEY={{ $secrets.AGENT_REPORTS_READ_SECRET_ACCESS_KEY | quote }}
 {{- end }}

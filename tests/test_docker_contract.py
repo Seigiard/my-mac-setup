@@ -39,6 +39,17 @@ def top_level_make_environment(**overrides):
     return environment
 
 
+
+def inventory_fixtures():
+    fixtures = set()
+    for line in INVENTORY.read_text(encoding="utf-8").splitlines():
+        if not line or line.startswith("#"):
+            continue
+        field = line.split("\t")[4]
+        if field != "-":
+            fixtures.update(field.split(","))
+    return fixtures
+
 class TestDockerContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -46,8 +57,13 @@ class TestDockerContract(unittest.TestCase):
         cls.compose = COMPOSE.read_text(encoding="utf-8")
         cls.dockerfile = DOCKERFILE.read_text(encoding="utf-8")
         cls.workflow = WORKFLOW.read_text(encoding="utf-8")
-        if len(FIXTURE_CANARIES) != 9:
-            raise AssertionError("common.bash must define the nine canonical fixture canaries")
+        # The inventory is what the launcher requires; common.bash must supply
+        # exactly that set. An empty parse would leave the canary loops below
+        # vacuously green, so an empty set fails too.
+        if not FIXTURE_CANARIES or set(FIXTURE_CANARIES) != inventory_fixtures():
+            raise AssertionError(
+                "common.bash canaries must match the inventory's required fixtures"
+            )
 
     def service_names(self):
         names = re.findall(r"^  ([a-zA-Z0-9_-]+):\n", self.compose, re.MULTILINE)
