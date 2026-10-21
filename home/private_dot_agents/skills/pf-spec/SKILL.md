@@ -10,7 +10,7 @@ Write the approved research narrative into the product contracts: author the con
 
 **Fresh context.** When this conversation already ran `/pf-research` (or an audit), say in one line that `research.html` carries everything and `/clear` then `/pf-spec <id>` runs leaner; then continue unless the user clears.
 
-**Entry.** The normal entry is an approved research narrative in `~/.claude/artifacts/<id>/` (pf-cycle → Artifact storage names which file is the source), or an issue audit at `~/.claude/artifacts/<ISSUE-ID>/issue.md` whose chosen option changes a contract — then its Рекомендация section is what Step 1 reads, and the contract owner's confirmation the audit called for happens in this step. A small, well-understood change may instead be spec'd directly from the user's instruction, with no formal research step — then the user's instruction is what Step 1 reads, and the spec narrative's Purpose section carries it.
+**Entry.** The normal entry is an approved research narrative in `~/.claude/artifacts/<id>/` (pf-cycle → Artifact storage names which file is the source), or an issue audit at `~/.claude/artifacts/<ISSUE-ID>/issue.html` whose chosen option changes a contract — then its Recommendation section (`#recommendation`) is what Step 1 reads, and the contract owner's confirmation the audit called for happens in this step. A small, well-understood change may instead be spec'd directly from the user's instruction, with no formal research step — then the user's instruction is what Step 1 reads, and the spec narrative's Purpose section carries it.
 
 ## What the contract spec is
 

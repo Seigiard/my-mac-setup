@@ -109,7 +109,7 @@ class ShippedPages(unittest.TestCase):
 
     PAGES = [
         KIT / "gallery.html",
-        *(ROOT / "home/private_dot_claude/shared/pf-cycle-pages" / name for name in ("research.html", "spec.html", "demo.html")),
+        *(ROOT / "home/private_dot_claude/shared/pf-cycle-pages" / name for name in ("issue.html", "research.html", "spec.html", "demo.html")),
         ROOT / "home/private_dot_agents/skills/explain-diff-html/references/template.html",
     ]
 

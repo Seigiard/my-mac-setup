@@ -1,6 +1,6 @@
 # The pf cycle — building and publishing narrative pages
 
-Not a command. The page mechanics for `/pf-research`, `/pf-spec` and `/pf-build`: screenshots, the narrative HTML, rendered contract diffs, publishing. The rest of the shared mechanics (artifact directory, naming, language, Linear) are in `~/.claude/shared/pf-cycle.md`; read that first.
+Not a command. The page mechanics for `/pf-issue`, `/pf-research`, `/pf-spec` and `/pf-build`: screenshots, the narrative HTML, rendered contract diffs, publishing. The rest of the shared mechanics (artifact directory, naming, language, Linear) are in `~/.claude/shared/pf-cycle.md`; read that first.
 
 ## Screenshot mechanics
 
@@ -15,7 +15,7 @@ Every capture in the cycle — `/pf-research`'s "before" shots, `/pf-spec`'s sto
 
 A narrative page is a template from `~/.claude/shared/pf-cycle-pages/` filled in place, on the render kit (`~/.claude/shared/render-kit.md`). The template owns structure, the kit owns styling, and the filled page is the step's canonical source.
 
-- **Start from the template.** Copy `research.html`, `spec.html` or `demo.html` from `~/.claude/shared/pf-cycle-pages/` into the artifact directory and fill each `<!-- slot: … -->` in place. Keep the three `<!-- kit: … -->` markers. Translate the headings and labels into the page language once, keeping the ids. Each element a slot names (frame, claim card, verdict label, contract card, Mermaid diagram, checklist, iteration table) has a working example in `~/.claude/shared/render-kit/gallery.html`; copy its markup from there. A page is bare semantic HTML: its only classes are `language-x` on code and `mermaid` on a diagram, and it has no `<style>` of its own.
+- **Start from the template.** Copy `issue.html`, `research.html`, `spec.html` or `demo.html` from `~/.claude/shared/pf-cycle-pages/` into the artifact directory and fill each `<!-- slot: … -->` in place. Keep the three `<!-- kit: … -->` markers. Translate the headings and labels into the page language once, keeping the ids. Each element a slot names (frame, claim card, verdict label, contract card, Mermaid diagram, checklist, iteration table) has a working example in `~/.claude/shared/render-kit/gallery.html`; copy its markup from there. A page is bare semantic HTML: its only classes are `language-x` on code and `mermaid` on a diagram, and it has no `<style>` of its own.
 - **Frames by path.** Downscale each capture into `frames/` beside the page (`sips -s format jpeg -s formatOptions 82 --resampleWidth 1100 <in.png> --out frames/<name>.jpg`, so 15 or more frames stay near 1 MB) and point the `<img src>` at that relative path. The source stays small enough to read and edit. Every frame opens at natural size on click, which the kit provides.
 - **Build.** `python3 ~/.claude/shared/render-kit/assemble.py <name>.html -o build/<name>.html` inlines the kit and every frame, so the built page opens from disk, by mail, or on a host. It exits 1 and names any frame it cannot find.
 - **Each feedback round** is one edit of the source and one `assemble.py` run, then a republish.
@@ -35,5 +35,5 @@ Render contract deltas, don't paste them: `bun run contracts:diff <refA> <refB> 
 
 ## Publishing
 
-- Publish `build/research.html` and `build/spec.html` as a Claude Artifact as built: the kit loads no external stylesheet, which Artifacts would block, so the built file needs no second copy. **Republish the same file path every iteration** so the shared link stays current; label versions. The built page doubles as a Slack or Linear attachment when a snapshot is wanted. The demo is the exception: it publishes to the VRT host the team can already see (`/pf-build` → The demo).
+- Publish `build/issue.html`, `build/research.html` and `build/spec.html` as a Claude Artifact as built, on a host that has Artifacts; elsewhere `open` the built file: the kit loads no external stylesheet, which Artifacts would block, so the built file needs no second copy. **Republish the same file path every iteration** so the shared link stays current; label versions. The built page doubles as a Slack or Linear attachment when a snapshot is wanted. The demo is the exception: it publishes to the VRT host the team can already see (`/pf-build` → The demo).
 - The built pages get shared beyond this chat, so their visible text (`<title>`, headings, labels, prose) follows **Naming on public surfaces** and **Language** in `pf-cycle.md`.
