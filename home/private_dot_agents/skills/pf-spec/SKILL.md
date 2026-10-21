@@ -88,6 +88,6 @@ Triage open-mindedly, but don't be a pushover — record accept/reject with reas
 
 ## Step 5 — Iterate with the user
 
-Present in chat: the PR link, one-line summary per contract delta, impact labels, and the narrative artifact link. This loop is the point of the command — expect several rounds. On every round run the **missing-prior analysis** (pf-cycle): feedback caused by an under-specified spec is simply applied; feedback caused by a missing prior *also* updates the repository context so the next spec doesn't repeat it. Rebuild artifacts, regenerate the narrative, republish, update the ledger, keep the PR green.
+Present in chat: the PR link, one-line summary per contract delta, impact labels, and the narrative's report link. This loop is the point of the command — expect several rounds. On every round run the **missing-prior analysis** (pf-cycle): feedback caused by an under-specified spec is simply applied; feedback caused by a missing prior *also* updates the repository context so the next spec doesn't repeat it. Rebuild artifacts, regenerate the narrative, republish, update the ledger, keep the PR green.
 
 **Hand off.** When the user confirms the contract spec matches their theory: record the PR + narrative links in the artifact directory (and on the epic, when a Linear one exists), and close with the line the user types after `/clear` — `/pf-build <epic-or-topic>`. The artifact directory and the epic PR carry the cycle's state; `/pf-build` needs no chat history, and a build run in this context spends its tokens against the spec session's weight.

@@ -15,7 +15,7 @@ uv tool install git+ssh://git@github.com/Seigiard/agent-reports.git#subdirectory
 
 ## Publish
 
-1. Write the report as a folder with `index.html` at its root. Reference assets with relative paths (`assets/chart.png`). Keep secrets, tokens and personal data out of the report.
+1. Write the report as a folder with `index.html` at its root; a single built page is a folder holding it as `index.html`. Reference assets with relative paths (`assets/chart.png`). Keep secrets, tokens and personal data out of the report.
 2. Run `publish-report <folder> --project <repo-or-topic> --json`. `--dry-run` validates the folder without credentials.
 3. Give the user `viewer_url`. Give another agent `r2_uri` or `get_command`.
 

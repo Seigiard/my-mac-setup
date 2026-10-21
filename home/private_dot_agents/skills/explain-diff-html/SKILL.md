@@ -98,10 +98,11 @@ Before assembling, confirm in the draft:
 
 On macOS without `--no-open`, run `open "$file"`.
 
-To publish the page as a Claude Artifact, publish the `/tmp` file as it is: the kit loads no external stylesheet, which Artifacts would block.
+Publish the page through the `agent-reports` skill (render-kit.md → Publishing), with the repository's name as the project.
 
-Finish with exactly one final line:
+Finish with exactly two final lines:
 
 ```
 Explanation: /tmp/2026-09-22-explanation-<slug>.html
+Report: <viewer_url>
 ```
