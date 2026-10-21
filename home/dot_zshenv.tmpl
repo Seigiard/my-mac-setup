@@ -72,7 +72,9 @@ fi
 # -------------------------------------------
 # Editor
 # -------------------------------------------
-export EDITOR="zed"
+# --wait blocks until the tab closes. Without it `chezmoi edit` re-encrypts and
+# deletes its temp copy at once, so edits to the secrets are silently lost.
+export EDITOR="zed --wait"
 
 # -------------------------------------------
 # Linear CLI
