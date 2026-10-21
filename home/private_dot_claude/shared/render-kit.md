@@ -1,6 +1,6 @@
 # Render kit for HTML pages
 
-Reached from the HTML-page pointer in `~/.claude/CLAUDE.md` for any HTML page or Claude Artifact, from the `explain-diff-html` skill, and from the pf cycle's page templates in `~/.claude/shared/pf-cycle-pages/`, all built on it. `render-kit/gallery.html` shows, in working markup, every element a pf narrative page uses; assemble it to see the kit in both themes.
+Reached from the HTML-page pointer in `~/.claude/CLAUDE.md` for any HTML page, from the `explain-diff-html` skill, and from the pf cycle's page templates in `~/.claude/shared/pf-cycle-pages/`, all built on it. `render-kit/gallery.html` shows, in working markup, every element a pf narrative page uses; assemble it to see the kit in both themes.
 
 Write bare semantic HTML and let the kit style it. The kit is one base layer on CSS variables; page markup carries two classes, `language-x` on code and `mermaid` on a diagram, and every other element is styled by its tag. Two libraries load from jsDelivr as scripts: speed-highlight 2.1.0 colours code, and Mermaid draws diagrams.
 
@@ -20,9 +20,13 @@ A page's own rules, when it needs any, go in a `<style>` after the components ma
 
 `head.html` holds the tokens, each with its Harmony step (github.com/evilmartians/harmony 1.4.0, OKLCH, equal APCA contrast per step across hues) and its reason. Take a colour for a page's own rule from those variables, so both themes follow; the theme is `color-scheme`, set by the system and overridden by a host's `data-theme="light|dark"` on `html`. Type is the system fonts of modernfontstacks.com, so nothing downloads.
 
-## Publishing as a Claude Artifact
+## Publishing
 
-Artifacts allow scripts from a few CDNs and block external stylesheets. The kit has none, so publish the assembled page as it is. The Artifact host wraps the file in its own skeleton, so a page may start at `<title>` without `<html>`, `<head>` or `<body>`; the head snippet's `<meta charset>` still matters when the same file is opened from disk. The host draws `pre.mermaid` itself, with Mermaid's default theme, which the page's CSS recolours.
+The assembled page carries the kit and every frame inside itself, so one built file is the whole report. Publish it through the `agent-reports` skill; each iteration hands over the newest link.
+
+### When a project names a Claude Artifact as the host
+
+Artifacts allow scripts from a few CDNs and block external stylesheets. The kit has none, so the same built file publishes as it is. The Artifact host wraps the file in its own skeleton, so a page may start at `<title>` without `<html>`, `<head>` or `<body>`; the head snippet's `<meta charset>` still matters when the same file is opened from disk. That host draws `pre.mermaid` itself, with Mermaid's default theme, which the page's CSS recolours.
 
 ## The vocabulary
 

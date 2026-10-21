@@ -35,5 +35,5 @@ Render contract deltas, don't paste them: `bun run contracts:diff <refA> <refB> 
 
 ## Publishing
 
-- Publish `build/issue.html`, `build/research.html` and `build/spec.html` as built: as a Claude Artifact where the host has them (render-kit.md → Publishing as a Claude Artifact says why the built file needs no second copy), else `open` the file. **Republish the same file path every iteration** so the shared link stays current; label versions. The built page doubles as a Slack or Linear attachment when a snapshot is wanted. The demo is the exception: it publishes to the VRT host the team can already see (`/pf-build` → The demo).
+- Publish `build/issue.html`, `build/research.html` and `build/spec.html` as built, through the `agent-reports` skill, with the product repository's name as the project. **Publish again every iteration** and hand over the newest link. The built page doubles as a Slack or Linear attachment when a snapshot is wanted. The demo is the exception: it publishes to the VRT host the team can already see (`/pf-build` → The demo).
 - The built pages get shared beyond this chat, so their visible text (`<title>`, headings, labels, prose) follows **Naming on public surfaces** and **Language** in `pf-cycle.md`.

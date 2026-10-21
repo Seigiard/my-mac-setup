@@ -40,7 +40,7 @@ Identifiers, paths, commands, contract terms, error text and code stay in Englis
 Every cycle's narratives live in `~/.claude/artifacts/<id>/` — never committed to the product repo. `<id>` is a short kebab topic slug by default; when a Linear epic or issue exists (pre-existing, or created on explicit request), use its id instead and rename a slug-named directory to it.
 
 - Canonical sources: the filled pages `issue.html`, `research.html`, `spec.html` and `demo.html` with their frames under `frames/`, and `/pf-build`'s sub-task files under `tasks/`. **The filled page is the canonical source**: a later command reads it, and each feedback round edits it (pf-cycle-narratives → Narrative HTML mechanics).
-- Built pages, written by `assemble.py` and never edited: `build/issue.html`, `build/research.html`, `build/spec.html`, `build/demo.html`, plus `build/<name>.artifact.html` for Artifact publishing.
+- Built pages, written by `assemble.py` and never edited: `build/issue.html`, `build/research.html`, `build/spec.html`, `build/demo.html`.
 - **Which file is the source.** For each narrative, its HTML file is the source when it carries the `<!-- kit: head -->` marker: read it, whatever else the directory holds. When that file is absent or lacks the marker, the cycle is older: read its `issue.md`, `research.md` or `spec.md`, or `divination.md` / `inscription.md` before 2026-08. A rerun in an older directory writes a filled page, which then wins.
 
 ## The frame

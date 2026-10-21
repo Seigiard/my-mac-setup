@@ -74,7 +74,7 @@ Read `~/.claude/shared/pull-requests.md`. It carries the zero-context reviewer r
 
 <important if="you are writing a report for me as a file, or building any HTML page or dashboard">
 
-A report for me is an HTML page on the render kit, assembled and opened. A `.md` file is for a deliverable that lives in a repository or that another agent reads. Read `~/.claude/shared/render-kit.md`. It carries the bare-semantic-HTML contract, the three markers `assemble.py` replaces with the kit's files, and why the assembled page publishes to an Artifact as it is.
+A report for me is an HTML page on the render kit. Every page built for me is published with the `agent-reports` skill, and the reply carries its viewer link, unless the project's instructions name another destination. A `.md` file is for a deliverable that lives in a repository or that another agent reads. Read `~/.claude/shared/render-kit.md`. It carries the bare-semantic-HTML contract, the three markers `assemble.py` replaces with the kit's files, and how the assembled page publishes.
 
 </important>
 
