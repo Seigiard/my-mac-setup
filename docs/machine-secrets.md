@@ -63,7 +63,8 @@ full-fixture profile renders `.zshenv` from canaries and keeps a count of them:
 3. Register `MMS_CHEZMOI_FIXTURE_NAME` in
    `tests/helpers/chezmoi-unattended-targets.tsv`, raise the fixture count in
    `tests/helpers/chezmoi-unattended`, and set the canary in
-   `tests/helpers/common.bash` and `.github/workflows/test-dotfiles.yml`.
+   `tests/helpers/common.bash`, `.github/workflows/test-dotfiles.yml`,
+   `docker/docker-compose.yml` and `docker/Dockerfile.ubuntu`.
 4. Extend the canary assertion in `tests/bashunit/templates_test.sh`
    (tests 0091, 0093 and 0095 list every exported name).
 
