@@ -39,9 +39,9 @@ Identifiers, paths, commands, contract terms, error text and code stay in Englis
 
 Every cycle's narratives live in `~/.claude/artifacts/<id>/` — never committed to the product repo. `<id>` is a short kebab topic slug by default; when a Linear epic or issue exists (pre-existing, or created on explicit request), use its id instead and rename a slug-named directory to it.
 
-- Canonical sources: the filled pages `issue.html` (with its `issue-source.md`, `context.md`, `candidates.md` working files), `research.html`, `spec.html` and `demo.html` with their frames under `frames/`, and `/pf-build`'s sub-task files under `tasks/`. **The filled page is the canonical source**: a later command reads it, and each feedback round edits it (pf-cycle-narratives → Narrative HTML mechanics).
+- Canonical sources: the filled pages `issue.html`, `research.html`, `spec.html` and `demo.html` with their frames under `frames/`, and `/pf-build`'s sub-task files under `tasks/`. **The filled page is the canonical source**: a later command reads it, and each feedback round edits it (pf-cycle-narratives → Narrative HTML mechanics).
 - Built pages, written by `assemble.py` and never edited: `build/issue.html`, `build/research.html`, `build/spec.html`, `build/demo.html`, plus `build/<name>.artifact.html` for Artifact publishing.
-- **Which file is the source.** An `issue.html`, `research.html` or `spec.html` that carries the `<!-- kit: head -->` marker is a filled page: read it, whatever else the directory holds. One without the marker is a built page from an older cycle: read that cycle's `issue.md`, `research.md` or `spec.md`, or `divination.md` / `inscription.md` before 2026-08. A rerun in an older directory writes a filled page, which then wins.
+- **Which file is the source.** For each narrative, its HTML file is the source when it carries the `<!-- kit: head -->` marker: read it, whatever else the directory holds. When that file is absent or lacks the marker, the cycle is older: read its `issue.md`, `research.md` or `spec.md`, or `divination.md` / `inscription.md` before 2026-08. A rerun in an older directory writes a filled page, which then wins.
 
 ## The frame
 
@@ -52,7 +52,7 @@ Every cycle's narratives live in `~/.claude/artifacts/<id>/` — never committed
 - **Required evidence** — the claims the answer rests on, each to be settled with evidence.
 - **Done when** — every required claim has a verdict and the question has an answer the evidence supports.
 
-A neighbouring finding — another surface, an adjacent defect, a related smell — widens the frame only when it changes the answer: it refutes the answer, it shows the answer leaves the defect in place (a symmetric leak under the same rule), or it is a surface the answer itself alters. Widen by an edit to the frame that states the finding behind it. Every other finding gets one line in the step's out-of-scope list (`/pf-issue`'s «Рядом, но вне задачи», the research narrative's open questions) and the gather moves on.
+A neighbouring finding — another surface, an adjacent defect, a related smell — widens the frame only when it changes the answer: it refutes the answer, it shows the answer leaves the defect in place (a symmetric leak under the same rule), or it is a surface the answer itself alters. Widen by an edit to the frame that states the finding behind it. Every other finding gets one line in the step's out-of-scope list (`/pf-issue`'s `#nearby` section, the research narrative's open questions) and the gather moves on.
 
 ## Environment preflight
 
