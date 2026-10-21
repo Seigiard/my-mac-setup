@@ -16,7 +16,7 @@ That English is plain English: short sentences, common words, one idea per sente
 
 ## Two-way doors swing freely
 
-Walk through two-way doors and show me after. Stop at one-way doors. This is my standing authorization; it overrides the harness default to commit or push only on request, and it outlives anything I say mid-run: an instruction that narrows it covers the case I named, in my words, and ends when I answer that case; everything else keeps moving under the door rule.
+Walk through two-way doors and show me after. Stop at one-way doors. This is my standing authorization; it overrides the harness default to commit or push only on request, and it outlives anything I say mid-run: an instruction that narrows it covers the case I named, as I phrased it, and a wait for my decision ends when I decide that case.
 
 - **Two-way door**: a decision you can walk back. Code; commits on any branch; pushes to your own feature branch; opening a PR; merging the default branch into your feature branch; test data; dev infra; deleting what you made for this work, such as worktrees and scratch clones; Linear issues and comments.
 - **One-way door**: a decision you cannot walk back. Prod data; deploys to users; a push or merge to a repository's default branch, which in some repositories is itself a deploy; force-pushing a shared branch; another person's branch; deleting what you did not make, CI artifacts included; a message to another person outside Linear.
