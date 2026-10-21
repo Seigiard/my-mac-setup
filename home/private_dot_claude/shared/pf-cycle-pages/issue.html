@@ -1,0 +1,87 @@
+<!doctype html>
+<!-- Issue audit, the canonical source of the /pf-issue step: fill the slots in place, keep the kit markers, build with assemble.py. Every frame sits beside the sentence it supports. Skip a section that has nothing to say; keep the order and the ids, /pf-spec reads #recommendation. Element patterns: ~/.claude/shared/render-kit/gallery.html. -->
+<!-- slot: lang on <html> and <main> is the page language code; every heading and label below is translated into it, ids stay -->
+<html lang="en">
+<head>
+<title><!-- slot: title, "Audit <ISSUE-ID> — <issue title>" --></title>
+<!-- kit: head -->
+<!-- kit: components -->
+</head>
+<body>
+<main lang="en">
+  <hgroup>
+    <h1><!-- slot: title, "Audit <ISSUE-ID> — <issue title>" --></h1>
+    <p><!-- slot: meta: the analysed commit, whether HEAD is behind origin/main, the date --></p>
+  </hgroup>
+
+  <nav aria-label="Contents">
+    <ul>
+      <li><a href="#gist">The gist</a></li>
+      <li><a href="#now">How it works now</a></li>
+      <li><a href="#contracts">What the contracts say</a></li>
+      <li><a href="#problem">The problem</a></li>
+      <li><a href="#origin">Where it came from</a></li>
+      <li><a href="#blast">What any fix touches</a></li>
+      <li><a href="#options">Options</a></li>
+      <li><a href="#validation">Validation</a></li>
+      <li><a href="#recommendation">Recommendation</a></li>
+      <li><a href="#decisions">Decided and to decide</a></li>
+      <li><a href="#nearby">Nearby, out of scope</a></li>
+      <li><a href="#next">Next</a></li>
+    </ul>
+  </nav>
+
+  <h2 id="gist">The gist</h2>
+  <!-- slot: four sentences: what the issue claims, what holds, what does not, what the fix really is -->
+
+  <h2 id="now">How it works now</h2>
+  <!-- slot: a <pre class="mermaid"> sequence diagram or call tree of the runtime path, then a table: what each side returns and which rule decides it -->
+
+  <h2 id="contracts">What the contracts say</h2>
+  <!-- slot: one claim card per touched contract:
+  <article><header><strong>contract</strong> <ins>intends it</ins> | <del>contradicted</del> | <small>silent</small></header><blockquote>the governing line, quoted</blockquote><p>whether prose and artifact agree; whether the contract intends the behaviour or is silent</p><footer><small>Sources: <code>file:line</code></small></footer></article>
+  State plainly when the fix is a contract change that needs the owner -->
+
+  <h2 id="problem">The problem</h2>
+  <!-- slot: <pre><code class="language-ts"> pseudocode of the faulty path; then an <ol> of the defects, each with its symptom class as a <small>: data leak, wording leak, declared behaviour, stale prose, invalid fixture -->
+
+  <h2 id="origin">Where it came from</h2>
+  <!-- slot: a table of commit, PR, date, author's stated reason; then one sentence: deliberate or accidental -->
+
+  <h2 id="blast">What any fix touches</h2>
+  <!-- slot: <pre><code class="language-plain"> file tree with # comments for the blast radius; the places that are not obvious -->
+
+  <h2 id="options">Options</h2>
+  <!-- slot: one <article> per option: <header><strong>Option N: name</strong> <ins>recommended</ins> | <del>ruled out</del></header>, a <pre><code class="language-diff"> or pseudocode sketch, the validator's frames as <figure> when a prototype was rendered; then one comparison table over the eight lines of step 3: mechanism, fixes/leaves, who loses what, boundary kind, pinned test, contract impact + classifier line, blocking gate, unknowns -->
+
+  <h2 id="validation">Validation</h2>
+  <!-- slot: one <article> per validated candidate: <header><strong>Option N</strong> <ins>VIABLE</ins> | <mark>VIABLE WITH CHANGES</mark> | <del>BROKEN</del></header>, required changes as <ul>, what stayed UNVERIFIED and why. For an option not validated, one line on why its verdict could not change the choice -->
+
+  <h2 id="recommendation">Recommendation</h2>
+  <!-- slot: the option and its reason in 1 to 3 sentences, then a numbered work order as <ol>, then a <dl> of contracts: <dt>contract</dt><dd>changes | stays untouched</dd> -->
+
+  <h2 id="decisions">Decided and to decide</h2>
+  <article>
+    <header><strong>Decided by me</strong></header>
+    <ul>
+      <!-- slot: one <li> per decision the audit made itself -->
+    </ul>
+  </article>
+  <article>
+    <header><strong>Yours to decide</strong></header>
+    <ol>
+      <!-- slot: exactly the decisions the user must make, one <li> each -->
+    </ol>
+  </article>
+
+  <h2 id="nearby">Nearby, out of scope</h2>
+  <!-- slot: follow-up candidates in ticket-ready form, one <article> each with <dl>: <dt>Summary</dt>, <dt>Observed</dt>, <dt>Done when</dt>; then a <details><summary>Not verified</summary><ul>…</ul></details> -->
+
+  <h2 id="next">Next</h2>
+  <!-- slot: the one handoff line the user can type, in a <pre><code class="language-bash"> block -->
+
+  <footer><small><!-- slot: the sources and the commit the facts came from --></small></footer>
+</main>
+<!-- kit: scripts -->
+</body>
+</html>

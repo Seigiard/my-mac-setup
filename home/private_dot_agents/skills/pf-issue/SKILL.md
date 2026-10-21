@@ -1,17 +1,17 @@
 ---
 name: pf-issue
 description: >-
-  Audit a tracker issue against the product contracts and the code, treating the issue as a hypothesis, then deliver validated solution options as a show-me markdown report. Defect entry to the /pf-research → /pf-spec → /pf-build cycle: hands off to /pf-spec when the chosen fix changes a contract, to /pf-build otherwise. Use when the user says "pf-issue <issue>", asks to study or explain an issue relative to code and contracts, or asks in Russian ("изучи <issue> относительно кода и контрактов", "исследуй <issue>, посмотри код и контракты", "в чём проблема и варианты решения").
+  Audit a tracker issue against the product contracts and the code, treating the issue as a hypothesis, then deliver validated solution options as an HTML audit page. Defect entry to the /pf-research → /pf-spec → /pf-build cycle: hands off to /pf-spec when the chosen fix changes a contract, to /pf-build otherwise. Use when the user says "pf-issue <issue>", asks to study or explain an issue relative to code and contracts, or asks in Russian ("изучи <issue> относительно кода и контрактов", "исследуй <issue>, посмотри код и контракты", "в чём проблема и варианты решения").
 argument-hint: "<issue URL or ID>"
 ---
 
 # /pf-issue — audit a tracker issue against contracts and code
 
-The defect entry to the pf cycle: `/pf-research` starts from a product change, `/pf-issue` starts from a reported issue. Both end at the same fork — `/pf-spec` when the fix changes a contract, `/pf-build` when it stays inside the contracts. Shared mechanics (artifact storage, Linear as opt-in, naming on public surfaces, language, missing-prior analysis): read `~/.claude/shared/pf-cycle.md` first. This step changes nothing in the repo and writes nothing to the tracker.
+The defect entry to the pf cycle: `/pf-research` starts from a product change, `/pf-issue` starts from a reported issue. Both end at the same fork — `/pf-spec` when the fix changes a contract, `/pf-build` when it stays inside the contracts. Shared mechanics (artifact storage, Linear as opt-in, naming on public surfaces, language, missing-prior analysis): read `~/.claude/shared/pf-cycle.md` first; for the audit page and its frames also `~/.claude/shared/pf-cycle-narratives.md`. This step changes nothing in the repo and writes nothing to the tracker.
 
 Authority runs contracts → code → issue. Past audits confirmed the issue's complaint every time and found it incomplete every time: a stale number, a second symmetric leak, a wrong mechanism, a premise the contract itself contradicts. The audit's value is what the issue did not say and the fix direction it got wrong.
 
-The artifact directory `~/.claude/artifacts/<ISSUE-ID>/` carries the state between steps — `issue.md` for the fetched issue, `context.md` for verified facts, `candidates.md` for the options — and subagents read those files instead of re-researching.
+The artifact directory `~/.claude/artifacts/<ISSUE-ID>/` carries the state between steps — `issue-source.md` for the fetched issue, `context.md` for verified facts, `candidates.md` for the options, `issue.html` for the audit — and subagents read those files instead of re-researching.
 
 ## 1. Anchor
 
@@ -70,7 +70,7 @@ Done when the recommended option carries a verdict you have re-verified, every r
 
 ## 5. Report
 
-Read `~/.agents/skills/show-me/SKILL.md` (the skill is manual-only, so the Skill tool will not load it) and write `~/.claude/artifacts/<ISSUE-ID>/issue.md` with the shape in `references/report.md`; then `open` it and give a chat summary under fifteen lines. Verdict first, plain words, every term expanded, no labels coined in this session. Close with the decisions you made yourself, the one decision left to the user, and the handoff line the user can type after `/clear` (the audit's state lives in the files of `~/.claude/artifacts/<ISSUE-ID>/`, so the next step starts from a clean context):
+Fill `~/.claude/artifacts/<ISSUE-ID>/issue.html` from the template (pf-cycle-narratives → Narrative HTML mechanics); its slots say what each section holds. Build it with `assemble.py`, present it (pf-cycle-narratives → Publishing), then give a chat summary under fifteen lines. Verdict first, plain words, every term expanded, every term one the repository or the issue already uses. Close with the decisions you made yourself, the one decision left to the user, and the handoff line the user can type after `/clear` (the audit's state lives in the files of `~/.claude/artifacts/<ISSUE-ID>/`, so the next step starts from a clean context):
 
 - `/pf-spec <ISSUE-ID>` when the chosen option changes a contract — the audit is the research narrative `/pf-spec` reads, and the contract owner's confirmation is part of that step.
 - When the fix stays inside the contracts: `/pf-build <ISSUE-ID>`, which reads the same artifact directory and needs no `/pf-spec` first; for a small, self-contained fix, ask it for a direct build (no epic PR).

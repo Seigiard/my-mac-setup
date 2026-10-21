@@ -72,9 +72,9 @@ Read `~/.claude/shared/pull-requests.md`. It carries the zero-context reviewer r
 
 </important>
 
-<important if="you are building an HTML page, report, or dashboard, or publishing one as a Claude Artifact">
+<important if="you are writing a report for me as a file, or building any HTML page or dashboard">
 
-Read `~/.claude/shared/render-kit.md`. It carries the bare-semantic-HTML contract, the three markers `assemble.py` replaces with the kit's files, and why the assembled page publishes to an Artifact as it is.
+A report for me is an HTML page on the render kit, assembled and opened. A `.md` file is for a deliverable that lives in a repository or that another agent reads. Read `~/.claude/shared/render-kit.md`. It carries the bare-semantic-HTML contract, the three markers `assemble.py` replaces with the kit's files, and why the assembled page publishes to an Artifact as it is.
 
 </important>
 
