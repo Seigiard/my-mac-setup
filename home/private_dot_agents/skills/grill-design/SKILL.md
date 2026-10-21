@@ -64,7 +64,7 @@ Two treatments read as generated, so use them only when the brief asks: one acce
 
 1. **Plan.** Write the round plan. Done when every design has an angle no other design shares and no angle is a default.
 2. **Build.** Put all five designs into one live mocked app: one standalone HTML file with its styles inline. Paste [assets/picker.js](assets/picker.js) whole into an inline `<script>` after the round plan. The picker writes the live choice to `<html data-design data-state>`: style each design under `[data-design="<id>"]`, and mark design- or state-specific markup with `data-for-design` or `data-for-state`. Compare the five against *Radically different* and *Craft*. Done when every design and every state renders without a console error, at desktop width and at 390px.
-3. **Publish.** Publish the file through the `agent-reports` skill (render-kit.md → Publishing). Every round gets its own link; give the newest one.
+3. **Publish.** Publish the file through the `agent-reports` skill, with the product repository's name as the project. Every round gets its own link; give the newest one.
 4. **Ask.** Say what each design tries, by number and name, in the user's words. Name the one you would keep, why, and what it costs: a recommendation without its cost reads as a sales pitch. Ask one question. Done when the user has given a verdict.
 5. **Apply the verdict**, then open the next round one level further down the design tree.
 

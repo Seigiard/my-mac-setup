@@ -1,6 +1,6 @@
 ---
 name: agent-reports
-description: Private HTML reports on Cloudflare R2 for humans and agents. Use to publish a local report folder and get a browser link, to fetch a report from an r2://agent-reports/... URI or a reports.1218217.xyz link, or to share a report as a time-limited zip link.
+description: Publish a local HTML report folder to private R2 storage and get a viewer link; fetch a report from an r2://agent-reports/... URI or a reports.1218217.xyz link; share a report as a time-limited zip link.
 ---
 
 # Agent reports
@@ -43,5 +43,5 @@ The output is a presigned `report.zip` URL plus `curl` and `unzip` commands. The
 ## Errors
 
 - `missing environment variables`: the `AGENT_REPORTS_*` keys come from the machine secrets in `~/.zshenv`. Tell the user to run `chezmoi apply` and open a new shell; the user handles keys.
-- `credentials rejected`: the key is wrong, revoked, or scoped to another bucket.
-- `not found (expired or never published)`: the report is older than 28 days, or the URI is wrong.
+- `credentials rejected`: the key is wrong, revoked, or scoped to another bucket. Stop and give the user the error text; the user owns the keys.
+- `not found (expired or never published)`: the report has expired, or the URI is wrong. Ask the sender for a fresh link.

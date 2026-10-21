@@ -15,7 +15,7 @@ One page built from `references/template.html`, in the language the user is addr
 | `<number>` or a PR URL | That pull request, via `gh pr diff`. |
 | `<sha>` or `<sha>..<sha>` | That commit or range. |
 | `uncommitted` | Working tree against `HEAD`. |
-| `--no-open` | Print the path only; a calling workflow passes this and reads the final `Explanation:` line. |
+| `--no-open` | Skip opening the local page; still publish it and print both final lines. A calling workflow passes this and reads the line prefixed `Explanation:`. |
 | `--evidence <dir>` | PNG frames captured by make-pr, the first source for step 3. |
 | `--lang <code>` | Page language (`en`, `ru`, …). Default: the language the user is addressed in. |
 
@@ -86,7 +86,7 @@ Rendered diagrams only, from these families:
 
 The content picks the family: a frame for what the user sees, a flowchart for data changing shape, a sequence diagram for the order of calls between parties, a state diagram for a lifecycle. A before and an after case use the same family so the reader compares like with like.
 
-### 7. Save, check, open
+### 7. Save, check, open, publish
 
 Path: `/tmp/YYYY-MM-DD-explanation-<slug>.html`, today's date, slug from the branch name or PR number in kebab-case. This path is fixed: a session's scratchpad or temp-directory guidance does not move it, because the user and calling workflows look here. The file at that path is the assembled page: `python3 ~/.claude/shared/render-kit/assemble.py <draft> -o "$file"` replaces the kit markers with the kit's head, components and scripts, so the page carries its styling inside itself.
 
@@ -98,7 +98,7 @@ Before assembling, confirm in the draft:
 
 On macOS without `--no-open`, run `open "$file"`.
 
-Publish the page through the `agent-reports` skill (render-kit.md → Publishing), with the repository's name as the project.
+Publish the page through the `agent-reports` skill, with the repository's name as the project.
 
 Finish with exactly two final lines:
 

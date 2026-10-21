@@ -22,7 +22,11 @@ A page's own rules, when it needs any, go in a `<style>` after the components ma
 
 ## Publishing
 
-The assembled page carries the kit and every frame inside itself, so one file is the whole report. Publish it with the `agent-reports` skill: put the built page in a folder as `index.html`, run `publish-report <folder> --project <repo-or-topic> --json`, and give the user the `viewer_url`. Every publish gets its own run id and link, so each iteration hands over the newest link. A project's instructions may name another destination for its own pages; a Claude Artifact is one such host: it allows scripts from a few CDNs and blocks external stylesheets, which the kit has none of, so the same built file publishes as it is. The Artifact host wraps the file in its own skeleton, so a page may start at `<title>` without `<html>`, `<head>` or `<body>`; the head snippet's `<meta charset>` still matters when the same file is opened from disk. That host draws `pre.mermaid` itself, with Mermaid's default theme, which the page's CSS recolours.
+The assembled page carries the kit and every frame inside itself, so one built file is the whole report. Publish it through the `agent-reports` skill; each iteration hands over the newest link.
+
+### When a project names a Claude Artifact as the host
+
+Artifacts allow scripts from a few CDNs and block external stylesheets. The kit has none, so the same built file publishes as it is. The Artifact host wraps the file in its own skeleton, so a page may start at `<title>` without `<html>`, `<head>` or `<body>`; the head snippet's `<meta charset>` still matters when the same file is opened from disk. That host draws `pre.mermaid` itself, with Mermaid's default theme, which the page's CSS recolours.
 
 ## The vocabulary
 
