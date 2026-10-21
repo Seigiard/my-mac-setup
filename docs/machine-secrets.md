@@ -53,8 +53,8 @@ stale recipients below.
 ### Add a new exported variable
 
 A new key needs more than a line in the secrets file:
-the unattended full-fixture profile renders `.zshenv` from canaries in the
-inventory, and `make test-python` (`tests/test_docker_contract.py`) checks that
+the unattended full-fixture profile renders `.zshenv` from canary values for
+the fixtures the inventory lists, and `make test-python` (`tests/test_docker_contract.py`) checks that
 each inventory row lists exactly the fixtures its source template reads:
 
 1. Add `NAME: "value"` through `make edit-secrets`.
