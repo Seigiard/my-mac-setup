@@ -538,39 +538,6 @@ function test_chezmoi_unattended_013_rejects_malformed_launcher_invocations() {
   assert_file_exists "$FAKE_STATE/argv"
 }
 
-function test_chezmoi_unattended_014_inventory_requires_exactly_thirteen_fixture_identities() {
-  _bats_test_init 14 'inventory requires exactly thirteen distinct fixture identities'
-  local copied="$BATS_TEST_TMPDIR/copied"
-  mkdir -p "$copied"
-  cp "$LAUNCHER" "$copied/chezmoi-unattended"
-  chmod +x "$copied/chezmoi-unattended"
-
-  # Well-formed row, twelve distinct identities: only the count gate can reject.
-  printf 'home/dot_a.tmpl\t~/.a\tsecret-template\tomit\tMMS_CHEZMOI_FIXTURE_A,MMS_CHEZMOI_FIXTURE_B,MMS_CHEZMOI_FIXTURE_C,MMS_CHEZMOI_FIXTURE_D,MMS_CHEZMOI_FIXTURE_E,MMS_CHEZMOI_FIXTURE_F,MMS_CHEZMOI_FIXTURE_G,MMS_CHEZMOI_FIXTURE_H,MMS_CHEZMOI_FIXTURE_I,MMS_CHEZMOI_FIXTURE_J,MMS_CHEZMOI_FIXTURE_K,MMS_CHEZMOI_FIXTURE_L\n' \
-    > "$copied/chezmoi-unattended-targets.tsv"
-  PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
-    run "$copied/chezmoi-unattended" --profile host-partial -- verify
-  assert_failure 2
-  assert_output 'chezmoi-unattended: inventory must register exactly thirteen distinct fixture identities'
-  assert_final_not_reached
-
-  # Fourteen distinct identities: "exactly thirteen" also rejects an over-count.
-  printf 'home/dot_a.tmpl\t~/.a\tsecret-template\tomit\tMMS_CHEZMOI_FIXTURE_A,MMS_CHEZMOI_FIXTURE_B,MMS_CHEZMOI_FIXTURE_C,MMS_CHEZMOI_FIXTURE_D,MMS_CHEZMOI_FIXTURE_E,MMS_CHEZMOI_FIXTURE_F,MMS_CHEZMOI_FIXTURE_G,MMS_CHEZMOI_FIXTURE_H,MMS_CHEZMOI_FIXTURE_I,MMS_CHEZMOI_FIXTURE_J,MMS_CHEZMOI_FIXTURE_K,MMS_CHEZMOI_FIXTURE_L,MMS_CHEZMOI_FIXTURE_M,MMS_CHEZMOI_FIXTURE_N\n' \
-    > "$copied/chezmoi-unattended-targets.tsv"
-  PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
-    run "$copied/chezmoi-unattended" --profile host-partial -- verify
-  assert_failure 2
-  assert_output 'chezmoi-unattended: inventory must register exactly thirteen distinct fixture identities'
-  assert_final_not_reached
-
-  printf 'home/dot_a.tmpl\t~/.a\tsecret-template\tomit\tMMS_CHEZMOI_FIXTURE_A,MMS_CHEZMOI_FIXTURE_B,MMS_CHEZMOI_FIXTURE_C,MMS_CHEZMOI_FIXTURE_D,MMS_CHEZMOI_FIXTURE_E,MMS_CHEZMOI_FIXTURE_F,MMS_CHEZMOI_FIXTURE_G,MMS_CHEZMOI_FIXTURE_H,MMS_CHEZMOI_FIXTURE_I,MMS_CHEZMOI_FIXTURE_J,MMS_CHEZMOI_FIXTURE_K,MMS_CHEZMOI_FIXTURE_L,MMS_CHEZMOI_FIXTURE_M\n' \
-    > "$copied/chezmoi-unattended-targets.tsv"
-  PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 \
-    run "$copied/chezmoi-unattended" --profile host-partial -- verify
-  assert_success
-  assert_file_exists "$FAKE_STATE/argv"
-}
-
 function test_chezmoi_unattended_015_single_oversized_managed_target_fails_closed() {
   _bats_test_init 15 'host diff fails closed on a single oversized managed target'
   PATH="$TEST_PATH" MMS_CHEZMOI_UNATTENDED=1 FAKE_MANAGED_OVERSIZED_TARGET=1 \

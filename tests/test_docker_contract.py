@@ -40,15 +40,67 @@ def top_level_make_environment(**overrides):
 
 
 
-def inventory_fixtures():
-    fixtures = set()
-    for line in INVENTORY.read_text(encoding="utf-8").splitlines():
+FIXTURE_REFERENCE = re.compile(r'\benv\s+"(MMS_CHEZMOI_FIXTURE_[A-Z0-9_]+)"')
+
+
+def inventory_fixture_rows(inventory_path=INVENTORY):
+    """Return every inventory source and the fixtures it declares."""
+    rows = {}
+    for line_number, line in enumerate(
+        inventory_path.read_text(encoding="utf-8").splitlines(), 1
+    ):
         if not line or line.startswith("#"):
             continue
-        field = line.split("\t")[4]
-        if field != "-":
-            fixtures.update(field.split(","))
+        fields = line.split("\t")
+        if len(fields) != 5:
+            raise AssertionError("inventory row %d must have five fields" % line_number)
+        source, _, _, _, fixtures = fields
+        if source in rows:
+            raise AssertionError("inventory registers %s more than once" % source)
+        rows[source] = set() if fixtures == "-" else set(fixtures.split(","))
+    return rows
+
+
+def inventory_fixtures(inventory_path=INVENTORY):
+    fixtures = set()
+    for row_fixtures in inventory_fixture_rows(inventory_path).values():
+        fixtures.update(row_fixtures)
     return fixtures
+
+
+def fixture_references(source_path):
+    return set(
+        FIXTURE_REFERENCE.findall(source_path.read_text(encoding="utf-8", errors="ignore"))
+    )
+
+
+def assert_fixture_inventory_matches_templates(inventory_path, repository_root):
+    """Raise when fixture declarations drift from the templates that read them."""
+    rows = inventory_fixture_rows(inventory_path)
+    errors = []
+    for source, declared_fixtures in rows.items():
+        referenced_fixtures = fixture_references(repository_root / source)
+        if declared_fixtures != referenced_fixtures:
+            errors.append(
+                "%s declares %s but references %s"
+                % (source, sorted(declared_fixtures), sorted(referenced_fixtures))
+            )
+
+    home = repository_root / "home"
+    for source_path in home.rglob("*"):
+        if not source_path.is_file():
+            continue
+        referenced_fixtures = fixture_references(source_path)
+        source = source_path.relative_to(repository_root).as_posix()
+        if referenced_fixtures and source not in rows:
+            errors.append(
+                "%s references %s but is not registered in the inventory"
+                % (source, sorted(referenced_fixtures))
+            )
+
+    if errors:
+        raise AssertionError("\n".join(errors))
+
 
 class TestDockerContract(unittest.TestCase):
     @classmethod
@@ -64,6 +116,126 @@ class TestDockerContract(unittest.TestCase):
             raise AssertionError(
                 "common.bash canaries must match the inventory's required fixtures"
             )
+
+    def write_fixture_inventory_tree(
+        self, root, zshenv_fixtures, inventory_rows, extra_sources=None
+    ):
+        home = root / "home"
+        zshenv = home / "dot_zshenv.tmpl"
+        zshenv.parent.mkdir(parents=True)
+        zshenv.write_text(
+            "".join('{{ env "%s" }}\n' % fixture for fixture in zshenv_fixtures),
+            encoding="utf-8",
+        )
+        for source, fixtures in (extra_sources or {}).items():
+            path = root / source
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                "".join('{{ env "%s" }}\n' % fixture for fixture in fixtures),
+                encoding="utf-8",
+            )
+        for source in inventory_rows:
+            path = root / source
+            if not path.exists():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("", encoding="utf-8")
+        inventory = root / "inventory.tsv"
+        inventory.write_text(
+            "".join(
+                "%s\t~/.ignored\tsecret-template\tomit\t%s\n"
+                % (source, ",".join(fixtures) if fixtures else "-")
+                for source, fixtures in inventory_rows.items()
+            ),
+            encoding="utf-8",
+        )
+        return inventory
+
+    def test_fixture_inventory_matches_repository_templates(self):
+        # given the repository's template references and inventory declaration
+        # when their sets are compared at the full-fixture boundary
+        # then every listed fixture is read by exactly its registered template
+        self.assertIsNone(assert_fixture_inventory_matches_templates(INVENTORY, REPOSITORY))
+
+    def test_fixture_inventory_accepts_a_matching_fixture_tree(self):
+        fixtures = ("MMS_CHEZMOI_FIXTURE_A", "MMS_CHEZMOI_FIXTURE_B")
+        with tempfile.TemporaryDirectory() as tmp:
+            # given a template and its inventory row with the same fixtures
+            inventory = self.write_fixture_inventory_tree(
+                Path(tmp), fixtures, {"home/dot_zshenv.tmpl": fixtures}
+            )
+            # when the template references are compared to the row
+            # then the valid control has no drift
+            self.assertIsNone(
+                assert_fixture_inventory_matches_templates(inventory, Path(tmp))
+            )
+
+    def test_fixture_inventory_rejects_a_fixture_set_swap(self):
+        fixtures = ("MMS_CHEZMOI_FIXTURE_A", "MMS_CHEZMOI_FIXTURE_B")
+        with tempfile.TemporaryDirectory() as tmp:
+            # given one inventory row that lost B while another gained it
+            inventory = self.write_fixture_inventory_tree(
+                Path(tmp),
+                fixtures,
+                {
+                    "home/dot_zshenv.tmpl": ("MMS_CHEZMOI_FIXTURE_A",),
+                    "home/private_dot_config/secrets/unused": (
+                        "MMS_CHEZMOI_FIXTURE_B",
+                    ),
+                },
+            )
+            # when the total fixture count remains unchanged
+            # then the changed row still reports drift
+            with self.assertRaisesRegex(AssertionError, r"home/dot_zshenv\.tmpl"):
+                assert_fixture_inventory_matches_templates(inventory, Path(tmp))
+
+    def test_fixture_inventory_rejects_a_template_fixture_missing_from_its_row(self):
+        fixtures = ("MMS_CHEZMOI_FIXTURE_A", "MMS_CHEZMOI_FIXTURE_B")
+        with tempfile.TemporaryDirectory() as tmp:
+            # given a template reference that its inventory row omits
+            inventory = self.write_fixture_inventory_tree(
+                Path(tmp),
+                fixtures,
+                {"home/dot_zshenv.tmpl": ("MMS_CHEZMOI_FIXTURE_A",)},
+            )
+            # when the row is validated against the template
+            # then the missing fixture is named
+            with self.assertRaisesRegex(AssertionError, "MMS_CHEZMOI_FIXTURE_B"):
+                assert_fixture_inventory_matches_templates(inventory, Path(tmp))
+
+    def test_fixture_inventory_rejects_a_fixture_listed_but_not_referenced(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # given an inventory row that demands a fixture its template does not read
+            inventory = self.write_fixture_inventory_tree(
+                Path(tmp),
+                ("MMS_CHEZMOI_FIXTURE_A",),
+                {
+                    "home/dot_zshenv.tmpl": (
+                        "MMS_CHEZMOI_FIXTURE_A",
+                        "MMS_CHEZMOI_FIXTURE_B",
+                    )
+                },
+            )
+            # when the row is validated against the template
+            # then the stale inventory fixture is named
+            with self.assertRaisesRegex(AssertionError, "MMS_CHEZMOI_FIXTURE_B"):
+                assert_fixture_inventory_matches_templates(inventory, Path(tmp))
+
+    def test_fixture_inventory_rejects_an_unregistered_template_fixture(self):
+        fixture = "MMS_CHEZMOI_FIXTURE_A"
+        with tempfile.TemporaryDirectory() as tmp:
+            # given a home template outside the inventory that reads a fixture
+            inventory = self.write_fixture_inventory_tree(
+                Path(tmp),
+                (),
+                {"home/dot_zshenv.tmpl": ()},
+                {"home/private_dot_config/unregistered.tmpl": (fixture,)},
+            )
+            # when all home templates are checked
+            # then the unregistered source is named
+            with self.assertRaisesRegex(
+                AssertionError, r"home/private_dot_config/unregistered\.tmpl"
+            ):
+                assert_fixture_inventory_matches_templates(inventory, Path(tmp))
 
     def service_names(self):
         names = re.findall(r"^  ([a-zA-Z0-9_-]+):\n", self.compose, re.MULTILINE)
