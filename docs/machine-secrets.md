@@ -52,8 +52,10 @@ stale recipients below.
 
 ### Add a new exported variable
 
-A new key needs more than a line in the secrets file, because the unattended
-full-fixture profile renders `.zshenv` from canaries and keeps a count of them:
+A new key needs more than a line in the secrets file:
+the unattended full-fixture profile renders `.zshenv` from canary values for
+the fixtures the inventory lists, and `make test-python` (`tests/test_docker_contract.py`) checks that
+each inventory row lists exactly the fixtures its source template reads:
 
 1. Add `NAME: "value"` through `make edit-secrets`.
 2. Add `export NAME={{ $secrets.NAME | quote }}` to the age branch of
@@ -61,8 +63,7 @@ full-fixture profile renders `.zshenv` from canaries and keeps a count of them:
    `export NAME={{ env "MMS_CHEZMOI_FIXTURE_NAME" | quote }}` to its
    full-fixture branch.
 3. Register `MMS_CHEZMOI_FIXTURE_NAME` in
-   `tests/helpers/chezmoi-unattended-targets.tsv`, raise the fixture count in
-   `tests/helpers/chezmoi-unattended`, and set the canary in
+   `tests/helpers/chezmoi-unattended-targets.tsv`, and set the canary in
    `tests/helpers/common.bash`, `.github/workflows/test-dotfiles.yml`,
    `docker/docker-compose.yml` and `docker/Dockerfile.ubuntu`.
 4. Extend the canary assertion in `tests/bashunit/templates_test.sh`

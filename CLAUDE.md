@@ -152,7 +152,7 @@ Keep `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` in `home/dot_zshenv.tmpl` so OpenCo
 
 - **Never** hardcode secrets in templates. Every exported API key lives in one age-encrypted file, `home/private_dot_config/secrets/encrypted_private_api-keys.yaml.age`, and reaches `~/.zshenv` through `include ... | decrypt | fromYaml` in `home/dot_zshenv.tmpl`. Edit it with `make edit-secrets`. The model, enrollment, and revocation are in `docs/machine-secrets.md`.
 - Decryption needs a Machine identity at the path in `.chezmoi.config.age.identity`. Guard every use with the pattern in `dot_zshenv.tmpl` (`dig "age" "identity" "" .chezmoi.config`, then `stat`) so CI, Docker, the server, and a host config generated before the age block render without one; `.chezmoiignore` drops the decrypted target in the same condition.
-- A new exported secret touches the age file, both branches of `dot_zshenv.tmpl`, and the full-fixture plumbing: `tests/helpers/chezmoi-unattended-targets.tsv`, the fixture count in `tests/helpers/chezmoi-unattended`, `tests/helpers/common.bash`, `.github/workflows/test-dotfiles.yml`, and the build args in `docker/docker-compose.yml` and `docker/Dockerfile.ubuntu`.
+- A new exported secret touches the age file, both branches of `dot_zshenv.tmpl`, and the full-fixture plumbing: `tests/helpers/chezmoi-unattended-targets.tsv`, `tests/helpers/common.bash`, `.github/workflows/test-dotfiles.yml`, and the build args in `docker/docker-compose.yml` and `docker/Dockerfile.ubuntu`. The Python contract test checks that each inventory row matches the fixtures its source template reads.
 - Required env vars in CI: `CHEZMOI_NAME`, `CHEZMOI_EMAIL` (set in the GitHub workflow).
 
 </important>

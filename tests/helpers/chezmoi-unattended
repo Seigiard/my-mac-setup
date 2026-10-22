@@ -136,13 +136,6 @@ while IFS= read -r inventory_line || [ -n "$inventory_line" ]; do
 done < "$inventory"
 
 [ "${#inventory_sources[@]}" -gt 0 ] || fail "inventory contains no target rows"
-fixture_count=0
-while IFS= read -r fixture_name; do
-  [ -n "$fixture_name" ] || continue
-  fixture_count=$((fixture_count + 1))
-done <<< "$required_fixtures"
-[ "$fixture_count" -eq 13 ] || \
-  fail "inventory must register exactly thirteen distinct fixture identities"
 
 command_name="$1"
 if [ "$profile" = "full-fixture" ]; then
