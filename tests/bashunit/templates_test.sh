@@ -940,13 +940,15 @@ function test_templates_012_opencode_keeps_the_external_dir_grant_and_stdio() {
   BATS_TEST_TMPFILE="$(mktemp)"
   render_template "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl" > "$BATS_TEST_TMPFILE"
 
-  run jq -r '.permission.external_directory["*"]' "$BATS_TEST_TMPFILE"
+  # OpenCode 2 schema: permissions is an ordered rule list, and MCP servers
+  # sit under mcp.servers with `disabled` in place of `enabled`.
+  run jq -r '[.permissions[] | select(.action == "external_directory" and .resource == "*") | .effect] | join(",")' "$BATS_TEST_TMPFILE"
   assert_success
   assert_output "allow"
 
-  run jq -r '[(.mcp.executor.command | join(" ")), (.mcp.executor.enabled | tostring)] | join("|")' "$BATS_TEST_TMPFILE"
+  run jq -r '[(.mcp.servers.executor.command | join(" ")), (.mcp.servers.executor.disabled | tostring)] | join("|")' "$BATS_TEST_TMPFILE"
   assert_success
-  assert_output "executor mcp|true"
+  assert_output "executor mcp|false"
 }
 
 function test_templates_014_every_opencode_instructions_entry_is_a_managed_f() {
