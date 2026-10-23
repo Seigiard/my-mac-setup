@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
 
 const EXTENSION_PATH =
   process.env.AGENT_HOOKS_PI_EXTENSION_PATH ??
@@ -15,6 +15,7 @@ const core: any = await import(join(CORE_DIR, "index.ts"));
 const normalize: any = await import(join(CORE_DIR, "normalize.ts"));
 
 import * as corpus from "./fixtures/agent-hooks/fixtures.ts";
+import { createReapedPid, createSetupWorktree } from "./fixtures/agent-hooks/setup-worktree.ts";
 
 const REGISTRY = core.CORE_REGISTRY;
 
@@ -81,7 +82,7 @@ async function loadExtension(coreDir?: string): Promise<Host> {
  * so the suite must not be the thing that decides the handler is synchronous —
  * it reads the deny the same way pi would either way.
  */
-async function callToolCall(host: Host, raw: any): Promise<any> {
+async function callToolCall(host: Host, raw: any, context: { cwd?: string } = {}): Promise<any> {
   const handler = host.handlers["tool_call"];
   // An absent handler is exactly the `undefined` the allow tests below expect,
   // so a broken $HOME symlink, a moved index.ts or a renamed dispatch export
@@ -89,7 +90,7 @@ async function callToolCall(host: Host, raw: any): Promise<any> {
   // extension when the extension never registered.
   expect(handler).toBeTypeOf("function");
 
-  return await handler(raw);
+  return await handler(raw, context);
 }
 
 // pi's own wire spellings for the tools the policy corpus exercises, written out
@@ -124,6 +125,152 @@ function policyFixture(policy: string, name: string): any {
 // --- scenario 1: the handler contract ---------------------------------------
 
 describe("tool_call deny and allow (R3)", () => {
+  test("a running setup marker blocks a build command but removing it allows the same command", async () => {
+    // #given a linked Git worktree whose setup marker names this live test process
+    const worktree = createSetupWorktree("agent-hooks-pi-setup-");
+    temporaryPaths.push(worktree.repository);
+    await Bun.write(worktree.marker, `running ${process.pid} ${Date.now() + 60_000}\n`);
+    const host = await loadExtension(CORE_DIR);
+
+    // #when pi sends the build call before and after the marker is removed
+    const blocked = await callToolCall(host, {
+      toolName: "bash", input: { command: "make test" },
+    }, { cwd: worktree.directory });
+
+    rmSync(worktree.marker);
+
+    const allowed = await callToolCall(host, {
+      toolName: "bash", input: { command: "make test" },
+    }, { cwd: worktree.directory });
+
+    // #then only the marked call returns pi's block envelope
+    expect([blocked, allowed]).toEqual([
+      { block: true, reason: "worktree-setup-guard: worktree setup is running for 0 s; wait and retry." },
+      undefined,
+    ]);
+  });
+
+  test("a failed setup denies once without a harmless command consuming the marker", async () => {
+    // #given a linked worktree whose setup failed
+    const worktree = createSetupWorktree("agent-hooks-pi-failed-setup-");
+    temporaryPaths.push(worktree.repository);
+    await Bun.write(worktree.marker, `done 7 ${Date.now()}\n`);
+    const host = await loadExtension(CORE_DIR);
+    const reason = "worktree-setup-guard: setup failed with 7; run `mise exec -- make setup`. If that also fails, report and stop.";
+
+    // #when pi receives a harmless event, then two build events from that worktree
+    const harmless = await callToolCall(host, { toolName: "bash", input: { command: "git status" } }, { cwd: worktree.directory });
+    const first = await callToolCall(host, { toolName: "bash", input: { command: "npm test" } }, { cwd: worktree.directory });
+    const second = await callToolCall(host, { toolName: "bash", input: { command: "npm test" } }, { cwd: worktree.directory });
+
+    // #then the failure blocks once and only a gated command acknowledges it
+    expect([harmless, first, second]).toEqual([undefined, { block: true, reason }, undefined]);
+  });
+
+  test("an unwritable deny-once record fails open through tool_call", async () => {
+    // #given a failed setup whose marker directory cannot accept its denial record
+    const worktree = createSetupWorktree("agent-hooks-pi-denial-record-");
+    temporaryPaths.push(worktree.repository);
+    await Bun.write(worktree.marker, "done 7 1700000000000\n");
+    const markerDirectory = dirname(worktree.marker);
+    chmodSync(markerDirectory, 0o500);
+    const host = await loadExtension(CORE_DIR);
+    const event = { toolName: "bash", input: { command: "npm test" } };
+    const context = { cwd: worktree.directory };
+
+    try {
+      // #when consecutive build calls reach Pi's tool-call transport
+      const results = [await callToolCall(host, event, context), await callToolCall(host, event, context)];
+
+      // #then neither call blocks when deny-once memory cannot be recorded
+      expect(results).toEqual([undefined, undefined]);
+    } finally {
+      chmodSync(markerDirectory, 0o700);
+    }
+  });
+
+  test("exec_command and bash resolve input workdir from the pi call context", async () => {
+    // #given a context checkout without a marker and a relative marked target checkout
+    const context = createSetupWorktree("agent-hooks-pi-workdir-context-");
+    const target = createSetupWorktree("agent-hooks-pi-workdir-target-");
+    temporaryPaths.push(context.repository, target.repository);
+    await Bun.write(target.marker, `running ${process.pid} ${Date.now() + 60_000}\n`);
+    const host = await loadExtension(CORE_DIR);
+    const workdir = relative(context.directory, target.directory);
+    const reason = "worktree-setup-guard: worktree setup is running for 0 s; wait and retry.";
+
+    // #when Pi targets the marked checkout through each shell-capable wire shape
+    const exec = await callToolCall(host, {
+      toolName: "exec_command", input: { cmd: "make test", workdir },
+    }, { cwd: context.directory });
+
+    const bash = await callToolCall(host, {
+      toolName: "bash", input: { command: "make test", workdir },
+    }, { cwd: context.directory });
+
+    // #then both calls use the command's resolved directory, not the session directory
+    expect([exec, bash]).toEqual([{ block: true, reason }, { block: true, reason }]);
+  });
+
+  test("a malformed marker fails open through the pi tool_call transport", async () => {
+    // #given a real linked worktree with marker content outside the producer contract
+    const worktree = createSetupWorktree("agent-hooks-pi-malformed-setup-");
+    temporaryPaths.push(worktree.repository);
+    await Bun.write(worktree.marker, "still starting maybe\n");
+    const host = await loadExtension(CORE_DIR);
+
+    // #when a build command reaches tool_call
+    const result = await callToolCall(host, {
+      toolName: "bash", input: { command: "bun test" },
+    }, { cwd: worktree.directory });
+
+    // #then a bad marker does not become a block
+    expect(result).toBeUndefined();
+  });
+
+  test("a dead running marker blocks as interrupted through the tool-call context", async () => {
+    // #given a linked worktree whose marker names a child that has exited
+    const worktree = createSetupWorktree("agent-hooks-pi-interrupted-setup-");
+    temporaryPaths.push(worktree.repository);
+    const pid = await createReapedPid();
+    await Bun.write(worktree.marker, `running ${pid} ${Date.now()}\n`);
+    const host = await loadExtension(CORE_DIR);
+
+    // #when pi supplies the worktree directory as the tool-call context
+    const result = await callToolCall(host, { toolName: "bash", input: { command: "bun test" } }, { cwd: worktree.directory });
+
+    // #then the interrupted setup gives the documented recovery denial
+    expect(result).toEqual({
+      block: true,
+      reason: "worktree-setup-guard: worktree setup was interrupted; run `mise exec -- make setup`. If that also fails, report and stop.",
+    });
+  });
+
+  test("a new failed marker denies again after the earlier marker was acknowledged", async () => {
+    // #given a worktree with one failure marker and a later distinct failure marker
+    const worktree = createSetupWorktree("agent-hooks-pi-new-failure-setup-");
+    temporaryPaths.push(worktree.repository);
+    await Bun.write(worktree.marker, "done 7 1700000000000\n");
+    const host = await loadExtension(CORE_DIR);
+    const firstReason = "worktree-setup-guard: setup failed with 7; run `mise exec -- make setup`. If that also fails, report and stop.";
+    const secondReason = "worktree-setup-guard: setup failed with 8; run `mise exec -- make setup`. If that also fails, report and stop.";
+    const event = { toolName: "bash", input: { command: "npm test" } };
+    const context = { cwd: worktree.directory };
+
+    // #when one call acknowledges the first line and the marker writer records a new failure
+    const first = await callToolCall(host, event, context);
+    const acknowledged = await callToolCall(host, event, context);
+    await Bun.write(worktree.marker, "done 8 1700000000001\n");
+    const newFailure = await callToolCall(host, event, context);
+
+    // #then each distinct failure line reaches pi once
+    expect([first, acknowledged, newFailure]).toEqual([
+      { block: true, reason: firstReason },
+      undefined,
+      { block: true, reason: secondReason },
+    ]);
+  });
+
   test("the known-bad bash fixture is denied with the policy's prefixed reason", async () => {
     // #given the shipped known-bad zsh command in pi's wire shape
     const fixture = policyFixture("zsh-reserved-name-guard", "zsh/flags the status capture idiom");

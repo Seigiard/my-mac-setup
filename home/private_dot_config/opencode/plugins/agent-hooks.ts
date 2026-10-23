@@ -3,7 +3,7 @@
 // node_modules, and only resolves its imports once deployed under ~/.config/opencode/,
 // where opencode's own dependencies live.
 import { lstatSync, readlinkSync } from "node:fs"
-import { dirname, join, resolve } from "node:path"
+import { dirname, isAbsolute, join, resolve } from "node:path"
 import type { Decision, ToolEventValue } from "../../../dot_local/lib/agent-hooks/types.ts"
 
 // OpenCode 2 transport for the shared agent-hooks dispatch core.
@@ -24,7 +24,9 @@ const CLIENT = "opencode"
 // the runtime actually resolves a different core module.
 const RESIDENT_CORE_HASHES = Symbol.for("agent-hooks.opencode.resident-core-hashes")
 
-type Dispatch = (client: string, rawEvent: ToolEventValue) => Decision
+type Dispatch = (client: string, rawEvent: ToolEventValue, options?: { setup?: { status: string } }) => Decision
+
+type SetupTools = typeof import("../../../dot_local/lib/agent-hooks/worktree-setup.ts")
 
 type ResidentCoreRegistryHost = {
   [key: symbol]: Map<Dispatch, string> | undefined
@@ -51,7 +53,7 @@ function residentCoreHash(dispatch: Dispatch, coreHash: () => string): string {
 // Load-time import rather than per-call (KTD5): a failure is front-loaded into
 // a plugin that registers nothing, which is the honest fail-open shape — an
 // installed handler that silently allows would look alive to a reader.
-async function loadV2Dispatch(home: string): Promise<Dispatch | undefined> {
+async function loadV2Dispatch(home: string): Promise<{ dispatch: Dispatch; setup?: SetupTools } | undefined> {
   try {
     const corePath = join(home, ".local", "lib", "agent-hooks")
 
@@ -74,7 +76,9 @@ async function loadV2Dispatch(home: string): Promise<Dispatch | undefined> {
       }
     }
 
-    return core.dispatch
+    const setup = await import(join(coreDir, "worktree-setup.ts")).catch(() => undefined)
+
+    return { dispatch: core.dispatch, setup }
   } catch {
     return undefined
   }
@@ -83,21 +87,51 @@ async function loadV2Dispatch(home: string): Promise<Dispatch | undefined> {
 // The V2 host hands execute.before the native tool event; the core parses it
 // with its own schema, so the adapter forwards it as the untyped event value.
 type V2ToolHookHost = {
+  session: {
+    get: (request: { sessionID: string }) => Promise<{ location?: { directory?: string } }>
+  }
   tool: { hook: (name: "execute.before", handler: (event: ToolEventValue) => Promise<void>) => Promise<void> }
 }
 
 export default {
   id: "agent-hooks",
   async setup(ctx: V2ToolHookHost) {
-    const v2Dispatch = await loadV2Dispatch(process.env.HOME ?? "")
+    const loaded = await loadV2Dispatch(process.env.HOME ?? "")
 
-    if (!v2Dispatch) return
+    if (!loaded) return
 
     await ctx.tool.hook("execute.before", async (event) => {
       let decision: Decision | undefined
 
       try {
-        decision = v2Dispatch(CLIENT, event)
+        // SAFETY: OpenCode resolves a shell's relative or missing workdir from
+        // the session location; process.cwd() is the fail-open fallback when
+        // that session lookup fails.
+        const eventWithLocation = event as { sessionID?: string; input?: { workdir?: string } }
+        const requestedWorkdir = eventWithLocation.input?.workdir
+        let workdir = requestedWorkdir
+
+        if (workdir === undefined || !isAbsolute(workdir)) {
+          let baseDirectory = process.cwd()
+
+          try {
+            if (eventWithLocation.sessionID !== undefined) {
+              const session = await ctx.session.get({ sessionID: eventWithLocation.sessionID })
+              baseDirectory = session.location?.directory ?? baseDirectory
+            }
+          } catch {
+            // Preserve the process-cwd fallback when session lookup is unavailable.
+          }
+
+          workdir = resolve(baseDirectory, workdir ?? ".")
+        }
+
+        const observation = loaded.setup?.readSetupObservation(workdir) ?? { state: { status: "absent" } }
+
+        decision = loaded.dispatch(CLIENT, event, { setup: observation.state })
+
+        if (loaded.setup !== undefined && !loaded.setup.shouldDeliverSetupDecision(observation, decision)) return
+
       } catch {
         return
       }

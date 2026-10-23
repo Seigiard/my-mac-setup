@@ -12,8 +12,8 @@ the sole owner of pane, tab, and agent identity.
   on linked child workspaces, `Delete worktree checkout...`.
 - Native removal asks Git to remove safely, offers a forced retry for dirty
   checkouts, closes the child workspace, and retains the branch.
-- New checkouts live under `~/.worktrees/<repo>/<branch-slug>` through
-  `[worktrees].directory` in `~/.config/herdr/config.toml`.
+- New checkouts live under `~/.herdr/worktrees/<repo>/<branch-slug>`;
+  `~/.config/herdr/config.toml` has no `[worktrees]` section.
 
 The standalone [`seigi.worktree-setup`](https://github.com/Seigiard/herdr-worktree-setup)
 plugin handles the one capability outside Herdr's native lifecycle: preparing a
@@ -43,6 +43,29 @@ The hook deliberately does not run `make init`, start databases, or copy
 `node_modules`. Platform worktrees share the primary checkout's Postgres and
 Redis, while `mise exec -- make setup` performs the supported dependency install
 and build with the repository-pinned toolchain.
+
+## Setup-status gate
+
+When a configured setup is active, `seigi.worktree-setup` writes
+`herdr-worktree-setup` in the checkout's Git administrative directory. The
+marker is one line:
+
+```text
+running <pid> <start-unix-ms>
+done <exit-code> <end-unix-ms>
+```
+
+The Claude Code, OpenCode, and Pi adapters read this marker for each tool call.
+They block build, test, install, and dev commands while a live setup is under
+five minutes old. After five minutes, the command runs; on Claude Code it also
+carries a context note that setup looks stuck. A successful `done 0` marker
+allows commands.
+
+A failed setup blocks the first gated command and tells the agent to retry with
+`mise exec -- make setup`. The adapter records that denial for the exact marker
+line, so the same failure is not repeated. A new marker line is denied again.
+A `running` marker whose PID is no longer alive is treated as an interrupted
+failure. Missing, malformed, unreadable, or non-Git marker state fails open.
 
 `Seigiard/my-mac-setup` refreshes the base and runs `npm ci` to install the
 checkout's YAML and frontmatter check tools. Git hooks are shared between linked

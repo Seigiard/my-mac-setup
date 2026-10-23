@@ -294,7 +294,7 @@ export function runCanaries(registry: Registry = CORE_REGISTRY): CanaryResult[] 
         continue;
       }
 
-      const decision = dispatch(client, raw, { registry, env: {} });
+      const decision = dispatch(client, raw, { registry, env: {}, setup: policy.canarySetup });
       results.push({
         policy: policy.name,
         client,

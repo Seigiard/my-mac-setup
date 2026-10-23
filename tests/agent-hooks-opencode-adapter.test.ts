@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 const PLUGIN_PATH =
   process.env.AGENT_HOOKS_OPENCODE_PLUGIN_PATH ??
@@ -19,6 +19,7 @@ const selfcheck: any = await import(join(CORE_DIR, "selfcheck.ts"));
 
 import * as corpus from "./fixtures/agent-hooks/fixtures.ts";
 import { OPENCODE_V2_CAPTURED_EVENTS } from "./fixtures/agent-hooks/opencode-v2.ts";
+import { createReapedPid, createSetupWorktree } from "./fixtures/agent-hooks/setup-worktree.ts";
 
 const REGISTRY = core.CORE_REGISTRY;
 
@@ -48,7 +49,16 @@ type Host = { hooks: Record<string, Function> };
 
 type V2Host = Host & { coreModule?: any };
 
-async function loadV2Plugin(coreDir?: string, pluginPath = PLUGIN_PATH): Promise<V2Host> {
+type V2Session = { location: { directory: string } };
+
+type V2SessionGet = (request: { sessionID: string }) => Promise<V2Session>;
+
+async function loadV2Plugin(
+  coreDir?: string,
+  pluginPath = PLUGIN_PATH,
+  sessionDirectory?: string,
+  getSession?: V2SessionGet,
+): Promise<V2Host> {
   const home = temporaryDir("agent-hooks-opencode-v2-home-");
 
   if (coreDir !== undefined) {
@@ -57,7 +67,7 @@ async function loadV2Plugin(coreDir?: string, pluginPath = PLUGIN_PATH): Promise
   }
 
   const module = await importV2Plugin(home, pluginPath);
-  const host = await setupV2Plugin(module, home);
+  const host = await setupV2Plugin(module, home, sessionDirectory, getSession);
 
   const coreModule =
     coreDir === undefined ? undefined : await import(join(coreDir, "index.ts")).catch(() => undefined);
@@ -83,14 +93,21 @@ async function importV2Plugin(home: string, pluginPath = PLUGIN_PATH): Promise<a
   return withHome(home, () => import(copy));
 }
 
-async function setupV2Plugin(module: any, home: string): Promise<Host> {
+async function setupV2Plugin(
+  module: any,
+  home: string,
+  sessionDirectory = home,
+  getSession?: V2SessionGet,
+): Promise<Host> {
   const hooks: Record<string, Function> = {};
 
   await withHome(home, async () => {
     const plugin = module.default;
     expect(plugin?.setup).toBeTypeOf("function");
     await plugin.setup({
-      location: { directory: home },
+      session: {
+        get: getSession ?? (async () => ({ location: { directory: sessionDirectory } })),
+      },
       tool: {
         hook: async (name: string, handler: Function) => {
           hooks[name] = handler;
@@ -138,6 +155,164 @@ function opencodeRawFor(fixture: any): any | undefined {
 }
 
 describe("OpenCode V2 execute.before translation", () => {
+  test("a running setup marker blocks a build command but removing it allows the same command", async () => {
+    // #given a linked Git worktree whose setup marker names this live test process
+    const worktree = createSetupWorktree("agent-hooks-opencode-setup-");
+    temporaryPaths.push(worktree.repository);
+    await Bun.write(worktree.marker, `running ${process.pid} ${Date.now() + 60_000}\n`);
+    const host = await loadV2Plugin(CORE_DIR);
+
+    // #when the native shell event carries the worktree directory before and after marker removal
+    const blocked = await callBeforeV2(host, {
+      tool: "shell", input: { command: "make test", workdir: worktree.directory },
+    });
+
+    rmSync(worktree.marker);
+
+    const allowed = await callBeforeV2(host, {
+      tool: "shell", input: { command: "make test", workdir: worktree.directory },
+    });
+
+    // #then only the marked invocation reaches OpenCode's rejection transport
+    expect([blocked, allowed]).toEqual([
+      "worktree-setup-guard: worktree setup is running for 0 s; wait and retry.",
+      undefined,
+    ]);
+  });
+
+  test("a failed setup denies once without a harmless command consuming the marker", async () => {
+    // #given a linked worktree whose setup failed
+    const worktree = createSetupWorktree("agent-hooks-opencode-failed-setup-");
+    temporaryPaths.push(worktree.repository);
+    await Bun.write(worktree.marker, `done 7 ${Date.now()}\n`);
+    const host = await loadV2Plugin(CORE_DIR);
+    const reason = "worktree-setup-guard: setup failed with 7; run `mise exec -- make setup`. If that also fails, report and stop.";
+
+    // #when the host receives a harmless event, then two build events from that worktree
+    const harmless = await callBeforeV2(host, { tool: "shell", input: { command: "git status", workdir: worktree.directory } });
+    const first = await callBeforeV2(host, { tool: "shell", input: { command: "npm test", workdir: worktree.directory } });
+    const second = await callBeforeV2(host, { tool: "shell", input: { command: "npm test", workdir: worktree.directory } });
+
+    // #then the failure reaches the user exactly once and the harmless event does not acknowledge it
+    expect([harmless, first, second]).toEqual([undefined, reason, undefined]);
+  });
+
+  test("an unwritable deny-once record fails open through execute.before", async () => {
+    // #given a failed setup whose marker directory cannot accept its denial record
+    const worktree = createSetupWorktree("agent-hooks-opencode-denial-record-");
+    temporaryPaths.push(worktree.repository);
+    await Bun.write(worktree.marker, "done 7 1700000000000\n");
+    const markerDirectory = dirname(worktree.marker);
+    chmodSync(markerDirectory, 0o500);
+    const host = await loadV2Plugin(CORE_DIR);
+    const event = { tool: "shell", input: { command: "npm test", workdir: worktree.directory } };
+
+    try {
+      // #when consecutive build calls reach OpenCode's rejection transport
+      const results = [await callBeforeV2(host, event), await callBeforeV2(host, event)];
+
+      // #then neither call rejects when deny-once memory cannot be recorded
+      expect(results).toEqual([undefined, undefined]);
+    } finally {
+      chmodSync(markerDirectory, 0o700);
+    }
+  });
+
+  test("a missing or relative workdir uses OpenCode's setup location", async () => {
+    // #given the event's session resolves to a marked worktree while the plugin process is elsewhere
+    const worktree = createSetupWorktree("agent-hooks-opencode-location-");
+    temporaryPaths.push(worktree.repository);
+    await Bun.write(worktree.marker, `running ${process.pid} ${Date.now() + 60_000}\n`);
+    const pluginCwd = temporaryDir("agent-hooks-opencode-no-marker-");
+    const sessionID = "ses-agent-hooks-worktree";
+
+    const host = await loadV2Plugin(CORE_DIR, PLUGIN_PATH, worktree.directory, async (request) => {
+      if (request.sessionID !== sessionID) throw new Error("unexpected session");
+
+      return { location: { directory: worktree.directory } };
+    });
+
+    const lookupFails = await loadV2Plugin(CORE_DIR, PLUGIN_PATH, worktree.directory, async () => {
+      throw new Error("session lookup failed");
+    });
+
+    const reason = "worktree-setup-guard: worktree setup is running for 0 s; wait and retry.";
+    const previousCwd = process.cwd();
+
+    process.chdir(pluginCwd);
+
+    try {
+      // #when a shell call omits workdir, uses a relative workdir, or cannot resolve its session
+      const missing = await callBeforeV2(host, { sessionID, tool: "shell", input: { command: "make test" } });
+
+      const relative = await callBeforeV2(host, {
+        sessionID,
+        tool: "shell",
+        input: { command: "make test", workdir: "." },
+      });
+
+      const fallback = await callBeforeV2(lookupFails, { sessionID, tool: "shell", input: { command: "make test" } });
+
+      // #then the session directory gates missing and relative workdirs, while a failed lookup falls back open
+      expect([missing, relative, fallback]).toEqual([reason, reason, undefined]);
+    } finally {
+      process.chdir(previousCwd);
+    }
+  });
+
+  test("a malformed marker fails open through the registered V2 transport", async () => {
+    // #given a real linked worktree with marker content outside the producer contract
+    const worktree = createSetupWorktree("agent-hooks-opencode-malformed-setup-");
+    temporaryPaths.push(worktree.repository);
+    await Bun.write(worktree.marker, "still starting maybe\n");
+    const host = await loadV2Plugin(CORE_DIR);
+
+    // #when a build command reaches execute.before
+    const result = await callBeforeV2(host, { tool: "shell", input: { command: "bun test", workdir: worktree.directory } });
+
+    // #then a bad marker does not become an adapter rejection
+    expect(result).toBeUndefined();
+  });
+
+  test("a dead running marker blocks as interrupted through the native workdir", async () => {
+    // #given a linked worktree whose marker names a child that has exited
+    const worktree = createSetupWorktree("agent-hooks-opencode-interrupted-setup-");
+    temporaryPaths.push(worktree.repository);
+    const pid = await createReapedPid();
+    await Bun.write(worktree.marker, `running ${pid} ${Date.now()}\n`);
+    const host = await loadV2Plugin(CORE_DIR);
+
+    // #when OpenCode carries the working directory in the shell input
+    const result = await callBeforeV2(host, {
+      tool: "shell", input: { command: "bun test", workdir: worktree.directory },
+    });
+
+    // #then the interrupted setup gives the documented recovery denial
+    expect(result).toBe(
+      "worktree-setup-guard: worktree setup was interrupted; run `mise exec -- make setup`. If that also fails, report and stop.",
+    );
+  });
+
+  test("a new failed marker denies again after the earlier marker was acknowledged", async () => {
+    // #given a worktree with one failure marker and a later distinct failure marker
+    const worktree = createSetupWorktree("agent-hooks-opencode-new-failure-setup-");
+    temporaryPaths.push(worktree.repository);
+    await Bun.write(worktree.marker, "done 7 1700000000000\n");
+    const host = await loadV2Plugin(CORE_DIR);
+    const firstReason = "worktree-setup-guard: setup failed with 7; run `mise exec -- make setup`. If that also fails, report and stop.";
+    const secondReason = "worktree-setup-guard: setup failed with 8; run `mise exec -- make setup`. If that also fails, report and stop.";
+    const event = { tool: "shell", input: { command: "npm test", workdir: worktree.directory } };
+
+    // #when one call acknowledges the first line and the marker writer records a new failure
+    const first = await callBeforeV2(host, event);
+    const acknowledged = await callBeforeV2(host, event);
+    await Bun.write(worktree.marker, "done 8 1700000000001\n");
+    const newFailure = await callBeforeV2(host, event);
+
+    // #then each distinct failure line reaches OpenCode once
+    expect([first, acknowledged, newFailure]).toEqual([firstReason, undefined, secondReason]);
+  });
+
   test("the V2 host control distinguishes a registered allow from a rejection", async () => {
     // #given a control plugin with one allow input and one rejection input
     const controlPlugin = join(temporaryDir("agent-hooks-v2-control-plugin-"), "control.ts");

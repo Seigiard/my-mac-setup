@@ -4,7 +4,7 @@
 // with no node_modules, and only resolves its imports once deployed under
 // ~/.pi/agent/, where pi's own runtime resolves them.
 
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { Decision, ToolEventValue } from "../../../dot_local/lib/agent-hooks/types.ts";
 
 // pi transport for the shared agent-hooks dispatch core.
@@ -30,12 +30,23 @@ const CORE_DIR = join(HOME, ".local", "lib", "agent-hooks");
 // awaiting it. (pi 0.84.4 does await a promise-returning tool_call handler and
 // honours the block it resolves to — verified with a scratch extension — but
 // the core needs nothing from that.)
-let dispatch: ((client: string, rawEvent: ToolEventValue) => Decision) | undefined;
+let dispatch: ((client: string, rawEvent: ToolEventValue, options?: { setup?: { status: string } }) => Decision) | undefined;
+
+let setupTools: typeof import("../../../dot_local/lib/agent-hooks/worktree-setup.ts") | undefined;
 
 try {
   ({ dispatch } = await import(join(CORE_DIR, "index.ts")));
+
+  try {
+    setupTools = await import(join(CORE_DIR, "worktree-setup.ts"));
+
+  } catch {
+    setupTools = undefined;
+
+  }
 } catch {
   dispatch = undefined;
+  setupTools = undefined;
 }
 
 // The marker records which core this resident session actually loaded, so
@@ -55,11 +66,26 @@ if (dispatch && HOME !== "") {
 export default function (pi) {
   if (!dispatch) return;
 
-  pi.on("tool_call", (event) => {
+  pi.on("tool_call", (event, context) => {
     let decision: any;
 
     try {
-      decision = dispatch(CLIENT, event);
+      // SAFETY: pi's tool_call contract supplies cwd and shell input supplies workdir.
+      const cwd = context?.cwd;
+
+      const workdir = event.input?.workdir;
+
+      const directory = workdir && cwd !== undefined
+        ? resolve(cwd, workdir)
+        : cwd;
+
+      const observation = setupTools?.readSetupObservation(directory) ?? {
+        state: { status: "absent" },
+      };
+
+      decision = dispatch(CLIENT, event, { setup: observation.state });
+
+      if (setupTools !== undefined && !setupTools.shouldDeliverSetupDecision(observation, decision)) return;
     } catch {
       // Deliberately wider than the return below: a throw out of this handler
       // is not a deny in pi's contract, and guessing which throws were meant
