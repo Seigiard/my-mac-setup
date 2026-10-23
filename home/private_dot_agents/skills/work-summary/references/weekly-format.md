@@ -1,77 +1,41 @@
-# Weekly Update Format
+# Weekly Update
 
-A written update for the manager: a Notion page named `<YYYY-MM-DD> Weekly Update`, in English. It is read, not spoken, and the reader's test for every result is "where can I see it?". A result with no link is a claim; an artifact is the signal. Output is one `.md` file in the scratchpad unless the user names a place; the user pastes it into Notion.
+A written update for the manager: a Notion page named `<YYYY-MM-DD> Weekly Update`, in English. The manager reads it in three minutes, is not a native English speaker, and has not seen the tickets; he opens what he wants to check. It tells him what the week achieved for users and for the company, in his world, with a link on every result. Output is one `.md` file in the scratchpad unless the user names a place; the user pastes it into Notion.
 
-The weekly shares its anchor and its section logic with the brief: read the bets page and cluster issues into stories as `brief-format.md` describes. What differs is below.
+The anchor is the bets page, read as `brief-format.md` describes. A bet's results document, when one exists, is read in full before its block is written.
+
+## What goes in
+
+The manager wants to know what users, partners, and the company gained this week, and what the bets now know. Every sentence passes one test: does the manager need it to see what the week achieved? What the writer tried on the way, ruled out, or found to be their own activity fails the test, however true it is; so does the share of a plan that got done, because it invites the question about the rest instead of showing the result.
+
+The same week, told both ways:
+
+> Process: We followed tagged links on production to a connected system and fixed every place the tag was lost; the re-run passed all cases but one that did not reproduce.
+>
+> Achievement: Links in outreach emails, on LinkedIn and on our site carry channel tags since 20 October, and the funnel counts sign-ups by channel. [#6487](…)
+
+The first tells the manager what the writer did; the second tells him what the company has. Only the second goes in.
 
 ## Shape
 
-Four `##` sections: **Bets**, **UI/UX**, **Bugs**, **What's next**.
+500–700 words of prose, tables excluded. Paragraphs of two to four sentences, one idea each, and the first sentence carries the point. Headings name what is inside in plain words.
 
-**Bets.** One block per active bet, led by a status line:
+1. **In short** — written last, from the finished body, as a list: one bullet per bet in the body's order, then one bullet for what changed for users. A bet bullet starts with the bet's goal in the same plain words as its heading ("Seeing where visitors leave before connecting a system"), then the status word (open, extended, closed), then what the bet now knows. A reader who has never seen the bets page reads the list and knows these are bets and what each one is for. A bullet is one or two sentences.
+2. **The bets**, the one that decides the next step first. The heading is the bet's goal in plain words, not its internal name. An open bet: a status line (open or extended, what is still missing against its own success conditions), and the numbers in a table of at most five rows. Each number names where it was read; when the rows share a source, name it once under the table, when they differ, name it in the row. A closed bet: the decision and its reason in one breath ("narrowed to errors, because errors in recordings were real defects and gestures were not"), then what the product and the people who use it have now because of it. A bet block carries the bet's progress only; a defect found on the way belongs under "What changed for users".
+3. **What's next** — one short paragraph per candidate, with the place to look linked.
+4. **What changed for users** (the changelog), grouped by surface (connecting a system, the partner page, screens), one bullet per change in the form `was → now. [#PR]`. Two to five bullets per surface.
+5. **One line for the rest**: "About N small fixes and infrastructure improvements: <three or four words naming the kinds>." One sentence; the count is its only number.
 
-> **Conversion funnel** — open. The funnel from first visit to a connected system refreshes every morning and splits by channel. [Dashboard](…) · [PR](…)
+## Links
 
-Then the evidence. Numbers go in a table, one row per step or period, with a link in the cell where the number was read. Then at most one short paragraph of story: what was learned and what it changes. A recording or a query that the conclusion rests on is linked at the sentence that uses it.
+A link sits at the sentence it proves, and a source appears once: a number links to its source line, a fix to its PR, a person's behaviour to the recording at the second it shows, a decision to its document. Link text says what opens ("the funnel", "recording, 0:31", "results"); the only bare identifier is the `[#PR]` that closes a was → now bullet.
 
-**UI/UX** and **Bugs.** One bullet per change, "was → now", ending with its PR link. A change on a public surface also links the surface itself (a published profile, a client page). Group bullets under a bold lead-in per surface when there are more than four.
+The PR is the issue's `github` attachment from the step 2 query. Dashboards, recordings, screens, and documents are not in Linear: before writing, list every claim that still has no artifact and ask the user for the links in **one** question. A link that stays missing goes in as `[link needed: <what>]`, and the list of placeholders is reported outside the update.
 
-**Leftover.** One line, "About N small fixes and infrastructure improvements", followed by a Notion toggle block `All N issues` that lists every leftover issue as `PRD-XXXX — title`, each linked. Count N from the issues named nowhere else.
+## Facts once
 
-**What's next.** One paragraph per candidate bet: what will be looked at, where, and what decides the call. Link the place: the dashboard, the page, the recording set.
+Every fact appears once in the body and at most once in the summary, with the same number in both. A date or count stated in a status line is stated there only. The table carries the sample size; prose states the number and stops. A caveat about the data stays only when it changes the conclusion, and then as a clause.
 
-## Artifact rule
+## Language
 
-Every sentence that says shipped, fixed, works, or now ends with a link. The sources, in the order to try:
-
-| Claim | Artifact |
-| --- | --- |
-| a change landed | the PR: the issue's `github` attachment from the step 2 query; the Linear issue `url` when there is no PR |
-| a number | the dashboard, insight, or query it was read from |
-| a person did or saw something | the recording, at the second it shows |
-| a decision was made | the document or thread that records it |
-| a thing exists in the product | the live page |
-
-Dashboards, recordings, and documents are not in Linear. Before writing, list every claim that still has no artifact and ask the user for the links in **one** question. A claim that stays without one goes into the file as `[link needed: <what>]` and is named outside the file; it is never shipped as bare prose.
-
-## Evidence bound
-
-An artifact proves what it shows and nothing more. A recording that ends on the first screen shows a person who left from the first screen; whether the screen was blank is a separate fact that needs its own artifact. Say what is seen, not what is inferred, and when the inference matters, label it: "likely because…".
-
-## Length
-
-300–450 words of prose. Tables, link lines, and the toggle list do not count. When the text runs over, cut story paragraphs before cutting a link or a table row.
-
-## Example (excerpt, 22 Oct 2026)
-
-> ## Bets
->
-> **Conversion funnel** — open. Built: the funnel from first visit to a connected system, refreshed every morning, split by channel; staff, test accounts, and partners are excluded. [Dashboard](https://…/insights/…) · [PR](https://github.com/…/pull/6701)
->
-> | Period | Visitors | Sign-ups | Connected | Source |
-> | --- | --- | --- | --- | --- |
-> | 15–19 Oct | 76 | 0 | 0 | [funnel](https://…/insights/…) |
-> | 19 Oct | — | 1 | 0 | [recording](https://…/replay/…) |
->
-> The one sign-up left from the first screen without trying to connect a system; the recording ends there. The same days, the server refused the first open of an idle workspace ten times across three workspaces, fixed in [#6708](https://github.com/…/pull/6708). Too few recordings to say anything about client behavior yet.
->
-> ## UI/UX
->
-> **Partners.** Of four partners invited this week, three published within minutes ([profile](…), [profile](…), [profile](…)); one got stuck, and the fixes follow her path ([issue](https://linear.app/…/PRD-3636)).
->
-> - A complete draft profile asked the partner to fill what was already filled → it offers publishing from the save bar. [#6723](https://github.com/…/pull/6723)
-> - A link to an unpublished profile said "this profile isn't here" → it says the profile is coming. [#6718](https://github.com/…/pull/6718)
->
-> ## Bugs
->
-> - Pressing Connect on Home blinked the whole page → only the relevant block reacts. [#6690](https://github.com/…/pull/6690)
->
-> About 30 small fixes and infrastructure improvements.
->
-> ▸ All 30 issues
-> · PRD-3633 — one inline form for a text link inside a sentence
-> · …
->
-> ## What's next
->
-> **Partner's path.** Of 21 partners added, 6 signed in and 3 published; none was invited through the product. The partner funnel is instrumented and lands in [this dashboard](https://…) after the deploy. If it shows the same losses, the next bet is the path from invitation to a published profile.
+Plain words a colleague from another team understands on first reading.
