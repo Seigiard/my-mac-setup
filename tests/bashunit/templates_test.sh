@@ -1004,6 +1004,23 @@ function test_templates_0151_private_settings_registers_worktree_identity_prompt
     --source "$SOURCE_ROOT" "$hooks_dir/handoff-session-start.sh"
   assert_success
   assert_file_exists "$output"
+
+  # WorktreeCreate replaces Claude Code's default creation. Both hook commands
+  # and their managed sources must exist or Claude cannot enter nested worktrees.
+  run jq -r '.hooks.WorktreeCreate[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
+  assert_success
+  assert_line "bash '$hooks_dir/claude-worktree-create.sh'"
+  run jq -r '.hooks.WorktreeRemove[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
+  assert_success
+  assert_line "bash '$hooks_dir/claude-worktree-remove.sh'"
+  run chezmoi_host_partial source-path \
+    --source "$SOURCE_ROOT" "$hooks_dir/claude-worktree-create.sh"
+  assert_success
+  assert_file_exists "$output"
+  run chezmoi_host_partial source-path \
+    --source "$SOURCE_ROOT" "$hooks_dir/claude-worktree-remove.sh"
+  assert_success
+  assert_file_exists "$output"
 }
 
 function test_templates_0152_private_settings_register_the_precompact_handoff_builder() {

@@ -33,6 +33,28 @@
   "syncClaudeAiSkills": false,
   "syncClaudeAiPlugins": false,
   "hooks": {
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/claude-worktree-create.sh'",
+            "timeout": 600
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash '{{ .chezmoi.homeDir }}/.claude/hooks/claude-worktree-remove.sh'",
+            "timeout": 600
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Edit|MultiEdit|Write|Bash|mcp__fff__grep|WebFetch",

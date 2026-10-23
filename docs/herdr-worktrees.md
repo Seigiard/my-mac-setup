@@ -78,6 +78,46 @@ contained by another local branch, the remote cannot be fetched, or files
 appear before reset. Only an untouched new branch is reset to fetched
 `origin/HEAD`.
 
+## Claude Code nested worktrees
+
+Claude Code's `EnterWorktree` and worktree-isolated child agents use the global
+`WorktreeCreate` hook. The hook creates
+`<checkout>/.claude/worktrees/<name>` on `worktree-<name>`. It uses
+`origin/HEAD` when that ref resolves, and otherwise uses the current `HEAD`.
+It does not fetch. An unoccupied local `worktree-<name>` branch is reused with
+its tip unchanged. An already registered path is returned as is; a stale
+registration whose directory is gone is removed first, and other worktree
+registrations stay untouched.
+
+After Git creates the checkout, the hook invokes the `seigi.worktree-setup`
+plugin with the checkout path and an empty branch field. The hook finds the
+plugin through `herdr plugin list --json` (the `plugin_root` of the enabled
+`seigi.worktree-setup` entry); `CLAUDE_WORKTREE_SETUP_PLUGIN_DIR` overrides it.
+The empty field tells the plugin to skip fresh-base and the
+`herdr-generated-worktree` marker, so the new branch keeps the parent checkout's
+unpushed commits and `herdr-worktree-identity` leaves it alone. Setup is best
+effort: the hook still returns the created path when a setup prerequisite is
+missing (`herdr`, `jq`, `bun`, an enabled plugin, its `setup.ts`) or when setup
+fails, and prints the reason on stderr. Untracked files reach the checkout only
+through the plugin's `copy` list in `config.toml`: the hook replaces Claude
+Code's default creation, including its `.worktreeinclude` handling.
+
+Claude Code's matching `WorktreeRemove` hook refuses a path that contains
+another registered worktree. Otherwise it force-removes the linked checkout. It
+deletes a `worktree-*` branch when another local branch or remote-tracking ref
+contains its tip; otherwise it keeps the branch and says so on stderr. A missing
+path counts as removed; a plain directory is rejected and left untouched.
+
+Claude Code keeps subagent worktrees and never passes them to `WorktreeRemove`.
+Remove a leftover with `git worktree remove --force
+<checkout>/.claude/worktrees/<name>` from the primary checkout, then delete its
+`worktree-<name>` branch if its work is merged.
+
+Setup runs synchronously and can block the child agent for 30–100 seconds. This
+cost is accepted because the child already pays the setup cost later when setup
+is run by hand. Codex and OpenCode create their subagent worktrees without these
+hooks, so those checkouts get no setup.
+
 ## Provenance boundary
 
 Worktree creation is native Herdr behavior. The setup plugin observes the
