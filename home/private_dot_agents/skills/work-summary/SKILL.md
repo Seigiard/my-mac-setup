@@ -1,11 +1,11 @@
 ---
 name: work-summary
-description: Summarize the user's completed Linear issues for a period as a Slack update (default), a themed report with ticket IDs, or a spoken brief for a manager sync tied to the user's bets, and write the next period's focus statement. Use when the user asks to summarize what they got done, wants a workstream or product update, prepares to tell a manager what they did and will do, asks to set or reword a period's focus, or asks in Russian ("кратко что я сделал", "сделай саммари моей работы", "что рассказать на митинге", "сделай фокус на неделю").
+description: Summarize the user's completed Linear issues for a period as a Slack update (default), a themed report with ticket IDs, a spoken brief for a manager sync tied to the user's bets, or a written weekly update for the manager's Notion page with a link behind every result, and write the next period's focus statement. Use when the user asks to summarize what they got done, wants a workstream or product update, prepares to tell a manager what they did and will do, writes the weekly update page, asks to set or reword a period's focus, or asks in Russian ("кратко что я сделал", "сделай саммари моей работы", "что рассказать на митинге", "недельный отчёт", "сделай фокус на неделю").
 ---
 
 # Work Summary
 
-Summarize the user's completed Linear issues for a date range, in one of three output formats — and write the focus statement the next period will be measured against.
+Summarize the user's completed Linear issues for a date range, in one of four output formats — and write the focus statement the next period will be measured against.
 
 ## Workflow
 
@@ -23,13 +23,13 @@ Summarize the user's completed Linear issues for a date range, in one of three o
 bunx @schpet/linear-cli api --variables-json '{"filter": {"assignee": {"isMe": {"eq": true}}, "completedAt": {"gte": "<START>T00:00:00Z", "lte": "<END>T23:59:59Z"}}}' <<'GRAPHQL' 2>/dev/null | grep -o '{"data".*' | jq '.data.issues.nodes'
 query($filter: IssueFilter!) {
   issues(filter: $filter, first: 100) {
-    nodes { identifier title completedAt project { name } state { name } description }
+    nodes { identifier url title completedAt project { name } state { name } description attachments { nodes { title url sourceType } } }
   }
 }
 GRAPHQL
 ```
 
-The runner prints an install warning on first run that breaks `jq` — the `grep -o '{"data".*'` pipe strips it. Output can be large; if persisted to a file, extract per-issue title + first description lines with `jq` rather than reading raw.
+An attachment with `sourceType: "github"` is the issue's PR; its `url` is the artifact the weekly links. The runner prints an install warning on first run that breaks `jq` — the `grep -o '{"data".*'` pipe strips it. Output can be large; if persisted to a file, extract per-issue title + first description lines with `jq` rather than reading raw.
 
 If exactly 100 nodes return, the window overflowed the page — narrow the range or page with `after`. Window boundaries are UTC: an issue closed late Friday local time may land in Saturday.
 
@@ -50,7 +50,7 @@ Then, in order:
 - If the dashboard's focus is present and still describes the period you are summarizing, use it and **say which focus you used in one line outside the artifact**, so a stale field is caught by the user rather than shipped.
 - If it is absent, or clearly describes an earlier period, ask the user for the focus of this one. One question, then proceed.
 - Skip this step only when the user asked for the flat shape or said the period had no focus.
-- For the brief, skip it: the brief is anchored on the bets page instead, read as `references/brief-format.md` describes.
+- For the brief and the weekly, skip it: both are anchored on the bets page instead, read as `references/brief-format.md` describes.
 
 The focus changes the output shape: with a focus, the update is anchored on it (default); without one, it is a flat list of accomplishments.
 
@@ -93,6 +93,8 @@ With a focus, the focus's own themes are the grouping — map each done issue on
 
 - **brief** — a spoken brief in Russian prose for a sync with a manager: what moved on each bet, what changed for users, which bugs are gone, and what comes next per bet. Follow `references/brief-format.md`. Triggers: "for the meeting", "for my manager", "what do I tell", "на митинг", "для менеджера", "что рассказать", "прозой".
 
+- **weekly** — the written weekly update for the manager's Notion page, English, same four sections as the brief, with an artifact behind every result: PR, dashboard, recording, live page. Follow `references/weekly-format.md`. Triggers: "weekly update", "weekly", "for Notion", "недельный отчёт", "недельный апдейт", "для Notion". The brief is spoken and carries no links; the weekly is read and is judged by them — a request for a page, not a meeting, is the weekly.
+
 When the request does not make the choice obvious, produce the **update**.
 
 ## Writing the period's focus
@@ -106,4 +108,4 @@ A separate job from summarizing, and often the tail of the same conversation: th
 - **The artifact never mentions the act of reporting.** No "as I said last week", no "I won't repeat myself", no "more detail in the previous update", no note that a section is deliberately short. The reader does not know what you told them before and does not care how the text was produced. When the user says "mention it briefly, no detail needed", that means fewer words about the thing itself — not a sentence announcing brevity.
 - **A narrower scope changes the sections' content, never their shape.** "Only these two themes", "drop the epics", "just the fixes" all cut what goes inside the format; they do not license inventing headings or abandoning the focus-anchored shape. If the cut leaves a section empty, drop that section and keep the rest intact.
 - **Never restore what the user deleted.** When the user edits a draft and hands it back, every removal is a decision. Reassembling a "final" text does not license putting a cut sentence back; if the removal looks wrong, say so and leave the text as they cut it.
-- **State what is verified.** A range query proves what closed inside the window and nothing else. Before saying an item is untracked or unfixed, run the keyword search from step 4.
+- **State what is verified.** A range query proves what closed inside the window and nothing else. Before saying an item is untracked or unfixed, run the keyword search from step 4. An artifact proves what it shows: a recording that ends on a screen shows a person who left it, not what the screen looked like. Say what is seen; label an inference as one.
