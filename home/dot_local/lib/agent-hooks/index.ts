@@ -3,7 +3,7 @@
 
 import { normalizeEvent } from "./normalize.ts";
 import { CORE_REGISTRY, policiesFor, profileFor } from "./registry.ts";
-import type { ClientId, Decision, NormalizedEvent, Policy, Registry, ToolEventValue } from "./types.ts";
+import type { ClientId, Decision, NormalizedEvent, Policy, Registry, SetupState, ToolEventValue } from "./types.ts";
 import { ALLOW } from "./types.ts";
 
 export * from "./types.ts";
@@ -28,6 +28,8 @@ export type DispatchOptions = {
   registry?: Registry;
   /** Process environment only; never the intercepted call's arguments (R8). */
   env?: Record<string, string | undefined>;
+  /** Adapter-provided setup status; policies never read the filesystem. */
+  setup?: SetupState;
 };
 
 /**
@@ -87,9 +89,13 @@ export function dispatchTraced(
 
     if (!profile) return { invoked: [], decision: ALLOW };
 
-    const event = normalizeEvent(client, rawEvent, registry);
+    const normalized = normalizeEvent(client, rawEvent, registry);
 
-    if (!event) return { invoked: [], decision: ALLOW };
+    if (!normalized) return { invoked: [], decision: ALLOW };
+
+    const event: NormalizedEvent = options.setup === undefined
+      ? normalized
+      : { ...normalized, setup: options.setup };
 
     const disabled = disabledPolicyNames(env);
 

@@ -33,6 +33,12 @@ export type EncodedEvent =
 /** Canonical tool kinds. Client-specific spellings are registry data. */
 export type ToolKind = "edit" | "write" | "bash" | "fff-grep" | "web-fetch";
 
+export type SetupState =
+  | { status: "absent" }
+  | { status: "unknown" }
+  | { status: "running"; alive: boolean; elapsedMs: number; alreadyDenied?: boolean }
+  | { status: "done"; exit: number; alreadyDenied: boolean };
+
 export type OutcomeKind = "block" | "context";
 
 export type Decision =
@@ -68,6 +74,7 @@ export type NormalizedEvent = EventPayload & {
   /** The spelling the client used, kept for adapter-side diagnostics. */
   clientToolName: string;
   tool: ToolKind;
+  setup?: SetupState;
 };
 
 export type Policy = {
@@ -83,6 +90,8 @@ export type Policy = {
    * prove the route is alive. Required of every block-capable policy.
    */
   canary?: { tool: ToolKind; payload: Partial<EventPayload> };
+  /** Optional setup state used to prove a setup-dependent canary route. */
+  canarySetup?: SetupState;
   /** Pure, synchronous, bounded — no I/O (KTD7). */
   evaluate: (event: NormalizedEvent) => Decision | undefined;
 };
