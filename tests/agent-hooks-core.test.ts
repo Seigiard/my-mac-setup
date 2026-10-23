@@ -493,6 +493,7 @@ describe("cross-client parity (KTD8)", () => {
       "fixture-content-guard: claude/opencode/pi",
       "zsh-reserved-name-guard: claude/opencode/pi",
       "fff-grep-guard: claude/opencode/pi",
+      "worktree-setup-guard: claude/opencode/pi",
     ]);
   });
 });
@@ -509,6 +510,7 @@ const R9_ALTERNATIVES = {
   "fixture-content-guard": "Assert the capability that remains",
   "zsh-reserved-name-guard": "zsh-ok:",
   "fff-grep-guard": "Pick one: search a single identifier",
+  "worktree-setup-guard": "mise exec -- make setup",
 };
 
 
@@ -531,7 +533,11 @@ describe("reason contract (R9)", () => {
           const raw = normalize.encodeEvent(client, canary.tool, canary.payload, registry);
 
           // #when the known-bad canary is dispatched
-          const decision = core.dispatch(client, raw, { registry, env: {} });
+          const decision = core.dispatch(client, raw, {
+            registry,
+            env: {},
+            setup: policy.canarySetup,
+          });
 
           // #then every route denies, names itself, and names its alternative
           const alternative = R9_ALTERNATIVES[policy.name];
@@ -561,6 +567,9 @@ describe("reason contract (R9)", () => {
       "fff-grep-guard@claude: block prefixed=true alternative=true",
       "fff-grep-guard@opencode: block prefixed=true alternative=true",
       "fff-grep-guard@pi: block prefixed=true alternative=true",
+      "worktree-setup-guard@claude: block prefixed=true alternative=true",
+      "worktree-setup-guard@opencode: block prefixed=true alternative=true",
+      "worktree-setup-guard@pi: block prefixed=true alternative=true",
     ]);
   });
 });
@@ -1219,7 +1228,272 @@ describe("fff-grep-guard fail-open (R4)", () => {
   });
 });
 
-const CONTEXT_ONLY_POLICIES = ["webfetch-markdown-hint", "agent-doc-writing-hint"];
+type SetupState =
+  | { status: "absent" }
+  | { status: "running"; alive: boolean; elapsedMs: number }
+  | { status: "done"; exit: number; alreadyDenied: boolean };
+
+const RUNNING_SETUP: SetupState = { status: "running", alive: true, elapsedMs: 42_900 };
+
+const FAILED_SETUP: SetupState = { status: "done", exit: 7, alreadyDenied: false };
+
+const FAILED_SETUP_REASON =
+  "worktree-setup-guard: setup failed with 7; run `mise exec -- make setup`. If that also fails, report and stop.";
+
+function dispatchWithSetup(command: string, setup: SetupState) {
+  return core.dispatch("claude", { tool_name: "Bash", tool_input: { command } }, { env: {}, setup });
+}
+
+describe("worktree setup gate", () => {
+  test("every build command spelling and command segment blocks while setup runs", () => {
+    // #given a live setup state and commands whose executable position varies
+    const commands = [
+      "bun test",
+      "bunx vitest",
+      "make test",
+      "tsc --noEmit",
+      "turbo run build",
+      "npm test",
+      "npx eslint .",
+      "CI=1 make test",
+      "mise exec -- make test",
+      "mise x -- tsc --noEmit",
+      "git status; make test",
+      "git status && npm test",
+      "git status || npx eslint .",
+      "git status | turbo run build",
+      "git status\nbun test",
+      "ls",
+      "git status",
+      "cat package.json",
+    ];
+
+    // #when the core receives each command in its Claude bash transport
+    const decisions = commands.map((command) => dispatchWithSetup(command, RUNNING_SETUP));
+
+    // #then every build/test/install/dev entry point blocks and harmless commands remain untouched
+    expect(decisions).toEqual([
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "allow" },
+      { verdict: "allow" },
+      { verdict: "allow" },
+    ]);
+  });
+
+  test("the setup-state matrix preserves the recovery path and fail-open input", () => {
+    // #given each normalized state from the setup-status marker contract
+    const interrupted: SetupState = { status: "running", alive: false, elapsedMs: 42_900 };
+    const stale: SetupState = { status: "running", alive: true, elapsedMs: 300_000 };
+    const alreadyDenied: SetupState = { status: "done", exit: 7, alreadyDenied: true };
+
+    // #when the core dispatches ordinary and recovery build commands
+    const decisions = [
+      dispatchWithSetup("make test", { status: "absent" }),
+      dispatchWithSetup("make test", { status: "done", exit: 0, alreadyDenied: false }),
+      dispatchWithSetup("make test", FAILED_SETUP),
+      dispatchWithSetup("make test", alreadyDenied),
+      dispatchWithSetup("mise exec -- make setup", FAILED_SETUP),
+      dispatchWithSetup("mise exec -- make setup", RUNNING_SETUP),
+      dispatchWithSetup("make test", interrupted),
+      dispatchWithSetup("make test", stale),
+      core.dispatch("claude", { tool_name: "Bash", tool_input: { command: "make test" } }, {
+        env: {},
+        setup: { status: "unknown" },
+      }),
+    ];
+
+    // #then only a live short setup or the first failed marker denies; stale and unknown states do not block
+    expect(decisions).toEqual([
+      { verdict: "allow" },
+      { verdict: "allow" },
+      { verdict: "block", reason: FAILED_SETUP_REASON },
+      { verdict: "allow" },
+      { verdict: "allow" },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      {
+        verdict: "block",
+        reason: "worktree-setup-guard: worktree setup was interrupted; run `mise exec -- make setup`. If that also fails, report and stop.",
+      },
+      { verdict: "context", text: "worktree-setup-stuck-hint: worktree setup looks stuck after 300 s; the command will run." },
+      { verdict: "allow" },
+    ]);
+  });
+
+  test("only the named recovery command is allowed after setup fails", () => {
+    // #given a setup marker that failed before the agent's first build command
+    const setup: SetupState = { status: "done", exit: 7, alreadyDenied: false };
+
+    // #when the agent tries a different make command and the named recovery command
+    const decisions = [
+      dispatchWithSetup("mise exec -- make test", setup),
+      dispatchWithSetup("mise exec -- make setup", setup),
+    ];
+
+    // #then only the command named in the recovery advice proceeds
+    expect(decisions).toEqual([
+      { verdict: "block", reason: FAILED_SETUP_REASON },
+      { verdict: "allow" },
+    ]);
+  });
+
+  test("recovery exemption requires every gated segment and permits its output plumbing", () => {
+    // #given a failed setup before its first guarded command
+    const setup: SetupState = { status: "done", exit: 7, alreadyDenied: false };
+
+    // #when a build is chained with recovery, including through a line continuation, or recovery sends output to a non-gated filter
+    const decisions = [
+      dispatchWithSetup("npm test; mise exec -- make setup", setup),
+      dispatchWithSetup("mise exec -- make setup && \\\nmake test", setup),
+      dispatchWithSetup("mise exec -- make setup 2>&1 | tail -40", setup),
+    ];
+
+    // #then each chained build receives the failure denial and the usable recovery command proceeds
+    expect(decisions).toEqual([
+      { verdict: "block", reason: FAILED_SETUP_REASON },
+      { verdict: "block", reason: FAILED_SETUP_REASON },
+      { verdict: "allow" },
+    ]);
+  });
+
+  test("plain shell splitting blocks build tokens in quoted, escaped, and heredoc text", () => {
+    // #given a live setup and commands with build tokens in contexts the quote-aware scan excludes
+    const setup: SetupState = { status: "running", alive: true, elapsedMs: 42_900 };
+
+    // #when the core dispatches each command through the bash boundary
+    const decisions = [
+      dispatchWithSetup("TEST_FILTER='unit|integration' npm test", setup),
+      dispatchWithSetup('echo "a && npm install"', setup),
+      dispatchWithSetup("echo a \\&\\& npm install", setup),
+      dispatchWithSetup("git commit -F - <<'EOF'\nmake test\nEOF", setup),
+    ];
+
+    // #then the conservative gate holds every build token while setup is running
+    expect(decisions).toEqual([
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+    ]);
+  });
+
+  test("plain shell splitting finds builds after line continuations and comments", () => {
+    // #given a live setup and syntax whose quote-aware scanner can treat the build as plain text
+    const setup: SetupState = { status: "running", alive: true, elapsedMs: 42_900 };
+
+    // #when a continued or commented line is followed by a build command
+    const decisions = [
+      dispatchWithSetup("cd x && \\\nmake test", setup),
+      dispatchWithSetup("echo hi # don't won't\nmake test", setup),
+    ];
+
+    // #then the conservative split prevents either form from bypassing the running-setup block
+    expect(decisions).toEqual([
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+    ]);
+  });
+
+  test("shell constructs cannot hide build commands after their executable boundary", () => {
+    // #given a live setup and shell constructs followed by executable build commands
+    const setup: SetupState = { status: "running", alive: true, elapsedMs: 42_900 };
+
+    // #when the core dispatches heredocs, here-strings, arithmetic, and a single-quoted path
+    const decisions = [
+      dispatchWithSetup("cat > f <<'EOF'\nx\nEOF\nbun test", setup),
+      dispatchWithSetup("cat <<EOF > a\nx\nEOF\nmake test", setup),
+      dispatchWithSetup("cat <<-EOF\n\tx\n\tEOF\nmake test", setup),
+      dispatchWithSetup("cat <<< 'hello'\nmake test", setup),
+      dispatchWithSetup('grep x <<< "$v"\nbun test', setup),
+      dispatchWithSetup("echo $((1<<2))\nmake test", setup),
+      dispatchWithSetup("echo 'C:\\' ; make test", setup),
+    ];
+
+    // #then each executable build command is held while setup is running
+    expect(decisions).toEqual([
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+    ]);
+  });
+
+  test("unterminated shell constructs fall back to blocking visible build commands", () => {
+    // #given a live setup and commands whose quote or heredoc never closes
+    const setup: SetupState = { status: "running", alive: true, elapsedMs: 42_900 };
+
+    // #when the core encounters a build command after the incomplete construct
+    const decisions = [
+      dispatchWithSetup("echo 'unfinished\nmake test", setup),
+      dispatchWithSetup("cat <<'EOF'\ntext\nbun test", setup),
+    ];
+
+    // #then it fails safe by blocking the visible build command
+    expect(decisions).toEqual([
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+      { verdict: "block", reason: "worktree-setup-guard: worktree setup is running for 42 s; wait and retry." },
+    ]);
+  });
+
+  test("the named recovery command is allowed after setup is interrupted", () => {
+    // #given a running marker whose process is no longer alive
+    const setup: SetupState = { status: "running", alive: false, elapsedMs: 1000 };
+
+    // #when the agent tries the named recovery command and an ordinary build command
+    const decisions = [
+      dispatchWithSetup("mise exec -- make setup", setup),
+      dispatchWithSetup("make test", setup),
+    ];
+
+    // #then recovery proceeds while the ordinary command tells the agent what to do
+    expect(decisions).toEqual([
+      { verdict: "allow" },
+      {
+        verdict: "block",
+        reason: "worktree-setup-guard: worktree setup was interrupted; run `mise exec -- make setup`. If that also fails, report and stop.",
+      },
+    ]);
+  });
+
+  test("a stuck setup note is Claude-only", () => {
+    // #given a running setup at the five-minute boundary
+    const raw = {
+      claude: { tool_name: "Bash", tool_input: { command: "make test" } },
+      opencode: { tool: "shell", input: { command: "make test" } },
+      pi: { toolName: "bash", input: { command: "make test" } },
+    };
+
+    const setup: SetupState = { status: "running", alive: true, elapsedMs: 300_000 };
+
+    // #when each adapter dialect enters the core with the same setup state
+    const decisions = Object.entries(raw).map(([client, event]) => core.dispatch(client, event, { env: {}, setup }));
+
+    // #then only Claude receives the context transport outcome; all clients allow the command
+    expect(decisions).toEqual([
+      { verdict: "context", text: "worktree-setup-stuck-hint: worktree setup looks stuck after 300 s; the command will run." },
+      { verdict: "allow" },
+      { verdict: "allow" },
+    ]);
+  });
+});
+
+const CONTEXT_ONLY_POLICIES = ["webfetch-markdown-hint", "agent-doc-writing-hint", "worktree-setup-stuck-hint"];
 
 describe("context-only policy applicability (KTD8)", () => {
   test("the hints are the only shipped policies that are not block-capable", () => {
@@ -1300,6 +1574,9 @@ describe("selfcheck canary over the shipped registry (R8)", () => {
       "fff-grep-guard@claude",
       "fff-grep-guard@opencode",
       "fff-grep-guard@pi",
+      "worktree-setup-guard@claude",
+      "worktree-setup-guard@opencode",
+      "worktree-setup-guard@pi",
       "zsh-reserved-name-guard@claude",
       "zsh-reserved-name-guard@opencode",
       "zsh-reserved-name-guard@pi",
