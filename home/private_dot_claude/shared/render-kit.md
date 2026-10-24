@@ -6,7 +6,7 @@ Write bare semantic HTML and let the kit style it. The kit is one base layer on 
 
 ## Assembling a page
 
-A draft carries three markers and `python3 ~/.claude/shared/render-kit/assemble.py <draft> -o <page>` replaces them with the kit's files, so the page carries the kit inside itself and works from disk, by mail, or on a host:
+A draft carries three markers and `python3 ~/.claude/shared/render-kit/assemble.py <draft> -o <page>` replaces them with the kit's files, so the page carries the kit inside itself and works from disk, by mail, or on a host. The head replacement also adds exactly one `<meta name="kit-build" content="…">`: its value is the first 7 lowercase hexadecimal characters of the SHA-256 hash of the draft file's bytes. This stable build id is the annotation storage key and is included in the Markdown header sent with feedback:
 
 - `<!-- kit: head -->` inside `<head>`, after `<title>`: `head.html`, with charset and viewport and the base layer: the colour tokens, the type, the page shell and every bare-element rule, each with the reason for it.
 - `<!-- kit: components -->` right after it: `components.css` in a `<style>`: frames and the lightbox, code colours, the Mermaid block, the term bubble, print rules.
