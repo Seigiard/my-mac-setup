@@ -194,17 +194,30 @@
       }
       return intersection.toString();
     };
+    const selectedTextNodes = (range) => {
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let first = null;
+      let last = null;
+      while (walker.nextNode()) {
+        if (!selectedText(range, walker.currentNode).trim()) continue;
+        first ||= walker.currentNode;
+        last = walker.currentNode;
+      }
+      return { first, last };
+    };
     const quoteText = (text, range) => {
-      const groups = new Map();
+      const runs = [];
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       while (walker.nextNode()) {
         const selected = selectedText(range, walker.currentNode);
-        if (!selected) continue;
+        if (!selected.trim()) continue;
         const block = walker.currentNode.parentElement?.closest(`${blockSelector}, summary, caption, legend`)
           || document.body;
-        groups.set(block, `${groups.get(block) || ""}${selected}`);
+        const previous = runs.at(-1);
+        if (previous?.block === block) previous.text += selected;
+        else runs.push({ block, text: selected });
       }
-      const lines = [...groups.values()].map(normalizeText).filter(Boolean);
+      const lines = runs.map(({ text: run }) => normalizeText(run)).filter(Boolean);
       return lines.length > 1 ? lines.join("\n") : normalizeText(text);
     };
     const headingFor = (node) => {
@@ -218,7 +231,8 @@
       return found;
     };
     const sectionFor = (range) => {
-      const heading = headingFor(range.startContainer);
+      const { first } = selectedTextNodes(range);
+      const heading = headingFor(first);
       if (!heading) return { section: title };
       const section = heading.id || headingText(heading);
       const sameName = [...document.querySelectorAll("h1, h2, h3, h4")]
@@ -228,30 +242,33 @@
         ...(heading.id ? {} : { headingOrdinal: sameName.indexOf(heading) }),
       };
     };
-    const trimRangeEnd = (range) => {
-      const element = range.endContainer.nodeType === Node.ELEMENT_NODE
-        ? range.endContainer
-        : range.endContainer.parentElement;
-      const heading = element?.closest("h1, h2, h3, h4");
-      if (!heading) return range;
-
-      const headingText = document.createTreeWalker(heading, NodeFilter.SHOW_TEXT).nextNode();
-      const endsAtHeadingStart = (range.endContainer === heading && range.endOffset === 0)
-        || (range.endContainer === headingText && range.endOffset === 0);
-      if (!endsAtHeadingStart) return range;
-
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-      let last = null;
-      while (walker.nextNode()) {
-        if (selectedText(range, walker.currentNode)) last = walker.currentNode;
+    const headingAtRangeEnd = (range) => {
+      const container = range.endContainer;
+      if (container.nodeType === Node.TEXT_NODE) {
+        return range.endOffset === 0
+          ? container.parentElement?.closest("h1, h2, h3, h4")
+          : null;
       }
+      const element = container;
+      if (range.endOffset === 0) return element.closest("h1, h2, h3, h4");
+      const child = element.childNodes[range.endOffset];
+      return child?.nodeType === Node.ELEMENT_NODE && child.matches("h1, h2, h3, h4")
+        ? child
+        : null;
+    };
+    const trimRangeEnd = (range) => {
+      if (!headingAtRangeEnd(range)) return range;
+      const { last } = selectedTextNodes(range);
       if (!last) return range;
 
       const trimmed = range.cloneRange();
       trimmed.setEnd(last, last.length);
       return trimmed;
     };
-    const isWithinOneSection = (range) => headingFor(range.startContainer) === headingFor(range.endContainer);
+    const isWithinOneSection = (range) => {
+      const { first, last } = selectedTextNodes(range);
+      return headingFor(first) === headingFor(last);
+    };
     const normalizedContent = (content) => {
       const offsets = [];
       let text = "";
