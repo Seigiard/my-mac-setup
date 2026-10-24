@@ -3316,8 +3316,13 @@ read_value() {
 
 agent_json() {
   local name="$1" pane="$2" terminal="$3" session="$4" status="$5" seq="$6"
-  printf '{"name":"%s","agent":"claude","pane_id":"%s","terminal_id":"%s","revision":1,"agent_session":{"value":"%s"},"agent_status":"%s","state_change_seq":%s,"focused":false}' \
-    "$name" "$pane" "$terminal" "$session" "$status" "$seq"
+  if [ -n "$session" ]; then
+    printf '{"name":"%s","agent":"claude","pane_id":"%s","terminal_id":"%s","revision":1,"agent_session":{"value":"%s"},"agent_status":"%s","state_change_seq":%s,"focused":false}' \
+      "$name" "$pane" "$terminal" "$session" "$status" "$seq"
+  else
+    printf '{"name":"%s","agent":"claude","pane_id":"%s","terminal_id":"%s","revision":1,"agent_status":"%s","state_change_seq":%s,"focused":false}' \
+      "$name" "$pane" "$terminal" "$status" "$seq"
+  fi
 }
 
 child_session_value() {
@@ -3334,7 +3339,11 @@ case "${1:-} ${2:-}" in
       [ "${STUB_SESSION_READ_FAIL:-0}" != 1 ] || exit 1
       [ "${STUB_SESSION_READ_MALFORMED:-0}" != 1 ] || { printf 'not-json\n'; exit 0; }
     fi
-    parent_session="$(read_value parent-session parent-session)"
+    if [ "${STUB_PARENT_SESSION_MISSING:-0}" = 1 ]; then
+      parent_session=""
+    else
+      parent_session="$(read_value parent-session parent-session)"
+    fi
     parent_status="$(read_value parent-status working)"
     if [ "$parent_status" = blocked ] && [ -f "$CHILD_STUB/generation" ]; then
       : > "$CHILD_STUB/parent-blocked-observed"
@@ -3493,6 +3502,10 @@ case "${1:-} ${2:-}" in
       : > "$CHILD_STUB/prompt-seen"
       [ "${STUB_PROMPT_FAIL:-0}" != 1 ] || {
         printf '{"error":{"code":"agent_prompt_stalled"}}\n' >&2
+        exit 1
+      }
+      [ "${STUB_PROMPT_TIMEOUT:-0}" != 1 ] || {
+        printf '{"error":{"code":"timeout"}}\n' >&2
         exit 1
       }
       if [ -n "${STUB_REPLACE_TERMINAL_ON_PROMPT:-}" ]; then
@@ -4092,6 +4105,231 @@ function test_scripts_345_detached_children_bind_sessions_created_by_the_first_p
     assert_file_contains "$CHILD_STUB/resource-tree.log" '^record-child --pane wT:p9 --terminal term-child'
     assert_file_not_exists "$CHILD_STUB/pane-closed"
   done
+}
+
+function test_scripts_34512_attached_lazy_session_children_record_parentage_after_the_first_prompt() {
+  _bats_test_init 34512 'attached OpenCode and Pi children record parentage after the first prompt creates a session'
+  local kind
+  for kind in opencode pi; do
+    # #given — the child session does not exist until after its first prompt
+    child_lifecycle_stub_herdr
+    printf '2\n' > "$CHILD_STUB/session-after-prompt"
+
+    # #when — an attached child completes its initial turn
+    HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 run child_start \
+      --kind "$kind" --posture rw --wait --timeout 50
+
+    # #then — the launcher binds the verified session once and records its parent edge
+    assert_success
+    assert_output "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
+    assert_file_contains "$CHILD_STUB/resource-tree.log" '^record-child --pane wT:p9 --terminal term-child'
+    assert_file_exists "$CHILD_STUB/session-wait-observed"
+    run grep -c '^agent prompt [^w]' "$CHILD_STUB/calls.log"
+    assert_success
+    assert_output 1
+    assert_file_contains "$CHILD_STUB/calls.log" '^agent prompt [^w].*--wait'
+  done
+}
+
+function test_scripts_34513_attached_lazy_session_timeout_preserves_the_submitted_child_without_an_edge() {
+  _bats_test_init 34513 'attached lazy-session timeout preserves the submitted child without a parent edge'
+  local start_result
+  # #given — an attached child accepts the prompt but never publishes a session
+  child_lifecycle_stub_herdr
+  printf '100000\n' > "$CHILD_STUB/session-after-prompt"
+
+  # #when
+  HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 run child_start \
+    --kind opencode --posture rw --wait --timeout 50
+
+  # #then — binding failure does not turn an already-delivered turn into undelivered
+  assert_success
+  start_result="{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
+  assert_output --partial 'herdr-child: child-session-timeout after prompt submission; child preserved without a parent edge'
+  assert_output --partial "$start_result"
+  assert_equal 1 "$(printf '%s\n' "$output" | grep -Fxc -- "$start_result" || true)"
+  assert_file_not_exists "$CHILD_STUB/pane-closed"
+}
+
+function test_scripts_34514_attached_lazy_session_parentage_failure_preserves_the_submitted_child_without_an_edge() {
+  _bats_test_init 34514 'attached lazy-session parentage failure preserves the submitted child without a parent edge'
+  local start_result
+  # #given — the first prompt creates the session, but the registry rejects its edge
+  child_lifecycle_stub_herdr
+  printf '0\n' > "$CHILD_STUB/session-after-prompt"
+
+  # #when
+  STUB_PARENTAGE_FAIL=1 HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 run child_start \
+    --kind opencode --posture rw --wait --timeout 50
+
+  # #then — recorder failure leaves the delivered turn usable without an edge
+  assert_success
+  start_result="{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
+  assert_output --partial 'herdr-child: parentage recording failed after prompt submission; child preserved without a parent edge'
+  assert_output --partial "$start_result"
+  assert_equal 1 "$(printf '%s\n' "$output" | grep -Fxc -- "$start_result" || true)"
+  assert_file_contains "$CHILD_STUB/resource-tree.log" '^record-child --pane wT:p9 --terminal term-child'
+  run grep -c '^agent prompt [^w]' "$CHILD_STUB/calls.log"
+  assert_success
+  assert_output 1
+  assert_file_contains "$CHILD_STUB/calls.log" '^agent prompt [^w].*--wait'
+  assert_file_not_exists "$CHILD_STUB/pane-closed"
+}
+
+function test_scripts_34515_attached_lazy_session_without_a_parent_session_remains_usable() {
+  _bats_test_init 34515 'attached lazy-session children remain usable without a parent session'
+  local kind
+  for kind in opencode pi; do
+    # #given — a shell caller has no Agent session and the child gets one only after its prompt
+    child_lifecycle_stub_herdr
+    printf '0\n' > "$CHILD_STUB/session-after-prompt"
+
+    # #when
+    STUB_PARENT_SESSION_MISSING=1 HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 run child_start \
+      --kind "$kind" --posture rw --wait --timeout 50
+
+    # #then — preserve the historical unknown-parent launch, without inventing a registry edge
+    assert_success
+    assert_output "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
+    run grep -c '^agent prompt [^w]' "$CHILD_STUB/calls.log"
+    assert_success
+    assert_output 1
+    assert_file_contains "$CHILD_STUB/calls.log" '^agent prompt [^w].*--wait'
+    assert_file_not_exists "$CHILD_STUB/resource-tree.log"
+  done
+}
+
+function test_scripts_34516_attached_lazy_session_timeout_binds_and_records_the_delivered_child() {
+  _bats_test_init 34516 'attached lazy-session timeout records the delivered child parentage'
+  local kind
+  for kind in opencode pi; do
+    # #given — the first prompt creates the child session but its attached wait times out
+    child_lifecycle_stub_herdr
+    printf '0\n' > "$CHILD_STUB/session-after-prompt"
+
+    # #when
+    STUB_PROMPT_TIMEOUT=1 HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 run child_start \
+      --kind "$kind" --posture rw --wait --timeout 50
+
+    # #then — timeout still returns its established recovery result after recording the edge
+    assert_failure 124
+    assert_output "{\"error\":{\"code\":\"timeout\"}}
+herdr-child: initial prompt was delivered, but the wait timed out
+{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
+    assert_file_contains "$CHILD_STUB/resource-tree.log" '^record-child --pane wT:p9 --terminal term-child'
+  done
+}
+
+function test_scripts_34517_attached_lazy_session_stall_binds_and_records_the_delivered_child() {
+  _bats_test_init 34517 'attached lazy-session prompt stall records the delivered child parentage'
+  local kind
+  for kind in opencode pi; do
+    # #given — the first prompt creates the child session but returns agent_prompt_stalled
+    child_lifecycle_stub_herdr
+    printf '0\n' > "$CHILD_STUB/session-after-prompt"
+
+    # #when
+    STUB_PROMPT_FAIL=1 HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 run child_start \
+      --kind "$kind" --posture rw --wait --timeout 50
+
+    # #then — the uncertain prompt result preserves its exit contract after recording the edge
+    assert_failure 124
+    assert_output "{\"error\":{\"code\":\"agent_prompt_stalled\"}}
+herdr-child: initial prompt stalled; child preserved for recovery
+{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
+    assert_file_contains "$CHILD_STUB/resource-tree.log" '^record-child --pane wT:p9 --terminal term-child'
+  done
+}
+
+function test_scripts_34518_attached_lazy_session_timeout_without_a_session_keeps_prompt_status() {
+  _bats_test_init 34518 'attached lazy-session timeout without a session keeps the delivered prompt status without a parent edge'
+  local start_result
+  # #given — the prompt times out after delivery, but no child session appears
+  child_lifecycle_stub_herdr
+  printf '100000\n' > "$CHILD_STUB/session-after-prompt"
+
+  # #when
+  STUB_PROMPT_TIMEOUT=1 HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 run child_start \
+    --kind opencode --posture rw --wait --timeout 50
+
+  # #then — post-delivery binding failure preserves the timeout contract and recovery coordinates
+  assert_failure 124
+  start_result="{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
+  assert_output --partial 'herdr-child: initial prompt was delivered, but the wait timed out'
+  assert_output --partial 'herdr-child: child-session-timeout after prompt submission; child preserved without a parent edge'
+  assert_output --partial "$start_result"
+  assert_equal 1 "$(printf '%s\n' "$output" | grep -Fxc -- "$start_result" || true)"
+  assert_file_not_exists "$CHILD_STUB/pane-closed"
+  assert_file_not_exists "$CHILD_STUB/resource-tree.log"
+}
+
+function test_scripts_34519_attached_lazy_session_stall_without_a_session_keeps_prompt_status() {
+  _bats_test_init 34519 'attached lazy-session stall without a session keeps the delivered prompt status without a parent edge'
+  local start_result
+  # #given — the prompt stalls after delivery, but no child session appears
+  child_lifecycle_stub_herdr
+  printf '100000\n' > "$CHILD_STUB/session-after-prompt"
+
+  # #when
+  STUB_PROMPT_FAIL=1 HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 run child_start \
+    --kind opencode --posture rw --wait --timeout 50
+
+  # #then — post-delivery binding failure preserves the timeout contract and recovery coordinates
+  assert_failure 124
+  start_result="{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}"
+  assert_output --partial 'herdr-child: initial prompt stalled; child preserved for recovery'
+  assert_output --partial 'herdr-child: child-session-timeout after prompt submission; child preserved without a parent edge'
+  assert_output --partial "$start_result"
+  assert_equal 1 "$(printf '%s\n' "$output" | grep -Fxc -- "$start_result" || true)"
+  assert_file_not_exists "$CHILD_STUB/pane-closed"
+  assert_file_not_exists "$CHILD_STUB/resource-tree.log"
+}
+
+function test_scripts_34520_attached_lazy_session_signal_preserves_the_submitted_child() {
+  _bats_test_init 34520 'attached launcher interrupted while waiting for its session preserves the child'
+  # #given — the prompt was delivered but the child session has not appeared
+  child_lifecycle_stub_herdr
+  printf '100000\n' > "$CHILD_STUB/session-after-prompt"
+
+  # #when — TERM reaches the attached launcher at its observed session-wait boundary
+  run env PATH="$CHILD_STUB:$PATH" HERDR_ENV=1 HERDR_PANE_ID=wT:p0 STUB_START_CONTEXT=1 \
+    HERDR_CHILD_STATE_DIR="$CHILD_STUB/state" HERDR_CHILD_COLD_INITIAL_PROMPT_DELAY=0 \
+    HERDR_CHILD_POLL_INTERVAL=0.01 CHILD_SCRIPT="$HERDR_CHILD" python3 - <<'PY'
+import os
+from pathlib import Path
+import signal
+import subprocess
+import time
+
+stub = Path(os.environ['CHILD_STUB'])
+proc = subprocess.Popen(
+    ['bash', os.environ['CHILD_SCRIPT'], 'start', '--kind', 'opencode',
+     '--wait', '--direction', 'right', '--timeout', '60000', '--prompt', 'test task'],
+    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+)
+try:
+    deadline = time.monotonic() + 10
+    while not (stub / 'session-wait-observed').exists():
+        if proc.poll() is not None or time.monotonic() >= deadline:
+            stdout, stderr = proc.communicate(timeout=10)
+            raise AssertionError(('launcher never reached the session-wait boundary',
+                                  proc.returncode, stdout, stderr))
+        time.sleep(0.01)
+    proc.send_signal(signal.SIGTERM)
+    stdout, stderr = proc.communicate(timeout=10)
+    expected = '{"agent":"' + (stub / 'started-name').read_text() + '","pane":"wT:p9"}\n'
+    assert proc.returncode == 143, (proc.returncode, stdout, stderr)
+    assert stdout == expected, stdout
+    assert stderr == 'herdr-child: TERM after prompt submission; child preserved for recovery\n', stderr
+    assert 'supervision' not in stdout + stderr, (stdout, stderr)
+finally:
+    if proc.poll() is None:
+        proc.kill()
+        proc.communicate(timeout=10)
+PY
+  # #then — attached recovery emits no detached envelope and does not close the child
+  assert_success
+  assert_file_not_exists "$CHILD_STUB/pane-closed"
 }
 
 child_assert_lazy_session_failure() {
