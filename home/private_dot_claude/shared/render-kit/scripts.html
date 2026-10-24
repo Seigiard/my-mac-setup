@@ -8,63 +8,68 @@
   }
 </script>
 <script>
-  // Annotations are a small, storage-backed desktop layer. It deliberately stays self-contained so assembled pages also work from file:// and in an iframe.
+  // Annotations are a self-contained, storage-backed dock. It deliberately uses only
+  // DOM paths and text quotes for anchors so assembled pages work from file:// and in iframes.
   (() => {
     const root = document.createElement("aside");
     root.id = "kit-annotations";
     root.innerHTML = `
-      <div class="kit-annotations-controls">
-        <button class="kit-annotations-mode" type="button" aria-pressed="false">Annotate</button>
-        <button class="kit-annotations-count" type="button" aria-expanded="false">0</button>
-      </div>
-      <section class="kit-annotations-panel" hidden>
-        <div class="kit-annotations-heading">
-          <strong>Annotations</strong>
-          <button type="button" class="kit-annotations-copy">Copy Markdown</button>
-          <button type="button" class="kit-annotations-clear">Clear</button>
+      <button class="kit-annotations-start" type="button" aria-pressed="false">Annotate</button>
+      <section class="kit-annotations-dock" aria-label="Annotations" hidden>
+        <header class="kit-annotations-header">
+          <div class="kit-annotations-what"><span class="kit-annotations-dot" aria-hidden="true"></span><strong>Annotating</strong><span class="kit-annotations-hint">Select text within one section</span></div>
+          <button class="kit-annotations-done kit-annotations-quiet" type="button">Done</button>
+        </header>
+        <div class="kit-annotations-main">
+          <div class="kit-annotations-heading"><h2>Annotations <span class="kit-annotations-count">0</span></h2><button class="kit-annotations-clear kit-annotations-quiet" type="button">Clear</button></div>
+          <div class="kit-annotations-list"></div>
+          <footer class="kit-annotations-footer">
+            <div class="kit-annotations-page-comment">
+              <label for="kit-annotations-page-input"><span>Page comment</span><span>saved as you type</span></label>
+              <textarea id="kit-annotations-page-input" autocomplete="off" placeholder="About the whole page, not one passage"></textarea>
+            </div>
+            <div class="kit-annotations-clear-confirmation" hidden><span>Clear all marks and the page comment?</span><button class="kit-annotations-quiet kit-annotations-clear-cancel" type="button">Cancel</button><button class="kit-annotations-danger kit-annotations-clear-confirm" type="button">Clear all</button></div>
+            <div class="kit-annotations-copy-fallback" hidden><label>Markdown<textarea readonly aria-label="Markdown to copy"></textarea></label><p>Press ⌘C / Ctrl+C to copy.</p></div>
+            <p class="kit-annotations-status" role="status"></p>
+            <button class="kit-annotations-copy kit-annotations-primary" type="button" disabled>Copy Markdown</button>
+          </footer>
         </div>
-        <form class="kit-annotations-page-note">
-          <label>Page note<input name="page-note" autocomplete="off"></label>
-          <button type="submit">Add note</button>
-        </form>
-        <ol class="kit-annotations-list"></ol>
-        <div class="kit-annotations-clear-confirmation" hidden>
-          <p>Clear all annotations on this page?</p>
-          <button type="button" class="kit-annotations-clear-cancel">Cancel</button>
-          <button type="button" class="kit-annotations-clear-confirm">Clear all</button>
-        </div>
-        <div class="kit-annotations-copy-fallback" hidden>
-          <label>Markdown<textarea readonly aria-label="Markdown to copy"></textarea></label>
-          <p>Press ⌘C / Ctrl+C to copy.</p>
-        </div>
-        <p class="kit-annotations-status" role="status"></p>
       </section>
+      <div class="kit-annotations-preview" aria-hidden="true"></div>
       <form class="kit-annotations-popover" hidden>
-        <label><span class="kit-annotations-popover-label">Comment</span><textarea name="text" autocomplete="off"></textarea></label>
-        <div class="kit-annotations-actions">
-          <button type="submit" value="comment">Comment</button>
-          <button type="submit" value="delete">Delete</button>
-          <button type="submit" value="replace">Replace</button>
-          <button type="button" class="kit-annotations-remove" hidden>Remove</button>
+        <div class="kit-annotations-tabs" role="tablist" aria-label="Kind of mark">
+          <button type="button" data-kind="comment" role="tab" aria-pressed="true"><span class="kit-annotations-sample" data-kind="comment">Aa</span>Comment</button>
+          <button type="button" data-kind="replace" role="tab" aria-pressed="false"><span class="kit-annotations-sample" data-kind="replace">Aa</span>Replace</button>
+          <button type="button" data-kind="delete" role="tab" aria-pressed="false"><span class="kit-annotations-sample" data-kind="delete">Aa</span>Delete</button>
+        </div>
+        <div class="kit-annotations-popover-body">
+          <label><span class="kit-annotations-popover-label">Comment</span><textarea name="text" autocomplete="off"></textarea></label>
+          <div class="kit-annotations-popover-footer"><small>⌥1–3 kind · Esc close · saved as you type</small><button type="button" class="kit-annotations-remove" aria-label="Remove mark" title="Remove mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg></button></div>
         </div>
       </form>`;
     document.body.appendChild(root);
 
-    const toggle = root.querySelector(".kit-annotations-mode");
+    const start = root.querySelector(".kit-annotations-start");
+    const dock = root.querySelector(".kit-annotations-dock");
     const count = root.querySelector(".kit-annotations-count");
-    const panel = root.querySelector(".kit-annotations-panel");
     const list = root.querySelector(".kit-annotations-list");
-    const popover = root.querySelector(".kit-annotations-popover");
-    const input = popover.querySelector("textarea");
-    const pageNote = root.querySelector(".kit-annotations-page-note");
-    const pageNoteInput = pageNote.querySelector("input");
+    const pageComment = root.querySelector(".kit-annotations-page-comment");
+    const pageInput = root.querySelector("#kit-annotations-page-input");
     const clearConfirmation = root.querySelector(".kit-annotations-clear-confirmation");
+    const copy = root.querySelector(".kit-annotations-copy");
     const copyFallback = root.querySelector(".kit-annotations-copy-fallback");
     const copyTextarea = copyFallback.querySelector("textarea");
     const status = root.querySelector(".kit-annotations-status");
-    const popoverLabel = root.querySelector(".kit-annotations-popover-label");
-    const remove = root.querySelector(".kit-annotations-remove");
-
+    const preview = root.querySelector(".kit-annotations-preview");
+    const popover = root.querySelector(".kit-annotations-popover");
+    const tabs = [...popover.querySelectorAll("[data-kind]")];
+    const input = popover.querySelector("textarea");
+    const popoverLabel = popover.querySelector(".kit-annotations-popover-label");
+    const popoverBody = popover.querySelector(".kit-annotations-popover-body");
+    const popoverFooter = popover.querySelector(".kit-annotations-popover-footer");
+    const remove = popover.querySelector(".kit-annotations-remove");
+    const LABELS = { comment: "Comment", replace: "Replace with", delete: "Reason (optional)" };
+    const KINDS = ["comment", "replace", "delete"];
     const title = document.title || "Untitled";
     const build = document.querySelector('meta[name="kit-build"]')?.content || "none";
     const storageKey = `render-kit-annotations:${title}:${build}`;
@@ -74,20 +79,37 @@
       try {
         const value = localStorage.getItem(key);
         return value ? JSON.parse(value) : fallback;
-      } catch {
-        return fallback;
-      }
+      } catch { return fallback; }
     };
-    const write = (key, value) => {
-      try {
-        localStorage.setItem(key, JSON.stringify(value));
-      } catch {}
-    };
-
+    const write = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} };
+    const normalizeText = (text) => text.replace(/\s+/g, " ").trim();
+    const textFor = (annotation) => annotation.text ?? annotation.comment ?? "";
+    const cleanText = (kind, value) => kind === "replace"
+      ? value.trim().split(/\r?\n\s*\r?\n/, 1)[0]
+      : value.trim();
+    const isEmptyMark = (annotation) => ["comment", "replace"].includes(annotation.kind) && !textFor(annotation).trim();
     let enabled = read(modeKey, false) === true;
     let pending = null;
+    let pendingKind = "comment";
     let editing = null;
-    let annotations = read(storageKey, []);
+    let confirming = false;
+    let copied = false;
+    let copiedTimer;
+    let rawAnnotations = read(storageKey, []);
+    if (!Array.isArray(rawAnnotations)) rawAnnotations = [];
+    const legacyNotes = rawAnnotations.filter((annotation) => annotation?.kind === "page");
+    let pageNoteId = legacyNotes[0]?.id || `${Date.now()}-page`;
+    let pageNote = legacyNotes.map((annotation) => annotation.note ?? textFor(annotation)).join("\n");
+    let annotations = rawAnnotations.filter((annotation) => annotation?.kind !== "page" && !isEmptyMark(annotation));
+
+    const textMarks = () => annotations.filter((annotation) => KINDS.includes(annotation.kind) && !isEmptyMark(annotation));
+    const hasContent = () => textMarks().length > 0 || pageNote.trim() !== "";
+    const persist = () => {
+      const stored = textMarks().filter((annotation) => !isEmptyMark(annotation));
+      if (pageNote.trim() !== "") stored.push({ id: pageNoteId, kind: "page", note: pageNote });
+      write(storageKey, stored);
+    };
+    if (legacyNotes.length) persist();
 
     const pathOf = (node) => {
       const path = [];
@@ -99,8 +121,9 @@
       }
       return path;
     };
-    const nodeAt = (path) => path.reduce((node, index) => node?.childNodes[index], document.body);
-    const normalizeText = (text) => text.replace(/\s+/g, " ").trim();
+    const nodeAt = (path) => Array.isArray(path)
+      ? path.reduce((node, index) => node?.childNodes[index], document.body)
+      : null;
     const headingText = (heading) => normalizeText(heading.textContent);
     const isBefore = (first, second) => first === second
       || Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
@@ -126,9 +149,7 @@
       if (!text) return null;
       const bounds = sectionBounds(section, headingOrdinal);
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
-        acceptNode: (node) => isPageText(node, bounds)
-          ? NodeFilter.FILTER_ACCEPT
-          : NodeFilter.FILTER_REJECT,
+        acceptNode: (node) => isPageText(node, bounds) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT,
       });
       const nodes = [];
       let content = "";
@@ -138,47 +159,26 @@
       }
       const starts = [];
       let index = content.indexOf(text);
-      while (index >= 0) {
-        starts.push(index);
-        index = content.indexOf(text, index + 1);
-      }
-      const start = after
-        ? starts.find((position) => content.slice(0, position).endsWith(after))
-        : starts[0];
+      while (index >= 0) { starts.push(index); index = content.indexOf(text, index + 1); }
+      const start = after ? starts.find((position) => content.slice(0, position).endsWith(after)) : starts[0];
       if (start === undefined) return null;
-
       const end = start + text.length;
       const range = document.createRange();
-      const startNode = nodes.find((item) => start >= item.start
-        && start <= item.start + item.node.length);
-      const endNode = nodes.find((item) => end >= item.start
-        && end <= item.start + item.node.length);
+      const startNode = nodes.find((item) => start >= item.start && start <= item.start + item.node.length);
+      const endNode = nodes.find((item) => end >= item.start && end <= item.start + item.node.length);
       if (!startNode || !endNode) return null;
-
       range.setStart(startNode.node, start - startNode.start);
       range.setEnd(endNode.node, end - endNode.start);
       return range;
     };
     const rangeFor = (annotation) => {
-      const textRange = rangeByText(
-        annotation.rawQuote || annotation.quote,
-        annotation.section,
-        annotation.rawAfter || "",
-        annotation.headingOrdinal,
-      );
+      const textRange = rangeByText(annotation.rawQuote || annotation.quote, annotation.section, annotation.rawAfter || "", annotation.headingOrdinal);
       if (textRange) return textRange;
-      const start = nodeAt(annotation.startPath);
-      const end = nodeAt(annotation.endPath);
-      if (!start || !end) return null;
-
+      const startNode = nodeAt(annotation.startPath);
+      const endNode = nodeAt(annotation.endPath);
+      if (!startNode || !endNode) return null;
       const range = document.createRange();
-      try {
-        range.setStart(start, annotation.startOffset);
-        range.setEnd(end, annotation.endOffset);
-        return range;
-      } catch {
-        return null;
-      }
+      try { range.setStart(startNode, annotation.startOffset); range.setEnd(endNode, annotation.endOffset); return range; } catch { return null; }
     };
     const blockSelector = "address, article, aside, blockquote, dd, div, dl, dt, figure, figcaption, footer, h1, h2, h3, h4, h5, h6, header, li, main, nav, ol, p, pre, section, table, tbody, td, tfoot, th, thead, tr, ul";
     const selectedText = (range, node) => {
@@ -186,12 +186,8 @@
       nodeRange.selectNodeContents(node);
       if (!range.intersectsNode(node)) return "";
       const intersection = range.cloneRange();
-      if (range.compareBoundaryPoints(Range.START_TO_START, nodeRange) < 0) {
-        intersection.setStart(nodeRange.startContainer, nodeRange.startOffset);
-      }
-      if (range.compareBoundaryPoints(Range.END_TO_END, nodeRange) > 0) {
-        intersection.setEnd(nodeRange.endContainer, nodeRange.endOffset);
-      }
+      if (range.compareBoundaryPoints(Range.START_TO_START, nodeRange) < 0) intersection.setStart(nodeRange.startContainer, nodeRange.startOffset);
+      if (range.compareBoundaryPoints(Range.END_TO_END, nodeRange) > 0) intersection.setEnd(nodeRange.endContainer, nodeRange.endOffset);
       return intersection.toString();
     };
     const selectedTextNodes = (range) => {
@@ -199,7 +195,7 @@
       let first = null;
       let last = null;
       while (walker.nextNode()) {
-        if (!selectedText(range, walker.currentNode).trim()) continue;
+        if (root.contains(walker.currentNode) || !selectedText(range, walker.currentNode).trim()) continue;
         first ||= walker.currentNode;
         last = walker.currentNode;
       }
@@ -209,10 +205,10 @@
       const runs = [];
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       while (walker.nextNode()) {
+        if (root.contains(walker.currentNode)) continue;
         const selected = selectedText(range, walker.currentNode);
         if (!selected) continue;
-        const block = walker.currentNode.parentElement?.closest(`${blockSelector}, summary, caption, legend`)
-          || document.body;
+        const block = walker.currentNode.parentElement?.closest(`${blockSelector}, summary, caption, legend`) || document.body;
         const previous = runs.at(-1);
         if (previous?.block === block) previous.text += selected;
         else runs.push({ block, text: selected });
@@ -223,11 +219,9 @@
     const headingFor = (node) => {
       if (!node) return null;
       const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
-      const headings = [...document.querySelectorAll("h1, h2, h3, h4")];
       let found = null;
-      for (const heading of headings) {
-        if (isBefore(heading, element)) found = heading;
-        else break;
+      for (const heading of document.querySelectorAll("h1, h2, h3, h4")) {
+        if (isBefore(heading, element)) found = heading; else break;
       }
       return found;
     };
@@ -236,39 +230,27 @@
       const heading = headingFor(first);
       if (!heading) return { section: title };
       const section = heading.id || headingText(heading);
-      const sameName = [...document.querySelectorAll("h1, h2, h3, h4")]
-        .filter((item) => headingText(item) === section);
-      return {
-        section,
-        ...(heading.id ? {} : { headingOrdinal: sameName.indexOf(heading) }),
-      };
+      const sameName = [...document.querySelectorAll("h1, h2, h3, h4")].filter((item) => headingText(item) === section);
+      return { section, ...(heading.id ? {} : { headingOrdinal: sameName.indexOf(heading) }) };
     };
     const headingAtRangeEnd = (range) => {
       const container = range.endContainer;
-      if (container.nodeType === Node.TEXT_NODE) {
-        return range.endOffset === 0
-          ? container.parentElement?.closest("h1, h2, h3, h4")
-          : null;
-      }
-      const element = container;
-      if (range.endOffset === 0) return element.closest("h1, h2, h3, h4");
-      const child = element.childNodes[range.endOffset];
-      return child?.nodeType === Node.ELEMENT_NODE && child.matches("h1, h2, h3, h4")
-        ? child
-        : null;
+      if (container.nodeType === Node.TEXT_NODE) return range.endOffset === 0 ? container.parentElement?.closest("h1, h2, h3, h4") : null;
+      if (range.endOffset === 0) return container.closest("h1, h2, h3, h4");
+      const child = container.childNodes[range.endOffset];
+      return child?.nodeType === Node.ELEMENT_NODE && child.matches("h1, h2, h3, h4") ? child : null;
     };
     const trimRangeEnd = (range) => {
       if (!headingAtRangeEnd(range)) return range;
       const { last } = selectedTextNodes(range);
       if (!last) return range;
-
       const trimmed = range.cloneRange();
       trimmed.setEnd(last, last.length);
       return trimmed;
     };
     const isWithinOneSection = (range) => {
       const { first, last } = selectedTextNodes(range);
-      return headingFor(first) === headingFor(last);
+      return Boolean(first && last && headingFor(first) === headingFor(last));
     };
     const normalizedContent = (content) => {
       const offsets = [];
@@ -276,23 +258,15 @@
       let match;
       const words = /\S+/g;
       while ((match = words.exec(content))) {
-        if (text) {
-          text += " ";
-          offsets.push(match.index - 1);
-        }
-        for (let index = 0; index < match[0].length; index += 1) {
-          text += match[0][index];
-          offsets.push(match.index + index);
-        }
+        if (text) { text += " "; offsets.push(match.index - 1); }
+        for (let index = 0; index < match[0].length; index += 1) { text += match[0][index]; offsets.push(match.index + index); }
       }
       return { text, offsets };
     };
     const occurrencesFor = (text, section, headingOrdinal) => {
       const bounds = sectionBounds(section, headingOrdinal);
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
-        acceptNode: (node) => isPageText(node, bounds)
-          ? NodeFilter.FILTER_ACCEPT
-          : NodeFilter.FILTER_REJECT,
+        acceptNode: (node) => isPageText(node, bounds) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT,
       });
       let content = "";
       while (walker.nextNode()) content += walker.currentNode.nodeValue;
@@ -300,19 +274,14 @@
       const normalizedQuote = normalizeText(text);
       const starts = [];
       let start = normalized.text.indexOf(normalizedQuote);
-      while (start >= 0) {
-        starts.push(normalized.offsets[start]);
-        start = normalized.text.indexOf(normalizedQuote, start + 1);
-      }
+      while (start >= 0) { starts.push(normalized.offsets[start]); start = normalized.text.indexOf(normalizedQuote, start + 1); }
       return { content, starts };
     };
     const afterFor = (range, section, headingOrdinal) => {
       const rawQuote = range.toString();
       const bounds = sectionBounds(section, headingOrdinal);
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
-        acceptNode: (node) => isPageText(node, bounds)
-          ? NodeFilter.FILTER_ACCEPT
-          : NodeFilter.FILTER_REJECT,
+        acceptNode: (node) => isPageText(node, bounds) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT,
       });
       let content = "";
       let selectedStart = -1;
@@ -328,206 +297,264 @@
       if (selectedStart < 0) selectedStart = content.length;
       const starts = occurrencesFor(rawQuote, section, headingOrdinal).starts;
       if (starts.length < 2 || selectedStart < 0) return { after: "", rawAfter: "" };
-
       for (let length = 1; length <= selectedStart; length += 1) {
         const rawAfter = content.slice(selectedStart - length, selectedStart);
-        const startsAtWordBoundary = selectedStart === length
-          || /[^\p{L}\p{N}]/u.test(content[selectedStart - length - 1]);
+        const startsAtWordBoundary = selectedStart === length || /[^\p{L}\p{N}]/u.test(content[selectedStart - length - 1]);
         const after = normalizeText(rawAfter);
-        if (startsAtWordBoundary && after.length >= 12
-          && starts.filter((start) => normalizeText(content.slice(0, start)).endsWith(after)).length === 1) {
-          return { after, rawAfter };
-        }
+        if (startsAtWordBoundary && after.length >= 12 && starts.filter((startAt) => normalizeText(content.slice(0, startAt)).endsWith(after)).length === 1) return { after, rawAfter };
       }
       return { after: content.slice(0, selectedStart).replace(/\s+/g, " ").trim(), rawAfter: content.slice(0, selectedStart) };
     };
-    const textFor = (annotation) => annotation.text ?? annotation.comment ?? "";
-
-    const ordered = () => annotations
-      .filter((annotation) => ["comment", "delete", "replace"].includes(annotation.kind))
-      .map((annotation) => ({ annotation, range: rangeFor(annotation) }))
-      .filter((item) => item.range)
-      .sort((first, second) => first.range.compareBoundaryPoints(Range.START_TO_START, second.range));
-    const pageNotes = () => annotations.filter((annotation) => annotation.kind === "page");
+    const ordered = () => textMarks().map((annotation) => ({ annotation, range: rangeFor(annotation) })).filter((item) => item.range).sort((first, second) => first.range.compareBoundaryPoints(Range.START_TO_START, second.range));
     const paint = () => {
       if (!CSS.highlights) return;
-      for (const kind of ["comment", "delete", "replace"]) {
+      for (const kind of KINDS) {
         const name = kind === "comment" ? "kit-annotation" : `kit-annotation-${kind}`;
         CSS.highlights.delete(name);
-        const ranges = ordered()
-          .filter(({ annotation }) => annotation.kind === kind)
-          .map(({ range }) => range);
+        const items = ordered().filter(({ annotation }) => annotation.kind === kind);
+        const ranges = items.map(({ range }) => range);
+        if (editing?.kind === kind && !items.some(({ annotation }) => annotation.id === editing.id)) {
+          const editingRange = rangeFor(editing);
+          if (editingRange) ranges.push(editingRange);
+        }
+        if (!editing && pending && pendingKind === kind) ranges.push(pending);
         if (ranges.length) CSS.highlights.set(name, new Highlight(...ranges));
       }
     };
+    const icon = () => {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("viewBox", "0 0 24 24");
+      svg.setAttribute("fill", "none");
+      svg.setAttribute("stroke", "currentColor");
+      svg.setAttribute("stroke-width", "2");
+      svg.setAttribute("stroke-linecap", "round");
+      svg.setAttribute("stroke-linejoin", "round");
+      svg.innerHTML = '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>';
+      svg.setAttribute("aria-hidden", "true");
+      return svg;
+    };
     const renderList = () => {
       list.replaceChildren();
-      for (const { annotation } of ordered()) {
-        const item = document.createElement("li");
-        const text = textFor(annotation);
-        item.textContent = `${annotation.quote} — ${annotation.kind}${text ? `: ${text}` : ""}`;
-        list.appendChild(item);
+      const groups = new Map();
+      for (const item of ordered()) {
+        if (!groups.has(item.annotation.section)) groups.set(item.annotation.section, []);
+        groups.get(item.annotation.section).push(item.annotation);
       }
-      for (const annotation of pageNotes()) {
-        const item = document.createElement("li");
-        item.textContent = `Page note — ${annotation.note}`;
-        list.appendChild(item);
+      if (!groups.size) {
+        const empty = document.createElement("div");
+        empty.className = "kit-annotations-empty";
+        empty.innerHTML = "<strong>No marks yet</strong>Select text on the page to add a Comment, Replace or Delete.";
+        list.append(empty);
       }
-      count.textContent = `${annotations.length}`;
+      for (const [section, entries] of groups) {
+        const heading = document.createElement("div");
+        heading.className = "kit-annotations-section";
+        heading.textContent = `## ${section}`;
+        list.append(heading);
+        for (const annotation of entries) {
+          const block = document.createElement("div");
+          block.className = "kit-annotations-mark";
+          block.dataset.annotationId = annotation.id;
+          const open = document.createElement("button");
+          open.type = "button";
+          open.className = "kit-annotations-open";
+          open.dataset.annotationId = annotation.id;
+          open.setAttribute("aria-label", `Open ${annotation.kind} mark: ${annotation.quote}`);
+          const quote = document.createElement("span");
+          quote.className = "kit-annotations-quote";
+          quote.textContent = annotation.quote.split("\n").map((line) => `> ${line}`).join("\n");
+          open.append(quote);
+          if (annotation.after) {
+            const after = document.createElement("span");
+            after.className = "kit-annotations-after";
+            after.textContent = `\n**after:** ${annotation.after}`;
+            open.append(after);
+          }
+          const kind = document.createElement("span");
+          kind.className = "kit-annotations-kind";
+          kind.dataset.kind = annotation.kind;
+          kind.textContent = `\n**${annotation.kind}:**`;
+          open.append(kind);
+          if (textFor(annotation)) open.append(document.createTextNode(` ${textFor(annotation)}`));
+          block.append(open);
+          const trash = document.createElement("button");
+          trash.type = "button";
+          trash.className = "kit-annotations-remove";
+          trash.dataset.removeId = annotation.id;
+          trash.setAttribute("aria-label", "Remove mark");
+          trash.title = "Remove mark";
+          trash.append(icon());
+          block.append(trash);
+          list.append(block);
+        }
+      }
+      count.textContent = String(textMarks().length);
       paint();
+      paintPreview();
+    };
+    const renderDock = () => {
+      dock.hidden = !enabled;
+      start.setAttribute("aria-pressed", String(enabled));
+      start.hidden = enabled;
+      count.textContent = String(textMarks().length);
+      pageInput.value = pageNote;
+      copy.disabled = !hasContent();
+      copy.textContent = copied ? "Copied" : "Copy Markdown";
+      copy.classList.toggle("is-copied", copied);
+      pageComment.hidden = confirming;
+      clearConfirmation.hidden = !confirming;
+      copyFallback.hidden = confirming || copyFallback.hidden;
+      renderList();
     };
     const closePopover = () => {
+      const removeEmpty = editing && ["comment", "replace"].includes(editing.kind) && !textFor(editing).trim();
+      if (removeEmpty) {
+        annotations = annotations.filter((annotation) => annotation.id !== editing.id);
+        persist();
+      }
       popover.hidden = true;
       pending = null;
+      pendingKind = "comment";
       editing = null;
+      popoverBody.hidden = false;
       if (document.activeElement === input) input.blur();
+      paintPreview();
+      if (removeEmpty) renderDock();
     };
     const positionPopover = (box) => {
       popover.style.left = "8px";
       popover.style.top = "8px";
-      const left = Math.max(8, Math.min(box.left, innerWidth - popover.offsetWidth - 8));
-      const top = Math.max(8, Math.min(box.top - popover.offsetHeight - 8, innerHeight - popover.offsetHeight - 8));
+      const width = popover.offsetWidth;
+      const height = popover.offsetHeight;
+      const viewportWidth = document.documentElement.clientWidth || innerWidth;
+      const viewportHeight = document.documentElement.clientHeight || innerHeight;
+      const left = Math.max(8, Math.min(box.left, viewportWidth - width - 8));
+      const below = box.bottom + 8;
+      const maxTop = Math.max(8, viewportHeight - height - 8);
+      const above = box.top - height - 8;
+      const preferredTop = below + height <= viewportHeight - 8 ? below : above;
+      const top = Math.max(8, Math.min(preferredTop, maxTop));
       popover.style.left = `${left}px`;
       popover.style.top = `${top}px`;
+    };
+    const syncPopover = () => {
+      const kind = editing?.kind || pendingKind;
+      tabs.forEach((tab) => tab.setAttribute("aria-pressed", String(tab.dataset.kind === kind)));
+      popoverLabel.textContent = LABELS[kind];
+      remove.hidden = !editing;
+      input.placeholder = kind === "delete" ? "Optional reason" : "";
     };
     const showSelectionError = (range) => {
       pending = null;
       editing = null;
       popover.hidden = false;
-      popoverLabel.textContent = "Select text within one section.";
+      popover.querySelector(".kit-annotations-tabs").hidden = true;
       input.hidden = true;
-      popover.querySelector(".kit-annotations-actions").hidden = true;
+      popoverLabel.textContent = "Select text within one section.";
+      popoverFooter.hidden = true;
       remove.hidden = true;
       positionPopover(range.getBoundingClientRect());
     };
     const showPopover = (range) => {
+      if (!popover.hidden) closePopover();
       range = trimRangeEnd(range);
       if (!isWithinOneSection(range)) return showSelectionError(range);
       pending = range.cloneRange();
+      pendingKind = "comment";
       editing = null;
-      const box = range.getBoundingClientRect();
       popover.hidden = false;
+      popover.querySelector(".kit-annotations-tabs").hidden = false;
       input.hidden = false;
-      popover.querySelector(".kit-annotations-actions").hidden = false;
-      popoverLabel.textContent = "Text (required for Comment and Replace)";
+      popoverFooter.hidden = false;
       input.value = "";
-      remove.hidden = true;
-      positionPopover(box);
+      syncPopover();
+      positionPopover(range.getBoundingClientRect());
       input.focus();
+      paintPreview();
     };
     const showAnnotation = (annotation, range) => {
+      if (!popover.hidden && editing?.id === annotation.id) return;
+      if (!popover.hidden) closePopover();
       pending = range.cloneRange();
+      pendingKind = annotation.kind;
       editing = annotation;
-      const box = range.getBoundingClientRect();
       popover.hidden = false;
+      popover.querySelector(".kit-annotations-tabs").hidden = false;
       input.hidden = false;
-      popover.querySelector(".kit-annotations-actions").hidden = false;
-      popoverLabel.textContent = `Edit ${annotation.kind}`;
+      popoverFooter.hidden = false;
       input.value = textFor(annotation);
-      remove.hidden = false;
-      positionPopover(box);
+      syncPopover();
+      const anchor = range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentElement;
+      anchor?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+      positionPopover(range.getBoundingClientRect());
       input.focus();
+      paintPreview();
     };
-    const selectionChanged = () => {
-      if (!enabled || document.activeElement === input) return;
-      const selection = getSelection();
-      if (!selection || selection.isCollapsed || !selection.rangeCount) return closePopover();
-
-      const range = selection.getRangeAt(0);
-      const node = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
-        ? range.commonAncestorContainer
-        : range.commonAncestorContainer.parentElement;
-      if (!node || root.contains(node) || !document.body.contains(node)) closePopover();
+    const createMark = (kind, range, text = "") => {
+      const section = sectionFor(range);
+      const annotation = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        kind,
+        text,
+        quote: quoteText(range.toString(), range),
+        rawQuote: range.toString(),
+        ...section,
+        ...afterFor(range, section.section, section.headingOrdinal),
+        startPath: pathOf(range.startContainer),
+        startOffset: range.startOffset,
+        endPath: pathOf(range.endContainer),
+        endOffset: range.endOffset,
+      };
+      annotations.push(annotation);
+      editing = annotation;
+      pending = range.cloneRange();
+      persist();
+      renderDock();
+      syncPopover();
+      return annotation;
     };
-    const showSettledSelection = () => {
-      if (!enabled || document.activeElement === input) return;
-      const selection = getSelection();
-      if (!selection || selection.isCollapsed || !selection.rangeCount) return;
-      const range = selection.getRangeAt(0);
-      if (!selectedTextNodes(range).first) return;
-      const node = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
-        ? range.commonAncestorContainer
-        : range.commonAncestorContainer.parentElement;
-      if (!node || root.contains(node) || !document.body.contains(node)) return;
-      showPopover(range);
-    };
-
-    toggle.addEventListener("click", () => {
-      enabled = !enabled;
-      write(modeKey, enabled);
-      toggle.setAttribute("aria-pressed", enabled);
-      if (!enabled) closePopover();
-    });
-    count.addEventListener("click", () => {
-      panel.hidden = !panel.hidden;
-      count.setAttribute("aria-expanded", !panel.hidden);
-    });
-    popover.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const kind = event.submitter?.value;
-      const text = kind === "replace"
-        ? input.value.trim().split(/\r?\n\s*\r?\n/, 1)[0]
-        : input.value.trim();
-      if (!pending || !["comment", "delete", "replace"].includes(kind)
-        || ((kind === "comment" || kind === "replace") && !text)) return;
-
-      if (editing) {
-        editing.kind = kind;
-        editing.text = text;
-        delete editing.comment;
+    const chooseKind = (kind) => {
+      if (!KINDS.includes(kind) || !pending) return;
+      if (!editing) {
+        pendingKind = kind;
+        if (kind === "delete") createMark(kind, pending, "");
+        else { syncPopover(); paintPreview(); }
       } else {
-        const range = pending;
-        const section = sectionFor(range);
-        annotations.push({
-          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-          kind,
-          text,
-          quote: quoteText(range.toString(), range),
-          rawQuote: range.toString(),
-          ...section,
-          ...afterFor(range, section.section, section.headingOrdinal),
-          startPath: pathOf(range.startContainer),
-          startOffset: range.startOffset,
-          endPath: pathOf(range.endContainer),
-          endOffset: range.endOffset,
-        });
+        editing.kind = kind;
+        editing.text = cleanText(kind, input.value);
+        persist();
+        syncPopover();
+        renderDock();
       }
-      write(storageKey, annotations);
-      renderList();
-      closePopover();
-      getSelection()?.removeAllRanges();
-    });
-    remove.addEventListener("click", () => {
-      if (!editing) return;
-      annotations = annotations.filter((annotation) => annotation.id !== editing.id);
-      write(storageKey, annotations);
-      renderList();
-      closePopover();
-    });
+      input.focus();
+      paintPreview();
+    };
+    const updateText = () => {
+      const kind = editing?.kind || pendingKind;
+      const value = cleanText(kind, input.value);
+      if (!editing && pending && value) createMark(kind, pending, value);
+      else if (editing) { editing.text = value; persist(); renderDock(); }
+      paintPreview();
+    };
     const markdownFor = () => {
       const groups = new Map();
-      for (const { annotation } of ordered()) {
+      for (const { annotation } of ordered().filter(({ annotation }) => !isEmptyMark(annotation))) {
         if (!groups.has(annotation.section)) groups.set(annotation.section, []);
         groups.get(annotation.section).push(annotation);
       }
-
       const sections = [];
       for (const [section, entries] of groups) {
         const blocks = entries.map((annotation) => {
-          const quote = annotation.quote
-            .split("\n")
-            .map((line) => `> ${line}`)
-            .join("\n");
+          const quote = annotation.quote.split("\n").map((line) => `> ${line}`).join("\n");
           const after = annotation.after ? `\n**after:** ${annotation.after}` : "";
           const text = textFor(annotation);
           return `${quote}${after}\n**${annotation.kind}:**${text ? ` ${text}` : ""}`;
         });
         sections.push(`## ${section}\n${blocks.join("\n\n")}`);
       }
+      if (pageNote.trim() !== "") sections.push(`## Page\n**note:** ${pageNote}`);
       const header = `# Annotations · ${title} · build ${build}`;
       const hint = `_Apply per ~/.claude/shared/render-kit.md, section "Receiving annotations"._`;
-      const notes = pageNotes();
-      if (notes.length) sections.push(`## Page\n${notes.map((annotation) => `**note:** ${annotation.note}`).join("\n")}`);
       return `${header}\n${hint}${sections.length ? `\n\n${sections.join("\n\n")}` : ""}\n`;
     };
     const canSelectFallback = () => {
@@ -537,115 +564,179 @@
       probe.tabIndex = -1;
       probe.style.cssText = "position:fixed;inline-size:1px;block-size:1px;opacity:0;pointer-events:none;";
       document.body.appendChild(probe);
-      try {
-        probe.focus({ preventScroll: true });
-        probe.select();
-        return probe.selectionStart === 0 && probe.selectionEnd === probe.value.length;
-      } catch {
-        return false;
-      } finally {
-        probe.remove();
-        try {
-          active?.focus?.({ preventScroll: true });
-        } catch {}
-      }
+      try { probe.focus({ preventScroll: true }); probe.select(); return probe.selectionStart === 0 && probe.selectionEnd === probe.value.length; }
+      catch { return false; }
+      finally { probe.remove(); try { active?.focus?.({ preventScroll: true }); } catch {} }
     };
     const hideLayer = () => root.remove();
     const showCopyFallback = (markdown) => {
       copyFallback.hidden = false;
       copyTextarea.value = markdown;
-      try {
-        copyTextarea.focus({ preventScroll: true });
-        copyTextarea.select();
-      } catch {
-        hideLayer();
-        return false;
-      }
-      if (copyTextarea.selectionStart !== 0 || copyTextarea.selectionEnd !== markdown.length) {
-        hideLayer();
-        return false;
-      }
+      try { copyTextarea.focus({ preventScroll: true }); copyTextarea.select(); }
+      catch { hideLayer(); return false; }
+      if (copyTextarea.selectionStart !== 0 || copyTextarea.selectionEnd !== markdown.length) { hideLayer(); return false; }
       status.textContent = "";
       return true;
     };
     const canUseClipboard = () => typeof navigator.clipboard?.writeText === "function";
+    const flashCopied = () => {
+      copied = true;
+      renderDock();
+      clearTimeout(copiedTimer);
+      copiedTimer = setTimeout(() => { copied = false; renderDock(); }, 1800);
+    };
     const copyMarkdown = async () => {
       const markdown = markdownFor();
       if (canUseClipboard()) {
-        try {
-          await navigator.clipboard.writeText(markdown);
-          copyFallback.hidden = true;
-          status.textContent = "Copied.";
-          return;
-        } catch {}
+        try { await navigator.clipboard.writeText(markdown); copyFallback.hidden = true; flashCopied(); return; } catch {}
       }
       showCopyFallback(markdown);
     };
-    pageNote.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const note = pageNoteInput.value.trim();
-      if (!note) return;
-      annotations.push({
-        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        kind: "page",
-        note,
-      });
-      write(storageKey, annotations);
-      renderList();
-      pageNoteInput.value = "";
-      pageNoteInput.focus();
+    const paintPreview = () => {
+      paint();
+      preview.replaceChildren();
+      const annotation = editing;
+      const replacement = annotation?.kind === "replace" ? textFor(annotation) : "";
+      if (!replacement) return;
+      const range = annotation ? rangeFor(annotation) : pending;
+      if (!range) return;
+      const rects = [...range.getClientRects()];
+      const rect = rects.at(-1);
+      if (!rect) return;
+      const after = document.createElement("span");
+      after.textContent = ` ${replacement}`;
+      after.style.left = `${Math.min(Math.max(8, rect.right + 2), Math.max(8, innerWidth - 16))}px`;
+      after.style.top = `${Math.max(8, rect.bottom - rect.height)}px`;
+      preview.append(after);
+    };
+
+    start.addEventListener("click", () => {
+      enabled = true;
+      write(modeKey, true);
+      renderDock();
     });
-    root.querySelector(".kit-annotations-clear").addEventListener("click", () => {
-      clearConfirmation.hidden = false;
-      status.textContent = "";
+    root.querySelector(".kit-annotations-done").addEventListener("click", () => {
+      enabled = false;
+      write(modeKey, false);
+      closePopover();
+      renderDock();
     });
-    root.querySelector(".kit-annotations-clear-cancel").addEventListener("click", () => {
-      clearConfirmation.hidden = true;
-    });
+    root.querySelector(".kit-annotations-clear").addEventListener("click", () => { confirming = true; copyFallback.hidden = true; renderDock(); });
+    root.querySelector(".kit-annotations-clear-cancel").addEventListener("click", () => { confirming = false; renderDock(); });
     root.querySelector(".kit-annotations-clear-confirm").addEventListener("click", () => {
       annotations = [];
-      write(storageKey, annotations);
-      renderList();
-      clearConfirmation.hidden = true;
+      pageNote = "";
+      confirming = false;
+      persist();
+      closePopover();
       copyFallback.hidden = true;
-      status.textContent = "Annotations cleared.";
+      renderDock();
     });
-    root.querySelector(".kit-annotations-copy").addEventListener("click", copyMarkdown);
-    copyTextarea.addEventListener("copy", () => { status.textContent = "Copied."; });
-
-    const fallbackAvailable = canSelectFallback();
-    if (!fallbackAvailable && !canUseClipboard()) {
-      hideLayer();
-      return;
-    }
+    copy.addEventListener("click", copyMarkdown);
+    copyTextarea.addEventListener("copy", flashCopied);
+    pageInput.addEventListener("input", () => {
+      pageNote = pageInput.value;
+      persist();
+      copy.disabled = !hasContent();
+    });
+    popover.addEventListener("submit", (event) => event.preventDefault());
+    popover.addEventListener("click", (event) => {
+      const tab = event.target.closest("[data-kind]");
+      if (tab) chooseKind(tab.dataset.kind);
+      if (event.target.closest(".kit-annotations-remove") && editing) {
+        annotations = annotations.filter((annotation) => annotation.id !== editing.id);
+        persist();
+        closePopover();
+        renderDock();
+      }
+    });
+    input.addEventListener("input", updateText);
+    list.addEventListener("click", (event) => {
+      const trash = event.target.closest("[data-remove-id]");
+      if (trash) {
+        event.stopPropagation();
+        const id = trash.dataset.removeId;
+        annotations = annotations.filter((annotation) => annotation.id !== id);
+        if (editing?.id === id) closePopover();
+        persist();
+        renderDock();
+        return;
+      }
+      const block = event.target.closest("[data-annotation-id]");
+      if (block) {
+        const item = ordered().find(({ annotation }) => annotation.id === block.dataset.annotationId);
+        if (item) showAnnotation(item.annotation, item.range);
+      }
+    });
+    list.addEventListener("keydown", (event) => {
+      if (event.target.closest("[data-remove-id]") || !["Enter", " "].includes(event.key)) return;
+      const block = event.target.closest("[data-annotation-id]");
+      if (!block) return;
+      event.preventDefault();
+      const item = ordered().find(({ annotation }) => annotation.id === block.dataset.annotationId);
+      if (item) showAnnotation(item.annotation, item.range);
+    });
     document.addEventListener("click", (event) => {
-      if (!enabled) return;
-      if (root.contains(event.target)) return;
+      if (!enabled || root.contains(event.target)) return;
       if (!getSelection()?.isCollapsed) return;
-      const point = document.caretPositionFromPoint?.(event.clientX, event.clientY)
-        || document.caretRangeFromPoint?.(event.clientX, event.clientY);
-      if (!point) return;
+      const point = document.caretPositionFromPoint?.(event.clientX, event.clientY) || document.caretRangeFromPoint?.(event.clientX, event.clientY);
+      if (!point) { if (!popover.hidden) closePopover(); return; }
       const node = point.offsetNode || point.startContainer;
       const offset = point.offset ?? point.startOffset;
       const item = node && ordered().find(({ range }) => range.isPointInRange(node, offset));
       if (item) showAnnotation(item.annotation, item.range);
+      else if (!popover.hidden) closePopover();
     });
-    document.addEventListener("selectionchange", selectionChanged);
+    document.addEventListener("selectionchange", () => {
+      if (!enabled || document.activeElement === input) return;
+      const selection = getSelection();
+      if (!selection || selection.isCollapsed || !selection.rangeCount) { if (!popover.hidden && !editing) closePopover(); return; }
+      const range = selection.getRangeAt(0);
+      const node = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement;
+      if (!node || root.contains(node) || !document.body.contains(node)) closePopover();
+    });
+    const showSettledSelection = () => {
+      if (!enabled || document.activeElement === input) return;
+      const selection = getSelection();
+      if (!selection || selection.isCollapsed || !selection.rangeCount) return;
+      const range = selection.getRangeAt(0);
+      if (!selectedTextNodes(range).first) return;
+      const node = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement;
+      if (!node || root.contains(node) || !document.body.contains(node)) return;
+      showPopover(range);
+    };
     document.addEventListener("pointerup", () => setTimeout(showSettledSelection));
     document.addEventListener("keyup", (event) => {
       if (event.key !== "Escape" && (event.key === "Shift" || !event.shiftKey)) showSettledSelection();
     });
     document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") closePopover();
+      if (event.key === "Escape" && !popover.hidden) { closePopover(); return; }
+      if (!event.altKey || event.ctrlKey || event.metaKey || event.getModifierState?.("AltGraph")
+        || popover.hidden || !popover.contains(document.activeElement)
+        || !["Digit1", "Digit2", "Digit3"].includes(event.code)) return;
+      event.preventDefault();
+      chooseKind(KINDS[Number(event.code.slice(-1)) - 1]);
     });
-    toggle.setAttribute("aria-pressed", enabled);
-    renderList();
+    addEventListener("scroll", () => {
+      if (editing || pending) {
+        const range = editing ? rangeFor(editing) : pending;
+        if (range && !popover.hidden) positionPopover(range.getBoundingClientRect());
+        paintPreview();
+      }
+    }, { passive: true });
+    addEventListener("resize", () => {
+      const range = editing ? rangeFor(editing) : pending;
+      if (range && !popover.hidden) positionPopover(range.getBoundingClientRect());
+      paintPreview();
+    });
 
-    let repaintTimer;
-    const scheduleRepaint = () => {
-      clearTimeout(repaintTimer);
-      repaintTimer = setTimeout(renderList, 50);
-    };
+    const fallbackAvailable = canSelectFallback();
+    if (!fallbackAvailable && !canUseClipboard()) { hideLayer(); return; }
+    renderDock();
+    const scheduleRepaint = (() => {
+      let timer;
+      return () => { clearTimeout(timer); timer = setTimeout(renderDock, 50); };
+    })();
     new MutationObserver((mutations) => {
       if (mutations.some((mutation) => !root.contains(mutation.target))) scheduleRepaint();
     }).observe(document.body, { childList: true, characterData: true, subtree: true });
