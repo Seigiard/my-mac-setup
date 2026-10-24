@@ -4,13 +4,13 @@
 
 ## Why
 
-{Two sentences, each under 20 words: the problem this PR solves, then what becomes possible after it ships.}
+{The problem this PR solves, and what becomes possible after it ships: each its own plain sentence, taken in on first reading.}
 
 ## Watch out for
 
 **Door:** {one-way | two-way}. {One sentence, always: what a plain revert restores and what it leaves behind. Anything left behind, such as rows, columns, sent messages, or external registrations, makes the door one-way.}
 
-- {1 to 3 bullets: reviewer warnings, migrations, compatibility constraints, deliberate omissions, surprising decisions. "None." when there are none.}
+- {Bullets only when there is something to warn about: reviewer warnings, migrations, compatibility constraints, deliberate omissions, surprising decisions. With nothing to warn about, the Door line stands alone.}
 
 ## Shape of the change
 
@@ -24,4 +24,6 @@
 
 {One line on what is CI-only or not run. Suites and outcomes, never a list of test names.}
 
-Related: {ticket key exactly as the repository writes it (ABC-123), then PR numbers (#N); omit the line when there is neither}
+Related: {ticket key exactly as the repository writes it (ABC-123), then PR numbers (#N), then the tracked issues for work this PR leaves for later; omit the line when there is none}
+
+<!-- Work left for later is a tracked issue on the Related line. The body has no Follow-ups section and no other section the template does not name. -->
