@@ -181,25 +181,31 @@
       }
     };
     const blockSelector = "address, article, aside, blockquote, dd, div, dl, dt, figure, figcaption, footer, h1, h2, h3, h4, h5, h6, header, li, main, nav, ol, p, pre, section, table, tbody, td, tfoot, th, thead, tr, ul";
-    const intersectionText = (range, element) => {
-      const blockRange = document.createRange();
-      blockRange.selectNodeContents(element);
+    const selectedText = (range, node) => {
+      const nodeRange = document.createRange();
+      nodeRange.selectNodeContents(node);
+      if (!range.intersectsNode(node)) return "";
       const intersection = range.cloneRange();
-      if (range.compareBoundaryPoints(Range.START_TO_START, blockRange) < 0) {
-        intersection.setStart(blockRange.startContainer, blockRange.startOffset);
+      if (range.compareBoundaryPoints(Range.START_TO_START, nodeRange) < 0) {
+        intersection.setStart(nodeRange.startContainer, nodeRange.startOffset);
       }
-      if (range.compareBoundaryPoints(Range.END_TO_END, blockRange) > 0) {
-        intersection.setEnd(blockRange.endContainer, blockRange.endOffset);
+      if (range.compareBoundaryPoints(Range.END_TO_END, nodeRange) > 0) {
+        intersection.setEnd(nodeRange.endContainer, nodeRange.endOffset);
       }
-      return normalizeText(intersection.toString());
+      return intersection.toString();
     };
     const quoteText = (text, range) => {
-      const blocks = [...document.querySelectorAll(blockSelector)]
-        .filter((block) => range.intersectsNode(block));
-      const leaves = blocks.filter((block) => !blocks.some((child) => child !== block && block.contains(child)));
-      return leaves.length > 1
-        ? leaves.map((block) => intersectionText(range, block)).filter(Boolean).join("\n")
-        : normalizeText(text);
+      const groups = new Map();
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const selected = selectedText(range, walker.currentNode);
+        if (!selected) continue;
+        const block = walker.currentNode.parentElement?.closest(`${blockSelector}, summary, caption, legend`)
+          || document.body;
+        groups.set(block, `${groups.get(block) || ""}${selected}`);
+      }
+      const lines = [...groups.values()].map(normalizeText).filter(Boolean);
+      return lines.length > 1 ? lines.join("\n") : normalizeText(text);
     };
     const headingFor = (node) => {
       const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
@@ -221,6 +227,29 @@
         section,
         ...(heading.id ? {} : { headingOrdinal: sameName.indexOf(heading) }),
       };
+    };
+    const trimRangeEnd = (range) => {
+      const element = range.endContainer.nodeType === Node.ELEMENT_NODE
+        ? range.endContainer
+        : range.endContainer.parentElement;
+      const heading = element?.closest("h1, h2, h3, h4");
+      if (!heading) return range;
+
+      const headingText = document.createTreeWalker(heading, NodeFilter.SHOW_TEXT).nextNode();
+      const endsAtHeadingStart = (range.endContainer === heading && range.endOffset === 0)
+        || (range.endContainer === headingText && range.endOffset === 0);
+      if (!endsAtHeadingStart) return range;
+
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let last = null;
+      while (walker.nextNode()) {
+        if (selectedText(range, walker.currentNode)) last = walker.currentNode;
+      }
+      if (!last) return range;
+
+      const trimmed = range.cloneRange();
+      trimmed.setEnd(last, last.length);
+      return trimmed;
     };
     const isWithinOneSection = (range) => headingFor(range.startContainer) === headingFor(range.endContainer);
     const normalizedContent = (content) => {
@@ -286,9 +315,10 @@
         const rawAfter = content.slice(selectedStart - length, selectedStart);
         const startsAtWordBoundary = selectedStart === length
           || /[^\p{L}\p{N}]/u.test(content[selectedStart - length - 1]);
-        if (startsAtWordBoundary && rawAfter.replace(/\s+/g, " ").trim().length >= 12
-          && starts.filter((start) => content.slice(0, start).endsWith(rawAfter)).length === 1) {
-          return { after: rawAfter.replace(/\s+/g, " ").trim(), rawAfter };
+        const after = normalizeText(rawAfter);
+        if (startsAtWordBoundary && after.length >= 12
+          && starts.filter((start) => normalizeText(content.slice(0, start)).endsWith(after)).length === 1) {
+          return { after, rawAfter };
         }
       }
       return { after: content.slice(0, selectedStart).replace(/\s+/g, " ").trim(), rawAfter: content.slice(0, selectedStart) };
@@ -347,18 +377,19 @@
       editing = null;
       popover.hidden = false;
       popoverLabel.textContent = "Select text within one section.";
-      input.closest("label").hidden = true;
+      input.hidden = true;
       popover.querySelector(".kit-annotations-actions").hidden = true;
       remove.hidden = true;
       positionPopover(range.getBoundingClientRect());
     };
     const showPopover = (range) => {
+      range = trimRangeEnd(range);
       if (!isWithinOneSection(range)) return showSelectionError(range);
       pending = range.cloneRange();
       editing = null;
       const box = range.getBoundingClientRect();
       popover.hidden = false;
-      input.closest("label").hidden = false;
+      input.hidden = false;
       popover.querySelector(".kit-annotations-actions").hidden = false;
       popoverLabel.textContent = "Text (required for Comment and Replace)";
       input.value = "";
@@ -371,7 +402,7 @@
       editing = annotation;
       const box = range.getBoundingClientRect();
       popover.hidden = false;
-      input.closest("label").hidden = false;
+      input.hidden = false;
       popover.querySelector(".kit-annotations-actions").hidden = false;
       popoverLabel.textContent = `Edit ${annotation.kind}`;
       input.value = textFor(annotation);
@@ -571,6 +602,7 @@
     document.addEventListener("click", (event) => {
       if (!enabled) return;
       if (root.contains(event.target)) return;
+      if (!getSelection()?.isCollapsed) return;
       const point = document.caretPositionFromPoint?.(event.clientX, event.clientY)
         || document.caretRangeFromPoint?.(event.clientX, event.clientY);
       if (!point) return;
