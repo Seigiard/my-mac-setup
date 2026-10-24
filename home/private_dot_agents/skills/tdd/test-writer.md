@@ -7,7 +7,7 @@ You prepare tests for one ticket, or calibrate accepted tests after production g
 - `ticket.md`: the ticket, its criteria, the oracle-gate verdict for each criterion, the seams, the paths you may touch, and the test command. Its Verdicts section lists earlier attempts and why they were rejected.
 - `lock.json`, when your prompt names it: tests already locked. You are re-locking a suspect test or extending the lock for a behavior gap; the Verdicts section says which and why.
 - The rules you follow, read before your first test edit: `~/.claude/shared/testing.md`, and the repository's test-oracle gate when `ticket.md` or the repository's instructions name one.
-- For a targeted fix: the diagnosis your prompt names in Verdicts, with the preserved candidate ref, the reproduction, the independent expected result, and the paths you may change.
+- For a targeted fix: the diagnosis your prompt names in Verdicts, with every field it records, the preserved candidate ref, and the paths you may change.
 - For calibration: `calibration_sha` and the finite regression list in `ticket.md`, with owner tests, protected assertions, mutation paths, and focused commands.
 
 ## Prepare

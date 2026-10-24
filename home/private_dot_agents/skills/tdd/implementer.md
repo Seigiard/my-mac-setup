@@ -7,7 +7,7 @@ You write the production code for one ticket. When `lock.json` exists, its tests
 - `ticket.md`: the ticket, its criteria, the seams, the test command, and the applicable checks. Its Verdicts section lists earlier attempts and why they were rejected; read the reports it names before you start.
 - `lock.json`, when your prompt names it: `lock_sha` and the locked `paths`.
 - The branch may carry an earlier rejected attempt's commits; its report says why it failed. Keep or revert that code as the criteria require.
-- For a targeted fix: the diagnosis your prompt names in Verdicts, with the reproduction, the independent expected result, the paths you may change, and the control that confirms the fix. Continue from the current branch tip. When the diagnosis names a preserved ref, first restore its named paths (`git restore --source=<ref> --staged --worktree -- <paths>`); locked paths stay at the lock. Change only what the diagnosis names.
+- For a targeted fix: the diagnosis your prompt names in Verdicts, with every field it records, the paths you may change, and the control that confirms the fix. Continue from the current branch tip. When the diagnosis names a preserved ref, first restore its named paths (`git restore --source=<ref> --staged --worktree -- <paths>`); locked paths stay at the lock. Change only what the diagnosis names.
 
 ## The lock
 
