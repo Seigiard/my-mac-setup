@@ -35,6 +35,7 @@
           </footer>
         </div>
       </section>
+      <div class="kit-annotations-anchor" aria-hidden="true"></div>
       <div class="kit-annotations-preview" aria-hidden="true"></div>
       <form class="kit-annotations-popover" hidden>
         <div class="kit-annotations-tabs" role="tablist" aria-label="Kind of mark">
@@ -60,6 +61,7 @@
     const copyFallback = root.querySelector(".kit-annotations-copy-fallback");
     const copyTextarea = copyFallback.querySelector("textarea");
     const status = root.querySelector(".kit-annotations-status");
+    const anchor = root.querySelector(".kit-annotations-anchor");
     const preview = root.querySelector(".kit-annotations-preview");
     const popover = root.querySelector(".kit-annotations-popover");
     const tabs = [...popover.querySelectorAll("[data-kind]")];
@@ -90,6 +92,7 @@
     const isEmptyMark = (annotation) => ["comment", "replace"].includes(annotation.kind) && !textFor(annotation).trim();
     let enabled = read(modeKey, false) === true;
     let pending = null;
+    let popoverAnchorRange = null;
     let pendingKind = "comment";
     let editing = null;
     let confirming = false;
@@ -414,28 +417,13 @@
       }
       popover.hidden = true;
       pending = null;
+      popoverAnchorRange = null;
       pendingKind = "comment";
       editing = null;
       popoverBody.hidden = false;
       if (document.activeElement === input) input.blur();
       paintPreview();
       if (removeEmpty) renderDock();
-    };
-    const positionPopover = (box) => {
-      popover.style.left = "8px";
-      popover.style.top = "8px";
-      const width = popover.offsetWidth;
-      const height = popover.offsetHeight;
-      const viewportWidth = document.documentElement.clientWidth || innerWidth;
-      const viewportHeight = document.documentElement.clientHeight || innerHeight;
-      const left = Math.max(8, Math.min(box.left, viewportWidth - width - 8));
-      const below = box.bottom + 8;
-      const maxTop = Math.max(8, viewportHeight - height - 8);
-      const above = box.top - height - 8;
-      const preferredTop = below + height <= viewportHeight - 8 ? below : above;
-      const top = Math.max(8, Math.min(preferredTop, maxTop));
-      popover.style.left = `${left}px`;
-      popover.style.top = `${top}px`;
     };
     const syncPopover = () => {
       const kind = editing?.kind || pendingKind;
@@ -446,6 +434,7 @@
     };
     const showSelectionError = (range) => {
       pending = null;
+      popoverAnchorRange = range.cloneRange();
       editing = null;
       popover.hidden = false;
       popover.querySelector(".kit-annotations-tabs").hidden = true;
@@ -453,7 +442,7 @@
       popoverLabel.textContent = "Select text within one section.";
       popoverFooter.hidden = true;
       remove.hidden = true;
-      positionPopover(range.getBoundingClientRect());
+      paintPreview();
     };
     const showPopover = (range) => {
       if (!popover.hidden) closePopover();
@@ -468,7 +457,6 @@
       popoverFooter.hidden = false;
       input.value = "";
       syncPopover();
-      positionPopover(range.getBoundingClientRect());
       input.focus();
       paintPreview();
     };
@@ -484,9 +472,8 @@
       popoverFooter.hidden = false;
       input.value = textFor(annotation);
       syncPopover();
-      const anchor = range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentElement;
-      anchor?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-      positionPopover(range.getBoundingClientRect());
+      const contentAnchor = range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentElement;
+      contentAnchor?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
       input.focus();
       paintPreview();
     };
@@ -595,19 +582,34 @@
     const paintPreview = () => {
       paint();
       preview.replaceChildren();
+      popover.classList.remove("kit-annotations-popover-with-preview");
       const annotation = editing;
+      const range = annotation ? rangeFor(annotation) : pending || popoverAnchorRange;
+      if (!range) {
+        anchor.style.insetInlineStart = "0px";
+        anchor.style.insetBlockStart = "0px";
+        anchor.style.inlineSize = "0px";
+        anchor.style.blockSize = "0px";
+        root.style.setProperty("--kit-annotations-range-block-size", "0px");
+        root.style.setProperty("--kit-annotations-range-tail-size", "0px");
+        return;
+      }
+      const rects = [...range.getClientRects()];
+      const first = rects[0];
+      if (!first) return;
+      const bounds = range.getBoundingClientRect();
+      anchor.style.insetInlineStart = `${first.left}px`;
+      anchor.style.insetBlockStart = `${first.top}px`;
+      anchor.style.inlineSize = `${first.width}px`;
+      anchor.style.blockSize = `${first.height}px`;
+      root.style.setProperty("--kit-annotations-range-block-size", `${bounds.height}px`);
+      root.style.setProperty("--kit-annotations-range-tail-size", `${Math.max(0, bounds.height - first.height)}px`);
       const replacement = annotation?.kind === "replace" ? textFor(annotation) : "";
       if (!replacement) return;
-      const range = annotation ? rangeFor(annotation) : pending;
-      if (!range) return;
-      const rects = [...range.getClientRects()];
-      const rect = rects.at(-1);
-      if (!rect) return;
       const after = document.createElement("span");
-      after.textContent = ` ${replacement}`;
-      after.style.left = `${Math.min(Math.max(8, rect.right + 2), Math.max(8, innerWidth - 16))}px`;
-      after.style.top = `${Math.max(8, rect.bottom - rect.height)}px`;
+      after.textContent = replacement;
       preview.append(after);
+      popover.classList.add("kit-annotations-popover-with-preview");
     };
 
     start.addEventListener("click", () => {
@@ -718,15 +720,9 @@
       chooseKind(KINDS[Number(event.code.slice(-1)) - 1]);
     });
     addEventListener("scroll", () => {
-      if (editing || pending) {
-        const range = editing ? rangeFor(editing) : pending;
-        if (range && !popover.hidden) positionPopover(range.getBoundingClientRect());
-        paintPreview();
-      }
+      if (editing || pending || popoverAnchorRange) paintPreview();
     }, { passive: true });
     addEventListener("resize", () => {
-      const range = editing ? rangeFor(editing) : pending;
-      if (range && !popover.hidden) positionPopover(range.getBoundingClientRect());
       paintPreview();
     });
 
