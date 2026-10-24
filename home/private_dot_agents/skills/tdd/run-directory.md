@@ -56,7 +56,7 @@ Repeat this entry once per symptom criterion:
 - <none, with reason | named unavailable boundary and coverage limit>
 
 ## Verdicts
-- test-writer-1 (medium, prepare): rejected; D1 test preparation: <assertion or boundary>; repro: <command and observed result>; expected: <independent result>; candidate <ref>; report test-writer-1.report.md
+- test-writer-1 (medium, prepare): rejected; D1 test preparation: <assertion or boundary>; repro: <command and observed result>; expected: <independent result>; cause check: <observation and result>; candidate <ref>; report test-writer-1.report.md
 - test-writer-2 (medium, prepare, targeted fix D1): accepted, lock <sha>; report test-writer-2.report.md
 - implementer-1 (low): D2 handoff: <missing items>; resumed; then accepted, tip <sha>; evidence <log paths>
 - test-writer-3 (medium, calibrate): <calibrated | suspect test | blocked>; state <sha>; report test-writer-3.report.md
