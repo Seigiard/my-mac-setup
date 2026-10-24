@@ -65,6 +65,13 @@ report_dir="$(mktemp -d "${TMPDIR:-/tmp}/ask-in-herdr.XXXXXX")"
 chmod 700 "$report_dir"
 report_path="$report_dir/answer.report"
 
+# A successful start can leave a live child even when a later query fails. Keep
+# the transport in every such case so the child can still persist its answer.
+retain_transport() {
+  RETAIN_TRANSPORT=1
+  printf 'ask.sh: child may still write its report; transport retained at %s\n' "$report_dir" >&2
+}
+
 question_file="$(mktemp)"
 start_out="$(mktemp)"
 start_err="$(mktemp)"
@@ -117,12 +124,19 @@ pane="$(printf '%s' "$result" | python3 -c 'import json,sys; print(json.load(sys
 started_name="$(printf '%s' "$result" | python3 -c 'import json,sys; print(json.load(sys.stdin)["agent"])' 2>/dev/null || true)"
 if [ -z "$pane" ] || [ -z "$started_name" ]; then
   cat "$start_err" >&2
+  retain_transport
   status_exit undelivered 1
 fi
 
 captured_terminal="$(herdr-child verify --to "$started_name" --pane "$pane" 2>/dev/null)" || {
   printf 'ask.sh: returned child alias and pane are not one live agent\n' >&2
+  retain_transport
   status_exit undelivered 1
+}
+
+close_hint() {
+  printf 'ask.sh: consult is in herdr pane %s (left open; close with: herdr-child reap --to %s --pane %s)\n' \
+    "$pane" "$started_name" "$pane" >&2
 }
 
 source=recent-unwrapped
@@ -139,25 +153,16 @@ set -e
 fresh_terminal="$(herdr-child verify --to "$started_name" --pane "$pane" 2>/dev/null)" || true
 if [ "$fresh_terminal" != "$captured_terminal" ]; then
   printf 'ask.sh: child alias, pane, or terminal changed while output was captured; output discarded\n' >&2
+  retain_transport
   status_exit undelivered 1
 fi
 
 if [ "$read_status" -ne 0 ]; then
   cat "$read_err" >&2
-  status_exit undelivered 1
+  close_hint
+  retain_transport
+  status_exit working 124
 fi
-close_hint() {
-  printf 'ask.sh: consult is in herdr pane %s (left open; close with: herdr-child reap --to %s --pane %s)\n' \
-    "$pane" "$started_name" "$pane" >&2
-}
-
-# The child can still write its report on every non-terminal outcome, so the
-# transport outlives this script there. Removing it while the child works
-# leaves the child writing into a path that no longer exists.
-retain_transport() {
-  RETAIN_TRANSPORT=1
-  printf 'ask.sh: child may still write its report; transport retained at %s\n' "$report_dir" >&2
-}
 
 # 0 usable, 3 absent, 4 present but empty, 5 present but not a regular file.
 # A child that can write the transport can leave a symlink there. This is a
@@ -195,6 +200,7 @@ fi
 
 if [ "$agent_get_status" -ne 0 ]; then
   cat "$agent_err" >&2
+  retain_transport
   status_exit undelivered 1
 fi
 agent_status="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["agent"]["agent_status"])' < "$agent_out" 2>/dev/null || true)"
@@ -243,5 +249,5 @@ case "$agent_status" in
     ;;
   blocked) cat "$read_out"; close_hint; retain_transport; status_exit blocked 1 ;;
   working|unknown) cat "$read_out"; close_hint; retain_transport; status_exit working 124 ;;
-  *) cat "$read_out" >&2; close_hint; status_exit undelivered 1 ;;
+  *) cat "$read_out" >&2; close_hint; retain_transport; status_exit undelivered 1 ;;
 esac
