@@ -17,29 +17,123 @@ dialog.lightbox { inline-size: 100%; block-size: 100%; max-inline-size: none; ma
 dialog.lightbox[open] { display: flex; align-items: flex-start; justify-content: flex-start; }
 dialog.lightbox img { flex: none; max-inline-size: none; max-block-size: none; margin: auto; cursor: inherit; }
 
-/* Annotations: the floating controls use only kit variables and remain above page content without changing its layout. */
+/* Annotations: the dock overlays the page and never changes its layout. */
 #kit-annotations { color: var(--fg); font: .875rem / 1.4 var(--sans); }
-#kit-annotations button { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--fg); padding: .45rem .7rem; cursor: pointer; }
+#kit-annotations button { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--fg); padding: .4rem .75rem; cursor: pointer; font: inherit; white-space: nowrap; }
 #kit-annotations button:active { transform: scale(.97); }
-@media (prefers-reduced-motion: no-preference) { #kit-annotations button { transition: transform 160ms ease-out; } }
-.kit-annotations-controls { position: fixed; inset-block-end: 1rem; inset-inline-end: 1rem; z-index: 20; display: flex; gap: .35rem; box-shadow: 0 .2rem .8rem color-mix(in oklch, var(--fg) 18%, transparent); }
-.kit-annotations-panel { position: fixed; inset-block-end: 4.2rem; inset-inline-end: 1rem; z-index: 20; inline-size: min(25rem, calc(100vw - 2rem)); max-block-size: min(30rem, 65vh); overflow: auto; padding: 1rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 .3rem 1rem color-mix(in oklch, var(--fg) 20%, transparent); }
-.kit-annotations-heading { display: flex; flex-wrap: wrap; align-items: center; gap: .7rem; }
-.kit-annotations-heading strong { margin-inline-end: auto; }
-.kit-annotations-page-note { display: flex; align-items: end; gap: .4rem; margin-block-start: .8rem; }
-.kit-annotations-page-note label { display: grid; flex: 1; gap: .2rem; color: var(--muted); }
-.kit-annotations-page-note input, .kit-annotations-copy-fallback textarea { min-inline-size: 0; padding: .4rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--fg); }
-.kit-annotations-list { margin: .8rem 0 0; padding-inline-start: 1.4rem; }
-.kit-annotations-list li { margin-block: .6rem; overflow-wrap: anywhere; }
-.kit-annotations-clear-confirmation, .kit-annotations-copy-fallback { margin-block-start: .8rem; padding-block-start: .8rem; border-block-start: 1px solid var(--line); }
-.kit-annotations-copy-fallback label { display: grid; gap: .2rem; color: var(--muted); }
-.kit-annotations-copy-fallback textarea { box-sizing: border-box; inline-size: 100%; min-block-size: 8lh; max-block-size: 16lh; resize: vertical; }
-.kit-annotations-status { min-block-size: 1.4em; margin-block: .8rem 0; color: var(--muted); }
-.kit-annotations-popover { position: fixed; z-index: 21; display: flex; align-items: end; gap: .4rem; box-sizing: border-box; max-inline-size: calc(100vw - 1rem); max-block-size: calc(100vh - 1rem); overflow: auto; padding: .5rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 .3rem 1rem color-mix(in oklch, var(--fg) 20%, transparent); }
+#kit-annotations button:focus-visible, #kit-annotations textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#kit-annotations .kit-annotations-quiet { border-color: transparent; background: none; color: var(--muted); }
+#kit-annotations .kit-annotations-quiet:focus-visible { color: var(--fg); }
+#kit-annotations .kit-annotations-primary { inline-size: 100%; background: var(--fg); border-color: var(--fg); color: var(--bg); font-weight: 600; }
+#kit-annotations .kit-annotations-primary:disabled { opacity: .45; cursor: not-allowed; }
+#kit-annotations .kit-annotations-primary.is-copied { background: var(--good); border-color: var(--good); }
 #kit-annotations [hidden] { display: none; }
-.kit-annotations-popover label { display: grid; gap: .2rem; color: var(--muted); }
-.kit-annotations-popover textarea { field-sizing: content; min-inline-size: min(14rem, calc(100vw - 2rem)); min-block-size: 3lh; max-block-size: 12lh; padding: .4rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--fg); font: inherit; resize: none; }
-.kit-annotations-actions { display: flex; flex-wrap: wrap; gap: .4rem; max-inline-size: 14rem; }
+.kit-annotations-start { position: fixed; inset-block-end: 1rem; inset-inline-end: 1rem; z-index: 20; box-shadow: 0 .2rem .8rem color-mix(in oklch, var(--fg) 14%, transparent); }
+.kit-annotations-start[aria-pressed="true"] { display: none; }
+.kit-annotations-dock { position: fixed; z-index: 20; inset-block: 0; inset-inline-end: 0; inline-size: min(24rem, 100%); max-inline-size: 100%; display: flex; flex-direction: column; background: var(--surface); border-inline-start: 1px solid var(--line); box-shadow: -.3rem 0 1rem color-mix(in oklch, var(--fg) 8%, transparent); }
+.kit-annotations-dock[hidden] { display: none; }
+.kit-annotations-header { display: flex; align-items: flex-start; gap: .5rem; padding: .7rem 1rem; border-block-end: 1px solid var(--line); }
+.kit-annotations-header .kit-annotations-what { flex: 1; min-inline-size: 0; display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.kit-annotations-dot { inline-size: .5rem; block-size: .5rem; flex: none; border-radius: 50%; background: var(--accent); }
+.kit-annotations-header strong { white-space: nowrap; }
+.kit-annotations-header .kit-annotations-hint { flex-basis: 100%; padding-inline-start: 1rem; color: var(--muted); overflow: clip; text-overflow: ellipsis; white-space: nowrap; }
+.kit-annotations-main { display: flex; flex: 1; min-block-size: 0; flex-direction: column; }
+.kit-annotations-heading { display: flex; align-items: center; gap: .5rem; padding: .7rem 1rem .2rem; }
+#kit-annotations .kit-annotations-heading h2 { margin: 0; margin-inline-end: auto; padding: 0; border: 0; font: 600 .95rem / 1.3 var(--sans); }
+.kit-annotations-heading h2 span { color: var(--muted); font-weight: 400; }
+.kit-annotations-list { flex: 1; min-block-size: 0; overflow: auto; padding: .2rem 1rem .8rem; }
+.kit-annotations-empty { padding: 1rem .25rem; color: var(--muted); }
+.kit-annotations-empty strong { display: block; margin-block-end: .2rem; color: var(--fg); }
+.kit-annotations-mark { position: relative; display: block; margin: .6rem 0 1.2rem; padding-inline: 0; border-radius: var(--radius); font: .78rem / 1.55 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+#kit-annotations .kit-annotations-open { display: block; inline-size: 100%; border: 0; border-radius: var(--radius); background: none; color: inherit; padding-block: .1rem; padding-inline: .2rem 2rem; text-align: start; cursor: pointer; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+#kit-annotations .kit-annotations-open:focus-visible { background: var(--tint); }
+.kit-annotations-section { margin: .4rem 0 .2rem; font: 700 .78rem / 1.55 var(--mono); }
+.kit-annotations-quote { color: var(--muted); }
+.kit-annotations-after { color: var(--muted); }
+.kit-annotations-kind { font-weight: 700; }
+.kit-annotations-kind[data-kind="comment"], .kit-annotations-kind[data-kind="replace"] { color: var(--accent); }
+.kit-annotations-kind[data-kind="delete"] { color: var(--bad); }
+.kit-annotations-remove { display: inline-grid; place-items: center; inline-size: 1.5rem; block-size: 1.5rem; border: 0 !important; border-radius: var(--radius); background: none !important; color: var(--muted) !important; padding: .3rem !important; line-height: 0; }
+.kit-annotations-remove:focus-visible { background: var(--bad-fill) !important; color: var(--bad) !important; }
+.kit-annotations-mark > .kit-annotations-remove { position: absolute; inset-block-start: 0; inset-inline-end: 0; opacity: .45; }
+.kit-annotations-mark > .kit-annotations-remove:focus-visible { opacity: 1; }
+@media (hover: none) { .kit-annotations-mark > .kit-annotations-remove { opacity: 1; } }
+@media (hover: hover) and (pointer: fine) {
+  #kit-annotations .kit-annotations-quiet:hover { color: var(--fg); }
+  .kit-annotations-mark:hover { background: var(--tint); }
+  #kit-annotations .kit-annotations-open:hover { background: var(--tint); }
+  .kit-annotations-remove:hover { background: var(--bad-fill) !important; color: var(--bad) !important; }
+  .kit-annotations-mark:hover > .kit-annotations-remove { opacity: 1; }
+}
+.kit-annotations-footer { display: grid; gap: .5rem; padding: .7rem 1rem; border-block-start: 1px solid var(--line); }
+.kit-annotations-page-comment { display: grid; gap: .35rem; }
+.kit-annotations-page-comment label { display: flex; justify-content: space-between; color: var(--muted); font-size: .8rem; }
+.kit-annotations-page-comment textarea, .kit-annotations-copy-fallback textarea { box-sizing: border-box; inline-size: 100%; min-block-size: 3lh; max-block-size: 10lh; resize: none; field-sizing: content; padding: .45rem .55rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--fg); font: inherit; }
+.kit-annotations-clear-confirmation { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; }
+.kit-annotations-clear-confirmation span { margin-inline-end: auto; }
+.kit-annotations-danger { background: var(--bad) !important; border-color: var(--bad) !important; color: var(--bg) !important; font-weight: 600; }
+.kit-annotations-copy-fallback { padding-block-start: .5rem; border-block-start: 1px solid var(--line); }
+.kit-annotations-copy-fallback label { display: grid; gap: .2rem; color: var(--muted); font-size: .8rem; }
+.kit-annotations-copy-fallback p { margin: .4rem 0 0; color: var(--muted); font-size: .8rem; }
+.kit-annotations-status { min-block-size: 1.4em; margin: 0; color: var(--muted); }
+.kit-annotations-popover { position: fixed; z-index: 21; inline-size: min(25rem, calc(100vw - 1rem)); max-inline-size: calc(100vw - 1rem); max-block-size: calc(100dvh - 1rem); overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: calc(var(--radius) + 4px); box-shadow: 0 .3rem 1rem color-mix(in oklch, var(--fg) 20%, transparent); }
+.kit-annotations-popover[hidden] { display: none; }
+.kit-annotations-tabs { display: grid; grid-template-columns: repeat(3, 1fr); border-block-end: 1px solid var(--line); }
+#kit-annotations .kit-annotations-tabs button { border: 0; border-block-end: 2px solid transparent; border-radius: 0; background: none; color: var(--muted); padding: .7rem .35rem .6rem; margin-block-end: -1px; display: flex; align-items: baseline; justify-content: center; gap: .35rem; }
+#kit-annotations .kit-annotations-tabs button[aria-pressed="true"] { color: var(--fg); font-weight: 600; }
+#kit-annotations .kit-annotations-tabs button[data-kind="comment"][aria-pressed="true"], #kit-annotations .kit-annotations-tabs button[data-kind="replace"][aria-pressed="true"] { border-block-end-color: var(--accent); }
+#kit-annotations .kit-annotations-tabs button[data-kind="delete"][aria-pressed="true"] { border-block-end-color: var(--bad); }
+.kit-annotations-sample { padding-inline: .15rem; border-radius: 2px; font-weight: 600; }
+.kit-annotations-sample[data-kind="comment"] { background: var(--tint); box-shadow: 0 2px 0 var(--accent); }
+.kit-annotations-sample[data-kind="delete"] { color: var(--bad); text-decoration: line-through; }
+.kit-annotations-sample[data-kind="replace"] { color: var(--accent); text-decoration: line-through; }
+.kit-annotations-popover-body { display: grid; gap: .5rem; padding: .75rem; }
+.kit-annotations-popover-body label { color: var(--muted); font-size: .8rem; }
+.kit-annotations-popover textarea { box-sizing: border-box; inline-size: 100%; min-block-size: 3lh; max-block-size: 12lh; padding: .45rem .55rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--fg); font: inherit; resize: none; field-sizing: content; }
+.kit-annotations-popover-footer { display: flex; align-items: center; gap: .4rem; }
+.kit-annotations-popover-footer small { margin-inline-end: auto; color: var(--muted); font-size: .75rem; }
+.kit-annotations-anchor { position: fixed; z-index: 0; inline-size: 0; block-size: 0; pointer-events: none; opacity: 0; anchor-name: --kit-annotations-range; }
+.kit-annotations-preview { position: fixed; inset: 0; z-index: 19; pointer-events: none; overflow: clip; }
+.kit-annotations-preview span { position: fixed; inline-size: max-content; max-inline-size: calc(100vw - 1rem); box-sizing: border-box; overflow: clip; text-overflow: ellipsis; color: var(--accent); border-block-end: 1px dashed var(--accent); background: var(--surface); white-space: nowrap; anchor-name: --kit-annotations-preview; }
+@supports (position-area: block-end) {
+  @position-try --kit-annotations-preview-clamp {
+    position-area: block-start span-all;
+    justify-self: anchor-center;
+    max-inline-size: calc(100% - 1rem);
+    margin-inline: .5rem;
+  }
+  @position-try --kit-annotations-preview-clamp-below {
+    position-area: block-end span-all;
+    justify-self: anchor-center;
+    max-inline-size: calc(100% - 1rem);
+    margin-inline: .5rem;
+    margin-block-start: calc(var(--kit-annotations-range-tail-size, 0px) + .25rem);
+  }
+  @position-try --kit-annotations-popover-clamp-below {
+    position-area: block-end span-all;
+    justify-self: anchor-center;
+    inline-size: min(25rem, calc(100% - 1rem));
+    max-inline-size: calc(100% - 1rem);
+    margin-inline: .5rem;
+  }
+  @position-try --kit-annotations-popover-clamp-above {
+    position-area: block-start span-all;
+    justify-self: anchor-center;
+    inline-size: min(25rem, calc(100% - 1rem));
+    max-inline-size: calc(100% - 1rem);
+    margin-inline: .5rem;
+    margin-block-start: 0;
+    margin-block-end: .5rem;
+  }
+  @position-try --kit-annotations-popover-above {
+    position-area: block-start span-inline-end;
+    margin-block-start: 0;
+    margin-block-end: .5rem;
+  }
+  .kit-annotations-preview span { position-anchor: --kit-annotations-range; position-area: block-start span-inline-end; position-try-fallbacks: --kit-annotations-preview-clamp, --kit-annotations-preview-clamp-below, flip-block, flip-inline; margin-block-end: .25rem; }
+  .kit-annotations-popover { position-anchor: --kit-annotations-range; position-area: block-end span-inline-end; position-try-fallbacks: --kit-annotations-popover-clamp-below, --kit-annotations-popover-above, --kit-annotations-popover-clamp-above, flip-inline; margin: 0; margin-block-start: calc(var(--kit-annotations-range-tail-size, 0px) + .5rem); }
+  .kit-annotations-popover.kit-annotations-popover-with-preview { position-anchor: --kit-annotations-preview; margin-block-start: calc(var(--kit-annotations-range-block-size, 0px) + .75rem); }
+}
 ::highlight(kit-annotation) { background: var(--tint); color: var(--fg); }
 ::highlight(kit-annotation-delete) { color: var(--bad); text-decoration: line-through; text-decoration-color: var(--bad); }
 ::highlight(kit-annotation-replace) { color: var(--accent); text-decoration: line-through; text-decoration-color: var(--accent); }

@@ -26,14 +26,14 @@ The assembled page carries the kit and every frame inside itself, so one built f
 
 ## Receiving annotations
 
-The annotation layer is at the lower right of an assembled page. A reader turns on **Annotate**, selects text, chooses Comment, Delete, or Replace, can add a page note in the panel, then copies Markdown. Marks stay in that reader's browser under the page title and build.
+The annotation layer starts as one **Annotate** button at the lower right of an assembled page. When enabled, a full-height dock overlays the right edge without moving the page. A reader selects text, chooses Comment, Delete, or Replace in the popover, edits the mark as it is saved, can enter one page comment, then copies Markdown. Marks stay in that reader's browser under the page title and build.
 
 When a reader pastes that Markdown, act on it without asking for page context:
 
 1. Read the header: `# Annotations · <title> · build <build>`. The optional next line is a hint naming this section. If `<build>` differs from the current draft's `kit-build` — the first seven hexadecimal characters of the SHA-256 hash of the draft bytes — warn before changing the draft.
 2. Each `## <section>` names the nearest preceding heading. It uses that heading's `id` when present, otherwise its text; give a repeated heading an `id` so its annotations name an unambiguous section. Find quoted text from that heading through the next heading at the same or higher level. Search the section's plain text. A quote is exact text with whitespace collapsed; a quote that spans blocks has one `> ` line per block. If the same quote repeats in the section, `**after:** <preceding text>` selects the occurrence whose preceding text ends with that value.
 3. Each quoted block ends with one action: `**comment:** <text>`, `**delete:** [reason]`, or `**replace:** <replacement>`. A replacement continues through the first blank line. Apply `delete` and `replace` literally. Use judgment for `comment`: make the useful change it asks for, or explain why no change is needed. `delete` may have no reason.
-4. `## Page` holds one or more `**note:** <text>` entries. Use judgment for each note. `## Frame N` is reserved for a figure annotation: its quote is the figure caption. `## Diagram: <first source line>` is reserved for a diagram annotation: its quote is node text. The current controls do not create figure or diagram anchors, but accept these sections when pasted.
+4. `## Page` holds one `**note:** <text>` entry. Its text continues to the end of the Markdown and may span several lines. For older pastes, accept several `**note:**` entries and use judgment for each note. `## Frame N` is reserved for a figure annotation: its quote is the figure caption. `## Diagram: <first source line>` is reserved for a diagram annotation: its quote is node text. The current controls do not create figure or diagram anchors, but accept these sections when pasted.
 5. Reassemble the changed draft and publish the new page link. Reply with one line for each annotation: `applied`, `changed` and why, or `not applied` and why.
 
 ### When a project names a Claude Artifact as the host
