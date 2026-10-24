@@ -44,7 +44,9 @@ Invoke the `explain-for-manager` skill for the resolved range, take its block ve
 
 ### 5. Compose title and body
 
-Read `references/pr-body-template.md` and fill every slot. With a repository contract from step 1, keep its headings and place each slot under the section it belongs to; the stakeholder block still comes first. Where the contract states a rule explicitly, that rule beats the slot's own: a mandated format, a forbidden section, a different cap. The Shape section uses the view families in `~/.agents/skills/show-me/SKILL.md` (a manual-only skill: read the file, the Skill tool will not load it). Done when the draft passes the rule in `~/.claude/shared/pull-requests.md`, ends at the `Related:` line (a harness attribution footer belongs to commit messages, not to this body; work left for later is an issue on that line, not a section), every slot cap (the word cap counts the slots, not the sections a contract adds), and `git ls-files <path>` returns every repository path the body links, with evidence references awaiting `--attach` exempt because `gh` rewrites those to uploaded URLs at publish.
+Read `references/pr-body-template.md` and write the body it describes; a slot the template makes conditional appears only when its condition holds. With a repository contract from step 1, keep its headings and place each slot under the section it belongs to; the stakeholder block still comes first. Where the contract states a rule explicitly, that rule beats the slot's own: a mandated format, a forbidden section, a different cap. The Shape section uses the view families in `~/.agents/skills/show-me/SKILL.md` (a manual-only skill: read the file, the Skill tool will not load it).
+
+Done when: the draft passes `~/.claude/shared/pull-requests.md`; its last line is the `Related:` line, or the Evidence section when there is none; every slot cap holds (the word cap counts the slots, not the sections a contract adds); and `git ls-files <path>` returns every repository path the body links, evidence references awaiting `--attach` exempt because `gh` rewrites those to uploaded URLs at publish.
 
 An existing body is rebuilt around three things kept: regions between paired HTML comment markers (`<!-- name --> … <!-- /name -->`, written by CI or a bot) verbatim; existing `Fixes`/`Related` references, folded into the single `Related:` line; and evidence frames or links that are still true.
 
@@ -68,7 +70,7 @@ A failed upload exits non-zero after the PR is already created or edited, so the
 
 ### 7. Post the summary to the related issue
 
-When the body carries `Fixes #N` or `Related: … #N` and the issue is open, add one comment with the stakeholder block and the PR link:
+When the body carries `Fixes #N`, or a `#N` on the Related line before `later:`, and the issue is open, add one comment with the stakeholder block and the PR link:
 
 ```bash
 gh issue comment "$N" --body-file "$summary_file"
@@ -76,16 +78,14 @@ gh issue comment "$N" --body-file "$summary_file"
 
 The comment begins with the block from step 4, followed by one line: `Delivered in <PR URL>.` Without a GitHub issue reference, say so in the report and move on.
 
-### 8. Babysit the PR
-
-Write the report below first, so the user has the PR URL before anything long-running starts. Then invoke the `ce-babysit-pr` skill with the PR number and stay in its default watch mode until it reaches a stop condition; its own final report ends the run.
-
-Pass `checkpoint` only when the user asked for a single tick, or said this session must stay free.
-
-## Report
+### 8. Report
 
 Finish in the language used in the chat, in this order:
 
-1. **PR status:** PR URL, evidence (frame count and where they are hosted, or why none), issue comment URL or "no related issue", and what the user should do next. The babysit verdict is not part of this report; `ce-babysit-pr` reports it when the watch stops. In `describe` mode, report the updated PR and omit checks and actions that mode did not run.
+1. **PR status:** PR URL, evidence (frame count and where they are hosted, or why none), issue comment URL or "no related issue", and what the user should do next. In `describe` mode, report the updated PR and omit checks and actions that mode did not run.
 2. **For the manager:** reuse the stakeholder block written into the PR in step 4. Translate it into the chat language when needed, preserving its meaning and claims.
 3. **Optional explanation:** when the PR is large or complex, offer to create an `explain-diff-html` page and briefly name what would benefit from a visual walkthrough (for example, changes across several subsystems, a migration, or a non-obvious control flow). Run that skill only if the user accepts the offer. Omit the offer for a small, straightforward PR.
+
+### 9. Babysit the PR
+
+Invoke the `ce-babysit-pr` skill with the PR number and stay in its default watch mode until it reaches a stop condition; its own final report ends the run. Pass `checkpoint` when the user asked for a single tick or said this session must stay free.
