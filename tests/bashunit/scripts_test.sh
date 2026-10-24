@@ -7809,15 +7809,15 @@ EOF
 function test_scripts_245_claude_settings_modifier_replaces_the_server_set() {
   _bats_test_init 245 'Claude settings modifier replaces mcpServers with the managed set and keeps other keys'
   local modifier="$SOURCE_ROOT/modify_dot_claude.json"
-  # A retired server (jina) must disappear from the live file on the next apply.
-  local input='{"mcpServers":{"jina":{"type":"http","url":"https://mcp.jina.ai/v1"},"tavily-mcp":{"type":"http","url":"https://old.tavily"}},"other":{"preserved":true}}'
+  # Retired servers (jina, tavily-mcp) must disappear from the live file on the next apply.
+  local input='{"mcpServers":{"jina":{"type":"http","url":"https://mcp.jina.ai/v1"},"tavily-mcp":{"type":"http","url":"https://old.tavily"},"fff":{"type":"stdio","command":"/old/fff"}},"other":{"preserved":true}}'
 
   run env HOME=/stub/home bash "$modifier" <<< "$input"
 
   assert_success
   run jq -e '
-    ((.mcpServers | keys | sort) == ["deepwiki","executor","fff","memex","tavily-mcp"])
-    and (.mcpServers["tavily-mcp"] == {"type":"http","url":"https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}"})
+    ((.mcpServers | keys | sort) == ["executor","fff","memex"])
+    and (.mcpServers.fff == {"type":"stdio","command":"/stub/home/.local/bin/fff-mcp","args":[],"env":{}})
     and (.mcpServers.executor == {"type":"stdio","command":"/stub/home/.local/bin/executor","args":["mcp"],"env":{}})
     and (.other == {"preserved":true})
   ' <<< "$output"

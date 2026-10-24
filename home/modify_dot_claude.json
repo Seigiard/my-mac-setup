@@ -1,6 +1,5 @@
 #!/bin/bash
-# Modify ~/.claude.json to register the MCP servers. Tavily expands the
-# shell-selected key when Claude starts.
+# Modify ~/.claude.json to register the MCP servers.
 # Requires: jq.
 
 existing=$(cat)
@@ -12,15 +11,13 @@ if ! command -v jq &>/dev/null; then
   exit 0
 fi
 
-# Tavily uses Claude's environment expansion so it shares TAVILY_API_KEY with
-# OpenCode and direct API consumers. The managed set replaces mcpServers whole,
-# so a server dropped from it is removed from the live file on the next apply.
+# The managed set replaces mcpServers whole, so a server dropped from it is
+# removed from the live file on the next apply. Web search and DeepWiki run
+# through the curl scripts of the markdown-new skill, not through MCP.
 echo "$existing" | jq \
   --arg home "$HOME" \
   '.mcpServers = {
-    "deepwiki": { "type": "http", "url": "https://mcp.deepwiki.com/mcp" },
     "fff": { "type": "stdio", "command": ($home + "/.local/bin/fff-mcp"), "args": [], "env": {} },
     "executor": { "type": "stdio", "command": ($home + "/.local/bin/executor"), "args": ["mcp"], "env": {} },
-    "memex": { "type": "stdio", "command": "memex", "args": ["mcp", "--transport", "stdio"], "env": {} },
-    "tavily-mcp": { "type": "http", "url": "https://mcp.tavily.com/mcp/?tavilyApiKey=${TAVILY_API_KEY}" }
+    "memex": { "type": "stdio", "command": "memex", "args": ["mcp", "--transport", "stdio"], "env": {} }
   }'
