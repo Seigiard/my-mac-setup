@@ -1,11 +1,11 @@
 ---
 name: make-pr
-description: Ship the current branch as a pull request, from evidence and body to publish, or rewrite an existing PR's description. Use when the user asks to make, open, or ship a PR, to write or rewrite a PR description, or asks in Russian ("сделай PR", "открой пулл-реквест", "заливай", "перепиши описание PR").
+description: Ship the current branch as a pull request, from evidence and body to publish and follow-through, or rewrite an existing PR's description. Use when the user asks to make, open, or ship a PR, to write or rewrite a PR description, or asks in Russian ("сделай PR", "открой пулл-реквест", "заливай", "перепиши описание PR").
 ---
 
 # Make PR
 
-Commit, capture evidence, describe, publish. The body follows `references/pr-body-template.md`; the rule it must satisfy is `~/.claude/shared/pull-requests.md`.
+Commit, capture evidence, describe, publish, check. The body follows `references/pr-body-template.md`; the rule it must satisfy is `~/.claude/shared/pull-requests.md`.
 
 ## Modes
 
@@ -76,9 +76,11 @@ gh issue comment "$N" --body-file "$summary_file"
 
 The comment begins with the block from step 4, followed by one line: `Delivered in <PR URL>.` Without a GitHub issue reference, say so in the report and move on.
 
-### 8. Babysit the PR, when asked
+### 8. Babysit the PR
 
-Write the report below first, so the user has the PR URL. Then, only when the user asked to watch, babysit, or see the PR through, invoke the `ce-babysit-pr` skill with the PR number and stay in its default watch mode until it reaches a stop condition; its own final report ends the run. Pass `checkpoint` when they asked for a single tick. Without that ask, the report ends the run.
+Write the report below first, so the user has the PR URL before anything long-running starts. Then invoke the `ce-babysit-pr` skill with the PR number and stay in its default watch mode until it reaches a stop condition; its own final report ends the run.
+
+Pass `checkpoint` only when the user asked for a single tick, or said this session must stay free.
 
 ## Report
 
