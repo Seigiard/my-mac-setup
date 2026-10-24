@@ -6,9 +6,9 @@
 Replaces three markers with the kit's files from this directory, so a page
 carries the kit inside itself and works from disk, by mail, or on a host:
 
-    <!-- kit: head -->        head.html: charset, viewport, base layer (tokens and bare-element rules)
+    <!-- kit: head -->        head.html: kit-build meta, charset, viewport, base layer (tokens and bare-element rules)
     <!-- kit: components -->  components.css wrapped in a <style>
-    <!-- kit: scripts -->     scripts.html: the highlighter, Mermaid, term, contents and lightbox scripts
+    <!-- kit: scripts -->     scripts.html: the highlighter, annotation layer, Mermaid, term, contents and lightbox scripts
 
 An <img src> that names a local file, relative to the draft, becomes a data
 URI, so the draft stays small enough to read and edit while the page carries
@@ -19,6 +19,7 @@ stops the run with exit status 1, so a page is never written half-built.
 """
 import argparse
 import base64
+import hashlib
 import mimetypes
 import re
 import sys
@@ -56,10 +57,13 @@ def inline_images(html, base):
     return "".join(part if index % 2 else IMG_TAG.sub(inline, part) for index, part in enumerate(parts))
 
 
-def assemble(html, base):
+def assemble(html, base, build_id=None):
     for marker, load in MARKERS.items():
         if marker in html:
-            html = html.replace(marker, load())
+            replacement = load()
+            if marker == "<!-- kit: head -->" and build_id is not None:
+                replacement = f'<meta name="kit-build" content="{build_id}">\n' + replacement
+            html = html.replace(marker, replacement)
     return inline_images(html, base)
 
 
@@ -70,7 +74,12 @@ def main():
     args = parser.parse_args()
     try:
         draft = Path(args.draft)
-        result = assemble(draft.read_text(encoding="utf-8"), draft.parent)
+        draft_bytes = draft.read_bytes()
+        result = assemble(
+            draft_bytes.decode("utf-8"),
+            draft.parent,
+            hashlib.sha256(draft_bytes).hexdigest()[:7],
+        )
     except FileNotFoundError as error:
         print(f"assemble: missing file: {error.filename}", file=sys.stderr)
         return 1
