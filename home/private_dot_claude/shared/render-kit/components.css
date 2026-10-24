@@ -20,7 +20,7 @@ dialog.lightbox img { flex: none; max-inline-size: none; max-block-size: none; m
 /* Annotations: the floating controls use only kit variables and remain above page content without changing its layout. */
 #kit-annotations { color: var(--fg); font: .875rem / 1.4 var(--sans); }
 #kit-annotations button { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--fg); padding: .45rem .7rem; cursor: pointer; }
-#kit-annotations-toggle { position: fixed; inset-block-end: 1rem; inset-inline-end: 1rem; z-index: 20; box-shadow: 0 .2rem .8rem color-mix(in oklch, var(--fg) 18%, transparent); }
+.kit-annotations-controls { position: fixed; inset-block-end: 1rem; inset-inline-end: 1rem; z-index: 20; display: flex; gap: .35rem; box-shadow: 0 .2rem .8rem color-mix(in oklch, var(--fg) 18%, transparent); }
 .kit-annotations-panel { position: fixed; inset-block-end: 4.2rem; inset-inline-end: 1rem; z-index: 20; inline-size: min(25rem, calc(100vw - 2rem)); max-block-size: min(30rem, 65vh); overflow: auto; padding: 1rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 .3rem 1rem color-mix(in oklch, var(--fg) 20%, transparent); }
 .kit-annotations-heading { display: flex; justify-content: space-between; align-items: center; gap: .7rem; }
 .kit-annotations-list { margin: .8rem 0 0; padding-inline-start: 1.4rem; }
