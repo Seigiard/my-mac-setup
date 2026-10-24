@@ -150,7 +150,7 @@ class KitBuild(unittest.TestCase):
             "<html><head><!-- kit: head --></head><body>one</body></html>",
             encoding="utf-8",
         )
-        expected = hashlib.sha256(draft.read_bytes()).hexdigest()[:7]
+        expected = "0d957ea"
         # #when
         result = assemble(draft)
         # #then
