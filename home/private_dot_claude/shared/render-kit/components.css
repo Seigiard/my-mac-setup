@@ -94,13 +94,20 @@ dialog.lightbox img { flex: none; max-inline-size: none; max-block-size: none; m
 .kit-annotations-popover-footer small { margin-inline-end: auto; color: var(--muted); font-size: .75rem; }
 .kit-annotations-anchor { position: fixed; z-index: 0; inline-size: 0; block-size: 0; pointer-events: none; opacity: 0; anchor-name: --kit-annotations-range; }
 .kit-annotations-preview { position: fixed; inset: 0; z-index: 19; pointer-events: none; overflow: clip; }
-.kit-annotations-preview span { position: fixed; inline-size: max-content; max-inline-size: calc(100vw - 1rem); box-sizing: border-box; overflow: hidden; text-overflow: ellipsis; color: var(--accent); border-block-end: 1px dashed var(--accent); background: var(--surface); white-space: nowrap; anchor-name: --kit-annotations-preview; }
+.kit-annotations-preview span { position: fixed; inline-size: max-content; max-inline-size: calc(100vw - 1rem); box-sizing: border-box; overflow: clip; text-overflow: ellipsis; color: var(--accent); border-block-end: 1px dashed var(--accent); background: var(--surface); white-space: nowrap; anchor-name: --kit-annotations-preview; }
 @supports (position-area: block-end) {
   @position-try --kit-annotations-preview-clamp {
     position-area: block-start span-all;
     justify-self: anchor-center;
     max-inline-size: calc(100% - 1rem);
     margin-inline: .5rem;
+  }
+  @position-try --kit-annotations-preview-clamp-below {
+    position-area: block-end span-all;
+    justify-self: anchor-center;
+    max-inline-size: calc(100% - 1rem);
+    margin-inline: .5rem;
+    margin-block-start: calc(var(--kit-annotations-range-tail-size, 0px) + .25rem);
   }
   @position-try --kit-annotations-popover-clamp-below {
     position-area: block-end span-all;
@@ -116,7 +123,7 @@ dialog.lightbox img { flex: none; max-inline-size: none; max-block-size: none; m
     max-inline-size: calc(100% - 1rem);
     margin-inline: .5rem;
   }
-  .kit-annotations-preview span { position-anchor: --kit-annotations-range; position-area: block-start span-inline-end; position-try-fallbacks: --kit-annotations-preview-clamp, flip-block, flip-inline; margin-block-end: .25rem; }
+  .kit-annotations-preview span { position-anchor: --kit-annotations-range; position-area: block-start span-inline-end; position-try-fallbacks: --kit-annotations-preview-clamp, --kit-annotations-preview-clamp-below, flip-block, flip-inline; margin-block-end: .25rem; }
   .kit-annotations-popover { position-anchor: --kit-annotations-range; position-area: block-end span-inline-end; position-try-fallbacks: --kit-annotations-popover-clamp-below, flip-block, --kit-annotations-popover-clamp-above, flip-inline; margin: 0; margin-block-start: calc(var(--kit-annotations-range-tail-size, 0px) + .5rem); }
   .kit-annotations-popover.kit-annotations-popover-with-preview { position-anchor: --kit-annotations-preview; margin-block-start: calc(var(--kit-annotations-range-block-size, 0px) + .75rem); }
 }

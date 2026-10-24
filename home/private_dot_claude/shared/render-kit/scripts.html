@@ -598,8 +598,8 @@
       const first = rects[0];
       if (!first) return;
       const bounds = range.getBoundingClientRect();
-      anchor.style.insetInlineStart = `${first.left}px`;
-      anchor.style.insetBlockStart = `${first.top}px`;
+      anchor.style.left = `${first.left}px`;
+      anchor.style.top = `${first.top}px`;
       anchor.style.inlineSize = `${first.width}px`;
       anchor.style.blockSize = `${first.height}px`;
       root.style.setProperty("--kit-annotations-range-block-size", `${bounds.height}px`);
