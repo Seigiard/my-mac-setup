@@ -26,7 +26,7 @@ dialog.lightbox img { flex: none; max-inline-size: none; max-block-size: none; m
 .kit-annotations-heading strong { margin-inline-end: auto; }
 .kit-annotations-page-note { display: flex; align-items: end; gap: .4rem; margin-block-start: .8rem; }
 .kit-annotations-page-note label { display: grid; flex: 1; gap: .2rem; color: var(--muted); }
-.kit-annotations-page-note input, .kit-annotations-copy-fallback textarea, .kit-annotations-popover input { min-inline-size: 0; padding: .4rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--fg); }
+.kit-annotations-page-note input, .kit-annotations-copy-fallback textarea { min-inline-size: 0; padding: .4rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--fg); }
 .kit-annotations-list { margin: .8rem 0 0; padding-inline-start: 1.4rem; }
 .kit-annotations-list li { margin-block: .6rem; overflow-wrap: anywhere; }
 .kit-annotations-clear-confirmation, .kit-annotations-copy-fallback { margin-block-start: .8rem; padding-block-start: .8rem; border-block-start: 1px solid var(--line); }
@@ -35,9 +35,7 @@ dialog.lightbox img { flex: none; max-inline-size: none; max-block-size: none; m
 .kit-annotations-status { min-block-size: 1.4em; margin-block: .8rem 0; color: var(--muted); }
 .kit-annotations-popover { position: fixed; z-index: 21; display: flex; align-items: end; gap: .4rem; padding: .5rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 .3rem 1rem color-mix(in oklch, var(--fg) 20%, transparent); }
 .kit-annotations-popover label { display: grid; gap: .2rem; color: var(--muted); }
-#kit-annotations :is(button, input, textarea):focus-visible { outline: max(2px, .08em) solid var(--accent); outline-offset: .15em; }
-#kit-annotations button:active { transform: scale(.97); }
-@media (prefers-reduced-motion: no-preference) { #kit-annotations button { transition: transform 160ms ease-out; } }
+.kit-annotations-popover input { min-inline-size: 14rem; padding: .4rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--fg); }
 ::highlight(kit-annotation) { background: var(--tint); color: var(--fg); }
 
 /* Code: a pre holding <code class="language-x">. The kit script hands the code to the highlighter, which wraps tokens in shj-syn-* spans; the six colour variables of the base layer paint them. */

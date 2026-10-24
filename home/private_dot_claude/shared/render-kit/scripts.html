@@ -322,7 +322,7 @@
         hideLayer();
         return false;
       }
-      status.textContent = "Press ⌘C / Ctrl+C to copy.";
+      status.textContent = "";
       return true;
     };
     const canUseClipboard = () => typeof navigator.clipboard?.writeText === "function";
@@ -338,16 +338,6 @@
       }
       showCopyFallback(markdown);
     };
-    const probeClipboard = async () => {
-      try {
-        const existing = await navigator.clipboard.readText();
-        await navigator.clipboard.writeText(existing);
-        root.hidden = false;
-      } catch {
-        hideLayer();
-      }
-    };
-
     pageNote.addEventListener("submit", (event) => {
       event.preventDefault();
       const note = pageNoteInput.value.trim();
@@ -385,11 +375,6 @@
       hideLayer();
       return;
     }
-    if (!fallbackAvailable) {
-      root.hidden = true;
-      probeClipboard();
-    }
-
     document.addEventListener("selectionchange", selectionChanged);
     toggle.setAttribute("aria-pressed", enabled);
     renderList();
