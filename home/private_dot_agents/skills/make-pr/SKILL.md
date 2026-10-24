@@ -1,11 +1,11 @@
 ---
 name: make-pr
-description: Ship the current branch as a pull request, from evidence and body to publish and follow-through, or rewrite an existing PR's description. Use when the user asks to make, open, or ship a PR, to write or rewrite a PR description, or asks in Russian ("сделай PR", "открой пулл-реквест", "заливай", "перепиши описание PR").
+description: Ship the current branch as a pull request, from evidence and body to publish, or rewrite an existing PR's description. Use when the user asks to make, open, or ship a PR, to write or rewrite a PR description, or asks in Russian ("сделай PR", "открой пулл-реквест", "заливай", "перепиши описание PR").
 ---
 
 # Make PR
 
-Commit, capture evidence, describe, publish, check. The body follows `references/pr-body-template.md`; the rule it must satisfy is `~/.claude/shared/pull-requests.md`.
+Commit, capture evidence, describe, publish. The body follows `references/pr-body-template.md`; the rule it must satisfy is `~/.claude/shared/pull-requests.md`.
 
 ## Modes
 
@@ -44,7 +44,7 @@ Invoke the `explain-for-manager` skill for the resolved range, take its block ve
 
 ### 5. Compose title and body
 
-Read `references/pr-body-template.md` and fill every slot. With a repository contract from step 1, keep its headings and place each slot under the section it belongs to; the stakeholder block still comes first. Where the contract states a rule explicitly, that rule beats the slot's own: a mandated format, a forbidden section, a different cap. The Shape section uses the view families in `~/.agents/skills/show-me/SKILL.md` (a manual-only skill: read the file, the Skill tool will not load it). Done when the draft passes the rule in `~/.claude/shared/pull-requests.md`, every slot cap (the word cap counts the slots, not the sections a contract adds), and `git ls-files <path>` returns every repository path the body links, with evidence references awaiting `--attach` exempt because `gh` rewrites those to uploaded URLs at publish.
+Read `references/pr-body-template.md` and fill every slot. With a repository contract from step 1, keep its headings and place each slot under the section it belongs to; the stakeholder block still comes first. Where the contract states a rule explicitly, that rule beats the slot's own: a mandated format, a forbidden section, a different cap. The Shape section uses the view families in `~/.agents/skills/show-me/SKILL.md` (a manual-only skill: read the file, the Skill tool will not load it). Done when the draft passes the rule in `~/.claude/shared/pull-requests.md`, ends at the `Related:` line (a harness attribution footer belongs to commit messages, not to this body), every slot cap (the word cap counts the slots, not the sections a contract adds), and `git ls-files <path>` returns every repository path the body links, with evidence references awaiting `--attach` exempt because `gh` rewrites those to uploaded URLs at publish.
 
 An existing body is rebuilt around three things kept: regions between paired HTML comment markers (`<!-- name --> … <!-- /name -->`, written by CI or a bot) verbatim; existing `Fixes`/`Related` references, folded into the single `Related:` line; and evidence frames or links that are still true.
 
@@ -76,11 +76,9 @@ gh issue comment "$N" --body-file "$summary_file"
 
 The comment begins with the block from step 4, followed by one line: `Delivered in <PR URL>.` Without a GitHub issue reference, say so in the report and move on.
 
-### 8. Babysit the PR
+### 8. Babysit the PR, when asked
 
-Write the report below first, so the user has the PR URL before anything long-running starts. Then invoke the `ce-babysit-pr` skill with the PR number and stay in its default watch mode until it reaches a stop condition; its own final report ends the run.
-
-Pass `checkpoint` only when the user asked for a single tick, or said this session must stay free.
+Write the report below first, so the user has the PR URL. Then, only when the user asked to watch, babysit, or see the PR through, invoke the `ce-babysit-pr` skill with the PR number and stay in its default watch mode until it reaches a stop condition; its own final report ends the run. Pass `checkpoint` when they asked for a single tick. Without that ask, the report ends the run.
 
 ## Report
 

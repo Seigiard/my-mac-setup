@@ -1,10 +1,10 @@
-<!-- Zero-context reviewer: they see only the diff. At most 500 words outside code blocks. Link only files committed in the repo; session artifacts, plan unit IDs, and review run IDs stay out. -->
+<!-- Zero-context reviewer: they see only the diff. At most 500 words outside code blocks. Link only files committed in the repo; session artifacts, plan unit IDs, and review run IDs stay out. The body ends at the Related line, or at the Evidence section when there is none. -->
 
 {stakeholder block from explain-for-manager, verbatim, as the first paragraph}
 
 ## Why
 
-{Exactly one sentence: the problem this PR solves and what becomes possible after it ships.}
+{Two sentences, each under 20 words: the problem this PR solves, then what becomes possible after it ships.}
 
 ## Watch out for
 
