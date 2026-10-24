@@ -479,7 +479,9 @@ function test_herdr_run_4622_stops_waiting_when_the_state_directory_disappears()
     > /dev/null 2> "$stderr_file" &
   wrapper_pid=$!
   wait_for_run_pid "$HERDR_RUN_DIR/state-gone.pid"
-  rm -rf "$HERDR_RUN_DIR"
+  # The launch script's tee can still create state-gone.log here; rm -rf would then
+  # fail with "Directory not empty", while a rename removes the path atomically.
+  mv -- "$HERDR_RUN_DIR" "$BATS_TEST_TMPDIR/state-removed"
 
   # #when
   if wait "$wrapper_pid"; then
