@@ -120,23 +120,29 @@ compaction, or resume. A later manual or new conversation in a pane created by
 another Agent therefore remains an unrelated occupant.
 Raw `herdr agent start` calls likewise have unknown parentage. Both pane and tab
 launch modes use the same recorder after their existing launch verification. An
-attached launch from a shell without an observable parent Agent session remains
-usable and records no parent rather than inventing one. The same tolerance
-applies to the child: when Herdr has not yet supplied the launched Agent's
-optional conversation identity, an attached launch records no edge instead of
-failing a child that has already started. A detached launch still requires that
-identity, because supervision is keyed on it.
+ attached launch from a shell without an observable parent Agent session remains
+ usable and records no parent rather than inventing one. For an attached Claude
+ launch, missing child identity is also tolerated because no edge can be recorded.
+ A detached launch still requires that identity, because supervision is keyed on it.
 
-If parentage recording fails after Agent start, `herdr-child` returns the
-recorder's nonzero status, reports the child coordinates, and preserves the live
-child without submitting the initial task. It explicitly warns that automatic
-launch retry is unsafe. If the managed wrapper returns nonzero after reporting a
-created pane or tab, the launcher preserves and reprints that native result and
-does not start an Agent, retry creation, or clean up the surviving resource. The
-native result is reprinted whenever the wrapper returned one, including a
-response too partial to yield a usable identity. Because attribution depends on
-reaching the wrapper, `herdr-child` resolves it by path beside itself rather
-than through `PATH`.
+ Claude records parentage before submitting the initial task. OpenCode
+ and Pi may expose their session only after that task is submitted; when a
+ parent session exists, `herdr-child` then binds the verified session and records
+ the edge. If that post-submission binding or recording fails, an attached launch
+ warns that it preserved the child without a parent edge, reprints the bare start
+ result, and returns the initial prompt's status (including 124 for a timeout or
+ stall). It does not close the pane. A detached launch follows its supervision
+ failure path. An attached launch from a shell without an observable parent
+ session remains usable and records no parent. If pre-prompt parentage recording
+ fails for Claude, `herdr-child` returns the recorder's nonzero status, reports
+ the child coordinates, preserves the child without submitting the initial task,
+ and warns that an automatic retry is unsafe. If the managed wrapper returns
+nonzero after reporting a created pane or tab, the launcher preserves and
+reprints that native result and does not start an Agent, retry creation, or clean
+up the surviving resource. The native result is reprinted whenever the wrapper
+returned one, including a response too partial to yield a usable identity.
+Because attribution depends on reaching the wrapper, `herdr-child` resolves it
+by path beside itself rather than through `PATH`.
 
 If identity or intent recording fails, the wrapper returns nonzero before
 creating resources. If Herdr creates resources but response parsing or

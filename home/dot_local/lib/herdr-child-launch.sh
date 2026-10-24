@@ -530,21 +530,34 @@ EOF
       ;;
   esac
 
-  if [ "$mode" = detach ] && [ -z "$child_session" ]; then
+  if [ -z "$child_session" ]; then
     case "$kind" in
-      opencode | pi) snapshot_policy=allow-missing-session ;;
+      opencode | pi)
+        if [ "$mode" = detach ] || [ -n "$parent_session" ]; then
+          snapshot_policy=allow-missing-session
+        fi
+        ;;
       *)
-        printf 'herdr-child: child agent_session is unavailable after agent start\n' >&2
-        cleanup_pane detached-session-validation || true
-        return 1
+        if [ "$mode" = detach ]; then
+          printf 'herdr-child: child agent_session is unavailable after agent start\n' >&2
+          cleanup_pane detached-session-validation || true
+          return 1
+        fi
         ;;
     esac
   fi
 
+  local lazy_post_prompt=0
   record_parentage() {
+    local errexit_was_set=0
+    case "$-" in *e*) errexit_was_set=1 ;; esac
     child_session_json="$(printf '%s' "$list_json" | json_session_for_pair "$name" "$pane")" || {
+      if [ "$lazy_post_prompt" -eq 1 ] && [ "$mode" = wait ]; then
+        printf 'herdr-child: verified child session could not be prepared for parentage recording; child preserved without a parent edge\n' >&2
+        return 1
+      fi
       printf 'herdr-child: verified child session could not be prepared for parentage recording; child preserved and automatic launch retry is unsafe\n' >&2
-      if [ "$prompt_submitted" -eq 1 ]; then
+      if [ "$prompt_submitted" -eq 1 ] && [ "$mode" = detach ]; then
         cleanup_pane parentage-session-validation || true
       else
         print_start_result "$name" "$pane" "$tab"
@@ -557,10 +570,14 @@ EOF
     "$resource_tree_cli" record-child --pane "$pane" --terminal "$launch_terminal" \
       --child-name "$name" --child-session-json "$child_session_json" >/dev/null
     parentage_status=$?
-    set -e
+    [ "$errexit_was_set" -eq 1 ] && set -e
     if [ "$parentage_status" -ne 0 ]; then
+      if [ "$lazy_post_prompt" -eq 1 ] && [ "$mode" = wait ]; then
+        printf 'herdr-child: parentage recording failed after prompt submission; child preserved without a parent edge\n' >&2
+        return 1
+      fi
       printf 'herdr-child: parentage recording failed after Agent start; child preserved and automatic launch retry is unsafe\n' >&2
-      if [ "$prompt_submitted" -eq 1 ]; then
+      if [ "$prompt_submitted" -eq 1 ] && [ "$mode" = detach ]; then
         cleanup_pane parentage-recording || true
       else
         print_start_result "$name" "$pane" "$tab"
@@ -569,8 +586,10 @@ EOF
       return "$parentage_status"
     fi
   }
-  # Attached launches may lack a session. Lazy detached sessions record their
-  # parent edge after the first prompt makes the conversation observable.
+  # Claude records parentage before the prompt. OpenCode and Pi may not expose
+  # a session until their first prompt, so lazy sessions record the edge after
+  # that prompt makes the conversation observable. An attached launch from a
+  # shell without a parent session remains usable and records no edge.
   if [ -n "$parent_session" ] && [ -n "$child_session" ]; then
     record_parentage || return $?
   fi
@@ -662,11 +681,17 @@ EOF
     fi
   }
 
-  local initial_prompt prompt_out prompt_err prompt_status
+  local initial_prompt prompt_out prompt_err prompt_status lazy_prompt_status=0
   # After submission, unwind supervision without closing a potentially live child.
   preserve_launched_child() {
     local event="$1" reason="$2" exit_status="$3" abort_status
     if [ -z "$watcher_pid" ]; then
+      if [ "$mode" = wait ] && [ "$prompt_submitted" -eq 1 ]; then
+        printf 'herdr-child: %s after prompt submission; child preserved for recovery\n' "$event" >&2
+        print_start_result "$name" "$pane" "$tab"
+        trap - HUP INT TERM
+        exit "$exit_status"
+      fi
       rm -f "$prompt_out" "$prompt_err"
       cleanup_pane "$reason" || true
       exit "$exit_status"
@@ -724,9 +749,9 @@ EOF
       if [ "$mode" = wait ] && grep -q '"code":"timeout"' "$prompt_err"; then
         printf 'herdr-child: initial prompt was delivered, but the wait timed out\n' >&2
         rm -f "$prompt_out" "$prompt_err"
-        trap - HUP INT TERM
-        print_start_result "$name" "$pane" "$tab"
-        return 124
+        prompt_submitted=1
+        lazy_prompt_status=124
+        return 0
       fi
       if [ "$mode" = detach ]; then
         atomic_write "$run_dir/abort.state" 'reason=prompt-result-ambiguous' || true
@@ -746,9 +771,9 @@ EOF
       if grep -q 'agent_prompt_stalled' "$prompt_err"; then
         printf 'herdr-child: initial prompt stalled; child preserved for recovery%s\n' "$tab_note" >&2
         rm -f "$prompt_out" "$prompt_err"
-        trap - HUP INT TERM
-        print_start_result "$name" "$pane" "$tab"
-        return 124
+        prompt_submitted=1
+        lazy_prompt_status=124
+        return 0
       fi
       printf 'herdr-child: initial prompt failed%s\n' "$tab_note" >&2
       rm -f "$prompt_out" "$prompt_err"
@@ -756,38 +781,81 @@ EOF
       return 1
     fi
     rm -f "$prompt_out" "$prompt_err"
+    prompt_submitted=1
   }
-
   if [ "$snapshot_policy" = allow-missing-session ]; then
     # Preserve the pre-prompt baseline even when the first turn finishes before
     # the session appears. There is no safe retry after this submission.
     submit_initial_prompt || return $?
-    local session_deadline
-    session_deadline=$(( $(now_ms) + timeout ))
+    lazy_post_prompt=1
+    if [ "$mode" = wait ]; then
+      trap 'launch_signal_handler HUP' HUP
+      trap 'launch_signal_handler INT' INT
+      trap 'launch_signal_handler TERM' TERM
+    fi
+    local session_deadline session_timeout="$timeout" lazy_binding_failed=0
+    # The caller's timeout bounds the initial prompt wait. After that prompt
+    # returns, attached lazy-session binding has its own fixed 3001ms bound.
+    if [ "$mode" = wait ]; then
+      session_timeout=3001
+    fi
+    session_deadline=$(( $(now_ms) + session_timeout ))
     while :; do
       list_json="$(herdr agent list)" || {
-        cleanup_pane child-session-read || true
+        if [ "$mode" = wait ]; then
+          printf 'herdr-child: child session could not be read after prompt submission; child preserved without a parent edge\n' >&2
+          lazy_binding_failed=1
+          break
+        else
+          cleanup_pane child-session-read || true
+        fi
         return 1
       }
       child_identity="$(printf '%s' "$list_json" | json_identity_for_pane "$pane")" || {
-        cleanup_pane child-session-identity || true
+        if [ "$mode" = wait ]; then
+          printf 'herdr-child: child session identity is unavailable after prompt submission; child preserved without a parent edge\n' >&2
+          lazy_binding_failed=1
+          break
+        else
+          cleanup_pane child-session-identity || true
+        fi
         return 1
       }
       IFS=$'\t' read -r child_terminal child_session <<< "$child_identity"
       verified_terminal="$(printf '%s' "$list_json" | json_pair_terminal "$name" "$pane")" || true
       if [ "$child_terminal" != "$launch_terminal" ] || [ "$verified_terminal" != "$launch_terminal" ] || \
         ! pane_terminal_matches "$pane" "$launch_terminal"; then
-        cleanup_pane child-session-identity || true
+        if [ "$mode" = wait ]; then
+          printf 'herdr-child: child identity changed after prompt submission; child preserved without a parent edge\n' >&2
+          lazy_binding_failed=1
+          break
+        else
+          cleanup_pane child-session-identity || true
+        fi
         return 1
       fi
       [ -z "$child_session" ] || break
       if [ "$(now_ms)" -ge "$session_deadline" ]; then
-        cleanup_pane child-session-timeout || true
+        if [ "$mode" = wait ]; then
+          printf 'herdr-child: child-session-timeout after prompt submission; child preserved without a parent edge\n' >&2
+          lazy_binding_failed=1
+          break
+        else
+          cleanup_pane child-session-timeout || true
+        fi
         return 1
       fi
       sleep "$POLL_INTERVAL"
     done
-    record_parentage || return $?
+    if [ "$lazy_binding_failed" -eq 0 ]; then
+      set +e
+      record_parentage
+      local parentage_status=$?
+      set -e
+      if [ "$parentage_status" -ne 0 ] && [ "$mode" != wait ]; then
+        return "$parentage_status"
+      fi
+    fi
   fi
 
   if [ "$mode" = detach ]; then
@@ -837,4 +905,5 @@ EOF
 
   trap - HUP INT TERM
   print_start_result "$name" "$pane" "$tab"
+  return "$lazy_prompt_status"
 }
