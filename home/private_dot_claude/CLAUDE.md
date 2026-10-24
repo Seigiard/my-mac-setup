@@ -84,6 +84,12 @@ Read `~/.claude/shared/peer-message-contract.md`. It defines peer addresses, mes
 
 </important>
 
+<important if="you are writing text about work done for a person who did not do it: an update, a weekly, a PR description, a Linear comment, an explanation of a change">
+
+Read `~/.claude/shared/reporting-voice.md`. It carries the sentence-level rules a format does not: achievements over process, was → now with the artifact, the evidence bound, facts once, zero context, plain words.
+
+</important>
+
 <important if="you are writing or reviewing interface copy: control labels, toasts, statuses">
 
 Read `~/.claude/shared/interface-copy.md`. It carries the grammar that names a control by its job (command, status, or navigation) and the one-word link between an action and its result.
