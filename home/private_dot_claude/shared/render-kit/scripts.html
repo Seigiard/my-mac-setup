@@ -40,7 +40,7 @@
         <p class="kit-annotations-status" role="status"></p>
       </section>
       <form class="kit-annotations-popover" hidden>
-        <label><span class="kit-annotations-popover-label">Comment</span><textarea name="text" rows="3" autocomplete="off"></textarea></label>
+        <label><span class="kit-annotations-popover-label">Comment</span><textarea name="text" autocomplete="off"></textarea></label>
         <div class="kit-annotations-actions">
           <button type="submit" value="comment">Comment</button>
           <button type="submit" value="delete">Delete</button>
@@ -100,12 +100,16 @@
       return path;
     };
     const nodeAt = (path) => path.reduce((node, index) => node?.childNodes[index], document.body);
-    const headingText = (heading) => heading.textContent.replace(/\s+/g, " ").trim();
+    const normalizeText = (text) => text.replace(/\s+/g, " ").trim();
+    const headingText = (heading) => normalizeText(heading.textContent);
     const isBefore = (first, second) => first === second
       || Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
-    const sectionBounds = (section) => {
+    const sectionBounds = (section, headingOrdinal) => {
       const headings = [...document.querySelectorAll("h1, h2, h3, h4")];
-      const start = headings.find((heading) => heading.id === section || headingText(heading) === section);
+      const matches = headings.filter((heading) => headingText(heading) === section);
+      const start = headingOrdinal === undefined
+        ? headings.find((heading) => heading.id === section || headingText(heading) === section)
+        : matches[headingOrdinal];
       if (!start) return { start: null, end: null };
       const level = Number(start.tagName.slice(1));
       const end = headings.find((heading) => heading !== start && isBefore(start, heading)
@@ -118,9 +122,9 @@
       if (!bounds.start) return true;
       return isBefore(bounds.start, node) && (!bounds.end || isBefore(node, bounds.end));
     };
-    const rangeByText = (text, section, after = "") => {
+    const rangeByText = (text, section, after = "", headingOrdinal) => {
       if (!text) return null;
-      const bounds = sectionBounds(section);
+      const bounds = sectionBounds(section, headingOrdinal);
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
         acceptNode: (node) => isPageText(node, bounds)
           ? NodeFilter.FILTER_ACCEPT
@@ -160,6 +164,7 @@
         annotation.rawQuote || annotation.quote,
         annotation.section,
         annotation.rawAfter || "",
+        annotation.headingOrdinal,
       );
       if (textRange) return textRange;
       const start = nodeAt(annotation.startPath);
@@ -175,29 +180,68 @@
         return null;
       }
     };
-    const quoteText = (text, range) => {
-      const fragment = range.cloneContents();
-      const blocks = [...fragment.querySelectorAll("p, li, td, th, pre, blockquote")];
-      if (blocks.length > 1) {
-        return blocks
-          .map((block) => block.textContent.replace(/\s+/g, " ").trim())
-          .filter(Boolean)
-          .join("\n");
+    const blockSelector = "address, article, aside, blockquote, dd, div, dl, dt, figure, figcaption, footer, h1, h2, h3, h4, h5, h6, header, li, main, nav, ol, p, pre, section, table, tbody, td, tfoot, th, thead, tr, ul";
+    const intersectionText = (range, element) => {
+      const blockRange = document.createRange();
+      blockRange.selectNodeContents(element);
+      const intersection = range.cloneRange();
+      if (range.compareBoundaryPoints(Range.START_TO_START, blockRange) < 0) {
+        intersection.setStart(blockRange.startContainer, blockRange.startOffset);
       }
-      return text.replace(/\s+/g, " ").trim();
+      if (range.compareBoundaryPoints(Range.END_TO_END, blockRange) > 0) {
+        intersection.setEnd(blockRange.endContainer, blockRange.endOffset);
+      }
+      return normalizeText(intersection.toString());
     };
-    const sectionFor = (range) => {
-      const node = range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentElement;
+    const quoteText = (text, range) => {
+      const blocks = [...document.querySelectorAll(blockSelector)]
+        .filter((block) => range.intersectsNode(block));
+      const leaves = blocks.filter((block) => !blocks.some((child) => child !== block && block.contains(child)));
+      return leaves.length > 1
+        ? leaves.map((block) => intersectionText(range, block)).filter(Boolean).join("\n")
+        : normalizeText(text);
+    };
+    const headingFor = (node) => {
+      const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
       const headings = [...document.querySelectorAll("h1, h2, h3, h4")];
       let found = null;
       for (const heading of headings) {
-        if (isBefore(heading, node)) found = heading;
+        if (isBefore(heading, element)) found = heading;
         else break;
       }
-      return found ? (found.id || headingText(found)) : title;
+      return found;
     };
-    const occurrencesFor = (text, section) => {
-      const bounds = sectionBounds(section);
+    const sectionFor = (range) => {
+      const heading = headingFor(range.startContainer);
+      if (!heading) return { section: title };
+      const section = heading.id || headingText(heading);
+      const sameName = [...document.querySelectorAll("h1, h2, h3, h4")]
+        .filter((item) => headingText(item) === section);
+      return {
+        section,
+        ...(heading.id ? {} : { headingOrdinal: sameName.indexOf(heading) }),
+      };
+    };
+    const isWithinOneSection = (range) => headingFor(range.startContainer) === headingFor(range.endContainer);
+    const normalizedContent = (content) => {
+      const offsets = [];
+      let text = "";
+      let match;
+      const words = /\S+/g;
+      while ((match = words.exec(content))) {
+        if (text) {
+          text += " ";
+          offsets.push(match.index - 1);
+        }
+        for (let index = 0; index < match[0].length; index += 1) {
+          text += match[0][index];
+          offsets.push(match.index + index);
+        }
+      }
+      return { text, offsets };
+    };
+    const occurrencesFor = (text, section, headingOrdinal) => {
+      const bounds = sectionBounds(section, headingOrdinal);
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
         acceptNode: (node) => isPageText(node, bounds)
           ? NodeFilter.FILTER_ACCEPT
@@ -205,17 +249,19 @@
       });
       let content = "";
       while (walker.nextNode()) content += walker.currentNode.nodeValue;
+      const normalized = normalizedContent(content);
+      const normalizedQuote = normalizeText(text);
       const starts = [];
-      let start = content.indexOf(text);
+      let start = normalized.text.indexOf(normalizedQuote);
       while (start >= 0) {
-        starts.push(start);
-        start = content.indexOf(text, start + 1);
+        starts.push(normalized.offsets[start]);
+        start = normalized.text.indexOf(normalizedQuote, start + 1);
       }
       return { content, starts };
     };
-    const afterFor = (range, section) => {
+    const afterFor = (range, section, headingOrdinal) => {
       const rawQuote = range.toString();
-      const bounds = sectionBounds(section);
+      const bounds = sectionBounds(section, headingOrdinal);
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
         acceptNode: (node) => isPageText(node, bounds)
           ? NodeFilter.FILTER_ACCEPT
@@ -225,9 +271,15 @@
       let selectedStart = -1;
       while (walker.nextNode()) {
         if (walker.currentNode === range.startContainer) selectedStart = content.length + range.startOffset;
+        else if (selectedStart < 0) {
+          const boundary = range.cloneRange();
+          boundary.collapse(true);
+          if (boundary.comparePoint(walker.currentNode, 0) >= 0) selectedStart = content.length;
+        }
         content += walker.currentNode.nodeValue;
       }
-      const starts = occurrencesFor(rawQuote, section).starts;
+      if (selectedStart < 0) selectedStart = content.length;
+      const starts = occurrencesFor(rawQuote, section, headingOrdinal).starts;
       if (starts.length < 2 || selectedStart < 0) return { after: "", rawAfter: "" };
 
       for (let length = 1; length <= selectedStart; length += 1) {
@@ -280,17 +332,38 @@
       popover.hidden = true;
       pending = null;
       editing = null;
+      if (document.activeElement === input) input.blur();
+    };
+    const positionPopover = (box) => {
+      popover.style.left = "8px";
+      popover.style.top = "8px";
+      const left = Math.max(8, Math.min(box.left, innerWidth - popover.offsetWidth - 8));
+      const top = Math.max(8, Math.min(box.top - popover.offsetHeight - 8, innerHeight - popover.offsetHeight - 8));
+      popover.style.left = `${left}px`;
+      popover.style.top = `${top}px`;
+    };
+    const showSelectionError = (range) => {
+      pending = null;
+      editing = null;
+      popover.hidden = false;
+      popoverLabel.textContent = "Select text within one section.";
+      input.closest("label").hidden = true;
+      popover.querySelector(".kit-annotations-actions").hidden = true;
+      remove.hidden = true;
+      positionPopover(range.getBoundingClientRect());
     };
     const showPopover = (range) => {
+      if (!isWithinOneSection(range)) return showSelectionError(range);
       pending = range.cloneRange();
       editing = null;
       const box = range.getBoundingClientRect();
       popover.hidden = false;
-      popover.style.left = `${Math.max(8, box.left)}px`;
-      popover.style.top = `${Math.max(8, box.top - popover.offsetHeight - 8)}px`;
+      input.closest("label").hidden = false;
+      popover.querySelector(".kit-annotations-actions").hidden = false;
       popoverLabel.textContent = "Text (required for Comment and Replace)";
       input.value = "";
       remove.hidden = true;
+      positionPopover(box);
       input.focus();
     };
     const showAnnotation = (annotation, range) => {
@@ -298,11 +371,12 @@
       editing = annotation;
       const box = range.getBoundingClientRect();
       popover.hidden = false;
-      popover.style.left = `${Math.max(8, box.left)}px`;
-      popover.style.top = `${Math.max(8, box.top - popover.offsetHeight - 8)}px`;
+      input.closest("label").hidden = false;
+      popover.querySelector(".kit-annotations-actions").hidden = false;
       popoverLabel.textContent = `Edit ${annotation.kind}`;
       input.value = textFor(annotation);
       remove.hidden = false;
+      positionPopover(box);
       input.focus();
     };
     const selectionChanged = () => {
@@ -314,7 +388,17 @@
       const node = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
         ? range.commonAncestorContainer
         : range.commonAncestorContainer.parentElement;
-      if (!node || root.contains(node) || !document.body.contains(node)) return closePopover();
+      if (!node || root.contains(node) || !document.body.contains(node)) closePopover();
+    };
+    const showSettledSelection = () => {
+      if (!enabled || document.activeElement === input) return;
+      const selection = getSelection();
+      if (!selection || selection.isCollapsed || !selection.rangeCount) return;
+      const range = selection.getRangeAt(0);
+      const node = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+        ? range.commonAncestorContainer
+        : range.commonAncestorContainer.parentElement;
+      if (!node || root.contains(node) || !document.body.contains(node)) return;
       showPopover(range);
     };
 
@@ -350,8 +434,8 @@
           text,
           quote: quoteText(range.toString(), range),
           rawQuote: range.toString(),
-          section,
-          ...afterFor(range, section),
+          ...section,
+          ...afterFor(range, section.section, section.headingOrdinal),
           startPath: pathOf(range.startContainer),
           startOffset: range.startOffset,
           endPath: pathOf(range.endContainer),
@@ -485,6 +569,7 @@
       return;
     }
     document.addEventListener("click", (event) => {
+      if (!enabled) return;
       if (root.contains(event.target)) return;
       const point = document.caretPositionFromPoint?.(event.clientX, event.clientY)
         || document.caretRangeFromPoint?.(event.clientX, event.clientY);
@@ -495,6 +580,13 @@
       if (item) showAnnotation(item.annotation, item.range);
     });
     document.addEventListener("selectionchange", selectionChanged);
+    document.addEventListener("pointerup", () => setTimeout(showSettledSelection));
+    document.addEventListener("keyup", (event) => {
+      if (event.key !== "Escape" && (event.key === "Shift" || !event.shiftKey)) showSettledSelection();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closePopover();
+    });
     toggle.setAttribute("aria-pressed", enabled);
     renderList();
 
