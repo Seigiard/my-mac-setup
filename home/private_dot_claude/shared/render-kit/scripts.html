@@ -210,7 +210,7 @@
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       while (walker.nextNode()) {
         const selected = selectedText(range, walker.currentNode);
-        if (!selected.trim()) continue;
+        if (!selected) continue;
         const block = walker.currentNode.parentElement?.closest(`${blockSelector}, summary, caption, legend`)
           || document.body;
         const previous = runs.at(-1);
