@@ -360,11 +360,11 @@
           const text = textFor(annotation);
           return `${quote}${after}\n**${annotation.kind}:**${text ? ` ${text}` : ""}`;
         });
-        sections.push(`## ${section}\n\n${blocks.join("\n\n")}`);
+        sections.push(`## ${section}\n${blocks.join("\n\n")}`);
       }
-      const markdown = [`# Annotations · ${title} · build ${build}`,
-        `_Apply per ~/.claude/shared/render-kit.md, section "Receiving annotations"._`,
-        ...sections].join("\n\n") + "\n";
+      const header = `# Annotations · ${title} · build ${build}`;
+      const hint = `_Apply per ~/.claude/shared/render-kit.md, section "Receiving annotations"._`;
+      const markdown = `${header}\n${hint}${sections.length ? `\n\n${sections.join("\n\n")}` : ""}\n`;
       try {
         await navigator.clipboard.writeText(markdown);
       } catch {}
@@ -372,9 +372,12 @@
 
     document.addEventListener("click", (event) => {
       if (root.contains(event.target)) return;
-      const point = document.caretRangeFromPoint?.(event.clientX, event.clientY);
+      const point = document.caretPositionFromPoint?.(event.clientX, event.clientY)
+        || document.caretRangeFromPoint?.(event.clientX, event.clientY);
       if (!point) return;
-      const item = ordered().find(({ range }) => range.isPointInRange(point.startContainer, point.startOffset));
+      const node = point.offsetNode || point.startContainer;
+      const offset = point.offset ?? point.startOffset;
+      const item = node && ordered().find(({ range }) => range.isPointInRange(node, offset));
       if (item) showAnnotation(item.annotation, item.range);
     });
 
