@@ -21,8 +21,23 @@
         <div class="kit-annotations-heading">
           <strong>Annotations</strong>
           <button type="button" class="kit-annotations-copy">Copy Markdown</button>
+          <button type="button" class="kit-annotations-clear">Clear</button>
         </div>
+        <form class="kit-annotations-page-note">
+          <label>Page note<input name="page-note" autocomplete="off"></label>
+          <button type="submit">Add note</button>
+        </form>
         <ol class="kit-annotations-list"></ol>
+        <div class="kit-annotations-clear-confirmation" hidden>
+          <p>Clear all annotations on this page?</p>
+          <button type="button" class="kit-annotations-clear-cancel">Cancel</button>
+          <button type="button" class="kit-annotations-clear-confirm">Clear all</button>
+        </div>
+        <div class="kit-annotations-copy-fallback" hidden>
+          <label>Markdown<textarea readonly aria-label="Markdown to copy"></textarea></label>
+          <p>Press ⌘C / Ctrl+C to copy.</p>
+        </div>
+        <p class="kit-annotations-status" role="status"></p>
       </section>
       <form class="kit-annotations-popover" hidden>
         <label>Comment<input name="comment" autocomplete="off"></label>
@@ -36,6 +51,12 @@
     const list = root.querySelector(".kit-annotations-list");
     const popover = root.querySelector(".kit-annotations-popover");
     const input = popover.querySelector("input");
+    const pageNote = root.querySelector(".kit-annotations-page-note");
+    const pageNoteInput = pageNote.querySelector("input");
+    const clearConfirmation = root.querySelector(".kit-annotations-clear-confirmation");
+    const copyFallback = root.querySelector(".kit-annotations-copy-fallback");
+    const copyTextarea = copyFallback.querySelector("textarea");
+    const status = root.querySelector(".kit-annotations-status");
 
     const title = document.title || "Untitled";
     const build = document.querySelector('meta[name="kit-build"]')?.content || "none";
@@ -157,9 +178,11 @@
     };
 
     const ordered = () => annotations
+      .filter((annotation) => annotation.kind === "comment")
       .map((annotation) => ({ annotation, range: rangeFor(annotation) }))
       .filter((item) => item.range)
       .sort((first, second) => first.range.compareBoundaryPoints(Range.START_TO_START, second.range));
+    const pageNotes = () => annotations.filter((annotation) => annotation.kind === "page");
     const paint = () => {
       if (!CSS.highlights) return;
       CSS.highlights.delete("kit-annotation");
@@ -171,6 +194,11 @@
       for (const { annotation } of ordered()) {
         const item = document.createElement("li");
         item.textContent = `${annotation.quote} — ${annotation.comment}`;
+        list.appendChild(item);
+      }
+      for (const annotation of pageNotes()) {
+        const item = document.createElement("li");
+        item.textContent = `Page note — ${annotation.note}`;
         list.appendChild(item);
       }
       count.textContent = `${annotations.length}`;
@@ -234,7 +262,7 @@
       closePopover();
       getSelection()?.removeAllRanges();
     });
-    root.querySelector(".kit-annotations-copy").addEventListener("click", async () => {
+    const markdownFor = () => {
       const groups = new Map();
       for (const { annotation } of ordered()) {
         if (!groups.has(annotation.section)) groups.set(annotation.section, []);
@@ -252,11 +280,101 @@
           markdown += `${quote}\n**comment:** ${annotation.comment}\n\n`;
         }
       }
+      const notes = pageNotes();
+      if (notes.length) {
+        markdown += "\n## Page\n";
+        for (const annotation of notes) markdown += `**note:** ${annotation.note}\n`;
+      }
+      return markdown;
+    };
+    const canSelectFallback = () => {
+      const probe = document.createElement("textarea");
+      const active = document.activeElement;
+      probe.value = "copy";
+      probe.tabIndex = -1;
+      probe.style.cssText = "position:fixed;inline-size:1px;block-size:1px;opacity:0;pointer-events:none;";
+      document.body.appendChild(probe);
       try {
-        await navigator.clipboard.writeText(markdown);
-      } catch {}
+        probe.focus({ preventScroll: true });
+        probe.select();
+        return probe.selectionStart === 0 && probe.selectionEnd === probe.value.length;
+      } catch {
+        return false;
+      } finally {
+        probe.remove();
+        try {
+          active?.focus?.({ preventScroll: true });
+        } catch {}
+      }
+    };
+    const hideLayer = () => root.remove();
+    const showCopyFallback = (markdown) => {
+      copyFallback.hidden = false;
+      copyTextarea.value = markdown;
+      try {
+        copyTextarea.focus({ preventScroll: true });
+        copyTextarea.select();
+      } catch {
+        hideLayer();
+        return false;
+      }
+      if (copyTextarea.selectionStart !== 0 || copyTextarea.selectionEnd !== markdown.length) {
+        hideLayer();
+        return false;
+      }
+      status.textContent = "";
+      return true;
+    };
+    const canUseClipboard = () => typeof navigator.clipboard?.writeText === "function";
+    const copyMarkdown = async () => {
+      const markdown = markdownFor();
+      if (canUseClipboard()) {
+        try {
+          await navigator.clipboard.writeText(markdown);
+          copyFallback.hidden = true;
+          status.textContent = "Copied.";
+          return;
+        } catch {}
+      }
+      showCopyFallback(markdown);
+    };
+    pageNote.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const note = pageNoteInput.value.trim();
+      if (!note) return;
+      annotations.push({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        kind: "page",
+        note,
+      });
+      write(storageKey, annotations);
+      renderList();
+      pageNoteInput.value = "";
+      pageNoteInput.focus();
     });
+    root.querySelector(".kit-annotations-clear").addEventListener("click", () => {
+      clearConfirmation.hidden = false;
+      status.textContent = "";
+    });
+    root.querySelector(".kit-annotations-clear-cancel").addEventListener("click", () => {
+      clearConfirmation.hidden = true;
+    });
+    root.querySelector(".kit-annotations-clear-confirm").addEventListener("click", () => {
+      annotations = [];
+      write(storageKey, annotations);
+      renderList();
+      clearConfirmation.hidden = true;
+      copyFallback.hidden = true;
+      status.textContent = "Annotations cleared.";
+    });
+    root.querySelector(".kit-annotations-copy").addEventListener("click", copyMarkdown);
+    copyTextarea.addEventListener("copy", () => { status.textContent = "Copied."; });
 
+    const fallbackAvailable = canSelectFallback();
+    if (!fallbackAvailable && !canUseClipboard()) {
+      hideLayer();
+      return;
+    }
     document.addEventListener("selectionchange", selectionChanged);
     toggle.setAttribute("aria-pressed", enabled);
     renderList();
