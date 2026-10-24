@@ -27,8 +27,11 @@ dialog.lightbox img { flex: none; max-inline-size: none; max-block-size: none; m
 .kit-annotations-list li { margin-block: .6rem; overflow-wrap: anywhere; }
 .kit-annotations-popover { position: fixed; z-index: 21; display: flex; align-items: end; gap: .4rem; padding: .5rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 .3rem 1rem color-mix(in oklch, var(--fg) 20%, transparent); }
 .kit-annotations-popover label { display: grid; gap: .2rem; color: var(--muted); }
-.kit-annotations-popover input { min-inline-size: 14rem; padding: .4rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--fg); }
+.kit-annotations-popover textarea { min-inline-size: 14rem; padding: .4rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--fg); font: inherit; resize: vertical; }
+.kit-annotations-actions { display: flex; flex-wrap: wrap; gap: .4rem; max-inline-size: 14rem; }
 ::highlight(kit-annotation) { background: var(--tint); color: var(--fg); }
+::highlight(kit-annotation-delete) { color: var(--bad); text-decoration: line-through; text-decoration-color: var(--bad); }
+::highlight(kit-annotation-replace) { color: var(--accent); text-decoration: line-through; text-decoration-color: var(--accent); }
 
 /* Code: a pre holding <code class="language-x">. The kit script hands the code to the highlighter, which wraps tokens in shj-syn-* spans; the six colour variables of the base layer paint them. */
 pre { margin: 1rem 0; padding: .9rem 1.1rem; overflow-x: auto; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--radius); font: .875em / 1.65 var(--mono); tab-size: 4; }
