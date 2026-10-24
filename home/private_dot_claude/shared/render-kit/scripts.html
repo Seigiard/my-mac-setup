@@ -221,6 +221,7 @@
       return lines.length > 1 ? lines.join("\n") : normalizeText(text);
     };
     const headingFor = (node) => {
+      if (!node) return null;
       const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
       const headings = [...document.querySelectorAll("h1, h2, h3, h4")];
       let found = null;
@@ -443,6 +444,7 @@
       const selection = getSelection();
       if (!selection || selection.isCollapsed || !selection.rangeCount) return;
       const range = selection.getRangeAt(0);
+      if (!selectedTextNodes(range).first) return;
       const node = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
         ? range.commonAncestorContainer
         : range.commonAncestorContainer.parentElement;
