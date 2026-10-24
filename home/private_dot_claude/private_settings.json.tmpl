@@ -12,8 +12,6 @@
   "permissions": {
     "allow": [
       "mcp__claude-in-chrome",
-      "mcp__deepwiki",
-      "mcp__tavily-mcp",
       "mcp__fff"
     ],
     "deny": [
@@ -197,13 +195,16 @@
     "~/Library/CloudStorage/Dropbox/Knowledge Base/Calendar/",
     "~/.claude/hooks/"
   ],
-  "feedbackSurveyState": {
-    "lastShownTime": 1754040532937
+  "feedbackSurveyRate": 0,
+  "includeGitInstructions": false,
+  "env": {
+    "CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS": "400000"
   },
   "autoMemoryEnabled": false,
   "tui": "fullscreen",
   "modelSettings": {
     "claude-opus-5-5": {
+      "effortLevel": "high",
       "autoCompactWindow": 400000
     },
     "claude-fable-5-1": {
