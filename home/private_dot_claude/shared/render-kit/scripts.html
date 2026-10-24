@@ -12,54 +12,137 @@
   (() => {
     const root = document.createElement("aside");
     root.id = "kit-annotations";
-    root.innerHTML = '<div class="kit-annotations-controls"><button class="kit-annotations-mode" type="button" aria-pressed="false">Annotate</button><button class="kit-annotations-count" type="button" aria-expanded="false">0</button></div><section class="kit-annotations-panel" hidden><div class="kit-annotations-heading"><strong>Annotations</strong><button type="button" class="kit-annotations-copy">Copy Markdown</button></div><ol class="kit-annotations-list"></ol></section><form class="kit-annotations-popover" hidden><label>Comment<input name="comment" autocomplete="off"></label><button type="submit">Comment</button></form>';
+    root.innerHTML = `
+      <div class="kit-annotations-controls">
+        <button class="kit-annotations-mode" type="button" aria-pressed="false">Annotate</button>
+        <button class="kit-annotations-count" type="button" aria-expanded="false">0</button>
+      </div>
+      <section class="kit-annotations-panel" hidden>
+        <div class="kit-annotations-heading">
+          <strong>Annotations</strong>
+          <button type="button" class="kit-annotations-copy">Copy Markdown</button>
+        </div>
+        <ol class="kit-annotations-list"></ol>
+      </section>
+      <form class="kit-annotations-popover" hidden>
+        <label>Comment<input name="comment" autocomplete="off"></label>
+        <button type="submit">Comment</button>
+      </form>`;
     document.body.appendChild(root);
+
     const toggle = root.querySelector(".kit-annotations-mode");
     const count = root.querySelector(".kit-annotations-count");
     const panel = root.querySelector(".kit-annotations-panel");
     const list = root.querySelector(".kit-annotations-list");
     const popover = root.querySelector(".kit-annotations-popover");
     const input = popover.querySelector("input");
+
     const title = document.title || "Untitled";
     const build = document.querySelector('meta[name="kit-build"]')?.content || "none";
     const storageKey = `render-kit-annotations:${title}:${build}`;
     const modeKey = `render-kit-annotate-mode:${title}`;
-    const read = (key, fallback) => { try { const value = localStorage.getItem(key); return value ? JSON.parse(value) : fallback; } catch { return fallback; } };
-    const write = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} };
+
+    const read = (key, fallback) => {
+      try {
+        const value = localStorage.getItem(key);
+        return value ? JSON.parse(value) : fallback;
+      } catch {
+        return fallback;
+      }
+    };
+    const write = (key, value) => {
+      try {
+        localStorage.setItem(key, JSON.stringify(value));
+      } catch {}
+    };
+
     let enabled = read(modeKey, false) === true;
     let pending = null;
     let annotations = read(storageKey, []);
-    const pathOf = (node) => { const path = []; while (node && node !== document.body) { const parent = node.parentNode; if (!parent) break; path.unshift([...parent.childNodes].indexOf(node)); node = parent; } return path; };
+
+    const pathOf = (node) => {
+      const path = [];
+      while (node && node !== document.body) {
+        const parent = node.parentNode;
+        if (!parent) break;
+        path.unshift([...parent.childNodes].indexOf(node));
+        node = parent;
+      }
+      return path;
+    };
     const nodeAt = (path) => path.reduce((node, index) => node?.childNodes[index], document.body);
-    const rangeByText = (text) => {
+    const headingText = (heading) => heading.textContent.replace(/\s+/g, " ").trim();
+    const isBefore = (first, second) => first === second
+      || Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const sectionBounds = (section) => {
+      const headings = [...document.querySelectorAll("h1, h2, h3, h4")];
+      const start = headings.find((heading) => heading.id === section || headingText(heading) === section);
+      if (!start) return { start: null, end: null };
+      const level = Number(start.tagName.slice(1));
+      const end = headings.find((heading) => heading !== start && isBefore(start, heading)
+        && Number(heading.tagName.slice(1)) <= level);
+      return { start, end };
+    };
+    const isPageText = (node, bounds) => {
+      const parent = node.parentElement;
+      if (!parent || root.contains(node) || parent.closest("script, style, #kit-annotations")) return false;
+      if (!bounds.start) return true;
+      return isBefore(bounds.start, node) && (!bounds.end || isBefore(node, bounds.end));
+    };
+    const rangeByText = (text, section) => {
       if (!text) return null;
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      const bounds = sectionBounds(section);
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+        acceptNode: (node) => isPageText(node, bounds)
+          ? NodeFilter.FILTER_ACCEPT
+          : NodeFilter.FILTER_REJECT,
+      });
       const nodes = [];
       let content = "";
-      while (walker.nextNode()) { nodes.push({ node: walker.currentNode, start: content.length }); content += walker.currentNode.nodeValue; }
+      while (walker.nextNode()) {
+        nodes.push({ node: walker.currentNode, start: content.length });
+        content += walker.currentNode.nodeValue;
+      }
       const start = content.indexOf(text);
       if (start < 0) return null;
+
       const end = start + text.length;
       const range = document.createRange();
-      const startNode = nodes.find((item) => start >= item.start && start <= item.start + item.node.length);
-      const endNode = nodes.find((item) => end >= item.start && end <= item.start + item.node.length);
+      const startNode = nodes.find((item) => start >= item.start
+        && start <= item.start + item.node.length);
+      const endNode = nodes.find((item) => end >= item.start
+        && end <= item.start + item.node.length);
       if (!startNode || !endNode) return null;
+
       range.setStart(startNode.node, start - startNode.start);
       range.setEnd(endNode.node, end - endNode.start);
       return range;
     };
     const rangeFor = (annotation) => {
-      const textRange = rangeByText(annotation.rawQuote || annotation.quote);
+      const textRange = rangeByText(annotation.rawQuote || annotation.quote, annotation.section);
       if (textRange) return textRange;
       const start = nodeAt(annotation.startPath);
       const end = nodeAt(annotation.endPath);
-      if (start && end) { const range = document.createRange(); try { range.setStart(start, annotation.startOffset); range.setEnd(end, annotation.endOffset); return range; } catch {} }
-      return rangeByText(annotation.rawQuote || annotation.quote);
+      if (!start || !end) return null;
+
+      const range = document.createRange();
+      try {
+        range.setStart(start, annotation.startOffset);
+        range.setEnd(end, annotation.endOffset);
+        return range;
+      } catch {
+        return null;
+      }
     };
     const quoteText = (text, range) => {
       const fragment = range.cloneContents();
       const blocks = [...fragment.querySelectorAll("p, li, td, th, pre, blockquote")];
-      if (blocks.length > 1) return blocks.map((block) => block.textContent.replace(/\s+/g, " ").trim()).filter(Boolean).join("\n");
+      if (blocks.length > 1) {
+        return blocks
+          .map((block) => block.textContent.replace(/\s+/g, " ").trim())
+          .filter(Boolean)
+          .join("\n");
+      }
       return text.replace(/\s+/g, " ").trim();
     };
     const sectionFor = (range) => {
@@ -67,27 +150,125 @@
       const headings = [...document.querySelectorAll("h1, h2, h3, h4")];
       let found = null;
       for (const heading of headings) {
-        if (heading.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) found = heading;
+        if (isBefore(heading, node)) found = heading;
         else break;
       }
       return found ? (found.id || headingText(found)) : title;
     };
-    const headingText = (heading) => heading.textContent.replace(/\s+/g, " ").trim();
-    const ordered = () => annotations.map((annotation, index) => ({ annotation, index, range: rangeFor(annotation) })).filter((item) => item.range).sort((a, b) => a.range.compareBoundaryPoints(Range.START_TO_START, b.range));
-    const paint = () => { if (!CSS.highlights) return; CSS.highlights.delete("kit-annotation"); const ranges = ordered().map(({ range }) => range); if (ranges.length) CSS.highlights.set("kit-annotation", new Highlight(...ranges)); };
-    const renderList = () => { list.replaceChildren(); for (const { annotation } of ordered()) { const item = document.createElement("li"); item.textContent = `${annotation.quote} — ${annotation.comment}`; list.appendChild(item); } count.textContent = `${annotations.length}`; paint(); };
-    const closePopover = () => { popover.hidden = true; pending = null; };
-    const showPopover = (range) => { pending = range.cloneRange(); const box = range.getBoundingClientRect(); popover.hidden = false; popover.style.left = `${Math.max(8, box.left)}px`; popover.style.top = `${Math.max(8, box.top - popover.offsetHeight - 8)}px`; input.value = ""; input.focus(); };
-    const selectionChanged = () => { if (!enabled || document.activeElement === input) return; const selection = getSelection(); if (!selection || selection.isCollapsed || !selection.rangeCount) return closePopover(); const range = selection.getRangeAt(0); const node = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE ? range.commonAncestorContainer : range.commonAncestorContainer.parentElement; if (!node || root.contains(node) || !document.body.contains(node)) return closePopover(); showPopover(range); };
-    toggle.addEventListener("click", () => { enabled = !enabled; write(modeKey, enabled); toggle.setAttribute("aria-pressed", enabled); if (!enabled) closePopover(); });
-    count.addEventListener("click", () => { panel.hidden = !panel.hidden; count.setAttribute("aria-expanded", !panel.hidden); });
-    popover.addEventListener("submit", (event) => { event.preventDefault(); if (!pending || !input.value.trim()) return; const range = pending; annotations.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, kind: "comment", comment: input.value.trim(), quote: quoteText(range.toString(), range), rawQuote: range.toString(), section: sectionFor(range), startPath: pathOf(range.startContainer), startOffset: range.startOffset, endPath: pathOf(range.endContainer), endOffset: range.endOffset }); write(storageKey, annotations); renderList(); closePopover(); getSelection()?.removeAllRanges(); });
-    root.querySelector(".kit-annotations-copy").addEventListener("click", async () => { const groups = new Map(); for (const { annotation } of ordered()) { if (!groups.has(annotation.section)) groups.set(annotation.section, []); groups.get(annotation.section).push(annotation); } let markdown = `# Annotations · ${title} · build ${build}\n_Apply per ~/.claude/shared/render-kit.md, section "Receiving annotations"._\n`; for (const [section, entries] of groups) { markdown += `\n## ${section}\n`; for (const annotation of entries) markdown += `${annotation.quote.split("\n").map((line) => `> ${line}`).join("\n")}\n**comment:** ${annotation.comment}\n`; } try { await navigator.clipboard.writeText(markdown); } catch {} });
+
+    const ordered = () => annotations
+      .map((annotation) => ({ annotation, range: rangeFor(annotation) }))
+      .filter((item) => item.range)
+      .sort((first, second) => first.range.compareBoundaryPoints(Range.START_TO_START, second.range));
+    const paint = () => {
+      if (!CSS.highlights) return;
+      CSS.highlights.delete("kit-annotation");
+      const ranges = ordered().map(({ range }) => range);
+      if (ranges.length) CSS.highlights.set("kit-annotation", new Highlight(...ranges));
+    };
+    const renderList = () => {
+      list.replaceChildren();
+      for (const { annotation } of ordered()) {
+        const item = document.createElement("li");
+        item.textContent = `${annotation.quote} — ${annotation.comment}`;
+        list.appendChild(item);
+      }
+      count.textContent = `${annotations.length}`;
+      paint();
+    };
+    const closePopover = () => {
+      popover.hidden = true;
+      pending = null;
+    };
+    const showPopover = (range) => {
+      pending = range.cloneRange();
+      const box = range.getBoundingClientRect();
+      popover.hidden = false;
+      popover.style.left = `${Math.max(8, box.left)}px`;
+      popover.style.top = `${Math.max(8, box.top - popover.offsetHeight - 8)}px`;
+      input.value = "";
+      input.focus();
+    };
+    const selectionChanged = () => {
+      if (!enabled || document.activeElement === input) return;
+      const selection = getSelection();
+      if (!selection || selection.isCollapsed || !selection.rangeCount) return closePopover();
+
+      const range = selection.getRangeAt(0);
+      const node = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+        ? range.commonAncestorContainer
+        : range.commonAncestorContainer.parentElement;
+      if (!node || root.contains(node) || !document.body.contains(node)) return closePopover();
+      showPopover(range);
+    };
+
+    toggle.addEventListener("click", () => {
+      enabled = !enabled;
+      write(modeKey, enabled);
+      toggle.setAttribute("aria-pressed", enabled);
+      if (!enabled) closePopover();
+    });
+    count.addEventListener("click", () => {
+      panel.hidden = !panel.hidden;
+      count.setAttribute("aria-expanded", !panel.hidden);
+    });
+    popover.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (!pending || !input.value.trim()) return;
+
+      const range = pending;
+      annotations.push({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        kind: "comment",
+        comment: input.value.trim(),
+        quote: quoteText(range.toString(), range),
+        rawQuote: range.toString(),
+        section: sectionFor(range),
+        startPath: pathOf(range.startContainer),
+        startOffset: range.startOffset,
+        endPath: pathOf(range.endContainer),
+        endOffset: range.endOffset,
+      });
+      write(storageKey, annotations);
+      renderList();
+      closePopover();
+      getSelection()?.removeAllRanges();
+    });
+    root.querySelector(".kit-annotations-copy").addEventListener("click", async () => {
+      const groups = new Map();
+      for (const { annotation } of ordered()) {
+        if (!groups.has(annotation.section)) groups.set(annotation.section, []);
+        groups.get(annotation.section).push(annotation);
+      }
+
+      let markdown = `# Annotations · ${title} · build ${build}\n_Apply per ~/.claude/shared/render-kit.md, section "Receiving annotations"._\n`;
+      for (const [section, entries] of groups) {
+        markdown += `\n## ${section}\n`;
+        for (const annotation of entries) {
+          const quote = annotation.quote
+            .split("\n")
+            .map((line) => `> ${line}`)
+            .join("\n");
+          markdown += `${quote}\n**comment:** ${annotation.comment}\n\n`;
+        }
+      }
+      try {
+        await navigator.clipboard.writeText(markdown);
+      } catch {}
+    });
+
     document.addEventListener("selectionchange", selectionChanged);
     toggle.setAttribute("aria-pressed", enabled);
-    setTimeout(renderList, 0);
-    setTimeout(renderList, 500);
-    setTimeout(renderList, 1500);
+    renderList();
+
+    let repaintTimer;
+    const scheduleRepaint = () => {
+      clearTimeout(repaintTimer);
+      repaintTimer = setTimeout(renderList, 50);
+    };
+    new MutationObserver((mutations) => {
+      if (mutations.some((mutation) => !root.contains(mutation.target))) scheduleRepaint();
+    }).observe(document.body, { childList: true, characterData: true, subtree: true });
   })();
 </script>
 <script type="module">
