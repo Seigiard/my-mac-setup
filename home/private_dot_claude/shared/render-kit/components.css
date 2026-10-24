@@ -76,7 +76,7 @@ dialog.lightbox img { flex: none; max-inline-size: none; max-block-size: none; m
 .kit-annotations-copy-fallback label { display: grid; gap: .2rem; color: var(--muted); font-size: .8rem; }
 .kit-annotations-copy-fallback p { margin: .4rem 0 0; color: var(--muted); font-size: .8rem; }
 .kit-annotations-status { min-block-size: 1.4em; margin: 0; color: var(--muted); }
-.kit-annotations-popover { position: fixed; z-index: 21; inline-size: min(25rem, calc(100% - 1rem)); max-inline-size: calc(100% - 1rem); max-block-size: calc(100dvh - 1rem); overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: calc(var(--radius) + 4px); box-shadow: 0 .3rem 1rem color-mix(in oklch, var(--fg) 20%, transparent); }
+.kit-annotations-popover { position: fixed; z-index: 21; inline-size: min(25rem, calc(100vw - 1rem)); max-inline-size: calc(100vw - 1rem); max-block-size: calc(100dvh - 1rem); overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: calc(var(--radius) + 4px); box-shadow: 0 .3rem 1rem color-mix(in oklch, var(--fg) 20%, transparent); }
 .kit-annotations-popover[hidden] { display: none; }
 .kit-annotations-tabs { display: grid; grid-template-columns: repeat(3, 1fr); border-block-end: 1px solid var(--line); }
 #kit-annotations .kit-annotations-tabs button { border: 0; border-block-end: 2px solid transparent; border-radius: 0; background: none; color: var(--muted); padding: .7rem .35rem .6rem; margin-block-end: -1px; display: flex; align-items: baseline; justify-content: center; gap: .35rem; }
@@ -94,10 +94,30 @@ dialog.lightbox img { flex: none; max-inline-size: none; max-block-size: none; m
 .kit-annotations-popover-footer small { margin-inline-end: auto; color: var(--muted); font-size: .75rem; }
 .kit-annotations-anchor { position: fixed; z-index: 0; inline-size: 0; block-size: 0; pointer-events: none; opacity: 0; anchor-name: --kit-annotations-range; }
 .kit-annotations-preview { position: fixed; inset: 0; z-index: 19; pointer-events: none; overflow: clip; }
-.kit-annotations-preview span { position: fixed; inline-size: max-content; max-inline-size: calc(100% - 1rem); box-sizing: border-box; overflow: hidden; text-overflow: ellipsis; color: var(--accent); border-block-end: 1px dashed var(--accent); background: var(--surface); white-space: nowrap; anchor-name: --kit-annotations-preview; }
+.kit-annotations-preview span { position: fixed; inline-size: max-content; max-inline-size: calc(100vw - 1rem); box-sizing: border-box; overflow: hidden; text-overflow: ellipsis; color: var(--accent); border-block-end: 1px dashed var(--accent); background: var(--surface); white-space: nowrap; anchor-name: --kit-annotations-preview; }
 @supports (position-area: block-end) {
-  .kit-annotations-preview span { position-anchor: --kit-annotations-range; position-area: block-start span-inline-end; position-try-fallbacks: flip-block, flip-inline; margin-block-end: .25rem; }
-  .kit-annotations-popover { position-anchor: --kit-annotations-range; position-area: block-end span-inline-end; position-try-fallbacks: flip-block, flip-inline; margin: 0; margin-block-start: calc(var(--kit-annotations-range-tail-size, 0px) + .5rem); }
+  @position-try --kit-annotations-preview-clamp {
+    position-area: block-start span-all;
+    justify-self: anchor-center;
+    max-inline-size: calc(100% - 1rem);
+    margin-inline: .5rem;
+  }
+  @position-try --kit-annotations-popover-clamp-below {
+    position-area: block-end span-all;
+    justify-self: anchor-center;
+    inline-size: min(25rem, calc(100% - 1rem));
+    max-inline-size: calc(100% - 1rem);
+    margin-inline: .5rem;
+  }
+  @position-try --kit-annotations-popover-clamp-above {
+    position-area: block-start span-all;
+    justify-self: anchor-center;
+    inline-size: min(25rem, calc(100% - 1rem));
+    max-inline-size: calc(100% - 1rem);
+    margin-inline: .5rem;
+  }
+  .kit-annotations-preview span { position-anchor: --kit-annotations-range; position-area: block-start span-inline-end; position-try-fallbacks: --kit-annotations-preview-clamp, flip-block, flip-inline; margin-block-end: .25rem; }
+  .kit-annotations-popover { position-anchor: --kit-annotations-range; position-area: block-end span-inline-end; position-try-fallbacks: --kit-annotations-popover-clamp-below, flip-block, --kit-annotations-popover-clamp-above, flip-inline; margin: 0; margin-block-start: calc(var(--kit-annotations-range-tail-size, 0px) + .5rem); }
   .kit-annotations-popover.kit-annotations-popover-with-preview { position-anchor: --kit-annotations-preview; margin-block-start: calc(var(--kit-annotations-range-block-size, 0px) + .75rem); }
 }
 ::highlight(kit-annotation) { background: var(--tint); color: var(--fg); }
