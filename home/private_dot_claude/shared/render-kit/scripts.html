@@ -40,8 +40,13 @@
         <p class="kit-annotations-status" role="status"></p>
       </section>
       <form class="kit-annotations-popover" hidden>
-        <label>Comment<input name="comment" autocomplete="off"></label>
-        <button type="submit">Comment</button>
+        <label><span class="kit-annotations-popover-label">Comment</span><textarea name="text" rows="3" autocomplete="off"></textarea></label>
+        <div class="kit-annotations-actions">
+          <button type="submit" value="comment">Comment</button>
+          <button type="submit" value="delete">Delete</button>
+          <button type="submit" value="replace">Replace</button>
+          <button type="button" class="kit-annotations-remove" hidden>Remove</button>
+        </div>
       </form>`;
     document.body.appendChild(root);
 
@@ -50,13 +55,15 @@
     const panel = root.querySelector(".kit-annotations-panel");
     const list = root.querySelector(".kit-annotations-list");
     const popover = root.querySelector(".kit-annotations-popover");
-    const input = popover.querySelector("input");
+    const input = popover.querySelector("textarea");
     const pageNote = root.querySelector(".kit-annotations-page-note");
     const pageNoteInput = pageNote.querySelector("input");
     const clearConfirmation = root.querySelector(".kit-annotations-clear-confirmation");
     const copyFallback = root.querySelector(".kit-annotations-copy-fallback");
     const copyTextarea = copyFallback.querySelector("textarea");
     const status = root.querySelector(".kit-annotations-status");
+    const popoverLabel = root.querySelector(".kit-annotations-popover-label");
+    const remove = root.querySelector(".kit-annotations-remove");
 
     const title = document.title || "Untitled";
     const build = document.querySelector('meta[name="kit-build"]')?.content || "none";
@@ -79,6 +86,7 @@
 
     let enabled = read(modeKey, false) === true;
     let pending = null;
+    let editing = null;
     let annotations = read(storageKey, []);
 
     const pathOf = (node) => {
@@ -110,7 +118,7 @@
       if (!bounds.start) return true;
       return isBefore(bounds.start, node) && (!bounds.end || isBefore(node, bounds.end));
     };
-    const rangeByText = (text, section) => {
+    const rangeByText = (text, section, after = "") => {
       if (!text) return null;
       const bounds = sectionBounds(section);
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
@@ -124,8 +132,16 @@
         nodes.push({ node: walker.currentNode, start: content.length });
         content += walker.currentNode.nodeValue;
       }
-      const start = content.indexOf(text);
-      if (start < 0) return null;
+      const starts = [];
+      let index = content.indexOf(text);
+      while (index >= 0) {
+        starts.push(index);
+        index = content.indexOf(text, index + 1);
+      }
+      const start = after
+        ? starts.find((position) => content.slice(0, position).endsWith(after))
+        : starts[0];
+      if (start === undefined) return null;
 
       const end = start + text.length;
       const range = document.createRange();
@@ -140,7 +156,11 @@
       return range;
     };
     const rangeFor = (annotation) => {
-      const textRange = rangeByText(annotation.rawQuote || annotation.quote, annotation.section);
+      const textRange = rangeByText(
+        annotation.rawQuote || annotation.quote,
+        annotation.section,
+        annotation.rawAfter || "",
+      );
       if (textRange) return textRange;
       const start = nodeAt(annotation.startPath);
       const end = nodeAt(annotation.endPath);
@@ -176,24 +196,76 @@
       }
       return found ? (found.id || headingText(found)) : title;
     };
+    const occurrencesFor = (text, section) => {
+      const bounds = sectionBounds(section);
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+        acceptNode: (node) => isPageText(node, bounds)
+          ? NodeFilter.FILTER_ACCEPT
+          : NodeFilter.FILTER_REJECT,
+      });
+      let content = "";
+      while (walker.nextNode()) content += walker.currentNode.nodeValue;
+      const starts = [];
+      let start = content.indexOf(text);
+      while (start >= 0) {
+        starts.push(start);
+        start = content.indexOf(text, start + 1);
+      }
+      return { content, starts };
+    };
+    const afterFor = (range, section) => {
+      const rawQuote = range.toString();
+      const bounds = sectionBounds(section);
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+        acceptNode: (node) => isPageText(node, bounds)
+          ? NodeFilter.FILTER_ACCEPT
+          : NodeFilter.FILTER_REJECT,
+      });
+      let content = "";
+      let selectedStart = -1;
+      while (walker.nextNode()) {
+        if (walker.currentNode === range.startContainer) selectedStart = content.length + range.startOffset;
+        content += walker.currentNode.nodeValue;
+      }
+      const starts = occurrencesFor(rawQuote, section).starts;
+      if (starts.length < 2 || selectedStart < 0) return { after: "", rawAfter: "" };
+
+      for (let length = 1; length <= selectedStart; length += 1) {
+        const rawAfter = content.slice(selectedStart - length, selectedStart);
+        const startsAtWordBoundary = selectedStart === length
+          || /[^\p{L}\p{N}]/u.test(content[selectedStart - length - 1]);
+        if (startsAtWordBoundary && rawAfter.replace(/\s+/g, " ").trim().length >= 12
+          && starts.filter((start) => content.slice(0, start).endsWith(rawAfter)).length === 1) {
+          return { after: rawAfter.replace(/\s+/g, " ").trim(), rawAfter };
+        }
+      }
+      return { after: content.slice(0, selectedStart).replace(/\s+/g, " ").trim(), rawAfter: content.slice(0, selectedStart) };
+    };
+    const textFor = (annotation) => annotation.text ?? annotation.comment ?? "";
 
     const ordered = () => annotations
-      .filter((annotation) => annotation.kind === "comment")
+      .filter((annotation) => ["comment", "delete", "replace"].includes(annotation.kind))
       .map((annotation) => ({ annotation, range: rangeFor(annotation) }))
       .filter((item) => item.range)
       .sort((first, second) => first.range.compareBoundaryPoints(Range.START_TO_START, second.range));
     const pageNotes = () => annotations.filter((annotation) => annotation.kind === "page");
     const paint = () => {
       if (!CSS.highlights) return;
-      CSS.highlights.delete("kit-annotation");
-      const ranges = ordered().map(({ range }) => range);
-      if (ranges.length) CSS.highlights.set("kit-annotation", new Highlight(...ranges));
+      for (const kind of ["comment", "delete", "replace"]) {
+        const name = kind === "comment" ? "kit-annotation" : `kit-annotation-${kind}`;
+        CSS.highlights.delete(name);
+        const ranges = ordered()
+          .filter(({ annotation }) => annotation.kind === kind)
+          .map(({ range }) => range);
+        if (ranges.length) CSS.highlights.set(name, new Highlight(...ranges));
+      }
     };
     const renderList = () => {
       list.replaceChildren();
       for (const { annotation } of ordered()) {
         const item = document.createElement("li");
-        item.textContent = `${annotation.quote} — ${annotation.comment}`;
+        const text = textFor(annotation);
+        item.textContent = `${annotation.quote} — ${annotation.kind}${text ? `: ${text}` : ""}`;
         list.appendChild(item);
       }
       for (const annotation of pageNotes()) {
@@ -207,14 +279,30 @@
     const closePopover = () => {
       popover.hidden = true;
       pending = null;
+      editing = null;
     };
     const showPopover = (range) => {
       pending = range.cloneRange();
+      editing = null;
       const box = range.getBoundingClientRect();
       popover.hidden = false;
       popover.style.left = `${Math.max(8, box.left)}px`;
       popover.style.top = `${Math.max(8, box.top - popover.offsetHeight - 8)}px`;
+      popoverLabel.textContent = "Text (required for Comment and Replace)";
       input.value = "";
+      remove.hidden = true;
+      input.focus();
+    };
+    const showAnnotation = (annotation, range) => {
+      pending = range.cloneRange();
+      editing = annotation;
+      const box = range.getBoundingClientRect();
+      popover.hidden = false;
+      popover.style.left = `${Math.max(8, box.left)}px`;
+      popover.style.top = `${Math.max(8, box.top - popover.offsetHeight - 8)}px`;
+      popoverLabel.textContent = `Edit ${annotation.kind}`;
+      input.value = textFor(annotation);
+      remove.hidden = false;
       input.focus();
     };
     const selectionChanged = () => {
@@ -242,25 +330,45 @@
     });
     popover.addEventListener("submit", (event) => {
       event.preventDefault();
-      if (!pending || !input.value.trim()) return;
+      const kind = event.submitter?.value;
+      const text = kind === "replace"
+        ? input.value.trim().split(/\r?\n\s*\r?\n/, 1)[0]
+        : input.value.trim();
+      if (!pending || !["comment", "delete", "replace"].includes(kind)
+        || ((kind === "comment" || kind === "replace") && !text)) return;
 
-      const range = pending;
-      annotations.push({
-        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        kind: "comment",
-        comment: input.value.trim(),
-        quote: quoteText(range.toString(), range),
-        rawQuote: range.toString(),
-        section: sectionFor(range),
-        startPath: pathOf(range.startContainer),
-        startOffset: range.startOffset,
-        endPath: pathOf(range.endContainer),
-        endOffset: range.endOffset,
-      });
+      if (editing) {
+        editing.kind = kind;
+        editing.text = text;
+        delete editing.comment;
+      } else {
+        const range = pending;
+        const section = sectionFor(range);
+        annotations.push({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          kind,
+          text,
+          quote: quoteText(range.toString(), range),
+          rawQuote: range.toString(),
+          section,
+          ...afterFor(range, section),
+          startPath: pathOf(range.startContainer),
+          startOffset: range.startOffset,
+          endPath: pathOf(range.endContainer),
+          endOffset: range.endOffset,
+        });
+      }
       write(storageKey, annotations);
       renderList();
       closePopover();
       getSelection()?.removeAllRanges();
+    });
+    remove.addEventListener("click", () => {
+      if (!editing) return;
+      annotations = annotations.filter((annotation) => annotation.id !== editing.id);
+      write(storageKey, annotations);
+      renderList();
+      closePopover();
     });
     const markdownFor = () => {
       const groups = new Map();
@@ -269,23 +377,24 @@
         groups.get(annotation.section).push(annotation);
       }
 
-      let markdown = `# Annotations · ${title} · build ${build}\n_Apply per ~/.claude/shared/render-kit.md, section "Receiving annotations"._\n`;
+      const sections = [];
       for (const [section, entries] of groups) {
-        markdown += `\n## ${section}\n`;
-        for (const annotation of entries) {
+        const blocks = entries.map((annotation) => {
           const quote = annotation.quote
             .split("\n")
             .map((line) => `> ${line}`)
             .join("\n");
-          markdown += `${quote}\n**comment:** ${annotation.comment}\n\n`;
-        }
+          const after = annotation.after ? `\n**after:** ${annotation.after}` : "";
+          const text = textFor(annotation);
+          return `${quote}${after}\n**${annotation.kind}:**${text ? ` ${text}` : ""}`;
+        });
+        sections.push(`## ${section}\n${blocks.join("\n\n")}`);
       }
+      const header = `# Annotations · ${title} · build ${build}`;
+      const hint = `_Apply per ~/.claude/shared/render-kit.md, section "Receiving annotations"._`;
       const notes = pageNotes();
-      if (notes.length) {
-        markdown += "\n## Page\n";
-        for (const annotation of notes) markdown += `**note:** ${annotation.note}\n`;
-      }
-      return markdown;
+      if (notes.length) sections.push(`## Page\n${notes.map((annotation) => `**note:** ${annotation.note}`).join("\n")}`);
+      return `${header}\n${hint}${sections.length ? `\n\n${sections.join("\n\n")}` : ""}\n`;
     };
     const canSelectFallback = () => {
       const probe = document.createElement("textarea");
@@ -375,6 +484,16 @@
       hideLayer();
       return;
     }
+    document.addEventListener("click", (event) => {
+      if (root.contains(event.target)) return;
+      const point = document.caretPositionFromPoint?.(event.clientX, event.clientY)
+        || document.caretRangeFromPoint?.(event.clientX, event.clientY);
+      if (!point) return;
+      const node = point.offsetNode || point.startContainer;
+      const offset = point.offset ?? point.startOffset;
+      const item = node && ordered().find(({ range }) => range.isPointInRange(node, offset));
+      if (item) showAnnotation(item.annotation, item.range);
+    });
     document.addEventListener("selectionchange", selectionChanged);
     toggle.setAttribute("aria-pressed", enabled);
     renderList();
