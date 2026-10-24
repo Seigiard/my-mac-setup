@@ -24,6 +24,7 @@
       <li><a href="#code">Code</a></li>
       <li><a href="#discrepancies">Discrepancies</a></li>
       <li><a href="#decisions">Decisions and open questions</a></li>
+      <li><a href="#annotations">Annotations</a></li>
       <li><a href="#checklist">Checklist</a></li>
       <li><a href="#log">Iteration log</a></li>
     </ul>
@@ -155,6 +156,25 @@ export const statusFromUrl = (params: URLSearchParams): Status | undefined =&gt;
       <li>The export button ignores sorting — a separate defect.</li>
     </ul>
   </details>
+
+  <h2 id="annotations">Annotations</h2>
+  <p>Turn on Annotate, select text, choose Comment, Delete, or Replace, add a page note in the panel, then copy the Markdown. The reader can paste that Markdown into the next edit request.</p>
+  <pre><code class="language-md"># Annotations · Render kit gallery · build 3f2a91c
+_Apply per ~/.claude/shared/render-kit.md, section "Receiving annotations"._
+
+## claims
+> A filter in the URL makes a filtered list a link that a teammate can open.
+**comment:** Say that the link keeps the selected status.
+
+## steps
+> The user opens Orders and sees every order, newest first.
+**delete:** This repeats the context.
+
+> A status menu above the list narrows it; the URL gains ?status=paid.
+**replace:** The user selects a status. The URL gains ?status=paid.
+
+## Page
+**note:** Add the decision date to the footer.</code></pre>
 
   <h2 id="checklist">Checklist</h2>
   <ul>

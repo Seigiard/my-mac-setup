@@ -9,8 +9,8 @@ Write bare semantic HTML and let the kit style it. The kit is one base layer on 
 A draft carries three markers and `python3 ~/.claude/shared/render-kit/assemble.py <draft> -o <page>` replaces them with the kit's files, so the page carries the kit inside itself and works from disk, by mail, or on a host. The head replacement also adds exactly one `<meta name="kit-build" content="…">`: its value is the first 7 lowercase hexadecimal characters of the SHA-256 hash of the draft file's bytes. This stable build id is the annotation storage key and is included in the Markdown header sent with feedback:
 
 - `<!-- kit: head -->` inside `<head>`, after `<title>`: `head.html`, with charset and viewport and the base layer: the colour tokens, the type, the page shell and every bare-element rule, each with the reason for it.
-- `<!-- kit: components -->` right after it: `components.css` in a `<style>`: frames and the lightbox, code colours, the Mermaid block, the term bubble, print rules.
-- `<!-- kit: scripts -->` at the end of `<body>`: `scripts.html`: the highlighter loader, the Mermaid loader, the term upgrade, the contents fallback, the frame lightbox.
+- `<!-- kit: components -->` right after it: `components.css` in a `<style>`: frames and the lightbox, code colours, the Mermaid block, the term bubble, the annotation layer, print rules.
+- `<!-- kit: scripts -->` at the end of `<body>`: `scripts.html`: the highlighter loader, the Mermaid loader, the term upgrade, the contents fallback, the frame lightbox, the annotation layer.
 
 An `<img src>` that names a local file, relative to the draft, becomes a data URI, so a draft keeps its frames as files and stays small enough to read and edit. Remote and `data:` sources and markup inside comments stay as written. A missing kit file or image stops the run with exit status 1.
 
@@ -23,6 +23,18 @@ A page's own rules, when it needs any, go in a `<style>` after the components ma
 ## Publishing
 
 The assembled page carries the kit and every frame inside itself, so one built file is the whole report. Publish it through the `agent-reports` skill; each iteration hands over the newest link.
+
+## Receiving annotations
+
+The annotation layer is at the lower right of an assembled page. A reader turns on **Annotate**, selects text, chooses Comment, Delete, or Replace, can add a page note in the panel, then copies Markdown. Marks stay in that reader's browser under the page title and build.
+
+When a reader pastes that Markdown, act on it without asking for page context:
+
+1. Read the header: `# Annotations · <title> · build <build>`. The optional next line is a hint naming this section. If `<build>` differs from the current draft's `kit-build` — the first seven hexadecimal characters of the SHA-256 hash of the draft bytes — warn before changing the draft.
+2. Each `## <section>` names the nearest preceding heading. It uses that heading's `id` when present, otherwise its text. Find quoted text from that heading through the next heading at the same or higher level. Search the section's plain text. A quote is exact text with whitespace collapsed; a quote that spans blocks has one `> ` line per block. If the same quote repeats in the section, `**after:** <preceding text>` selects the occurrence whose preceding text ends with that value.
+3. Each quoted block ends with one action: `**comment:** <text>`, `**delete:** [reason]`, or `**replace:** <replacement>`. A replacement continues through the first blank line. Apply `delete` and `replace` literally. Use judgment for `comment`: make the useful change it asks for, or explain why no change is needed. `delete` may have no reason.
+4. `## Page` holds one or more `**note:** <text>` entries. Use judgment for each note. `## Frame N` is reserved for a figure annotation: its quote is the figure caption. `## Diagram: <first source line>` is reserved for a diagram annotation: its quote is node text. The current controls do not create figure or diagram anchors, but accept these sections when pasted.
+5. Reassemble the changed draft and publish the new page link. Reply with one line for each annotation: `applied`, `changed` and why, or `not applied` and why.
 
 ### When a project names a Claude Artifact as the host
 
