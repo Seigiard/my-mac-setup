@@ -2261,7 +2261,11 @@ case "${1:-}" in
         none) : ;;
       esac
     fi
-    printf '{"agent":"red-wolf","pane":"wT:p9"}\n'
+    if [ "${STUB_START_RESULT:-valid}" = invalid ]; then
+      printf 'not valid start JSON\n'
+    else
+      printf '{"agent":"red-wolf","pane":"wT:p9"}\n'
+    fi
     [ "${STUB_CHILD_STATUS:-0}" -eq 0 ] || { printf 'child-start-error\n' >&2; exit "$STUB_CHILD_STATUS"; }
     ;;
   prompt)
@@ -2302,7 +2306,7 @@ case "$1 $2" in
       printf '{"result":{"agents":[{"name":"red-wolf","pane_id":"wT:p9","agent":"claude","terminal_id":"term-child","revision":1,"state_change_seq":1}]}}\n'
     fi ;;
   "agent read") [ "${STUB_READ_FAIL:-0}" = 1 ] && { printf 'read failed\n' >&2; exit 1; }; printf 'ANSWER from child\n' ;;
-  "agent get") printf '{"result":{"agent":{"name":"red-wolf","pane_id":"wT:p9","agent":"claude","terminal_id":"term-child","revision":1,"state_change_seq":1,"agent_status":"%s"}}}\n' "${STUB_AGENT_STATUS:-idle}" ;;
+  "agent get") [ "${STUB_AGENT_GET_FAIL:-0}" = 1 ] && { printf 'agent get failed\n' >&2; exit 1; }; printf '{"result":{"agent":{"name":"red-wolf","pane_id":"wT:p9","agent":"claude","terminal_id":"term-child","revision":1,"state_change_seq":1,"agent_status":"%s"}}}\n' "${STUB_AGENT_STATUS:-idle}" ;;
   "agent prompt")
     [ "${STUB_PARENT_PROMPT_FAIL:-0}" = 1 ] && { printf 'prompt failed\n' >&2; exit 1; }
     printf '%s' "$4" > "$CHILD_STUB/parent-prompt"
@@ -2478,22 +2482,23 @@ function test_scripts_1057_ask_sh_performs_no_agent_list_preflight_or_query_and_
   assert_output 2
 }
 
-function test_scripts_1058_ask_sh_discards_buffered_output_when_either_pair_valida() {
-  _bats_test_init 1058 'ask.sh discards buffered output when either pair validation fails'
+function test_scripts_1058_ask_sh_retains_transport_when_the_initial_pair_validation_fails() {
+  _bats_test_init 1058 'ask.sh retains transport when the initial pair validation fails'
   ask_live_stub
   run env PATH="$CHILD_STUB:$PATH" STUB_PAIR_FAIL_AT=1 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
     bash "$ASK_HERDR_SCRIPT" claude question
   assert_failure 1
   refute_output --partial "ANSWER from child"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=undelivered"
+  assert_file_exists "$CHILD_STUB/prompt.txt"
+  report_line="$(grep -o '/[^ ]*/answer\.report' "$CHILD_STUB/prompt.txt" | head -1)"
+  [ -n "$report_line" ]
+  transport_dir="$(dirname "$report_line")"
+  assert_line "ask.sh: child may still write its report; transport retained at $transport_dir"
+  assert_dir_exists "$transport_dir"
+  rm -f "$report_line" "$report_line.tmp"
+  rmdir "$transport_dir"
 
-  ask_live_stub
-  run env PATH="$CHILD_STUB:$PATH" STUB_PAIR_TERMINAL_CHANGE_AT=2 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_SCRIPT" claude question
-  assert_failure 1
-  refute_output --partial "ANSWER from child"
-  assert_output --partial "output discarded"
-  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=undelivered"
 }
 
 function test_scripts_1059_ask_sh_reports_blocked_children_after_printing_their_an() {
@@ -2516,14 +2521,28 @@ function test_scripts_1059_ask_sh_reports_blocked_children_after_printing_their_
   assert_file_not_exists "$CHILD_STUB/parent-prompt"
 }
 
-function test_scripts_1060_ask_sh_reports_undelivered_when_child_output_cannot_be_() {
-  _bats_test_init 1060 'ask.sh reports undelivered when child output cannot be read'
+function test_scripts_1060_ask_sh_retains_transport_when_working_child_output_cannot_() {
+  _bats_test_init 1060 'ask.sh retains transport when working child output cannot be read'
+  # #given
   ask_live_stub
+  # #when
   run env PATH="$CHILD_STUB:$PATH" STUB_READ_FAIL=1 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
-    bash "$ASK_HERDR_SCRIPT" claude question
-  assert_failure 1
+    bash "$ASK_HERDR_SCRIPT" opencode question
+  # #then
+  assert_failure 124
   assert_output --partial "read failed"
-  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=undelivered"
+  assert_output --partial 'herdr-child reap --to red-wolf --pane wT:p9'
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=working"
+  refute_output --partial 'ANSWER from child'
+  assert_file_contains "$CHILD_STUB/herdr.log" '^agent read red-wolf --source recent-unwrapped --lines 200'
+  assert_file_exists "$CHILD_STUB/prompt.txt"
+  report_line="$(grep -o '/[^ ]*/answer\.report' "$CHILD_STUB/prompt.txt" | head -1)"
+  [ -n "$report_line" ]
+  transport_dir="$(dirname "$report_line")"
+  assert_line "ask.sh: child may still write its report; transport retained at $transport_dir"
+  assert_dir_exists "$transport_dir"
+  rm -f "$report_line" "$report_line.tmp"
+  rmdir "$transport_dir"
 }
 
 function test_scripts_1061_ask_sh_reports_a_still_working_child_with_exit_124() {
@@ -2559,6 +2578,14 @@ function test_scripts_1062_ask_sh_classifies_successful_waits_with_working_unkno
   assert_failure 1
   assert_output --partial "ANSWER from child"
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=undelivered"
+  assert_file_exists "$CHILD_STUB/prompt.txt"
+  report_line="$(grep -o '/[^ ]*/answer\.report' "$CHILD_STUB/prompt.txt" | head -1)"
+  [ -n "$report_line" ]
+  transport_dir="$(dirname "$report_line")"
+  assert_line "ask.sh: child may still write its report; transport retained at $transport_dir"
+  assert_dir_exists "$transport_dir"
+  rm -f "$report_line" "$report_line.tmp"
+  rmdir "$transport_dir"
 }
 
 function test_scripts_1063_ask_sh_maps_child_start_failures_to_refused_or_undelive() {
@@ -2706,11 +2733,74 @@ function test_scripts_1072_ask_sh_retains_the_transport_while_the_child_may_stil
     bash "$ASK_HERDR_SCRIPT" claude question
   assert_failure 124
   assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=working"
-  assert_output --partial 'transport retained at'
 
   report_line="$(grep -o '/[^ ]*/answer\.report' "$CHILD_STUB/prompt.txt" | head -1)"
   [ -n "$report_line" ]
   transport_dir="$(dirname "$report_line")"
+  assert_line "ask.sh: child may still write its report; transport retained at $transport_dir"
+  assert_dir_exists "$transport_dir"
+  rm -f "$report_line" "$report_line.tmp"
+  rmdir "$transport_dir"
+}
+
+function test_scripts_1073_ask_sh_retains_transport_for_unparseable_started_child() {
+  _bats_test_init 1073 'ask.sh retains transport for an unparseable started child'
+  # #given
+  ask_live_stub
+  # #when
+  run env PATH="$CHILD_STUB:$PATH" STUB_START_RESULT=invalid HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_SCRIPT" claude question
+  # #then
+  assert_failure 1
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=undelivered"
+  assert_file_exists "$CHILD_STUB/prompt.txt"
+  report_line="$(grep -o '/[^ ]*/answer\.report' "$CHILD_STUB/prompt.txt" | head -1)"
+  [ -n "$report_line" ]
+  transport_dir="$(dirname "$report_line")"
+  assert_line "ask.sh: child may still write its report; transport retained at $transport_dir"
+  assert_dir_exists "$transport_dir"
+  rm -f "$report_line" "$report_line.tmp"
+  rmdir "$transport_dir"
+}
+
+function test_scripts_1074_ask_sh_retains_transport_when_started_child_cannot_be_queried() {
+  _bats_test_init 1074 'ask.sh retains transport when a started child cannot be queried'
+  # #given
+  ask_live_stub
+  # #when
+  run env PATH="$CHILD_STUB:$PATH" STUB_AGENT_GET_FAIL=1 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_SCRIPT" claude question
+  # #then
+  assert_failure 1
+  assert_output --partial 'agent get failed'
+  assert_line --index "$(( ${#lines[@]} - 1 ))" "ask.sh: status=undelivered"
+  assert_file_exists "$CHILD_STUB/prompt.txt"
+  report_line="$(grep -o '/[^ ]*/answer\.report' "$CHILD_STUB/prompt.txt" | head -1)"
+  [ -n "$report_line" ]
+  transport_dir="$(dirname "$report_line")"
+  assert_line "ask.sh: child may still write its report; transport retained at $transport_dir"
+  assert_dir_exists "$transport_dir"
+  rm -f "$report_line" "$report_line.tmp"
+  rmdir "$transport_dir"
+}
+
+function test_scripts_1075_ask_sh_retains_transport_when_a_started_child_terminal_changes() {
+  _bats_test_init 1075 'ask.sh retains transport when a started child terminal changes'
+  # #given
+  ask_live_stub
+  # #when
+  run env PATH="$CHILD_STUB:$PATH" STUB_PAIR_TERMINAL_CHANGE_AT=2 HERDR_ENV=1 HERDR_PANE_ID=wT:p0 \
+    bash "$ASK_HERDR_SCRIPT" claude question
+  # #then
+  assert_failure 1
+  refute_output --partial 'ANSWER from child'
+  assert_output --partial 'output discarded'
+  assert_line --index "$(( ${#lines[@]} - 1 ))" 'ask.sh: status=undelivered'
+  assert_file_exists "$CHILD_STUB/prompt.txt"
+  report_line="$(grep -o '/[^ ]*/answer\.report' "$CHILD_STUB/prompt.txt" | head -1)"
+  [ -n "$report_line" ]
+  transport_dir="$(dirname "$report_line")"
+  assert_line "ask.sh: child may still write its report; transport retained at $transport_dir"
   assert_dir_exists "$transport_dir"
   rm -f "$report_line" "$report_line.tmp"
   rmdir "$transport_dir"

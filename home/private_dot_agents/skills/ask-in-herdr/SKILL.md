@@ -51,7 +51,7 @@ The answer travels through a file, not through the pane. Before the question is 
 
 The file is the answer, so it is not truncated at the 200 lines the pane scrape returns, it does not lose wrapped or alternate-screen content, and it survives the pane closing. Pane text is still captured, but for a settled child it is evidence of what happened, never the answer.
 
-If a settled child left no usable report, the script makes exactly one bounded follow-up request asking it to persist the same answer, then classifies the file again. The transport directory is deleted when the script exits. On an outcome where the child may still be writing — `working` and `blocked` — the directory is kept instead, and its path is printed on stderr.
+If a settled child left no usable report, the script makes exactly one bounded follow-up request asking it to persist the same answer, then classifies the file again. The transport directory is deleted when the script exits. On an outcome where the child may still be writing — `working` and `blocked` — the directory is kept instead, and its path is printed on stderr. A read failure after a successful start is treated as `working` with the transport retained; other post-start query or identity failures remain `undelivered` but also retain the transport because the child may still write its answer.
 
 ## Outcome contract
 
@@ -61,8 +61,8 @@ Only `status=answered` puts an answer on stdout, and it comes from the report fi
 |---|---:|---|
 | `ask.sh: status=answered` | 0 | The child settled at `idle` or `done`, and its report file was read. |
 | `ask.sh: status=blocked` | 1 | The child settled at `blocked`. The transport is retained. |
-| `ask.sh: status=working` | 124 | The wait did not settle. The child pane remains live, stdout can be partial, and the transport is retained. |
-| `ask.sh: status=undelivered` | 1 | The pane, start, or initial prompt failed before a usable answer existed. |
+| `ask.sh: status=working` | 124 | The wait did not settle, or output could not be read after a successful start. The child pane remains live, stdout can be partial, and the transport is retained. |
+| `ask.sh: status=undelivered` | 1 | The pane, start, or initial prompt failed before a usable answer existed. Post-start query or identity failures also use this status and retain the transport. |
 | `ask.sh: status=refused` | 2 | Arguments or posture are invalid, or the required Herdr environment is unavailable. |
 | `ask.sh: status=no-report` | 3 | The child settled, but no report file existed after the recovery request. |
 | `ask.sh: status=empty-report` | 4 | The report file existed but was empty after the recovery request. |
