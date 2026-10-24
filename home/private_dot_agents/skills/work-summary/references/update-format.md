@@ -54,7 +54,7 @@ In the flat shape the closing line is mandatory: nothing else there says what co
 
 ### Zero context
 
-The zero-context rule in `SKILL.md` governs. Two additions for this shape:
+Zero context is `~/.claude/shared/reporting-voice.md`. Two additions for this shape:
 
 - No ticket IDs, file paths, or PR numbers.
 - Expand product-internal nouns on first use: "a shipment's rate card — the negotiated pricing table every booking inherits".

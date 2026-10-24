@@ -2,7 +2,7 @@
 
 Reached from the pull-request pointer in `~/.claude/CLAUDE.md` and from the `make-pr` skill.
 
-- Write for a zero-context reviewer: they see only the diff, not this session, plans, or reviews. Self-contained: what changed, why, how verified. The sentences follow `reporting-voice.md` in this folder.
+- Write for a zero-context reviewer: they see only the diff, not this session, plans, or reviews. Self-contained: what changed, why, how verified. Read `~/.claude/shared/reporting-voice.md` and apply its sentence-level rules.
 - Never reference plan unit IDs (U1, KTD-…), review runIds, or other session artifacts — the reviewer cannot interpret them.
 - Reference `docs/plans/`, `docs/ideation/`, `docs/brainstorms/` only when those files are committed in the repo (check with `git ls-files <path>`); where they are gitignored, the reviewer cannot open them.
 - Even when a plan link is valid, translate the plan's rationale into the description — the description must stand without the link.

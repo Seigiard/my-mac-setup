@@ -36,7 +36,7 @@ Pick the two or three biggest clusters for full stories; smaller ones get one se
 
 ## Zero context, spoken
 
-The listener has not seen the bets page, the tickets, or the code. The test for every sentence: would a colleague from another team understand it on first hearing?
+Zero context is `~/.claude/shared/reporting-voice.md`, heard rather than read: would a colleague from another team understand the sentence on first hearing? Two additions for the spoken shape:
 
 - Name a bet by what it does — «агенты, которые смотрят записи сессий» — never by its number, its stage, or the page's own vocabulary ("side bet", "stop rule", "stage 2", "limiting factor").
 - Tell outcomes. When the user's own tooling (an agent pipeline, a script) got a batch of internal fixes, the brief carries one sentence on what the tooling now does reliably; the fixes themselves — modes, memory limits, retries, data checks — go to the leftover count.
