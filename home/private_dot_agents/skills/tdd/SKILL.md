@@ -13,6 +13,7 @@ You are the **orchestrator** of one ticket. You decide what is tested, start one
 - **Children write; you verify.** You never write a test, a fix, or a merge yourself. When no child can start, stop and report.
 - **Evidence, not claims.** You accept a result on [valid evidence](#evidence), never on a report's verdict.
 - **Clean boundaries.** The worktree is clean at every phase boundary, so each diff belongs to one child.
+- **Identifiers from git.** Every SHA you record, `base_sha`, `batch_start_sha`, `lock_sha`, a Verdicts tip, is `git rev-parse` output from the checkout, never a value copied from a report.
 - **Classify before recovery.** A failed or incomplete settlement gets its diagnosis under [Responding to a failure](#responding-to-a-failure) before any reset, restore, or dispatch; a successful one gets an acceptance verdict.
 
 ## Evidence
@@ -68,6 +69,7 @@ Done when the worktree is clean and `ticket.md` holds the ticket, its criteria, 
    - every applicable check in `ticket.md` has valid passing evidence;
    - every finding of the batch is closed: its acceptance evidence is recorded in Verdicts;
    - **Scope:** inspect the cumulative diff from the batch's `batch_start_sha`, not `lock_sha`. Reject a changed file with no criterion, a hunk not needed for its named criterion, or a change inside `Non-goals`;
+   - **Identifiers:** every commit or range a tracked file in the batch's diff records resolves in the repository the record names, or this checkout when it names none (`git rev-parse --verify <sha>^{commit}`; `git merge-base --is-ancestor <base> <head>` exits 0); a record marked unresolved is exempt;
    - the worktree is clean, and the branch tip has moved past `lock_sha`, or past `batch_start_sha` on the checks-only path. A test-only correction needs only its accepted test commit.
 
    Check the lock and clean state first, then the test command, then pending calibration, then the broader checks that lack valid evidence. A failed condition gets a diagnosis before any change: a handoff gap resumes the child; an implementation defect [preserves any uncommitted work](#preserving-a-candidate), restores any changed locked files (`git restore --source=<lock_sha> --staged --worktree -- <locked paths>`, commit only when that creates a diff), keeps the attempt's other commits on the branch, and takes the diagnosis's route. Done when all conditions hold.

@@ -21,6 +21,8 @@ Other test files follow the red-test rules in `~/.claude/shared/testing.md`. A c
 2. When `ticket.md` names a test command, run it on your final state. For the other applicable checks in `ticket.md`, run each one that has no [valid evidence](SKILL.md#evidence) for the state your changes affect.
 3. Commit on the current branch. Do not push.
 
+**Identifiers.** A commit, range, or repository your change records in a file or in your report is pasted whole from git output in the repository it names (this checkout when it names none) and resolves there: `git rev-parse --verify <sha>^{commit}` for each commit, and `git merge-base --is-ancestor <base> <head>` exits 0 for a range. A branch name is recorded as the commit it resolves to, or marked unresolved.
+
 Done when the test command is green (when `ticket.md` names one), the applicable checks pass, and the work is committed. When you cannot get there, stop and report what blocks you.
 
 ## Report

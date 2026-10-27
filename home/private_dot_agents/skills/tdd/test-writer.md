@@ -21,6 +21,8 @@ For a targeted fix, first restore the approved test and fixture paths from the p
 4. Establish the [controls](#controls), then run the test command. Record each new test's status and behavior assertion. For a symptom criterion, record the scenario and preconditions you established, the assertion the run reached, and whether the red output shows the symptom in `ticket.md`. Setup, import, and syntax failures need correction. Run each check in `ticket.md` that covers a path you changed; a failing check needs correction the same way, and its evidence goes in the report. For an [uncalibrated](SKILL.md#calibration) negative or aggregate assertion, name it and propose its smallest faithful post-green regression. On a re-lock, corrected tests may already be green; say so in the report.
 5. Commit only the test and fixture changes, on the current branch. Do not push.
 
+**Identifiers.** A commit, range, or repository your change records in a file or in your report is pasted whole from git output in the repository it names (this checkout when it names none) and resolves there: `git rev-parse --verify <sha>^{commit}` for each commit, and `git merge-base --is-ancestor <base> <head>` exits 0 for a range. A branch name is recorded as the commit it resolves to, or marked unresolved.
+
 Done when every **test** criterion has either tests with observed results, controls, and any required calibration plan, or zero tests with a reason. The orchestrator applies the lock-acceptance conditions of step 3 in [The chain](SKILL.md#the-chain).
 
 ### Controls
