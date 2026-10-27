@@ -2,7 +2,8 @@
 # Daily cleanup, run by launchd (com.andrew.morning-cleanup): stale .omc
 # runtime state, platform worktrees/branches fully merged into origin/main,
 # Claude Code, Pi and OpenCode sessions idle past one shared retention
-# threshold, and the space those OpenCode deletions free in opencode.db.
+# threshold, agent run directories idle past a month, and the space those
+# OpenCode deletions free in opencode.db.
 # Idempotent per calendar day via a stamp file, so RunAtLoad + wake coalescing
 # can all fire without triple-running.
 set -uo pipefail
@@ -13,10 +14,12 @@ LOG="$STATE_DIR/cleanup.log"
 TRASH="$HOME/.scratchpad"
 TRASH_MAX_AGE_DAYS="${MORNING_CLEANUP_TRASH_MAX_AGE_DAYS:-2}"
 SESSION_MAX_AGE_DAYS="${MORNING_CLEANUP_SESSION_MAX_AGE_DAYS:-90}"
+ARTIFACT_MAX_AGE_DAYS="${MORNING_CLEANUP_ARTIFACT_MAX_AGE_DAYS:-30}"
 OPENCODE_DB_RECLAIM_MB="${MORNING_CLEANUP_OPENCODE_DB_RECLAIM_MB:-1024}"
 PLATFORM="$HOME/Projects/platform"
 CLAUDE_PROJECTS="$HOME/.claude/projects"
 PI_SESSIONS="$HOME/.pi/agent/sessions"
+ARTIFACTS="$HOME/.claude/artifacts"
 OPENCODE_DB="$HOME/.local/share/opencode/opencode.db"
 # launchd starts this with /usr/bin:/bin:/usr/sbin:/sbin. Appended, so tools
 # already on PATH win while scheduled jobs can still find installed CLIs.
@@ -35,6 +38,7 @@ trash_count=0
 claude_count=0
 pi_count=0
 oc_count=0
+artifact_count=0
 oc_db_report=""
 
 # 0) Purge trash entries older than the age threshold (default 2 days). ctime
@@ -121,6 +125,20 @@ done < <(aged_sessions "$CLAUDE_PROJECTS" 2)
 while IFS= read -r file; do
   trash_session "$file" pi && pi_count=$((pi_count + 1))
 done < <(aged_sessions "$PI_SESSIONS" 2)
+
+# 4b) Agent run directories under ~/.claude/artifacts: one directory per tdd,
+# review, or spec run, written while the run is live and read afterwards as
+# evidence. A directory is idle when neither it nor anything inside it was
+# modified within the threshold (default 30 days); the directory's own mtime
+# tracks only its direct entries, so the search descends. Moved to the trash,
+# so the purge above leaves a two-day undo window.
+while IFS= read -r dir; do
+  [[ -n "$(find "$dir" -mtime "-$ARTIFACT_MAX_AGE_DAYS" -print -quit 2>/dev/null)" ]] && continue
+  if mv "$dir" "$TRASH/artifact-$(date +%s)-$RANDOM-$(basename "$dir")"; then
+    log "trashed artifact: $dir"
+    artifact_count=$((artifact_count + 1))
+  fi
+done < <(find "$ARTIFACTS" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
 
 # 5) OpenCode sessions, deleted only through its CLI: direct writes to
 # opencode.db are barred (#255), because event replay needs contiguous sequence
@@ -394,14 +412,14 @@ docker_cleanup() {
 docker_cleanup
 
 echo "$today" >"$STAMP"
-summary="omc: $omc_count, worktrees: $wt_count, branches: $br_count, trash: $trash_count, claude sessions: $claude_count, pi sessions: $pi_count, opencode sessions: $oc_count"
+summary="omc: $omc_count, worktrees: $wt_count, branches: $br_count, trash: $trash_count, claude sessions: $claude_count, pi sessions: $pi_count, opencode sessions: $oc_count, artifacts: $artifact_count"
 [[ -n "$oc_db_report" ]] && summary+=", $oc_db_report"
 if ((docker_success_count > 0)); then
   summary+=", Docker cache: ${docker_cache_report:-error}, Docker images: ${docker_image_report:-error}, Docker networks: ${docker_network_report:-error}"
 fi
 log "done — $summary"
 
-if [[ ( $((omc_count + wt_count + br_count + trash_count + claude_count + pi_count + oc_count)) -gt 0 || -n "$oc_db_report" || "$docker_deleted" == 1 ) &&
+if [[ ( $((omc_count + wt_count + br_count + trash_count + claude_count + pi_count + oc_count + artifact_count)) -gt 0 || -n "$oc_db_report" || "$docker_deleted" == 1 ) &&
   -z "${MORNING_CLEANUP_NO_NOTIFY:-}" ]] &&
   command -v osascript >/dev/null 2>&1; then
   osascript -e "display notification \"$summary\" with title \"Morning cleanup\"" 2>>"$LOG" || true
