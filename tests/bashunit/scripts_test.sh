@@ -3293,6 +3293,33 @@ child_started_name() {
   cat "$CHILD_STUB/started-name"
 }
 
+child_delivered_prompt() {
+  local event_key="${1:-}" calls_log="${2:-$CHILD_STUB/calls.log}"
+  local matching_line matching_lines line line_count=0
+
+  if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+    printf 'usage: child_delivered_prompt <event-key> [calls.log]\n' >&2
+    return 2
+  fi
+  matching_lines="$(grep -F 'agent prompt wT:p0' "$calls_log" 2>/dev/null | grep -F "event=$event_key " || true)"
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    line_count=$((line_count + 1))
+    matching_line="$line"
+  done <<< "$matching_lines"
+  if [ "$line_count" -ne 1 ]; then
+    printf 'expected one delivered prompt for event=%s, found %s\n' "$event_key" "$line_count" >&2
+    return 1
+  fi
+
+  eval "set -- $matching_line"
+  if [ "$#" -lt 4 ]; then
+    printf 'delivered prompt for event=%s has no fourth argument\n' "$event_key" >&2
+    return 1
+  fi
+  printf '%s' "$4"
+}
+
 child_lifecycle_stub_herdr() {
   child_stub_herdr
   printf 'working 10\n' > "$CHILD_STUB/baseline-state"
@@ -4856,10 +4883,12 @@ function test_scripts_0331_herdr_child_post_arm_barrier_is_bounded() {
 function test_scripts_034_herdr_child_detached_watcher_ignores_stale_settl() {
   _bats_test_init 34 'herdr-child detached watcher ignores stale settlement and delivers a fresh observed outcome'
   child_lifecycle_stub_herdr
+  local expected_notice_body expected_prompt
   printf 'idle 10\n' > "$CHILD_STUB/child-state"
 
   run child_lifecycle_start --supervision-timeout 5000
   assert_success
+  expected_notice_body=$'Settled is a wake signal, not a task-success verdict.\nFirst: run `herdr-child verify --to '"$(child_started_name)"$' --pane wT:p9`, then read the report at the path your dispatch named.\nAcceptance rules are in your skill and in ~/.claude/shared/child-agent-contract.md.'
   local generation watcher_pid attempt=0
   generation="$(jq -er '.supervision.generation' <<<"$output")"
   watcher_pid="$(cat "$CHILD_STUB/watcher.pid")"
@@ -4883,22 +4912,34 @@ function test_scripts_034_herdr_child_detached_watcher_ignores_stale_settl() {
   run grep -o '\[child-supervision v1 [^]]*event=settled-[^]]*\]' "$CHILD_STUB/successful-prompts.log"
   assert_success
   assert_output "[child-supervision v1 generation=$generation event=settled-11 outcome=done reason=none agent=$(child_started_name) pane=wT:p9]"
-  assert_file_contains "$CHILD_STUB/calls.log" 'not\ a\ task-success\ verdict'
-  run grep -Eiq 'task_succeeded=true|task completed successfully' "$CHILD_STUB/calls.log"
-  assert_failure
+  expected_prompt="[child-supervision v1 generation=$generation event=settled-11 outcome=done reason=none agent=$(child_started_name) pane=wT:p9]
+
+$expected_notice_body"
+  run child_delivered_prompt settled-11
+  assert_success
+  assert_equal "$output" "$expected_prompt"
 }
 
 function test_scripts_035_herdr_child_detached_timeout_wakes_once_and_late() {
   _bats_test_init 35 'herdr-child detached timeout wakes once and later settlement wakes the same generation'
   child_lifecycle_stub_herdr
+  local expected_notice_body expected_prompt generation
+  expected_notice_body=$'The child is still live; this is not a failure.\nFirst: run `herdr agent get wT:p9` and judge progress. Do not restart or reap on timeout alone.'
 
   run child_lifecycle_start --supervision-timeout 50
   assert_success
+  generation="$(cat "$CHILD_STUB/generation")"
   child_wait_for_log 'event=timeout'
   run grep -c 'event=timeout' "$CHILD_STUB/calls.log"
   assert_success
   assert_output 1
   assert_file_not_exists "$CHILD_STUB/pane-closed"
+  expected_prompt="[child-supervision v1 generation=$generation event=timeout outcome=timeout reason=timeout agent=$(child_started_name) pane=wT:p9]
+
+$expected_notice_body"
+  run child_delivered_prompt timeout
+  assert_success
+  assert_equal "$output" "$expected_prompt"
 
   printf 'idle 11\n' > "$CHILD_STUB/child-state"
   child_wait_for_log 'event=settled-11'
@@ -4908,6 +4949,29 @@ function test_scripts_035_herdr_child_detached_timeout_wakes_once_and_late() {
   run grep -c 'event=' "$CHILD_STUB/calls.log"
   assert_success
   assert_output 2
+}
+
+function test_scripts_0351_herdr_child_detached_blocked_wake_names_the_reply_action() {
+  _bats_test_init 351 'herdr-child detached blocked wake tells the parent how to reply'
+  child_lifecycle_stub_herdr
+  local expected_notice_body expected_prompt generation
+  # #given a detached child that has not asked the parent itself
+  run child_lifecycle_start --supervision-timeout 5000
+  assert_success
+  generation="$(cat "$CHILD_STUB/generation")"
+  expected_notice_body=$'The child is waiting on a decision from you.\nFirst: read its pane with `herdr pane get wT:p9`, then answer with `herdr-child reply --to '"$(child_started_name)"$' --pane wT:p9 \'<decision>\'`.'
+
+  # #when the watcher observes a fresh blocked state
+  printf 'blocked 11\n' > "$CHILD_STUB/child-state"
+  child_wait_for_log 'event=blocked-11'
+
+  # #then the delivered body gives the parent its first reply action
+  expected_prompt="[child-supervision v1 generation=$generation event=blocked-11 outcome=blocked reason=blocked agent=$(child_started_name) pane=wT:p9]
+
+$expected_notice_body"
+  run child_delivered_prompt blocked-11
+  assert_success
+  assert_equal "$output" "$expected_prompt"
 }
 
 function test_scripts_036_herdr_child_detached_delivery_follows_parent_ter() {
@@ -5303,8 +5367,11 @@ function test_scripts_045_herdr_child_reap_invalidates_before_close_while() {
   child_lifecycle_stub_herdr
   : > "$CHILD_STUB/hold-agent-get"
   export HERDR_CHILD_MAX_DELIVERY_RETRIES=1
+  local expected_notice_body expected_prompt generation
+  expected_notice_body=$'The child pane no longer exists; `herdr-child verify` cannot succeed.\nFirst: inspect the worktree and artifacts your dispatch named, then classify the settlement under your skill\'s failure rules.'
   run child_lifecycle_start --supervision-timeout 600000
   assert_success
+  generation="$(cat "$CHILD_STUB/generation")"
   # The pane read succeeded; disappearance now races the following agent read.
   child_wait_for_file "$CHILD_STUB/held-agent-get.ready"
   : > "$CHILD_STUB/child-gone"
@@ -5313,6 +5380,12 @@ function test_scripts_045_herdr_child_reap_invalidates_before_close_while() {
   run grep -c 'event=child-gone' "$CHILD_STUB/calls.log"
   assert_success
   assert_output 1
+  expected_prompt="[child-supervision v1 generation=$generation event=child-gone outcome=child-gone reason=child-gone agent=$(child_started_name) pane=wT:p9]
+
+$expected_notice_body"
+  run child_delivered_prompt child-gone
+  assert_success
+  assert_equal "$output" "$expected_prompt"
 }
 
 function test_scripts_046_herdr_child_failed_reap_restores_supervision_for() {
