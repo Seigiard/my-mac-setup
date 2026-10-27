@@ -95,13 +95,19 @@ class RevmuxBenchmarkAnalysisTest(unittest.TestCase):
         (missing_stage / "bench.json").unlink()
         (missing_stage / "stages/2-synthesized.json").unlink()
 
+    def add_prompt_stages(self):
+        prompt_stages = self.real / "prompts/stages"
+        prompt_stages.mkdir(parents=True)
+        (prompt_stages / "synthesis.md").write_text("You are merging a review panel's findings into one set.\n", encoding="utf-8")
+
     def run_analyzer(self, *arguments):
         return subprocess.run(["python3", str(ANALYZER), "--tasks-dir", str(self.archive), *arguments],
                               check=False, capture_output=True, text=True)
 
-    def test_measures_identity_fates_vendors_and_independent_round_states(self):
+    def test_measures_identity_fates_vendors_independent_round_states_and_ignores_prompt_stages(self):
         # #given a copied real round and temporary mutations for every exceptional scenario
         self.configure_measurement_archive()
+        self.add_prompt_stages()
         result = self.run_analyzer("--json")
         self.assertEqual(result.returncode, 0)
         measurement = json.loads(result.stdout)
