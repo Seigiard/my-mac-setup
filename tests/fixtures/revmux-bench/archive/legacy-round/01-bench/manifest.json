@@ -1,6 +1,0 @@
-{
-  "task": "legacy-round-1",
-  "agents": [
-    {"name": "adversarial", "executor": "anthropic"}
-  ]
-}

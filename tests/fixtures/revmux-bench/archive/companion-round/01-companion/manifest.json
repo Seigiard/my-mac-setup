@@ -1,0 +1,56 @@
+{
+  "task": "prd-3491-offer-page-stops-re-reading-the-account",
+  "run": "01-initial",
+  "profile": "mixed",
+  "scope_path": "/Users/andrew.b/.local/state/revmux/tasks/prd-3491-offer-page-stops-re-reading-the-account/01-initial/input/scope.md",
+  "started_at": "2026-10-15T11:35:27.145785+02:00",
+  "finished_at": "2026-10-15T11:41:54.619823+02:00",
+  "duration_ms": 387470,
+  "tokens": 3858208,
+  "agents": [
+    {
+      "name": "bugs+impl-codex",
+      "lenses": [
+        "bugs",
+        "bugs-extended",
+        "impl"
+      ],
+      "executor": "codex",
+      "requested_model": "gpt-6.1-sol",
+      "actual_model": "gpt-6.1-sol",
+      "effort": "high",
+      "tokens": 114035,
+      "raised": 1,
+      "degraded": false
+    }
+  ],
+  "degraded": null,
+  "prompts": [
+    {
+      "path": "lenses/adversarial-extended.md",
+      "layer": "user",
+      "source": "/Users/andrew.b/.config/revmux/lenses/adversarial-extended.md",
+      "hash": "377036394ce384a9813bcf9d6f418ca69affb716502f782eba3fe3deb468fb6d"
+    }
+  ],
+  "stages": [
+    {
+      "name": "find",
+      "duration_ms": 214941
+    },
+    {
+      "name": "synthesis",
+      "duration_ms": 85100,
+      "executor": "claude",
+      "model": "opus",
+      "effort": "high"
+    },
+    {
+      "name": "verify",
+      "duration_ms": 87427,
+      "executor": "claude",
+      "model": "opus",
+      "effort": "high"
+    }
+  ]
+}

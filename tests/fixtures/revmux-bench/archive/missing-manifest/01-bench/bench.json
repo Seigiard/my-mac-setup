@@ -1,9 +1,0 @@
-{
-  "case": "case-incomplete",
-  "arm": "arm-incomplete",
-  "repetition": 1,
-  "base": "base-incomplete",
-  "head": "head-incomplete",
-  "profile": "fixed-profile",
-  "cwd": "/fixture/case-incomplete/arm-incomplete"
-}

@@ -1,4 +1,0 @@
-{
-  "sources": {"degraded": []},
-  "findings": [{"id": "legacy", "severity": "minor", "sources": ["adversarial"]}]
-}

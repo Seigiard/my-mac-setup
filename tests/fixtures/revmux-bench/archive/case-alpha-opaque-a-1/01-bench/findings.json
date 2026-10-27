@@ -1,6 +1,0 @@
-{
-  "sources": {"degraded": []},
-  "findings": [{"id": "keep", "severity": "major", "sources": ["bugs+impl"]}],
-  "pre_existing": [],
-  "immaterial": []
-}

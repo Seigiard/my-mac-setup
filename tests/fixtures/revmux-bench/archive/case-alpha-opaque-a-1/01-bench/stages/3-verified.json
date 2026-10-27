@@ -1,7 +1,0 @@
-{
-  "sources": {"degraded": []},
-  "findings": [{"id": "keep", "severity": "major", "sources": ["bugs+impl"]}],
-  "pre_existing": [{"id": "old", "severity": "major", "sources": ["adversarial"]}],
-  "immaterial": [{"id": "noise", "severity": "minor", "sources": ["bugs+impl", "adversarial"]}],
-  "open_questions": [{"id": "question", "severity": "minor", "sources": ["adversarial"]}]
-}

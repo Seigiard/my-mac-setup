@@ -1,9 +1,0 @@
-{
-  "case": "case-alpha",
-  "arm": "arm-x-1",
-  "repetition": 1,
-  "base": "base-alpha",
-  "head": "head-alpha",
-  "profile": "fixed-profile",
-  "cwd": "/fixture/case-alpha/arm-x-1"
-}
