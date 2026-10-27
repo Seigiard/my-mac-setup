@@ -43,13 +43,13 @@ Repeat this entry once per symptom criterion:
 - Checks: <each applicable check from the repository's verification rules>
 
 ## Starting tiers
-- test writer: <medium | high>; reason: <medium by default | high when any test criterion drives a browser or renders UI>
-- implementer: <low | low+>; reason: <low for one production file | low+ for more than one production file>
+- test writer: <tier>; reason: <selection reason, SKILL.md step 2>
+- implementer: <tier>; reason: <selection reason, SKILL.md step 2>
 
 ## Batch
 - <number>: <initial ticket | caller-supplied review findings>
 - batch_start_sha: <HEAD when this batch opened; preserved across retries and re-locks>
-- turns: <count so far> / <limit, default 8>
+- turns: <count so far> / <limit>
 
 ## Calibration
 - <criterion>; owner: <test>; assertion: <protected result>; regression: <smallest faithful change>; paths: <temporary production paths>; command: <focused test>
@@ -62,7 +62,7 @@ Repeat this entry once per symptom criterion:
 - test-writer-3 (medium, calibrate): <calibrated | suspect test | blocked>; state <sha>; report test-writer-3.report.md
 ```
 
-`Symptom` exists only when the ticket reports a bug.
+`Symptom` exists only when the ticket reports a bug ([symptom.md](symptom.md)).
 
 Each diagnosis gets a fresh ID. A [return](recovery.md#responding-to-a-failure) is written under the later entry as `D1 returned`.
 
@@ -77,3 +77,13 @@ Each diagnosis gets a fresh ID. A [return](recovery.md#responding-to-a-failure) 
 ```
 
 A re-lock sets `base_sha` and `lock_sha` from the new test writer and adds the files it changed to `paths`; earlier lock SHAs stay in Verdicts. A path stays locked once locked.
+
+## Child rules
+
+Every child, whichever brief it follows:
+
+- **Identifiers:** every commit, range, or repository it records follows the [identifiers rule](SKILL.md#identifiers).
+- **Controls:** temporary control scripts and their output go under `controls/` and are cited by path; they need no repository commit.
+- **Evidence:** every test, check, and control result carries its [valid evidence](SKILL.md#evidence): the tested commit and the log or tool output with its exit status.
+- **Resumed turns:** when the orchestrator resumes a child for missing report items, the child keeps its candidate or commit and adds only what the orchestrator names.
+- **Push:** the child commits on the current branch; pushing belongs to the caller.

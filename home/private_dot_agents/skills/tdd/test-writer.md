@@ -14,14 +14,14 @@ You prepare tests for one ticket, or calibrate accepted tests after production g
 
 For a targeted fix, first restore the approved test and fixture paths from the preserved candidate ref (`git restore --source=<ref> --staged --worktree -- <paths>`), including locked paths approved for re-locking. Change only what the diagnosis names, then follow the preparation steps below.
 
-1. Take each criterion marked **test** in `ticket.md`. Before you edit a test file for it, start from its oracle line in `ticket.md` and copy it into your report, or correct it there with the reason: the consumer, the observable failure, and an oracle independent of the code that will make it pass. When you cannot complete the line, the criterion gets zero tests, and the report says why. A test without an oracle line is invented; assert behavior at the seam, never source text.
+1. Take each criterion marked **test** in `ticket.md`. Before you edit a test file for it, copy its oracle line from `ticket.md` into your report, or correct it there with the reason. When you cannot complete the line, the criterion gets zero tests, and the report says why.
 2. Search the existing tests and fixtures for the contract first. Strengthen its current owner when one exists. A scenario that differs from an existing fixture in a few fields is a **variant**: produce it from the shared fixture builder, written when the first variant appears, with those fields as parameters, and give it its own test case with its own literal expectation. A new fixture tree is for a scenario no builder can express, and the report says which scenario that is.
 3. Write each test at the seam `ticket.md` names, inside the allowed test paths and fixtures. Production code belongs to the implementer: leave every other path unchanged.
-   - **Assert the contract, not the run.** Assert a call count only when the contract fixes it; otherwise assert the arguments and result of the owned call, isolated from retries, probes, and background work. Build an expected sequence in the order of the contract's typed key (a page number, a segment start); compare the observed sequence as returned when its order is the contract, and sort only an unordered collection, by that key. Await or join each worker the setup started before you read shared state or seed state that worker can still mutate; write a compound fixture in a temporary directory and rename it into place, so a worker sees all of it or none.
-4. Establish the [controls](#controls), then run the test command. Record each new test's status and behavior assertion. For a symptom criterion, record the scenario and preconditions you established, the assertion the run reached, and whether the red output shows the symptom in `ticket.md`. Setup, import, and syntax failures need correction. Run each check in `ticket.md` that covers a path you changed; a failing check needs correction the same way, and its evidence goes in the report. For an [uncalibrated](SKILL.md#calibration) negative or aggregate assertion, name it and propose its smallest faithful post-green regression. On a re-lock, corrected tests may already be green; say so in the report.
-5. Commit only the test and fixture changes, on the current branch. Do not push.
+   - **Assert the contract, not the run.** For a call-count or sequence assertion, or a fixture shared with workers, apply [assertions.md](assertions.md).
+4. Establish the [controls](#controls), then run the test command. Record each new test's status and behavior assertion. For a symptom criterion, record what [symptom.md](symptom.md#symptom-red) asks. Setup, import, and syntax failures need correction. Run each check in `ticket.md` that covers a path you changed; a failing check needs correction the same way, and its evidence goes in the report. For an [uncalibrated](SKILL.md#calibration) negative or aggregate assertion, name it and propose its smallest faithful post-green regression. On a re-lock, corrected tests may already be green; say so in the report.
+5. Commit only the test and fixture changes, on the current branch.
 
-**Identifiers.** A commit, range, or repository your change records in a file or in your report is pasted whole from git output in the repository it names (this checkout when it names none) and resolves there: `git rev-parse --verify <sha>^{commit}` for each commit, and `git merge-base --is-ancestor <base> <head>` exits 0 for a range. A branch name is recorded as the commit it resolves to, or marked unresolved.
+Follow the [child rules](run-directory.md#child-rules) for identifiers, controls, evidence, and resumed turns.
 
 Done when every **test** criterion has either tests with observed results, controls, and any required calibration plan, or zero tests with a reason. The orchestrator applies the lock-acceptance conditions of step 3 in [The chain](SKILL.md#the-chain).
 
@@ -33,7 +33,7 @@ Every control you report has [valid evidence](SKILL.md#evidence): run it, or cit
 - **Fixtures:** isolate the property under test with a nearby valid control. In a single-source aggregate or notification scenario, other event sources are no-ops. Include an enabled control for a suppression test and ensure its recorder observes the same invocation environment.
 - **External CLI fakes:** calibrate only the consumed boundary against the real binary, not the upstream system's internal behavior. Use an isolated disposable environment for destructive commands. If it is unavailable, name that precondition and the exact unverified boundary; documentation alone is not live calibration.
 
-Use existing coverage where it can supply these controls. Save temporary control scripts and their output under the run directory's `controls/` and cite those paths; they need no repository commit and do not automatically warrant permanent tests.
+Use existing coverage where it can supply these controls. Temporary control scripts do not automatically warrant permanent tests.
 
 ### Preparation report
 
@@ -51,7 +51,7 @@ Include a **Controls** table:
 |---|---|---|---|---|
 | <owner> | <valid or discriminating control> | <reproducible command> | <independent expectation> | <actual result, or named unavailable precondition> |
 
-Every test and control result carries its [valid evidence](SKILL.md#evidence): the tested commit and the log or tool output with its exit status. When the orchestrator resumes you for missing report items, keep the candidate and add only what it names.
+Every test and control result carries its [valid evidence](SKILL.md#evidence).
 
 End with the commit SHA.
 
@@ -61,9 +61,9 @@ Use this mode only when the prompt names it.
 
 1. Confirm HEAD equals `calibration_sha`, the worktree is clean, and the focused owner tests have [valid green evidence](SKILL.md#evidence). Establish a faithful mutation for each agreed regression from the contract, not from the test's expected text. Stay within the listed production paths; tests and fixtures remain unchanged.
 2. Apply one regression at a time and run its owner test. Save the mutation diff and the command's output and exit status in the run directory. Require red on the named protected assertion. A setup failure or an unrelated earlier assertion does not calibrate it. If a faithful regression remains green, record a **suspect test** with the counterexample instead of editing it.
-3. Restore the temporary paths from `calibration_sha` after each mutation, including failed or blocked checks. Require unchanged HEAD, `git diff --exit-code <calibration_sha>`, and an empty `git status --porcelain` before continuing or returning. Cite the entry green of step 1 as the owner tests' evidence only when those checks pass and the covered generated state and environment are unchanged or verified restored, per the [Evidence](SKILL.md#evidence) rule; otherwise restore that state and obtain fresh green evidence. When snapshot restoration cannot be verified, stop and report the remaining state. Leave the branch at `calibration_sha`; write artifacts only in the run directory.
+3. Restore the temporary paths from `calibration_sha` after each mutation, including failed or blocked checks. Require unchanged HEAD, `git diff --exit-code <calibration_sha>`, and an empty `git status --porcelain` before continuing or returning. Cite the entry green of step 1 as the owner tests' evidence only when those checks pass and the covered generated state and environment are unchanged or verified restored, per the [Evidence](SKILL.md#evidence) rule; otherwise restore that state and obtain fresh green evidence. When restoration cannot be verified, stop and report the exact remaining state for the parent to recover. Leave the branch at `calibration_sha`; write artifacts only in the run directory.
 
-Done when every planned regression has a verdict, or a suspect test or blocker is reported, and restoration is verified. If restoration cannot be verified, stop and report the exact remaining state for the parent to recover.
+Done when every planned regression has a verdict, or a suspect test or blocker is reported, and restoration is verified.
 
 ### Calibration report
 

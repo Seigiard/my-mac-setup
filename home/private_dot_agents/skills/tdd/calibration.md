@@ -2,9 +2,7 @@
 
 The calibration procedure, reached from [Calibration](SKILL.md#calibration) in SKILL.md.
 
-An assertion is **uncalibrated** until an observed regression makes it red for its stated reason. A test that is green before production exists, or stops at an earlier assertion, provides no such evidence for the protected assertion.
-
-Use this for uncalibrated negative or aggregate assertions, or a masking helper or fixture found in review. The preparation report names the finite plan in `ticket.md`: criterion, owner test, protected assertion, smallest regression, and mutation paths. A known-bad revision or an already observed faithful mutation supplies the same evidence while the protected state is unchanged.
+An assertion observed only green is **uncalibrated** (`~/.claude/shared/testing.md`, False green); so is one whose test stops at an earlier assertion. This procedure supplies the post-green regression evidence for such assertions, and for a masking helper or fixture found in review. The preparation report names the finite plan in `ticket.md`. A known-bad revision or an already observed faithful mutation supplies the same evidence while the protected state is unchanged.
 
 `Non-goals` constrains final behavior, not temporary mutation paths. A non-goal that says "never touch path X" needs a different mutation plan, resolved before the calibrate child starts.
 
