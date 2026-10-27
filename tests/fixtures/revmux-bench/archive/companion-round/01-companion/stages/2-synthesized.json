@@ -1,0 +1,89 @@
+{
+  "scope": {
+    "task": "",
+    "run": "",
+    "scope_path": ""
+  },
+  "sources": {
+    "expected": 6,
+    "reported": 6,
+    "degraded": [],
+    "agents": [
+      {
+        "name": "adversarial-claude",
+        "lenses": [
+          "adversarial",
+          "adversarial-extended"
+        ],
+        "executor": "claude",
+        "requested_model": "opus",
+        "actual_model": "claude-opus-5-5",
+        "effort": "high",
+        "tokens": 1410293,
+        "raised": 1,
+        "degraded": false
+      },
+      {
+        "name": "bugs+impl-codex",
+        "lenses": [
+          "bugs",
+          "bugs-extended",
+          "impl"
+        ],
+        "executor": "codex",
+        "requested_model": "gpt-6.1-sol",
+        "actual_model": "gpt-6.1-sol",
+        "effort": "high",
+        "tokens": 114035,
+        "raised": 1,
+        "degraded": false
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "bugs+impl-codex-1",
+      "file": "console/contexts/account-data.ts",
+      "line": 32,
+      "end_line": 0,
+      "severity": "major",
+      "confidence": 95,
+      "title": "No retry on 401 removes the cookie re-read after AccountProvider clears a stale Bearer/impersonation token",
+      "body": "The engine authenticates with only the Bearer token when one is present (`engine/api/src/platform/auth/platform-auth.service.ts:1833-1843`: `resolveActorFromRequestToken` checks cookies only when there is no token, and does not fall back to the cookie after a token failure). On a 401, `AccountProvider` (`console/contexts/account-context.tsx:51-58`) calls `unsetToken()` / `unsetImpersonationToken()` but does not call `mutate()`. Before this change, SWR's default retry ran `GET /account` again a few seconds later without the Bearer header, so a valid BetterAuth cookie returned 200 and the person was signed in again. `shouldRetryOnError: (error) => error.status !== 401` removes that re-read.\n\nFailure case: an impersonation token lives 24 h in localStorage (`expiresIn = 86400`, set by `routes/Admin/PlatformUsers/Detail.tsx:165` and `JobsManagement.tsx:88`). An operator with a valid cookie session and an expired impersonation token opens a public `resolveAccount` page (`/offers/*/*`, `/offers/.../start`, `/start`, `/agreements/*`). The first `/account` returns 401, the token is cleared, and nothing re-reads. The operator stays signed out on that page until the next focus, reconnect or reload: `OfferSiteHeader` shows \"Log in\" and the Start page shows the sign-in/visitor state instead of their Start. Private routes are not affected because `RouteAuthBoundary` already redirects on the first 401. Reviewers differ on impact: one rates it a regression for a live session (major), the other limits it to internal operators who recover on any focus (minor).",
+      "fix": "In the 401 branch of the `AccountProvider` effect, call `mutate()` once when `unsetToken`/`unsetImpersonationToken` actually removed an existing token, so the cookie-only re-read still happens; keep the no-retry rule for a visitor without a token.",
+      "sources": [
+        "bugs+impl-codex",
+        "adversarial-claude"
+      ],
+      "lenses": [
+        "bugs",
+        "bugs-extended",
+        "impl",
+        "adversarial"
+      ],
+      "verdict": ""
+    }
+  ],
+  "open_questions": [],
+  "pre_existing": [],
+  "immaterial": [],
+  "stats": {
+    "started_at": "0001-01-01T00:00:00Z",
+    "finished_at": "0001-01-01T00:00:00Z",
+    "duration_ms": 0,
+    "tokens": 3515669,
+    "stages": [
+      {
+        "name": "find",
+        "duration_ms": 214941
+      },
+      {
+        "name": "synthesis",
+        "duration_ms": 85100,
+        "executor": "claude",
+        "model": "opus",
+        "effort": "high"
+      }
+    ]
+  }
+}

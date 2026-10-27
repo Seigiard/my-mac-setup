@@ -1,0 +1,78 @@
+{
+  "scope": {
+    "task": "",
+    "run": "",
+    "scope_path": ""
+  },
+  "sources": {
+    "expected": 6,
+    "reported": 6,
+    "degraded": [],
+    "agents": [
+      {
+        "name": "adversarial-claude",
+        "lenses": [
+          "adversarial",
+          "adversarial-extended"
+        ],
+        "executor": "claude",
+        "requested_model": "opus",
+        "actual_model": "claude-opus-5-5",
+        "effort": "high",
+        "tokens": 1410293,
+        "raised": 1,
+        "degraded": false
+      },
+      {
+        "name": "bugs+impl-codex",
+        "lenses": [
+          "bugs",
+          "bugs-extended",
+          "impl"
+        ],
+        "executor": "codex",
+        "requested_model": "gpt-6.1-sol",
+        "actual_model": "gpt-6.1-sol",
+        "effort": "high",
+        "tokens": 114035,
+        "raised": 1,
+        "degraded": false
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "adversarial-claude-1",
+      "file": "console/contexts/account-data.ts",
+      "line": 32,
+      "end_line": 0,
+      "severity": "minor",
+      "confidence": 65,
+      "title": "No retry on 401 removes the re-read that ran after AccountProvider cleared a stale Bearer token",
+      "body": "Observed: the engine authenticates with only the Bearer token when one is present. In `engine/api/src/platform/auth/platform-auth.service.ts:1833-1843`, `resolveActorFromRequestToken` returns `authenticateFromToken(token)` and checks cookies only when there is no token. On a 401, `AccountProvider` (`console/contexts/account-context.tsx:51-58`) calls `unsetToken()` and `unsetImpersonationToken()`. Before this change, SWR's default retry ran `GET /account` again 5\u201315 s later. That request went out without the Bearer header, so a valid BetterAuth cookie returned 200 and the person was signed in again. `shouldRetryOnError: (error) => error.status !== 401` removes that re-read.\n\nWhat follows from this: an impersonation token lives 24 h in localStorage (`expiresIn = 86400`, platform-auth.service.ts:2898; set by `routes/Admin/PlatformUsers/Detail.tsx:165` and `JobsManagement.tsx:88`). Take an operator who still holds an expired one and opens a public `resolveAccount` page (`/offers/*/*`, `/start`, `/agreements/*`). They now stay signed out on that page until the next focus, reconnect or reload. `OfferSiteHeader` shows \"Log in\", and the StartPage views show the visitor state. Before, the person came back within seconds. Private routes are not affected: `RouteAuthBoundary` already redirected on the first 401, before any retry. The trigger needs an operator holding a stale impersonation token who opens a public offer or agreement link, so impact is limited to an internal user. Any focus or a click on \"Log in\" fixes it.",
+      "fix": "Optional. Leave as is and accept recovery on focus. Or, in the 401 branch of the `AccountProvider` effect, call `mutate()` once when `unsetToken`/`unsetImpersonationToken` actually removed a token, so the cookie-only re-read still happens without a retry loop.",
+      "sources": [
+        "adversarial-claude"
+      ],
+      "lenses": [
+        "adversarial"
+      ],
+      "verdict": ""
+    }
+  ],
+  "open_questions": [],
+  "pre_existing": [],
+  "immaterial": [],
+  "stats": {
+    "started_at": "0001-01-01T00:00:00Z",
+    "finished_at": "0001-01-01T00:00:00Z",
+    "duration_ms": 0,
+    "tokens": 3455588,
+    "stages": [
+      {
+        "name": "find",
+        "duration_ms": 214941
+      }
+    ]
+  }
+}
