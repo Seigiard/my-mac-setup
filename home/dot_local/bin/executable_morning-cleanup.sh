@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Daily cleanup, run by launchd (com.andrew.morning-cleanup): stale .omc
 # runtime state, platform worktrees/branches fully merged into origin/main,
-# Claude Code, Pi and OpenCode sessions idle past one shared retention
-# threshold, agent run directories idle past a month, and the space those
-# OpenCode deletions free in opencode.db.
+# Claude Code projects idle past a month, Claude Code, Pi and OpenCode sessions
+# idle past one shared retention threshold, agent run directories idle past a
+# month, and the space those OpenCode deletions free in opencode.db.
 # Idempotent per calendar day via a stamp file, so RunAtLoad + wake coalescing
 # can all fire without triple-running.
 set -uo pipefail
@@ -14,6 +14,7 @@ LOG="$STATE_DIR/cleanup.log"
 TRASH="$HOME/.scratchpad"
 TRASH_MAX_AGE_DAYS="${MORNING_CLEANUP_TRASH_MAX_AGE_DAYS:-2}"
 SESSION_MAX_AGE_DAYS="${MORNING_CLEANUP_SESSION_MAX_AGE_DAYS:-90}"
+PROJECT_MAX_AGE_DAYS="${MORNING_CLEANUP_PROJECT_MAX_AGE_DAYS:-30}"
 ARTIFACT_MAX_AGE_DAYS="${MORNING_CLEANUP_ARTIFACT_MAX_AGE_DAYS:-30}"
 OPENCODE_DB_RECLAIM_MB="${MORNING_CLEANUP_OPENCODE_DB_RECLAIM_MB:-1024}"
 PLATFORM="$HOME/Projects/platform"
@@ -35,6 +36,7 @@ omc_count=0
 wt_count=0
 br_count=0
 trash_count=0
+project_count=0
 claude_count=0
 pi_count=0
 oc_count=0
@@ -98,6 +100,20 @@ if git -C "$PLATFORM" rev-parse --git-dir >/dev/null 2>&1; then
     fi
   done < <(git -C "$PLATFORM" branch --format='%(refname:short)')
 fi
+
+# 3b) Claude Code projects: one directory per working directory, holding its
+# sessions, their subagent runs and its auto-memory. A project is idle when
+# neither it nor anything inside it was modified within the threshold (default
+# 30 days); the directory's own mtime tracks only its direct entries, so the
+# search descends. Runs before the session leg, so an idle project leaves
+# whole. Moved to the trash, so the purge above leaves a two-day undo window.
+while IFS= read -r dir; do
+  [[ -n "$(find "$dir" -mtime "-$PROJECT_MAX_AGE_DAYS" -print -quit 2>/dev/null)" ]] && continue
+  if mv "$dir" "$TRASH/claude-project-$(date +%s)-$RANDOM-$(basename "$dir")"; then
+    log "trashed claude project: $dir"
+    project_count=$((project_count + 1))
+  fi
+done < <(find "$CLAUDE_PROJECTS" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)
 
 # 4) Claude Code and Pi sessions: one .jsonl per session, appended on every
 # turn, so mtime is the last activity and a resumed old session stays. Both
@@ -412,14 +428,14 @@ docker_cleanup() {
 docker_cleanup
 
 echo "$today" >"$STAMP"
-summary="omc: $omc_count, worktrees: $wt_count, branches: $br_count, trash: $trash_count, claude sessions: $claude_count, pi sessions: $pi_count, opencode sessions: $oc_count, artifacts: $artifact_count"
+summary="omc: $omc_count, worktrees: $wt_count, branches: $br_count, trash: $trash_count, claude projects: $project_count, claude sessions: $claude_count, pi sessions: $pi_count, opencode sessions: $oc_count, artifacts: $artifact_count"
 [[ -n "$oc_db_report" ]] && summary+=", $oc_db_report"
 if ((docker_success_count > 0)); then
   summary+=", Docker cache: ${docker_cache_report:-error}, Docker images: ${docker_image_report:-error}, Docker networks: ${docker_network_report:-error}"
 fi
 log "done — $summary"
 
-if [[ ( $((omc_count + wt_count + br_count + trash_count + claude_count + pi_count + oc_count + artifact_count)) -gt 0 || -n "$oc_db_report" || "$docker_deleted" == 1 ) &&
+if [[ ( $((omc_count + wt_count + br_count + trash_count + project_count + claude_count + pi_count + oc_count + artifact_count)) -gt 0 || -n "$oc_db_report" || "$docker_deleted" == 1 ) &&
   -z "${MORNING_CLEANUP_NO_NOTIFY:-}" ]] &&
   command -v osascript >/dev/null 2>&1; then
   osascript -e "display notification \"$summary\" with title \"Morning cleanup\"" 2>>"$LOG" || true

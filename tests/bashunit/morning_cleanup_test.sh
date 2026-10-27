@@ -307,7 +307,7 @@ function test_morning_cleanup_004_claude_and_pi_sessions_idle_past_90_days_go_to
   assert_success
   assert_output $'aged\nrun\naged\nrun'
   run last_summary
-  assert_output 'omc: 0, worktrees: 0, branches: 0, trash: 0, claude sessions: 1, pi sessions: 1, opencode sessions: 0, artifacts: 0'
+  assert_output 'omc: 0, worktrees: 0, branches: 0, trash: 0, claude projects: 0, claude sessions: 1, pi sessions: 1, opencode sessions: 0, artifacts: 0'
 }
 
 # Fixture opencode.db with the session columns the leg reads, and an opencode
@@ -350,7 +350,7 @@ function test_morning_cleanup_005_opencode_deletes_only_aged_root_sessions() {
   assert_success
   assert_output $'ses_agedchild\nses_recent'
   run last_summary
-  assert_output 'omc: 0, worktrees: 0, branches: 0, trash: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 1, artifacts: 0'
+  assert_output 'omc: 0, worktrees: 0, branches: 0, trash: 0, claude projects: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 1, artifacts: 0'
 }
 
 function test_morning_cleanup_006_opencode_leg_skips_a_database_in_use() {
@@ -410,7 +410,7 @@ function test_morning_cleanup_007_opencode_db_free_pages_past_threshold_are_recl
   assert_success
   assert_output '2560'
   run last_summary
-  assert_output 'omc: 0, worktrees: 0, branches: 0, trash: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0, artifacts: 0, opencode-db: 20 MB -> 10 MB'
+  assert_output 'omc: 0, worktrees: 0, branches: 0, trash: 0, claude projects: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0, artifacts: 0, opencode-db: 20 MB -> 10 MB'
 }
 
 function test_morning_cleanup_008_opencode_db_free_pages_below_threshold_stay() {
@@ -426,7 +426,7 @@ function test_morning_cleanup_008_opencode_db_free_pages_below_threshold_stay() 
   assert_success
   assert_output ''
   run last_summary
-  assert_output 'omc: 0, worktrees: 0, branches: 0, trash: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0, artifacts: 0'
+  assert_output 'omc: 0, worktrees: 0, branches: 0, trash: 0, claude projects: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0, artifacts: 0'
 }
 
 function test_morning_cleanup_009_opencode_db_in_use_is_not_vacuumed() {
@@ -442,7 +442,7 @@ function test_morning_cleanup_009_opencode_db_in_use_is_not_vacuumed() {
   run db_bytes "$OC_DB"
   assert_output '21032960'
   run last_summary
-  assert_output 'omc: 0, worktrees: 0, branches: 0, trash: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0, artifacts: 0'
+  assert_output 'omc: 0, worktrees: 0, branches: 0, trash: 0, claude projects: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0, artifacts: 0'
 }
 
 function test_morning_cleanup_010_scheduled_path_reaches_an_installed_docker_cli() {
@@ -820,10 +820,10 @@ function test_morning_cleanup_030_large_cache_listing_still_notifies() {
   run last_summary
   assert_success
   # #then
-  assert_output 'omc: 0, worktrees: 0, branches: 0, trash: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0, artifacts: 0, Docker cache: 1.25GB, Docker images: 0B, Docker networks: 0'
+  assert_output 'omc: 0, worktrees: 0, branches: 0, trash: 0, claude projects: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0, artifacts: 0, Docker cache: 1.25GB, Docker images: 0B, Docker networks: 0'
   run cat "$DOCKER_NOTIFICATIONS"
   assert_success
-  assert_output '-e display notification "omc: 0, worktrees: 0, branches: 0, trash: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0, artifacts: 0, Docker cache: 1.25GB, Docker images: 0B, Docker networks: 0" with title "Morning cleanup"'
+  assert_output '-e display notification "omc: 0, worktrees: 0, branches: 0, trash: 0, claude projects: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0, artifacts: 0, Docker cache: 1.25GB, Docker images: 0B, Docker networks: 0" with title "Morning cleanup"'
 }
 
 function test_morning_cleanup_031_large_image_listing_still_notifies() {
@@ -836,10 +836,10 @@ function test_morning_cleanup_031_large_image_listing_still_notifies() {
   run last_summary
   assert_success
   # #then
-  assert_output 'omc: 0, worktrees: 0, branches: 0, trash: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0, artifacts: 0, Docker cache: 0B, Docker images: 42.5MB, Docker networks: 0'
+  assert_output 'omc: 0, worktrees: 0, branches: 0, trash: 0, claude projects: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0, artifacts: 0, Docker cache: 0B, Docker images: 42.5MB, Docker networks: 0'
   run cat "$DOCKER_NOTIFICATIONS"
   assert_success
-  assert_output '-e display notification "omc: 0, worktrees: 0, branches: 0, trash: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0, artifacts: 0, Docker cache: 0B, Docker images: 42.5MB, Docker networks: 0" with title "Morning cleanup"'
+  assert_output '-e display notification "omc: 0, worktrees: 0, branches: 0, trash: 0, claude projects: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0, artifacts: 0, Docker cache: 0B, Docker images: 42.5MB, Docker networks: 0" with title "Morning cleanup"'
 }
 
 function test_morning_cleanup_032_docker_fixture_rejects_a_missing_filter_value() {
@@ -912,5 +912,41 @@ function test_morning_cleanup_034_artifact_run_directories_idle_past_30_days_go_
   assert_success
   assert_output 'aged'
   run last_summary
-  assert_output 'omc: 0, worktrees: 0, branches: 0, trash: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0, artifacts: 1'
+  assert_output 'omc: 0, worktrees: 0, branches: 0, trash: 0, claude projects: 0, claude sessions: 0, pi sessions: 0, opencode sessions: 0, artifacts: 1'
+}
+
+# One directory per working directory under ~/.claude/projects, holding its
+# sessions, their subagent runs and its auto-memory. 32 and 28 days straddle
+# the 30-day retention. The mixed project has an old directory mtime and one
+# fresh session, so it separates "the directory is old" from "nothing inside
+# was touched", which is the leg's idle test. The aged project's name starts
+# with a dash, as every real one does.
+function test_morning_cleanup_035_claude_projects_idle_past_30_days_go_to_trash() {
+  _bats_test_init 35 'Claude Code projects idle past 30 days move to the trash; one with a recent session stays'
+  local root="$FAKE_HOME/.claude/projects" path
+  mkdir -p "$root/-aged-/memory" "$root/-mixed-" "$root/-recent-"
+  printf 'aged\n' > "$root/-aged-/memory/MEMORY.md"
+  printf 'aged\n' > "$root/-aged-/session.jsonl"
+  printf 'old\n' > "$root/-mixed-/old.jsonl"
+  printf 'new\n' > "$root/-mixed-/new.jsonl"
+  printf 'recent\n' > "$root/-recent-/session.jsonl"
+  for path in "$root/-aged-/memory/MEMORY.md" "$root/-aged-/memory" "$root/-aged-/session.jsonl" \
+    "$root/-aged-" "$root/-mixed-/old.jsonl" "$root/-mixed-"; do
+    backdate_days 32 "$path"
+  done
+  backdate_days 28 "$root/-mixed-/new.jsonl"
+  backdate_days 28 "$root/-recent-/session.jsonl"
+  backdate_days 28 "$root/-recent-"
+
+  run_cleanup
+  assert_success
+  assert_dir_not_exists "$root/-aged-"
+  assert_file_exists "$root/-mixed-/old.jsonl"
+  assert_file_exists "$root/-mixed-/new.jsonl"
+  assert_file_exists "$root/-recent-/session.jsonl"
+  run cat "$FAKE_HOME"/.scratchpad/claude-project-*--aged-/memory/MEMORY.md
+  assert_success
+  assert_output 'aged'
+  run last_summary
+  assert_output 'omc: 0, worktrees: 0, branches: 0, trash: 0, claude projects: 1, claude sessions: 0, pi sessions: 0, opencode sessions: 0, artifacts: 0'
 }
