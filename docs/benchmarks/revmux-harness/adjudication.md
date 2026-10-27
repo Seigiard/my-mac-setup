@@ -8,8 +8,9 @@ status: draft
 
 # Adjudication protocol
 
-1. Keep arm identifiers opaque until adjudication closes. Do not show the model,
-   provider, or arm mapping to the adjudicator.
+1. Give the adjudicator only the blind packet from `export-blind` as input. Keep
+   arm identifiers opaque until adjudication closes: do not show the model,
+   provider, or arm mapping. Open the sealed key only after sign-off.
 2. Compare each finding with the frozen base and head. Record exactly one basis:
    `prior human verdict`, `reproduced defect`, `recorded mutation`, or `none yet`.
 3. Keep the full denominator. Findings marked rejected, immaterial,
