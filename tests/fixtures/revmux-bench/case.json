@@ -1,0 +1,8 @@
+{
+  "id": "sample-case",
+  "repository": "__TEST_REPOSITORY__",
+  "base": "__TEST_BASE__",
+  "head": "__TEST_HEAD__",
+  "scope": "# Scope\n\nReview the benchmark fixture change.",
+  "goal": "# Goal\n\nPreserve the fixture behavior."
+}

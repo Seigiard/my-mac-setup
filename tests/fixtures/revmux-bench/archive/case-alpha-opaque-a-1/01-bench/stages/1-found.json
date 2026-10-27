@@ -1,0 +1,12 @@
+{
+  "sources": {"degraded": []},
+  "findings": [
+    {"id": "keep", "severity": "critical", "sources": ["bugs+impl"]},
+    {"id": "old", "severity": "major", "sources": ["adversarial"]},
+    {"id": "noise", "severity": "minor", "sources": ["bugs+impl", "adversarial"]},
+    {"id": "question", "severity": "minor", "sources": ["adversarial"]},
+    {"id": "gone", "severity": "minor", "sources": ["unknown-agent"]},
+    {"id": "dropped", "severity": "minor", "sources": ["bugs+impl"]},
+    {"id": "merged", "severity": "minor", "sources": ["adversarial"]}
+  ]
+}

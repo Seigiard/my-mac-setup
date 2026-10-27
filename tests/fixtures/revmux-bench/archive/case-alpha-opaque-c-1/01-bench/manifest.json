@@ -1,0 +1,8 @@
+{
+  "task": "case-alpha-opaque-c-1",
+  "run": "01-bench",
+  "agents": [
+    {"name": "bugs+impl", "executor": "openai"},
+    {"name": "adversarial", "executor": "anthropic"}
+  ]
+}

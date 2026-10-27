@@ -1,0 +1,4 @@
+{
+  "sources": {"degraded": ["adversarial"]},
+  "findings": [{"id": "degraded-only", "severity": "minor", "sources": ["adversarial"], "verdict": "confirmed"}]
+}

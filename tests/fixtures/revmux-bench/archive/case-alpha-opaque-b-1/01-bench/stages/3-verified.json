@@ -1,0 +1,4 @@
+{
+  "sources": {"degraded": []},
+  "findings": [{"id": "degraded-finding", "severity": "minor", "sources": ["adversarial"]}]
+}
