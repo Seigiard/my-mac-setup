@@ -18,9 +18,10 @@ Other test files follow the red-test rules in `~/.claude/shared/testing.md`. A c
 ## Work
 
 1. Make the smallest change that turns the locked tests green and satisfies the criteria. Every final change must be necessary for a criterion in `ticket.md`; `Non-goals` lists what stays unchanged. A new capability or refactor belongs in the final diff only when a criterion requires it or depends on it. Apply this criterion test to new abstractions, options, compatibility paths, and support for additional cases.
-   - **Identifiers come from git output.** A commit, range, or repository identity that your change records in a file or in your report is pasted whole from a git command run in the clone the record names, and resolves there: `git rev-parse --verify <sha>^{commit}` for a commit, `git merge-base --is-ancestor <base> <head>` for a range. A branch name becomes the commit it resolves to, or the record says it is unresolved.
 2. When `ticket.md` names a test command, run it on your final state. For the other applicable checks in `ticket.md`, run each one that has no [valid evidence](SKILL.md#evidence) for the state your changes affect.
 3. Commit on the current branch. Do not push.
+
+**Identifiers.** A commit, range, or repository your change records in a file or in your report is pasted whole from git output in the repository it names (this checkout when it names none) and resolves there: `git rev-parse --verify <sha>^{commit}` for each commit, and `git merge-base --is-ancestor <base> <head>` exits 0 for a range. A branch name is recorded as the commit it resolves to, or marked unresolved.
 
 Done when the test command is green (when `ticket.md` names one), the applicable checks pass, and the work is committed. When you cannot get there, stop and report what blocks you.
 
