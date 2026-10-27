@@ -1,0 +1,50 @@
+{
+ "baseline/claude": {
+  "adj": 55,
+  "valid": 52,
+  "invalid": 1,
+  "unclear": 2,
+  "valid_major": 17,
+  "valid_kept": 40
+ },
+ "baseline/codex": {
+  "adj": 28,
+  "valid": 24,
+  "invalid": 0,
+  "unclear": 4,
+  "valid_major": 9,
+  "valid_kept": 10
+ },
+ "sonnet/claude": {
+  "adj": 13,
+  "valid": 12,
+  "invalid": 0,
+  "unclear": 1,
+  "valid_major": 0,
+  "valid_kept": 9
+ },
+ "sonnet/codex": {
+  "adj": 25,
+  "valid": 21,
+  "invalid": 0,
+  "unclear": 4,
+  "valid_major": 5,
+  "valid_kept": 14
+ },
+ "terra/claude": {
+  "adj": 53,
+  "valid": 47,
+  "invalid": 3,
+  "unclear": 3,
+  "valid_major": 22,
+  "valid_kept": 30
+ },
+ "terra/codex": {
+  "adj": 57,
+  "valid": 48,
+  "invalid": 4,
+  "unclear": 5,
+  "valid_major": 27,
+  "valid_kept": 24
+ }
+}
