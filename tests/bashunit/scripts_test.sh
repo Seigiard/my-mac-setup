@@ -4527,7 +4527,7 @@ import time
 stub = Path(os.environ['CHILD_STUB'])
 script = os.environ['CHILD_SCRIPT']
 launcher = subprocess.Popen(
-    ['bash', script, 'start', '--kind', 'opencode', '--detach', '--direction', 'right', '--timeout', '5000', '--prompt', 'test task'],
+    ['bash', script, 'start', '--kind', 'opencode', '--detach', '--direction', 'right', '--timeout', '60000', '--prompt', 'test task'],
     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
 )
 processes = [launcher]
@@ -4542,14 +4542,14 @@ def wait_for(name):
 try:
     wait_for('session-wait-observed')
     env = dict(os.environ, HERDR_PANE_ID='wT:p9', HERDR_CHILD_LAUNCH='1',
-               HERDR_CHILD_LAUNCH_MODE='detach', HERDR_CHILD_LAUNCH_TIMEOUT_MS='5000',
+               HERDR_CHILD_LAUNCH_MODE='detach', HERDR_CHILD_LAUNCH_TIMEOUT_MS='60000',
                HERDR_CHILD_PARENT_PANE='wT:p0', HERDR_CHILD_PARENT_TERMINAL='term-parent',
                HERDR_CHILD_PARENT_SESSION='parent-session')
     ask = subprocess.Popen(['bash', script, 'ask', 'Which option should I use?'],
                            env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     processes.append(ask)
     wait_for('ask-before-metadata')
-    (stub / 'session-after-prompt').write_text('0\n')
+    (stub / 'session-visible').touch()
     launch_out, launch_err = launcher.communicate(timeout=15)
     assert launcher.returncode == 0, (launch_out, launch_err)
     ask_out, ask_err = ask.communicate(timeout=15)
@@ -4566,7 +4566,7 @@ finally:
 PY
   # #then
   assert_success
-  assert_file_contains "$CHILD_STUB/calls.log" 'HERDR_CHILD_LAUNCH_TIMEOUT_MS=5000'
+  assert_file_contains "$CHILD_STUB/calls.log" 'HERDR_CHILD_LAUNCH_TIMEOUT_MS=60000'
   assert_file_not_exists "$CHILD_STUB/pane-closed"
 }
 
