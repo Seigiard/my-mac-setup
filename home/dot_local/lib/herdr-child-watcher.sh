@@ -80,9 +80,34 @@ EOF
     *) DELIVERY_REASON="prompt-error"; return 11 ;;
   esac
 
-  message="[child-supervision v1 generation=$generation event=$event outcome=$outcome reason=${reason:-none} agent=$child_name pane=$child_pane]
+  message="[child-supervision v1 generation=$generation event=$event outcome=$outcome reason=${reason:-none} agent=$child_name pane=$child_pane]"
+  case "$event" in
+    settled-*)
+      message="$message
 
-This is an observed child lifecycle state, not a task-success verdict. Verify the live pair, child output, requested commits, worktree state, tests, and artifacts."
+Settled is a wake signal, not a task-success verdict.
+First: run \`herdr-child verify --to $child_name --pane $child_pane\`, then read the report at the path your dispatch named.
+Acceptance rules are in your skill and in ~/.claude/shared/child-agent-contract.md."
+      ;;
+    timeout)
+      message="$message
+
+The child is still live; this is not a failure.
+First: run \`herdr agent get $child_pane\` and judge progress. Do not restart or reap on timeout alone."
+      ;;
+    blocked-*)
+      message="$message
+
+The child is waiting on a decision from you.
+First: read its pane with \`herdr pane get $child_pane\`, then answer with \`herdr-child reply --to $child_name --pane $child_pane '<decision>'\`."
+      ;;
+    child-gone)
+      message="$message
+
+The child pane no longer exists; \`herdr-child verify\` cannot succeed.
+First: inspect the worktree and artifacts your dispatch named, then classify the settlement under your skill's failure rules."
+      ;;
+  esac
   if herdr agent prompt "$parent_pane" "$message" >/dev/null 2>&1 && \
      atomic_write "$receipt" "generation=$generation
 event=$event"; then
