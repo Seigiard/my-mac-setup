@@ -6,7 +6,7 @@ Reproducible dev environment for macOS (primary) and Linux (CI/Docker), managed 
 
 - `home/` — chezmoi source tree (`.chezmoiroot` = `home`); files map to `~/`
 - `home/.chezmoiscripts/` — run scripts executed by chezmoi during apply (install Homebrew, etc.)
-- `home/.chezmoiexternal.toml` — external archives/repos pulled by chezmoi (e.g., skills)
+- `home/.chezmoiexternal.toml` — external archives/repos pulled by chezmoi (oh-my-zsh and its plugins, `fff-mcp`)
 - `home/.chezmoiignore` — OS-conditional ignore rules (darwin-only vs linux-only files)
 - `home/.chezmoi.yaml.tmpl` — template vars (`.name`, `.email`, `.is_darwin`, `.is_linux`)
 - `home/private_dot_config/brewfiles/` — `Brewfile` (cross-platform) and `Brewfile.macos` (macOS-only)
@@ -36,7 +36,7 @@ The canonical triage roles use native GitHub labels. See `docs/agents/triage-lab
 
 ### Domain docs
 
-This is a single-context repository: domain vocabulary lives at the root and architectural decisions live under `docs/decisions/`. See `docs/agents/domain.md`.
+This is a single-context repository: domain vocabulary lives at the root and architectural decisions live under `docs/adr/`. See `docs/agents/domain.md`.
 
 <important if="you need to run commands to build, test, lint, or run scripts">
 
@@ -49,7 +49,7 @@ This is a single-context repository: domain vocabulary lives at the root and arc
 | `make test-suite`                                      | Post-apply suite against the already-applied `~/`; excludes `tests/bashunit/idempotent_test.sh` |
 | `make test-templates`                                  | Focused source-render tests in Docker; included in `make test-ubuntu`                           |
 | `make test-local`                                      | Diff this checkout's `home/` against the current home (dry-run, no changes)                     |
-| `make lint`                                            | shellcheck                                                                                      |
+| `make lint`                                            | `lint-anti-slop`, `lint-yaml` and `lint-shell` (shellcheck plus the bats assertion check)        |
 | `make shell-ubuntu`                                    | Interactive shell in Ubuntu container                                                           |
 | `make build-docker`                                    | Build Docker image only                                                                         |
 | `make clean`                                           | Remove Docker resources                                                                         |
@@ -68,7 +68,7 @@ This is a single-context repository: domain vocabulary lives at the root and arc
 <important if="you are about to run make test-templates, make test-ubuntu, make test-docker, or make build-docker">
 
 - Treat these targets as long-running Docker workloads, including cached runs. Read `~/.claude/shared/long-running-work.md` before launch.
-- When `HERDR_ENV=1`, use `make test-ubuntu-herdr` for `make test-ubuntu`. It prints `label=<worktree-specific label>`; use that label with `home/dot_local/bin/executable_herdr-run verdict <label>`. For other targets, use `home/dot_local/bin/executable_herdr-run <label> --cwd "$PWD" --wait -- make <target>`.
+- When `HERDR_ENV=1`, use `make test-ubuntu-herdr` for `make test-ubuntu`. Its label is `test-ubuntu-<checkout directory name>` (see the target in `Makefile`); use that label with `home/dot_local/bin/executable_herdr-run verdict <label>`. For other targets, use `home/dot_local/bin/executable_herdr-run <label> --cwd "$PWD" --wait -- make <target>`.
 - Keep the workload free of the Bash tool's 120-second timeout. A bounded pane observation may stop waiting, but it must leave the workload running for the next check.
 - Before retrying an interrupted workload, verify that its command and Docker children reached a terminal state, then state why a retry is safe.
 
@@ -83,7 +83,7 @@ This is a single-context repository: domain vocabulary lives at the root and arc
 
 <important if="you are editing a config file that lives in the home directory (e.g., ~/.tmux.conf, ~/.config/...)">
 
-Edit the **source** in `home/` (e.g., `home/dot_tmux.conf`), not the live file in `~/`. Single source of truth, no drift. Run `chezmoi managed | grep <name>` to check if a file is tracked.
+Edit the **source** in `home/` (e.g., `home/dot_zshenv.tmpl`), not the live file in `~/`. Single source of truth, no drift. Run `chezmoi managed | grep <name>` to check if a file is tracked.
 
 </important>
 
@@ -106,15 +106,15 @@ Where new things go:
 | Adding                         | Destination                                             |
 | ------------------------------ | ------------------------------------------------------- |
 | Cross-platform CLI tool        | `home/private_dot_config/brewfiles/Brewfile.tmpl`       |
-| macOS-only cask/app            | `home/private_dot_config/brewfiles/Brewfile.macos.tmpl` |
+| macOS-only cask/app            | `home/private_dot_config/brewfiles/empty_Brewfile.macos.tmpl` |
 | Config file from `~/`          | `home/` via `chezmoi add`                               |
-| External repo/archive (skills) | `home/.chezmoiexternal.toml`                            |
+| External repo/archive          | `home/.chezmoiexternal.toml`                            |
 
 Tool versions (e.g. node) change only by editing `home/private_dot_config/mise/config.toml`, never via `mise use --global` — that writes straight to the deployed file and diverges from this source.
 
 Adding a managed config, step by step:
 
-1. Check `home/.chezmoiexternal.toml` — skills and configs managed there (e.g., `linear-cli`, `improve-claude-md`) must NOT be duplicated in `home/`, or chezmoi reports "inconsistent state".
+1. Check `home/.chezmoiexternal.toml` — paths managed there (e.g., `.oh-my-zsh`, `.local/bin/fff-mcp`) must not be duplicated in `home/`, or chezmoi reports "inconsistent state".
 2. `chezmoi add ~/.config/tool` — creates the source file in `home/`.
 3. Add a `.tmpl` suffix if the file needs OS branching or secrets; OS-specific files also need a rule in `home/.chezmoiignore`.
 4. Apply the **test-oracle gate** before proposing coverage.
@@ -161,7 +161,7 @@ Keep `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` in `home/dot_zshenv.tmpl` so OpenCo
 
 For repository issue queries, lifecycle changes, or unresolved work, load the `repository-issues` skill. Apply its ownership gate before creating a GitHub issue, and use `gh` directly for queries and mutations.
 
-Costly-to-reverse architecture decisions go to `docs/decisions/` as minimal Architecture Decision Records with `Context`, `Considered options`, and `Decision` sections.
+Costly-to-reverse architecture decisions go to `docs/adr/` as minimal Architecture Decision Records with `Context`, `Considered options`, and `Decision` sections.
 
 <important if="you are deciding whether a test is warranted, or adding, changing, deleting, or reviewing tests">
 
