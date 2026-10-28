@@ -7,7 +7,7 @@ Code, comments, commit messages, PR text, docs, and any other artifact keep thei
 
 ## How to talk to user
 
-That English is plain English: short sentences, common words, one idea per sentence. Technical terms, identifiers and numbers stay exact.
+Write plainly in either language: short sentences, common words, one idea per sentence. Technical terms, identifiers and numbers stay exact.
 
 - When a reply (an explanation, a clarification, or an answer to a question) is longer than 5 sentences, start it with a 1–2 line TL;DR.
 - When you ask me a question and I reply with a question of my own, answer mine first, stop and wait for my decision. A question back means I'm still deciding.
@@ -32,7 +32,7 @@ Use `code-review` by default; it runs the review loop and delegates fixes. When 
 
 For follow-up revmux rounds, use the **Follow-up profile selection** policy in `code-review` without a separate approval question. It preserves an explicit user profile choice.
 
-For revmux archive housekeeping, the thresholds are 500MB and 400MB: stay silent while `totals.size_mb` is under 500MB, and above it propose cleanup back to roughly 400MB. These replace the skill's 20MB and 10MB. The archive stays large on purpose until the revmux roster re-check after 25 Oct 2026 (issue #498), which needs the rounds to analyze.
+For revmux archive housekeeping, the thresholds are 300MB and 200MB: stay silent while `totals.size_mb` is under 300MB, and above it propose cleanup back to roughly 200MB. These replace the skill's 20MB and 10MB.
 
 </important>
 
@@ -74,7 +74,7 @@ Read `~/.claude/shared/pull-requests.md`. It carries the zero-context reviewer r
 
 <important if="you are writing a report for me as a file, or building any HTML page or dashboard">
 
-A report for me is an HTML page on the render kit. Every page built for me is published with the `agent-reports` skill, and the reply carries its viewer link, unless the project's instructions name another destination. A `.md` file is for a deliverable that lives in a repository or that another agent reads. Read `~/.claude/shared/render-kit.md`. It carries the bare-semantic-HTML contract, the three markers `assemble.py` replaces with the kit's files, and how the assembled page publishes.
+A report for me is an HTML page on the render kit. Every page built for me is published with the `agent-reports` skill, and the reply carries its viewer link, unless the project's instructions name another destination. A page a skill opens locally as its own working tool, such as a scratch view, a lesson or an eval viewer, is not a report and stays local. A `.md` file is for a deliverable that lives in a repository or that another agent reads. Read `~/.claude/shared/render-kit.md`. It carries the bare-semantic-HTML contract, the three markers `assemble.py` replaces with the kit's files, and how the assembled page publishes.
 
 </important>
 
@@ -101,6 +101,10 @@ Read `~/.claude/shared/interface-copy.md`. It carries the grammar that names a c
 Read the `writing-for-agents` skill first.
 
 </important>
+
+## My rules beat upstream skills
+
+Skills installed from upstream through the Skills CLI or a plugin are not edited here. Where one of them disagrees with this file or with `~/.claude/shared/`, this file wins: the reply language, one question at a time through the harness question tool, `commits.md` for commits, the `make-pr` template for a PR body, `agent-reports` for a page built for me, and the ADR location the project names.
 
 ## Executor MCP
 
