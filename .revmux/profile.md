@@ -48,10 +48,10 @@ Do not discount loss of calibrated adapter regressions as upstream-grammar
 duplication. A known upstream flag can be input to a local behavioral oracle;
 retiring that coverage still needs a real replacement or an approved change.
 
-**An edit that looks live but is not.** chezmoi splits every managed file into three copies:
-this checkout (`home/…`), chezmoi's own separate clone (`~/.local/share/chezmoi/home/…`),
-and the deployed file (`~/…`). Raw `chezmoi` reads the second, not the first. A diff can be
-perfectly correct and still change nothing that runs. This is invisible in the diff by
+**An edit that looks live but is not.** chezmoi splits every managed file into two copies:
+this checkout (`home/…`), which chezmoi reads directly, and the deployed file (`~/…`), which
+only the user's `chezmoi apply` writes. A diff can be perfectly correct and still change
+nothing that runs until that apply. This is invisible in the diff by
 construction, so weigh any claim of "verified working" against which copy was actually
 exercised.
 
