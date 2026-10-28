@@ -124,6 +124,12 @@ Adding a managed config, step by step:
 
 </important>
 
+<important if="you are retiring a managed file, or a deployed file whose source left the repository">
+
+**Never add a path to `home/.chezmoiremove`.** A path listed there is deleted at every apply, so a file that later comes back under that path, managed or not, vanishes silently. The file was dropped on purpose in `3a320075`. Retired files are removed by hand on each machine: name the paths and the `rm` command in the PR body, and do not add any mechanism that deletes them automatically.
+
+</important>
+
 <important if="you are adding or changing agent skills">
 
 - `home/private_dot_config/agent-skills/manifest` is the source of truth for selected upstream skills. Use `~/.local/bin/skills {add|remove|update|sync}` to manage the live global installation; `sync` applies declared wildcard exclusions but never removes other drift automatically.
