@@ -1,0 +1,146 @@
+{
+ "pair-2-r01": {
+  "arm": "baseline",
+  "task": "t249-fix-2-lean-1#rep1"
+ },
+ "pair-2-r02": {
+  "arm": "baseline",
+  "task": "t249-bad-2-lean-1#rep3"
+ },
+ "pair-2-r03": {
+  "arm": "baseline",
+  "task": "t249-fix-2-lean-1#rep3"
+ },
+ "pair-2-r04": {
+  "arm": "baseline",
+  "task": "t249-bad-2-lean-1#rep1"
+ },
+ "pair-2-r05": {
+  "arm": "baseline",
+  "task": "t249-bad-2-lean-1#rep2"
+ },
+ "pair-2-r06": {
+  "arm": "candidate",
+  "task": "t249-bad-2-cand-1#rep3"
+ },
+ "pair-2-r07": {
+  "arm": "candidate",
+  "task": "t249-bad-2-cand-1#rep1"
+ },
+ "pair-2-r08": {
+  "arm": "candidate",
+  "task": "t249-bad-2-cand-1#rep2"
+ },
+ "pair-2-r09": {
+  "arm": "candidate",
+  "task": "t249-fix-2-cand-1#rep3"
+ },
+ "pair-2-r10": {
+  "arm": "candidate",
+  "task": "t249-fix-2-cand-1#rep2"
+ },
+ "pair-2-r11": {
+  "arm": "candidate",
+  "task": "t249-fix-2-cand-1#rep1"
+ },
+ "pair-2-r12": {
+  "arm": "baseline",
+  "task": "t249-fix-2-lean-1#rep2"
+ },
+ "pair-3-r01": {
+  "arm": "baseline",
+  "task": "t249-bad-3-lean-1#rep1"
+ },
+ "pair-3-r02": {
+  "arm": "candidate",
+  "task": "t249-bad-3-cand-1#rep2"
+ },
+ "pair-3-r03": {
+  "arm": "baseline",
+  "task": "t249-fix-3-lean-1#rep2"
+ },
+ "pair-3-r04": {
+  "arm": "candidate",
+  "task": "t249-bad-3-cand-1#rep1"
+ },
+ "pair-3-r05": {
+  "arm": "candidate",
+  "task": "t249-fix-3-cand-1#rep2"
+ },
+ "pair-3-r06": {
+  "arm": "candidate",
+  "task": "t249-fix-3-cand-1#rep1"
+ },
+ "pair-3-r07": {
+  "arm": "baseline",
+  "task": "t249-fix-3-lean-1#rep1"
+ },
+ "pair-3-r08": {
+  "arm": "baseline",
+  "task": "t249-bad-3-lean-1#rep3"
+ },
+ "pair-3-r09": {
+  "arm": "candidate",
+  "task": "t249-fix-3-cand-1#rep3"
+ },
+ "pair-3-r10": {
+  "arm": "candidate",
+  "task": "t249-bad-3-cand-1#rep3"
+ },
+ "pair-3-r11": {
+  "arm": "baseline",
+  "task": "t249-fix-3-lean-1#rep3"
+ },
+ "pair-3-r12": {
+  "arm": "baseline",
+  "task": "t249-bad-3-lean-1#rep2"
+ },
+ "pair-4-r01": {
+  "arm": "baseline",
+  "task": "t249-fix-4-lean-1#rep2"
+ },
+ "pair-4-r02": {
+  "arm": "baseline",
+  "task": "t249-bad-4-lean-1#rep2"
+ },
+ "pair-4-r03": {
+  "arm": "candidate",
+  "task": "t249-fix-4-cand-1#rep1"
+ },
+ "pair-4-r04": {
+  "arm": "candidate",
+  "task": "t249-bad-4-cand-1#rep2"
+ },
+ "pair-4-r05": {
+  "arm": "baseline",
+  "task": "t249-bad-4-lean-1#rep1"
+ },
+ "pair-4-r06": {
+  "arm": "candidate",
+  "task": "t249-fix-4-cand-1#rep2"
+ },
+ "pair-4-r07": {
+  "arm": "candidate",
+  "task": "t249-fix-4-cand-1#rep3"
+ },
+ "pair-4-r08": {
+  "arm": "candidate",
+  "task": "t249-bad-4-cand-1#rep1"
+ },
+ "pair-4-r09": {
+  "arm": "baseline",
+  "task": "t249-fix-4-lean-1#rep1"
+ },
+ "pair-4-r10": {
+  "arm": "baseline",
+  "task": "t249-bad-4-lean-1#rep3"
+ },
+ "pair-4-r11": {
+  "arm": "baseline",
+  "task": "t249-fix-4-lean-1#rep3"
+ },
+ "pair-4-r12": {
+  "arm": "candidate",
+  "task": "t249-bad-4-cand-1#rep3"
+ }
+}

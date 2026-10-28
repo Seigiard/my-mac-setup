@@ -1,0 +1,98 @@
+[
+  {
+    "task": "pair-3-r01",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the historical hard-coded lifecycle-alias oracle rather than a separate allocation or callback-coverage gap."
+  },
+  {
+    "task": "pair-3-r02",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The findings concern untested collision, cleanup, and callback cases, not the lifecycle expectations that assumed orange-panda."
+  },
+  {
+    "task": "pair-3-r03",
+    "stage": "repaired",
+    "found_hit": "docs+tests-1",
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The finder flags the repaired dynamic stub-alias oracle, but no final finding retains that claim."
+  },
+  {
+    "task": "pair-3-r04",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The alias finding concerns live callback renames, which is a different test and failure mode from the labelled lifecycle oracle."
+  },
+  {
+    "task": "pair-3-r05",
+    "stage": "repaired",
+    "found_hit": "docs+tests-1",
+    "final_hit": "docs+tests-1",
+    "false_positive": ["docs+tests-1"],
+    "note": "The final claim mistakes the repaired propagation oracle, which follows the alias passed to the stub, for an allocation test defect."
+  },
+  {
+    "task": "pair-3-r06",
+    "stage": "repaired",
+    "found_hit": "docs+tests-1",
+    "final_hit": "docs+tests-1",
+    "false_positive": ["docs+tests-1"],
+    "note": "The final claim is false because reading the stubbed start argument is the intended independent lifecycle value, not a retained orange-panda assumption."
+  },
+  {
+    "task": "pair-3-r07",
+    "stage": "repaired",
+    "found_hit": "arch+quality-1",
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The finder raises the same rejected allocation-oracle claim, and synthesis correctly drops it."
+  },
+  {
+    "task": "pair-3-r08",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The callback live-alias finding is distinct from the lifecycle tests' historical start-alias expectation."
+  },
+  {
+    "task": "pair-3-r09",
+    "stage": "repaired",
+    "found_hit": "docs+tests-1",
+    "final_hit": "arch+quality-1",
+    "false_positive": ["arch+quality-1"],
+    "note": "The final finding wrongly treats following the alias recorded by the stub as a self-referential allocation oracle."
+  },
+  {
+    "task": "pair-3-r10",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The cited live-alias callback coverage is a separate rename scenario, not the labelled historical lifecycle-alias oracle."
+  },
+  {
+    "task": "pair-3-r11",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "This round contains no findings."
+  },
+  {
+    "task": "pair-3-r12",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The callback-marker alias findings address a renamed child, not the repaired lifecycle tests that follow the stub's started alias."
+  }
+]

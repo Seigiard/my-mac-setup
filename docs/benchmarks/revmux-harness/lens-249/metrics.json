@@ -1,0 +1,697 @@
+{
+ "pairs": {
+  "pair-2": {
+   "category": "regression-insensitive",
+   "defect": "tests/pi-brew-auto-update.test.ts asserted that notifications stayed empty after a timeout and after a nonzero command result, so the suite protected silent failure instead of catching it (regression-insensitive / same-patch oracle).",
+   "basis": "prior human verdict: PR #135 body and its proof-first run (6 tests red against the unfixed code)",
+   "baseline": {
+    "bad_rounds": 3,
+    "found_hits": 3,
+    "final_hits": 2,
+    "lost_in_pipeline": 1,
+    "repaired_rounds": 3,
+    "false_positive_rounds": 0,
+    "false_positives": 0
+   },
+   "separate": {
+    "baseline": {
+     "category": "regression-insensitive",
+     "bad_rounds": 3,
+     "found_hits": 3,
+     "final_hits": 2,
+     "lost_in_pipeline": 1,
+     "repaired_rounds": 3,
+     "false_positive_rounds": 0,
+     "false_positives": 0
+    },
+    "candidate": {
+     "category": "regression-insensitive",
+     "bad_rounds": 3,
+     "found_hits": 3,
+     "final_hits": 3,
+     "lost_in_pipeline": 0,
+     "repaired_rounds": 3,
+     "false_positive_rounds": 0,
+     "false_positives": 0
+    }
+   },
+   "candidate": {
+    "bad_rounds": 3,
+    "found_hits": 3,
+    "final_hits": 3,
+    "lost_in_pipeline": 0,
+    "repaired_rounds": 3,
+    "false_positive_rounds": 0,
+    "false_positives": 0
+   }
+  },
+  "pair-3": {
+   "category": "implementation-coupling",
+   "defect": "herdr child lifecycle tests assumed the historical `orange-panda` allocation instead of following the alias actually passed to the stub; the expected alias came from the same allocator path as the value under test (implementation-coupling / same-patch oracle).",
+   "basis": "prior human verdict: PR #167 body; legacy audit in docs/issues/2026-09-06-007",
+   "baseline": {
+    "bad_rounds": 3,
+    "found_hits": 0,
+    "final_hits": 0,
+    "lost_in_pipeline": 0,
+    "repaired_rounds": 3,
+    "false_positive_rounds": 0,
+    "false_positives": 0
+   },
+   "separate": {
+    "baseline": {
+     "category": "implementation-coupling",
+     "bad_rounds": 3,
+     "found_hits": 0,
+     "final_hits": 0,
+     "lost_in_pipeline": 0,
+     "repaired_rounds": 3,
+     "false_positive_rounds": 2,
+     "false_positives": 2
+    },
+    "candidate": {
+     "category": "implementation-coupling",
+     "bad_rounds": 3,
+     "found_hits": 3,
+     "final_hits": 3,
+     "lost_in_pipeline": 0,
+     "repaired_rounds": 3,
+     "false_positive_rounds": 3,
+     "false_positives": 3
+    }
+   },
+   "candidate": {
+    "bad_rounds": 3,
+    "found_hits": 0,
+    "final_hits": 0,
+    "lost_in_pipeline": 0,
+    "repaired_rounds": 3,
+    "false_positive_rounds": 3,
+    "false_positives": 3
+   }
+  },
+  "pair-4": {
+   "category": "reimplemented-production-logic",
+   "defect": "the Herdr stub in tests/helpers/herdr_task_sync.bash accepted an equal sequence report (`$seq < $current`) that production Herdr rejects, so tests accepted metadata writes production ignores (reimplemented-production-logic).",
+   "basis": "prior human verdict: PR #115 body; legacy audit in docs/issues/2026-09-06-007",
+   "baseline": {
+    "bad_rounds": 3,
+    "found_hits": 0,
+    "final_hits": 0,
+    "lost_in_pipeline": 0,
+    "repaired_rounds": 3,
+    "false_positive_rounds": 0,
+    "false_positives": 0
+   },
+   "separate": {
+    "baseline": {
+     "category": "reimplemented-production-logic",
+     "bad_rounds": 3,
+     "found_hits": 0,
+     "final_hits": 0,
+     "lost_in_pipeline": 0,
+     "repaired_rounds": 3,
+     "false_positive_rounds": 1,
+     "false_positives": 1
+    },
+    "candidate": {
+     "category": "reimplemented-production-logic",
+     "bad_rounds": 3,
+     "found_hits": 0,
+     "final_hits": 0,
+     "lost_in_pipeline": 0,
+     "repaired_rounds": 3,
+     "false_positive_rounds": 0,
+     "false_positives": 0
+    }
+   },
+   "candidate": {
+    "bad_rounds": 3,
+    "found_hits": 0,
+    "final_hits": 0,
+    "lost_in_pipeline": 0,
+    "repaired_rounds": 3,
+    "false_positive_rounds": 0,
+    "false_positives": 0
+   }
+  }
+ },
+ "cost": {
+  "baseline": {
+   "total": {
+    "rounds": 18,
+    "tokens": 58666035,
+    "ms": 4653413,
+    "degraded": 0,
+    "claude": 44035872,
+    "codex": 3874579,
+    "docs_tests": 16538303,
+    "final_findings": 92
+   },
+   "per_case": {
+    "t249-bad-4": {
+     "rounds": 3,
+     "tokens": 5968633,
+     "ms": 814869,
+     "degraded": 0,
+     "claude": 4324618,
+     "codex": 817888,
+     "docs_tests": 1663974,
+     "final_findings": 9
+    },
+    "t249-fix-3": {
+     "rounds": 3,
+     "tokens": 7108239,
+     "ms": 433230,
+     "degraded": 0,
+     "claude": 6234340,
+     "codex": 617023,
+     "docs_tests": 2520768,
+     "final_findings": 0
+    },
+    "t249-bad-2": {
+     "rounds": 3,
+     "tokens": 2661310,
+     "ms": 569589,
+     "degraded": 0,
+     "claude": 1536707,
+     "codex": 322681,
+     "docs_tests": 544299,
+     "final_findings": 13
+    },
+    "t249-fix-2": {
+     "rounds": 3,
+     "tokens": 5562922,
+     "ms": 692976,
+     "degraded": 0,
+     "claude": 4276656,
+     "codex": 370473,
+     "docs_tests": 1677980,
+     "final_findings": 11
+    },
+    "t249-bad-3": {
+     "rounds": 3,
+     "tokens": 32316844,
+     "ms": 1714273,
+     "degraded": 0,
+     "claude": 23279595,
+     "codex": 1419790,
+     "docs_tests": 8732148,
+     "final_findings": 58
+    },
+    "t249-fix-4": {
+     "rounds": 3,
+     "tokens": 5048087,
+     "ms": 428476,
+     "degraded": 0,
+     "claude": 4383956,
+     "codex": 326724,
+     "docs_tests": 1399134,
+     "final_findings": 1
+    }
+   }
+  },
+  "candidate": {
+   "total": {
+    "rounds": 18,
+    "tokens": 64204726,
+    "ms": 4700717,
+    "degraded": 0,
+    "claude": 50466455,
+    "codex": 3668953,
+    "docs_tests": 19760872,
+    "final_findings": 94
+   },
+   "per_case": {
+    "t249-fix-2": {
+     "rounds": 3,
+     "tokens": 5209672,
+     "ms": 568609,
+     "degraded": 0,
+     "claude": 4119498,
+     "codex": 356938,
+     "docs_tests": 1468358,
+     "final_findings": 10
+    },
+    "t249-fix-4": {
+     "rounds": 3,
+     "tokens": 4997262,
+     "ms": 425466,
+     "degraded": 0,
+     "claude": 4488145,
+     "codex": 289473,
+     "docs_tests": 1695978,
+     "final_findings": 0
+    },
+    "t249-bad-3": {
+     "rounds": 3,
+     "tokens": 37142364,
+     "ms": 1692754,
+     "degraded": 0,
+     "claude": 29399862,
+     "codex": 1410393,
+     "docs_tests": 12200646,
+     "final_findings": 57
+    },
+    "t249-fix-3": {
+     "rounds": 3,
+     "tokens": 8196504,
+     "ms": 634213,
+     "degraded": 0,
+     "claude": 6660263,
+     "codex": 577050,
+     "docs_tests": 2480636,
+     "final_findings": 3
+    },
+    "t249-bad-4": {
+     "rounds": 3,
+     "tokens": 6234566,
+     "ms": 837057,
+     "degraded": 0,
+     "claude": 4408849,
+     "codex": 755704,
+     "docs_tests": 1422296,
+     "final_findings": 12
+    },
+    "t249-bad-2": {
+     "rounds": 3,
+     "tokens": 2424358,
+     "ms": 542618,
+     "degraded": 0,
+     "claude": 1389838,
+     "codex": 279395,
+     "docs_tests": 492958,
+     "final_findings": 12
+    }
+   }
+  }
+ },
+ "rows": {
+  "baseline": [
+   {
+    "task": "t249-fix-2-lean-1#rep1",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired timeout and nonzero-exit tests require warning notifications; the findings concern other paths.",
+    "arm": "baseline",
+    "source": "t249-fix-2-lean-1#rep1",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-bad-2-lean-1#rep3",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "bugs+impl-1",
+    "false_positive": [],
+    "note": "The finding identifies the timeout and nonzero-exit tests as asserting silent failures.",
+    "arm": "baseline",
+    "source": "t249-bad-2-lean-1#rep3",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-fix-2-lean-1#rep3",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired timeout and nonzero-exit tests require warning notifications; the findings concern other paths.",
+    "arm": "baseline",
+    "source": "t249-fix-2-lean-1#rep3",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-bad-2-lean-1#rep1",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The finder identifies the silent-failure oracle, but synthesis retains only a test-name mismatch rather than that defect.",
+    "arm": "baseline",
+    "source": "t249-bad-2-lean-1#rep1",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-bad-2-lean-1#rep2",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "bugs+impl-1",
+    "false_positive": [],
+    "note": "The finding identifies the timeout and nonzero-exit tests as asserting silent failures.",
+    "arm": "baseline",
+    "source": "t249-bad-2-lean-1#rep2",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-fix-2-lean-1#rep2",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired timeout and nonzero-exit tests require warning notifications; the findings concern other paths.",
+    "arm": "baseline",
+    "source": "t249-fix-2-lean-1#rep2",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-bad-3-lean-1#rep1",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the historical hard-coded lifecycle-alias oracle rather than a separate allocation or callback-coverage gap.",
+    "arm": "baseline",
+    "source": "t249-bad-3-lean-1#rep1",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-fix-3-lean-1#rep2",
+    "stage": "repaired",
+    "found_hit": "docs+tests-1",
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The finder flags the repaired dynamic stub-alias oracle, but no final finding retains that claim.",
+    "arm": "baseline",
+    "source": "t249-fix-3-lean-1#rep2",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-fix-3-lean-1#rep1",
+    "stage": "repaired",
+    "found_hit": "arch+quality-1",
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The finder raises the same rejected allocation-oracle claim, and synthesis correctly drops it.",
+    "arm": "baseline",
+    "source": "t249-fix-3-lean-1#rep1",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-bad-3-lean-1#rep3",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The callback live-alias finding is distinct from the lifecycle tests' historical start-alias expectation.",
+    "arm": "baseline",
+    "source": "t249-bad-3-lean-1#rep3",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-fix-3-lean-1#rep3",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "This round contains no findings.",
+    "arm": "baseline",
+    "source": "t249-fix-3-lean-1#rep3",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-bad-3-lean-1#rep2",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The callback-marker alias findings address a renamed child, not the repaired lifecycle tests that follow the stub's started alias.",
+    "arm": "baseline",
+    "source": "t249-bad-3-lean-1#rep2",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-fix-4-lean-1#rep2",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the former equal-sequence acceptance; the stub-only concern is a different weakness.",
+    "arm": "baseline",
+    "source": "t249-fix-4-lean-1#rep2",
+    "pair": "pair-4"
+   },
+   {
+    "task": "t249-bad-4-lean-1#rep2",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the stub's acceptance of an equal metadata sequence.",
+    "arm": "baseline",
+    "source": "t249-bad-4-lean-1#rep2",
+    "pair": "pair-4"
+   },
+   {
+    "task": "t249-bad-4-lean-1#rep1",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the stub's equal-sequence acceptance.",
+    "arm": "baseline",
+    "source": "t249-bad-4-lean-1#rep1",
+    "pair": "pair-4"
+   },
+   {
+    "task": "t249-fix-4-lean-1#rep1",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies a remaining equal-sequence acceptance in the repaired stub.",
+    "arm": "baseline",
+    "source": "t249-fix-4-lean-1#rep1",
+    "pair": "pair-4"
+   },
+   {
+    "task": "t249-bad-4-lean-1#rep3",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the equal-sequence metadata defect in the stub.",
+    "arm": "baseline",
+    "source": "t249-bad-4-lean-1#rep3",
+    "pair": "pair-4"
+   },
+   {
+    "task": "t249-fix-4-lean-1#rep3",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The findings concern status checks and calibration, not an equal-sequence acceptance that remains after repair.",
+    "arm": "baseline",
+    "source": "t249-fix-4-lean-1#rep3",
+    "pair": "pair-4"
+   }
+  ],
+  "candidate": [
+   {
+    "task": "t249-bad-2-cand-1#rep3",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "bugs+impl-1",
+    "false_positive": [],
+    "note": "The finding identifies the timeout and nonzero-exit tests as asserting silent failures.",
+    "arm": "candidate",
+    "source": "t249-bad-2-cand-1#rep3",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-bad-2-cand-1#rep1",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "bugs+impl-1",
+    "false_positive": [],
+    "note": "The finding identifies the timeout and nonzero-exit tests as asserting silent failures.",
+    "arm": "candidate",
+    "source": "t249-bad-2-cand-1#rep1",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-bad-2-cand-1#rep2",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "bugs+impl-1",
+    "false_positive": [],
+    "note": "The finding identifies the timeout and nonzero-exit tests as asserting silent failures.",
+    "arm": "candidate",
+    "source": "t249-bad-2-cand-1#rep2",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-fix-2-cand-1#rep3",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired timeout and nonzero-exit tests require warning notifications; the findings concern other paths.",
+    "arm": "candidate",
+    "source": "t249-fix-2-cand-1#rep3",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-fix-2-cand-1#rep2",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired timeout and nonzero-exit tests require warning notifications; the findings concern other paths.",
+    "arm": "candidate",
+    "source": "t249-fix-2-cand-1#rep2",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-fix-2-cand-1#rep1",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired timeout and nonzero-exit tests require warning notifications; the findings concern other paths.",
+    "arm": "candidate",
+    "source": "t249-fix-2-cand-1#rep1",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-bad-3-cand-1#rep2",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The findings concern untested collision, cleanup, and callback cases, not the lifecycle expectations that assumed orange-panda.",
+    "arm": "candidate",
+    "source": "t249-bad-3-cand-1#rep2",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-bad-3-cand-1#rep1",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The alias finding concerns live callback renames, which is a different test and failure mode from the labelled lifecycle oracle.",
+    "arm": "candidate",
+    "source": "t249-bad-3-cand-1#rep1",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-fix-3-cand-1#rep2",
+    "stage": "repaired",
+    "found_hit": "docs+tests-1",
+    "final_hit": "docs+tests-1",
+    "false_positive": [
+     "docs+tests-1"
+    ],
+    "note": "The final claim mistakes the repaired propagation oracle, which follows the alias passed to the stub, for an allocation test defect.",
+    "arm": "candidate",
+    "source": "t249-fix-3-cand-1#rep2",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-fix-3-cand-1#rep1",
+    "stage": "repaired",
+    "found_hit": "docs+tests-1",
+    "final_hit": "docs+tests-1",
+    "false_positive": [
+     "docs+tests-1"
+    ],
+    "note": "The final claim is false because reading the stubbed start argument is the intended independent lifecycle value, not a retained orange-panda assumption.",
+    "arm": "candidate",
+    "source": "t249-fix-3-cand-1#rep1",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-fix-3-cand-1#rep3",
+    "stage": "repaired",
+    "found_hit": "docs+tests-1",
+    "final_hit": "arch+quality-1",
+    "false_positive": [
+     "arch+quality-1"
+    ],
+    "note": "The final finding wrongly treats following the alias recorded by the stub as a self-referential allocation oracle.",
+    "arm": "candidate",
+    "source": "t249-fix-3-cand-1#rep3",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-bad-3-cand-1#rep3",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The cited live-alias callback coverage is a separate rename scenario, not the labelled historical lifecycle-alias oracle.",
+    "arm": "candidate",
+    "source": "t249-bad-3-cand-1#rep3",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-fix-4-cand-1#rep1",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the repaired equal-sequence condition; the stub-only concern is a different weakness.",
+    "arm": "candidate",
+    "source": "t249-fix-4-cand-1#rep1",
+    "pair": "pair-4"
+   },
+   {
+    "task": "t249-bad-4-cand-1#rep2",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the equal-sequence metadata behavior in the stub.",
+    "arm": "candidate",
+    "source": "t249-bad-4-cand-1#rep2",
+    "pair": "pair-4"
+   },
+   {
+    "task": "t249-fix-4-cand-1#rep2",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies a remaining equal-sequence acceptance in the repaired stub.",
+    "arm": "candidate",
+    "source": "t249-fix-4-cand-1#rep2",
+    "pair": "pair-4"
+   },
+   {
+    "task": "t249-fix-4-cand-1#rep3",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the equal-sequence defect or a remaining instance after repair.",
+    "arm": "candidate",
+    "source": "t249-fix-4-cand-1#rep3",
+    "pair": "pair-4"
+   },
+   {
+    "task": "t249-bad-4-cand-1#rep1",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the stub's equal-sequence acceptance; the argument-order finding is distinct.",
+    "arm": "candidate",
+    "source": "t249-bad-4-cand-1#rep1",
+    "pair": "pair-4"
+   },
+   {
+    "task": "t249-bad-4-cand-1#rep3",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the stub's acceptance of equal metadata sequences.",
+    "arm": "candidate",
+    "source": "t249-bad-4-cand-1#rep3",
+    "pair": "pair-4"
+   }
+  ]
+ }
+}

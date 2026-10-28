@@ -1,0 +1,50 @@
+[
+  {
+    "task": "t249-bad-2-cand-1#rep1",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "bugs+impl-1",
+    "false_positive": [],
+    "note": "The finding identifies the timeout and nonzero-result tests as asserting empty notifications and thus pinning silent failure."
+  },
+  {
+    "task": "t249-bad-2-cand-1#rep2",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "bugs+impl-1",
+    "false_positive": [],
+    "note": "The finding identifies the same timeout and command-failure notification assertions as protecting silent failure."
+  },
+  {
+    "task": "t249-bad-2-cand-1#rep3",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "bugs+impl-1",
+    "false_positive": [],
+    "note": "The finding explicitly says the two failure tests assert empty notifications and lock in the regression."
+  },
+  {
+    "task": "t249-fix-2-cand-1#rep1",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired timeout and nonzero-result tests require one warning notification with failure detail, so the labelled silent-failure oracle is fixed."
+  },
+  {
+    "task": "t249-fix-2-cand-1#rep2",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired timeout and nonzero-result tests require one warning notification with failure detail, so the labelled silent-failure oracle is fixed."
+  },
+  {
+    "task": "t249-fix-2-cand-1#rep3",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired timeout and nonzero-result tests require one warning notification with failure detail, so the labelled silent-failure oracle is fixed."
+  }
+]

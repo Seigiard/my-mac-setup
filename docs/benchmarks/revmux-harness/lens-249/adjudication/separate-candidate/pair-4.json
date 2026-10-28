@@ -1,0 +1,50 @@
+[
+  {
+    "task": "t249-bad-4-cand-1#rep1",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the stub's equal-sequence acceptance and resulting production mismatch."
+  },
+  {
+    "task": "t249-bad-4-cand-1#rep2",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The report-metadata argument-order finding is distinct from the equal-sequence stub defect."
+  },
+  {
+    "task": "t249-bad-4-cand-1#rep3",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding addresses the stub's use of a strict-less-than sequence rejection rule."
+  },
+  {
+    "task": "t249-fix-4-cand-1#rep1",
+    "stage": "repaired",
+    "found_hit": "adversarial-1",
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The finder identifies that the equal-sequence check exercises only the stub, although the frozen stub now rejects equal sequences with <=."
+  },
+  {
+    "task": "t249-fix-4-cand-1#rep2",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The findings concern an unrelated clock-dependent fixture and missing mutation calibration, not the equal-sequence stub mismatch."
+  },
+  {
+    "task": "t249-fix-4-cand-1#rep3",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The only finding requests mutation calibration and does not identify the labelled stub-versus-production sequence defect."
+  }
+]

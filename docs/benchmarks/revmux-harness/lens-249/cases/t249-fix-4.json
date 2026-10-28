@@ -1,0 +1,8 @@
+{
+ "id": "t249-fix-4",
+ "repository": "/Users/andrew.b/Projects/my-mac-setup",
+ "base": "d0bb59d17b75cd160252f80669ea4711752337af",
+ "head": "d080d3107262340e815302ac6dae957166b5b2e7",
+ "scope": "# Scope\n\n- Repo: Seigiard/my-mac-setup, one squashed commit (PR #115): `fix(tests): match Herdr metadata sequence semantics`.\n- 3 files, +12/-5: `tests/helpers/herdr_task_sync.bash` (the Herdr stub), `tests/bashunit/scripts_test.sh`, and one more test file.\n\n## Files to read in full\n- the report-metadata branch of tests/helpers/herdr_task_sync.bash and the tests that exercise it in tests/bashunit/scripts_test.sh\n",
+ "goal": "# Goal\n\nThe task-sync test harness rejects stale and equal sequence reports exactly as Herdr does, so tests can no longer accept metadata writes that production ignores; regression coverage shows an equal report leaves prior metadata intact.\n\nCorrect only if the stub now matches Herdr's rule and a test exists that fails when the stub or production accepts an equal sequence.\n"
+}

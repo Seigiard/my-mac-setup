@@ -1,0 +1,8 @@
+{
+ "id": "t249-bad-4",
+ "repository": "/Users/andrew.b/Projects/my-mac-setup",
+ "base": "dd0a34838eda1fbff7776e2a89cbf00909e0176d",
+ "head": "d8c089160593630336e1e25c26884dbb636af99e",
+ "scope": "# Scope\n\n- Repo: Seigiard/my-mac-setup, one squashed commit (PR #55): `fix(tests): isolate nested Bats descriptor probe`.\n- 5 files, +1154/-1115: the shared herdr-task-sync Bats harness moves from `tests/scripts.bats` into `tests/helpers/herdr_task_sync.bash`; a one-test probe file `tests/herdr_task_sync_descriptor_probe.bats` is added; two issue records under `docs/issues/` are closed.\n\n## Files to read in full\n- tests/helpers/herdr_task_sync.bash\n- tests/herdr_task_sync_descriptor_probe.bats\n- the herdr-task-sync sections that remain in tests/scripts.bats\n",
+ "goal": "# Goal\n\nThe descriptor guard no longer parses every test in `tests/scripts.bats` before it can check descriptor cleanup: the nested Bats driver targets a dedicated one-test probe, and the shared `hts_*` harness, including its Herdr stub, lives in one helper used by both files. Behaviour of the harness is otherwise unchanged.\n\nCorrect only if the moved harness still models Herdr the way the tests rely on, and the tests would fail if the production code they cover regressed.\n"
+}

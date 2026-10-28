@@ -1,0 +1,50 @@
+[
+  {
+    "task": "t249-bad-3-cand-1#rep1",
+    "stage": "bad",
+    "found_hit": "bugs+impl-2",
+    "final_hit": "bugs+impl-2",
+    "false_positive": [],
+    "note": "The callback tests register the historical launch alias and therefore cannot distinguish it from the live alias resolved for the child pane."
+  },
+  {
+    "task": "t249-bad-3-cand-1#rep2",
+    "stage": "bad",
+    "found_hit": "bugs+impl-4",
+    "final_hit": "bugs+impl-4",
+    "false_positive": [],
+    "note": "The finding correctly identifies that the callback fixture gives both the injected and registered child alias the same orange-panda value."
+  },
+  {
+    "task": "t249-bad-3-cand-1#rep3",
+    "stage": "bad",
+    "found_hit": "lean-3",
+    "final_hit": "bugs+impl-4",
+    "false_positive": [],
+    "note": "The affected callback test cannot detect a regression from the live registered alias back to the stale launch alias."
+  },
+  {
+    "task": "t249-fix-3-cand-1#rep1",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": ["docs+tests-1"],
+    "note": "The repair reads the alias recorded by the stub from the actual agent-start argument, so the final finding incorrectly treats the absence of a separate pool-membership assertion as the labelled defect."
+  },
+  {
+    "task": "t249-fix-3-cand-1#rep2",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": ["docs+tests-1"],
+    "note": "The repaired tests follow the alias passed to the stub rather than the obsolete orange-panda allocation, so the final finding is a false positive for this labelled defect."
+  },
+  {
+    "task": "t249-fix-3-cand-1#rep3",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": ["arch+quality-1"],
+    "note": "Capturing the stubbed agent-start alias fixes the historical-allocation assumption; it does not leave the labelled stale-alias oracle in place."
+  }
+]

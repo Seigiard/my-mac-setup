@@ -1,0 +1,8 @@
+{
+ "id": "t249-bad-2",
+ "repository": "/Users/andrew.b/Projects/my-mac-setup",
+ "base": "293e9adc21f7ec2ed8eea835520117e96ee322ad",
+ "head": "ce8a90ca56c8d93d1808318dddf0a2a27aeda053",
+ "scope": "# Scope\n\n- Repo: Seigiard/my-mac-setup, one commit: `fix(pi): keep update checks silent`.\n- 2 files, +71/-51: `home/dot_pi/agent/extensions/brew-auto-update/index.ts` and `tests/pi-brew-auto-update.test.ts`.\n\n## Files to read in full\n- home/dot_pi/agent/extensions/brew-auto-update/index.ts\n- tests/pi-brew-auto-update.test.ts\n",
+ "goal": "# Goal\n\nThe Pi brew auto-updater keeps its startup and manual update checks quiet: it reports through the UI only when it has something to say, and the tests pin that behaviour.\n\nCorrect only if the extension behaves as the tests claim and the tests would fail if that behaviour broke.\n"
+}
