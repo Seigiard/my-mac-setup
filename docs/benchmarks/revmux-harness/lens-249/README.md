@@ -8,7 +8,7 @@ status: measured
 
 # Revmux test-evidence lens measurement for #249
 
-One candidate change to the `tests` lens, measured against the unchanged managed `lean` profile on three labelled pairs from the #249 seed ranges. Result: not supported; the lens stays as it is. Full page: [report](https://reports.1218217.xyz/reports/my-mac-setup/20261028T015719Z-e227a773/index.html) (expires after 28 days; `report.py` rebuilds it from `metrics.json` and `verdict.json`).
+One candidate change to the `tests` lens, measured against the unchanged managed `lean` profile on three labelled pairs from the #249 seed ranges. Result: not supported; the lens stays as it is. Full page: [report](https://reports.1218217.xyz/reports/my-mac-setup/20261028T015719Z-e227a773/index.html), Russian version in ASD-STE100 style: [отчёт](https://reports.1218217.xyz/reports/my-mac-setup/20261028T044836Z-9bbdef84/index.html). Both expire after 28 days; `report.py` and `report_ru.py` rebuild them from `metrics.json` and `verdict.json`.
 
 ## Setup
 
