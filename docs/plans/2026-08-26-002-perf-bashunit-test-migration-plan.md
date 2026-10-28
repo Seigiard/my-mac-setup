@@ -126,7 +126,7 @@ The migration must answer two questions in order. First, can bashunit execute th
 
 - `tests/run-post-apply.sh` owns the current file manifests and scheduler boundary.
 - `tests/helpers/common.bash` and `tests/helpers/herdr_task_sync.bash` own most framework coupling.
-- `docs/decisions/0002-guard-the-idempotency-suite-with-a-disposable-home-marker.md` owns the host-safety rule.
+- `docs/adr/0002-guard-the-idempotency-suite-with-a-disposable-home-marker.md` owns the host-safety rule.
 - `docs/solutions/design-patterns/semantic-regression-tests-over-source-shape.md` owns semantic red/green proof.
 - `docs/solutions/design-patterns/skip-set-parity-proves-reduced-dependencies.md` owns identity-level skip parity.
 - `docs/solutions/design-patterns/idle-machine-wall-clock-bounds-are-latent-flakes.md` separates liveness guards from performance evidence.

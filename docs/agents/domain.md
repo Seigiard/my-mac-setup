@@ -6,7 +6,7 @@ This is a single-context repository. These rules define how engineering skills c
 
 - **`CONCEPTS.md`** at the repository root: the current shared domain vocabulary.
 - **`CONTEXT.md`** at the repository root, if introduced later: broader domain context beyond the glossary.
-- **`docs/decisions/`**: read decisions that touch the area being changed.
+- **`docs/adr/`**: read decisions that touch the area being changed.
 
 If one of these paths does not exist, proceed silently. Do not suggest creating it up front. The `domain-modeling` skill creates or extends domain documentation when terminology or architectural decisions are actually resolved.
 
@@ -23,7 +23,7 @@ If one of these paths does not exist, proceed silently. Do not suggest creating 
 └── home/
 ```
 
-Architectural decisions belong in `docs/decisions/`; do not create a parallel `docs/adr/` tree.
+Architectural decisions belong in `docs/adr/`; do not create a parallel `docs/adr/` tree.
 
 ## Use the glossary's vocabulary
 

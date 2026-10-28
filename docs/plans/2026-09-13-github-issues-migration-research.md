@@ -98,7 +98,7 @@ validates a closed schema, deterministic queries, protected lifecycle edges,
 status-specific body sections, atomic replacement, and a worktree-wide lock.
 ADR-0007 makes those records authoritative; Git supplies exact edit history.
 
-Repository sources: `docs/decisions/0007-use-validated-markdown-records-as-the-issue-tracker.md`,
+Repository sources: `docs/adr/0007-use-validated-markdown-records-as-the-issue-tracker.md`,
 `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`,
 `.opencode/skills/repository-issues/SKILL.md`, `scripts/issues`, and
 `tests/test_issues.py`.
@@ -568,7 +568,7 @@ contract. Those skills govern the method; they do not decide the migration.
 
 ### Repository evidence
 
-- `docs/decisions/0007-use-validated-markdown-records-as-the-issue-tracker.md`
+- `docs/adr/0007-use-validated-markdown-records-as-the-issue-tracker.md`
 - `docs/plans/2026-08-21-001-feat-repository-issue-management-plan.md`
 - `docs/agents/issue-tracker.md`
 - `docs/agents/triage-labels.md`

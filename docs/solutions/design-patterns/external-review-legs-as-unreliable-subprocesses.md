@@ -36,7 +36,7 @@ tags:
 ## Context
 
 > **Where this evidence lives now.** The Smithers runtime and both `se-pipeline` executors were
-> removed on 2026-09-01 (`docs/decisions/0001-se-pipeline-architecture-redirection.md`), so every
+> removed on 2026-09-01 (`docs/adr/0001-se-pipeline-architecture-redirection.md`), so every
 > `dot_smithers/**` path cited below is readable only in git history. The report-file transport,
 > symlink refusal, and degrade ladder remain useful requirements for any replacement launcher.
 

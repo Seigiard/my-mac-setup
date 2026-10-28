@@ -225,9 +225,9 @@ U1 defines the predicate and the guard. U2 declares the marker at all four runne
 - **Goal:** a future reader who proposes `--destination` finds the reason it was rejected before spending the work.
 - **Requirements:** supports KTD1, KTD2, A5.
 - **Dependencies:** U1.
-- **Files:** create `docs/decisions/0002-guard-the-idempotency-suite-with-a-disposable-home-marker.md`.
+- **Files:** create `docs/adr/0002-guard-the-idempotency-suite-with-a-disposable-home-marker.md`.
 - **Approach:** write a minimal architecture decision record with `Context`, `Considered options`, and `Decision` sections, as `CLAUDE.md` requires. Considered options are the environment marker, the `--destination` sandbox, and a Makefile-only boundary. The decision records that run scripts hardcode `$HOME`, that a fresh `--config` would re-fire them against the real machine, and that a self-hosted runner with a persistent `$HOME` is an accepted residual risk.
-- **Patterns to follow:** `docs/decisions/0001-se-pipeline-architecture-redirection.md` for numbering, filename shape, and section structure.
+- **Patterns to follow:** `docs/adr/0001-se-pipeline-architecture-redirection.md` for numbering, filename shape, and section structure.
 - **Test scenarios:** `Test expectation: none -- a decision record has no executable behavior.`
 - **Verification:** the record names all three options and states why each was rejected or chosen.
 
@@ -283,5 +283,5 @@ U1 defines the predicate and the guard. U2 declares the marker at all four runne
 | U2 | the marker is declared once unconditionally in the workflow and once in each of the three compose services |
 | U3 | the four tests carry the guard as their first statement, every scenario in U3's list has a passing test, and the file header is rewritten to describe the guard and why `--no-parallelize-across-files` is still needed at the five invocation sites |
 | U4 | no comment or table row in `Makefile` or `CLAUDE.md` describes the pre-guard mechanism |
-| U5 | `docs/decisions/0002-*.md` exists with `Context`, `Considered options`, and `Decision` |
+| U5 | `docs/adr/0002-*.md` exists with `Context`, `Considered options`, and `Decision` |
 | U6 | `python3 scripts/issues show 2026-08-21-004 --json` reports `status: done` and `make test-issues` exits zero |

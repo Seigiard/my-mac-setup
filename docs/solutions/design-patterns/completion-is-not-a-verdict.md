@@ -39,7 +39,7 @@ tags:
 ## Context
 
 > **Where this evidence lives now.** The Smithers runtime and both `se-pipeline` executors were
-> removed on 2026-09-01 (`docs/decisions/0001-se-pipeline-architecture-redirection.md`), so every
+> removed on 2026-09-01 (`docs/adr/0001-se-pipeline-architecture-redirection.md`), so every
 > `dot_smithers/**` path cited below is readable only in git history. The rule is now settled vocabulary in this repo: `CONCEPTS.md` (*Child-agent contract*) states "Lifecycle settlement is a wake signal, not a task verdict", enforced at `home/dot_local/lib/herdr-child-watcher.sh:85` and `home/private_dot_claude/shared/child-agent-contract.md:215`.
 
 `se-pipeline` is a durable multi-stage workflow on the Smithers engine, driven by the bash launcher `se` (source: `home/private_dot_claude/dot_smithers/`, deployed to `~/.claude/.smithers/`). Each stage ends in a *gate*: a pure predicate returning `green`, `failed`, or `degraded`. A non-green gate parks the run at an approval pause and waits for a human.
@@ -167,7 +167,7 @@ A green gate stays one quiet line — `GATE work: GREEN` (`gate-announce.ts:22`)
 
 **Verification of the shipped change:** commit `393aaed` added 9 tests to `home/private_dot_claude/dot_smithers/workflows/lib/gate-announce.test.ts` and 4 to the then-current `tests/scripts.bats`, with the whole suite green and shellcheck clean at that point. Absolute suite totals are deliberately not quoted here — they moved twice the same day and would read as false to the next person who checks. Not covered: no live pipeline run has printed the announcement yet — it is proven by rendering real persisted verdicts through the same function the pipeline calls.
 
-**Docs as a surface.** The runbook now names the wrong reading explicitly (the then-current `docs/se-pipeline.md`, "галочка в логе — не вердикт", with this run as the example), and the `se-work` skill tells an agent never to read `se logs` check marks as verdicts (the then-current `se-work/SKILL.md` (removed with the Smithers runtime; its live successors are `se-orchestrator` and `se-code-review`)) — it previously told the agent to gather context from those logs with no such warning.
+**Docs as a surface.** The runbook now names the wrong reading explicitly (the then-current `docs/se-pipeline.md`, "галочка в логе — не вердикт", with this run as the example), and the `se-work` skill tells an agent never to read `se logs` check marks as verdicts (the then-current `se-work/SKILL.md` (removed with the Smithers runtime)) — it previously told the agent to gather context from those logs with no such warning.
 
 ## What this does not fix
 

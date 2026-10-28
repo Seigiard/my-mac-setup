@@ -180,7 +180,7 @@ Unconfirmed bets recorded because scoping confirmation was skipped; each is veri
 ### Sources
 
 - Verified client contracts: OpenCode `packages/plugin/src/index.ts` (tool.execute.before mutates `output.args`; throw blocks; subagent bypass anomalyco/opencode#5894); Pi `packages/coding-agent/src/core/extensions/types.ts` (`ToolCallEventResult.block`, mutable `event.input`); Claude Code hooks reference (stdin JSON, exit codes, `hookSpecificOutput`).
-- Repo precedent: the standalone [`herdr-worktree-setup` package](https://github.com/Seigiard/herdr-worktree-setup) (bun-invoked TS), `home/dot_pi/agent/extensions/agents-local.ts` (typed + bun-tested extension shape), `tests/pi-agents-local-extension.test.ts` (fake-client harness pattern), `docs/decisions/0001-se-pipeline-architecture-redirection.md` (rejected abstraction shapes), `docs/solutions/design-patterns/gate-bias-follows-blast-radius.md`, `docs/solutions/design-patterns/external-review-legs-as-unreliable-subprocesses.md`, `docs/solutions/design-patterns/idle-machine-wall-clock-bounds-are-latent-flakes.md`.
+- Repo precedent: the standalone [`herdr-worktree-setup` package](https://github.com/Seigiard/herdr-worktree-setup) (bun-invoked TS), `home/dot_pi/agent/extensions/agents-local.ts` (typed + bun-tested extension shape), `tests/pi-agents-local-extension.test.ts` (fake-client harness pattern), `docs/adr/0001-se-pipeline-architecture-redirection.md` (rejected abstraction shapes), `docs/solutions/design-patterns/gate-bias-follows-blast-radius.md`, `docs/solutions/design-patterns/external-review-legs-as-unreliable-subprocesses.md`, `docs/solutions/design-patterns/idle-machine-wall-clock-bounds-are-latent-flakes.md`.
 
 ---
 

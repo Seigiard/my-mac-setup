@@ -47,9 +47,9 @@ Second, the violation counts are large and concentrated in files that are not wo
 | `CLAUDE.md` | 1505 | 28 | 16 | yes | no |
 | `docs/agent-verification.md` | 483 | 0 | 5 | yes | no |
 | `docs/solutions/` (18 files) | 39466 | 478 | 289 | no | yes |
-| `docs/decisions/` (3 files) | 3867 | 36 | 13 | no | yes |
+| `docs/adr/` (3 files) | 3867 | 36 | 13 | no | yes |
 
-`docs/solutions/` is 86 percent of the candidate corpus by word count and carries 78 percent of the em-dashes, and every file in it is a dated record of a past incident. `docs/decisions/` holds Architecture Decision Records, which are dated records by definition. Rewriting the prose of a dated record changes the record.
+`docs/solutions/` is 86 percent of the candidate corpus by word count and carries 78 percent of the em-dashes, and every file in it is a dated record of a past incident. `docs/adr/` holds Architecture Decision Records, which are dated records by definition. Rewriting the prose of a dated record changes the record.
 
 Third, the two highest-value targets are the two riskiest. `CLAUDE.md` and `docs/agent-verification.md` are instruction documents that agents read and follow. `CLAUDE.md` is read on every task in this repository. ASD-STE100 rule 3 bans the modals "should", "would", "may", "might", and "could", and its modal ladder converts a required "should" into "must". Applying that ladder to an instruction document converts advisory language into mandatory language, which is a behavior change wearing the costume of a style fix.
 
@@ -67,7 +67,7 @@ Scope and language
 
 - R4. The pass edits only `README.md` and `CONCEPTS.md` without further approval.
 - R5. The pass produces a report for `CLAUDE.md` and `docs/agent-verification.md`. The report is the deliverable for these two files. The pass itself edits neither, and any edit is a separate follow-up gated on per-finding approval.
-- R6. The pass edits no dated historical record. `docs/solutions/`, `docs/decisions/`, `docs/plans/`, `docs/issues/`, `docs/brainstorms/`, `docs/benchmarks/`, and `docs/ideation/` are out of scope.
+- R6. The pass edits no dated historical record. `docs/solutions/`, `docs/adr/`, `docs/plans/`, `docs/issues/`, `docs/brainstorms/`, `docs/benchmarks/`, and `docs/ideation/` are out of scope.
 - R7. The pass edits no file that contains non-English prose, and it records why rather than reporting such a file as clean.
 - R8. The pass never alters code, an identifier, a command, a flag, a file path, quoted text, a product name, or a fact, in line with `home/.chezmoitemplates/writing-style.md`.
 
