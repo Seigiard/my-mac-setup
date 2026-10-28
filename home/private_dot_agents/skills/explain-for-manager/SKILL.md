@@ -42,7 +42,7 @@ In another language the label and the four slot names are translated once and ke
 
 When another skill invoked this one (make-pr, explain-diff-html), the block is an intermediate product: hand it back and continue with that skill's next step. Only when the user invoked this skill directly is the block the whole reply.
 
-Example:
+Example of the register; your own change supplies the facts and the length:
 
 > **For non-engineers.**
 > - **Problem:** A client saw every connection in their workspace, including the operator's own tools, and the operator's "No access" choice changed nothing.

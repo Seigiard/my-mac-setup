@@ -31,7 +31,7 @@ Inside herdr, the `ask-in-herdr` skill owns launch outcomes, follow-ups, and cle
 Review these files as a reviewer of documents written for agents: <paths>, in <cwd>.
 First read ~/.agents/skills/writing-for-agents/SKILL.md and SKILL-MECHANICS.md in the same folder, and judge strictly by those rules.
 Report only actionable findings. For each: file and line, the rule it breaks (pointer wording, information hierarchy, co-location, completion criterion clarity or demand, negation, duplication, cache, leading word, sprawl), why it matters here, and the concrete rewrite.
-Say "no findings" for a file that is clean. Keep the report under 60 lines. Return the report only; the caller owns every edit.
+Say "no findings" for a file that is clean. Return the report only; the caller owns every edit.
 ```
 
 Add context a reader of only the files would miss: what the change is for, and which other documents it must agree with.

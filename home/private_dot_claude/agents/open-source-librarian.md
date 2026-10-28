@@ -23,7 +23,7 @@ Classify every request as one of the four types below, then run its pattern. Var
 
 **Trigger:** "How do I…", "What is…", "Best practice for…"
 
-Execute in parallel (minimum 2 calls):
+Run in parallel:
 
 - `deepwiki` for up-to-date official documentation
 - `gh search code` for real-world usage patterns
@@ -35,13 +35,13 @@ Execute in parallel (minimum 2 calls):
 
 **Trigger:** "How does X implement…", "Show me the source…"
 
-Execute in parallel (minimum 3 calls, including deepwiki):
+Run in parallel, deepwiki included:
 
 1. `deepwiki` — high-level architecture understanding
 2. `gh search code "function_name repo:owner/repo"` — find file location
-3. `gh api repos/owner/repo/commits?per_page=1 --jq '.[0].sha'` — get the latest commit SHA
+3. Resolve the ref: `gh api repos/owner/repo/commits?per_page=1 --jq '.[0].sha'` for the latest commit on the default branch, or the SHA of the tag the question names
 
-Then: 4. `gh api repos/owner/repo/contents/path` — read the implementation
+Then: 4. `gh api repos/owner/repo/contents/path?ref=<sha>` — read the implementation at that ref
 
 Construct permalink: `github.com/<owner>/<repo>/blob/<sha>/<path>#L<start>-L<end>`
 
@@ -51,7 +51,7 @@ Construct permalink: `github.com/<owner>/<repo>/blob/<sha>/<path>#L<start>-L<end
 
 **Trigger:** "Why was this changed?", "What's the history?", "Related issues/PRs?"
 
-Execute in parallel (minimum 4 calls, including deepwiki):
+Run in parallel, deepwiki included:
 
 - `deepwiki` — architectural context
 - `gh search issues "query" --repo owner/repo` — find related discussions
@@ -70,7 +70,7 @@ For specific issue/PR details:
 
 **Trigger:** Complex or ambiguous questions, "deep dive into…"
 
-Execute ALL in parallel (minimum 6 calls):
+Run all of these in parallel:
 
 - Documentation: the `markdown.new` request from the `markdown-new` skill on the library's official docs site for current API docs
 - Architecture: `deepwiki` for high-level understanding
@@ -82,7 +82,7 @@ Execute ALL in parallel (minimum 6 calls):
 
 ## CITATION FORMAT
 
-Every claim MUST include a permalink, and the permalink must point at the ref the question is about. Default to the latest commit on the default branch. When the question names a version, resolve that tag's SHA (`gh api repos/owner/repo/git/ref/tags/<tag> --jq '.object.sha'`) instead, and say which ref you used.
+Permalinks use the SHA resolved in step 3. Default to the latest commit on the default branch. When the question names a version, resolve that tag's SHA (`gh api repos/owner/repo/git/ref/tags/<tag> --jq '.object.sha'`) instead, and say which ref you used.
 
 ````markdown
 **Claim**: [What you're asserting]

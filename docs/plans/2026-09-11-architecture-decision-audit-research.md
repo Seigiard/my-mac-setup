@@ -13,7 +13,7 @@ execution: none
 
 This is an audit of the current repository and its local Git history for
 intentional architectural decisions that are consequential, expensive to
-reverse, and not already captured adequately under `docs/decisions/`. It does
+reverse, and not already captured adequately under `docs/adr/`. It does
 not create or propose ADR text. It identifies the evidence that a later
 `/grill-with-docs` or `/domain-modeling` pass should use.
 
@@ -29,11 +29,11 @@ The audit distinguishes three outcomes:
 
 The current decision corpus contains three records:
 
-- `docs/decisions/0001-se-pipeline-architecture-redirection.md` is explicitly
+- `docs/adr/0001-se-pipeline-architecture-redirection.md` is explicitly
   rejected and retained as history after the Smithers runtime was removed.
-- `docs/decisions/0002-guard-the-idempotency-suite-with-a-disposable-home-marker.md`
+- `docs/adr/0002-guard-the-idempotency-suite-with-a-disposable-home-marker.md`
   is accepted and narrowly owns the disposable-home authorization boundary.
-- `docs/decisions/0003-context-growth-is-an-ambient-signal-not-a-halt.md`
+- `docs/adr/0003-context-growth-is-an-ambient-signal-not-a-halt.md`
   records a current decision, but unlike 0001 and 0002 it has no frontmatter or
   explicit status field. That format inconsistency should be settled before the
   corpus grows; it is not itself an architectural candidate.
@@ -506,11 +506,11 @@ watcher per detached child.
 `docs/plans/2026-09-05-herdr-child-lifecycle-simplification-research.md`. The
 latter maps six state machines and concludes that the complexity is the cost of
 the protocol rather than accidental duplication. Promoting that analysis into
-`docs/decisions/` may improve filing consistency, but this audit found no
+`docs/adr/` may improve filing consistency, but this audit found no
 missing rationale to reconstruct.
 
 **Recommendation: skip.** If the maintainer wants every architectural decision
-indexed only under `docs/decisions/`, treat that as documentation migration, not
+indexed only under `docs/adr/`, treat that as documentation migration, not
 new decision research.
 
 ### Chezmoi as the repository substrate
@@ -560,7 +560,7 @@ Files such as `docs/agent-setup-inventory.md`, `docs/herdr-worktrees.md`, and
 source comments are useful because agents encounter them during work. They
 should remain. The ADR opportunity is to separate the stable choice and accepted
 cost from the mutable procedure, not to move all documentation into
-`docs/decisions/`.
+`docs/adr/`.
 
 ### Security postures intentionally differ by blast radius
 

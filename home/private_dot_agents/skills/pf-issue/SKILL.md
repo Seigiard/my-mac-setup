@@ -9,13 +9,13 @@ argument-hint: "<issue URL or ID>"
 
 The defect entry to the pf cycle: `/pf-research` starts from a product change, `/pf-issue` starts from a reported issue. Both end at the same fork — `/pf-spec` when the fix changes a contract, `/pf-build` when it stays inside the contracts. Shared mechanics (artifact storage, Linear as opt-in, naming on public surfaces, language, missing-prior analysis): read `~/.claude/shared/pf-cycle.md` first; for the audit page and its frames also `~/.claude/shared/pf-cycle-narratives.md`. This step changes nothing in the repo and writes nothing to the tracker.
 
-Authority runs contracts → code → issue. Past audits confirmed the issue's complaint every time and found it incomplete every time: a stale number, a second symmetric leak, a wrong mechanism, a premise the contract itself contradicts. The audit's value is what the issue did not say and the fix direction it got wrong.
+Authority runs contracts → code → issue. The issue is a hypothesis: expect its symptom to be real and its cause, numbers, and fix direction to be incomplete. The audit's value is what the issue did not say.
 
 The artifact directory `~/.claude/artifacts/<ISSUE-ID>/` carries the state between steps — `issue-source.md` for the fetched issue, `context.md` for verified facts, `candidates.md` for the options, `issue.html` for the audit — and subagents read those files instead of re-researching.
 
 ## 1. Anchor
 
-- Resolve the repo root once and use absolute paths in every command (a drifting cwd cost three sessions their first greps).
+- Resolve the repo root once and use absolute paths in every command, so no command depends on the shell's current directory.
 - `git fetch origin`; record the commit you analyse and whether HEAD is behind `origin/main`. A sibling ticket may have just landed on the same surface.
 - Fetch the whole issue into `~/.claude/artifacts/<ISSUE-ID>/issue-source.md` — never through `| head`. Read the acceptance criteria: they may demand something the code cannot deliver.
 - Search the tracker for siblings sharing the screenshot, the surface, or the bet, so you know which layer this ticket owns. When a sibling has `~/.claude/artifacts/<SIBLING-ID>/context.md`, take its facts for the shared surface and re-check only the files that changed since its recorded commit (`git diff <its commit>..HEAD -- <files>`).
@@ -26,7 +26,7 @@ Done when the frame, commit, full issue, sibling list, and contract locations ar
 
 ## 2. Map the current state
 
-Pick one reader per surface. When your own read of the lines the issue points at confirms the cause, finish the map yourself and skip the map agent. A narrow code path you read yourself. A wide surface goes to one Explore agent (`model: "sonnet"`) with the map prompt in `references/prompts.md`, and while it runs you search the tracker for sibling issues and nothing else; its report is the map, and afterwards you open only the lines the candidates rely on. Map what the frame's required claims need, and gather into the context file, every fact with `file:line`:
+Pick one reader per surface. When your own read of the lines the issue points at confirms the cause, finish the map yourself and skip the map agent. A narrow code path you read yourself. A wide surface goes to one Explore agent on the `medium` tier of `~/.claude/shared/model-tiers.md` with the map prompt in `references/prompts.md`, and while it runs you search the tracker for sibling issues and nothing else; its report is the map, and afterwards you open only the lines the candidates rely on. Map what the frame's required claims need, and gather into the context file, every fact with `file:line`:
 
 - **Measure, never trust.** Counts, sets, and "N places" come from a throwaway script or a grep you ran. When the issue says "not verified", verify the primary evidence: rows in the dev database, a live request, the dev stack viewed as the affected role, after pf-cycle → Environment preflight.
 - **Contracts, both halves.** For every contract the surface touches read the prose overview *and* the built artifact, then the source that feeds the artifact (test titles, command declaration fields, catalog entries). Quote the governing line and say which half it came from. Also read the contract's process rules ("Making Changes", gates, override policy): a contract can forbid a PR shape, not only a behaviour.
@@ -66,14 +66,14 @@ Launch each validator with the validator prompt in `references/prompts.md` and `
 
 Re-verify against source only the findings that change a verdict (BROKEN, VIABLE WITH CHANGES), and only at the `file:line` the validator cites; reject with a reason. Take the rest as reported. A claim you cannot verify locally gets a research agent for the workaround before it is reported as open.
 
-Done when the recommended option carries a verdict you have re-verified, every required change is listed, and any visual prototype has its screenshot in the artifact directory.
+Done when the recommended option carries a validator verdict, every verdict-changing finding is checked against source at the cited `file:line`, every required change is listed, and any visual prototype has its screenshot in the artifact directory.
 
 ## 5. Report
 
-Fill `~/.claude/artifacts/<ISSUE-ID>/issue.html` from the template (pf-cycle-narratives → Narrative HTML mechanics); its slots say what each section holds. Build it with `assemble.py`, present it (pf-cycle-narratives → Publishing), then give a chat summary under fifteen lines. Verdict first, plain words, every term expanded, every term one the repository or the issue already uses. Close with the decisions you made yourself, the one decision left to the user, and the handoff line the user can type after `/clear` (the audit's state lives in the files of `~/.claude/artifacts/<ISSUE-ID>/`, so the next step starts from a clean context):
+Fill `~/.claude/artifacts/<ISSUE-ID>/issue.html` from the template (pf-cycle-narratives → Narrative HTML mechanics); its slots say what each section holds. Build it with `assemble.py`, present it (pf-cycle-narratives → Publishing), then give a short chat summary. Verdict first, plain words, every term expanded, every term one the repository or the issue already uses. Close with the decisions you made yourself, the one decision left to the user, and the handoff line the user can type after `/clear` (the audit's state lives in the files of `~/.claude/artifacts/<ISSUE-ID>/`, so the next step starts from a clean context):
 
 - `/pf-spec <ISSUE-ID>` when the chosen option changes a contract — the audit is the research narrative `/pf-spec` reads, and the contract owner's confirmation is part of that step.
 - When the fix stays inside the contracts: `/pf-build <ISSUE-ID>`, which reads the same artifact directory and needs no `/pf-spec` first; for a small, self-contained fix, ask it for a direct build (no epic PR).
 - Follow-ups stay as ticket-ready text in the report until the user asks to file them.
 
-A menu widget for that decision gets declined; write prose.
+Put that decision to the user through the harness question tool, as a decision brief (`~/.claude/shared/decision-brief.md`).

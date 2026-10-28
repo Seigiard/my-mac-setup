@@ -28,7 +28,7 @@ Read the actual images. Use crops for small or ornate type. OCR/native text is a
 
 The independent verifier reads the images and reconstruction before deciding correctness. Author logs explain interventions; they do not establish that those interventions were right.
 
-For the pilot, freeze representative expected titles, snippets, numeric expressions, and nonheading examples from images before reconstruction when practical. Keep those expected answers with the verifier. Disclose that model-transcribed reference data can also be wrong. Preserve and explain reference corrections rather than changing answers to make a result pass.
+Before reconstruction, when practical, freeze representative expected titles, snippets, numeric expressions, and nonheading examples from the images. Keep those expected answers with the verifier. Disclose that model-transcribed reference data can also be wrong. Preserve and explain reference corrections rather than changing answers to make a result pass.
 
 Inspect:
 

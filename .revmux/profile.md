@@ -96,7 +96,7 @@ false positive:
 - Tests are bashunit driven through the house DSL `tests/bashunit/test-dsl.bash`, which
   supplies a bats-compatible vocabulary (`run`, `assert_success`, `assert_output --partial`,
   `skip`, the `BATS_*` contract, `_bats_file_init` / `_bats_test_init`). Not stock bashunit,
-  not bats. See `docs/decisions/0011-retain-bashunit-with-a-bats-compatible-vocabulary.md`.
+  not bats. See `docs/adr/0011-retain-bashunit-with-a-bats-compatible-vocabulary.md`.
   An assertion name absent from upstream bashunit is not a bug.
 - Test functions carry generated names of the form `test_<suite>_<NNN>_<truncated phrase>`,
   with the readable title passed to `_bats_test_init`. The truncation is mechanical.
@@ -139,5 +139,5 @@ the rules exist because the consequence already happened once.
 - `docs/solutions/` — this repository's own post-mortems, with YAML front matter carrying
   `severity` and `applies_when`. Nineteen of them. When a change falls inside an
   `applies_when`, that document sets the severity, not your general instinct.
-- `docs/decisions/` — ADRs for costly-to-reverse choices.
+- `docs/adr/` — ADRs for costly-to-reverse choices.
 - `CONCEPTS.md` — domain vocabulary.

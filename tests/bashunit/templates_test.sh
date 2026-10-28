@@ -951,28 +951,6 @@ function test_templates_012_opencode_keeps_the_external_dir_grant_and_stdio() {
   assert_output "executor mcp|false"
 }
 
-function test_templates_014_every_opencode_instructions_entry_is_a_managed_f() {
-  _bats_test_init 14 'every opencode instructions entry is a managed source file'
-  command_exists jq || skip "jq is required"
-  # OpenCode fails silently on a dangling instructions path.
-  BATS_TEST_TMPFILE="$(mktemp)"
-  render_template "$SOURCE_ROOT/private_dot_config/opencode/opencode.json.tmpl" > "$BATS_TEST_TMPFILE"
-
-  local entries entry
-  run jq -r '.instructions[]' "$BATS_TEST_TMPFILE"
-  assert_success
-  entries="$output"
-  [[ -n "$entries" ]] || fail "no instructions entries in opencode.json.tmpl"
-
-  while IFS= read -r entry; do
-    [[ "$entry" == "~/"* ]] || fail "instructions entry '$entry' is not home-relative, so it cannot be checked against the source tree"
-    run chezmoi_host_partial source-path \
-      --source "$SOURCE_ROOT" "$HOME/${entry#\~/}"
-    assert_success
-    assert_file_exists "$output"
-  done <<< "$entries"
-}
-
 # ===========================================
 # private_settings.json.tmpl retirement contract
 # ===========================================

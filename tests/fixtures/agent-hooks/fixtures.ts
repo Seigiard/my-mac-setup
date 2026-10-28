@@ -456,7 +456,7 @@ ${ZSH_FIX_SENTENCE}`,
     name: "agent-doc/repository prose outside the agent trees stays silent",
     policy: "agent-doc-writing-hint",
     tool: "edit",
-    payload: { filePath: "/repo/docs/decisions/0004-agent-hooks.md", content: "# ADR" },
+    payload: { filePath: "/repo/docs/adr/0004-agent-hooks.md", content: "# ADR" },
     verdict: "allow",
   },
   {

@@ -35,7 +35,7 @@ tags:
 ## Context
 
 > **Where this evidence lives now.** The Smithers runtime and both `se-pipeline` executors were
-> removed on 2026-09-01 (`docs/decisions/0001-se-pipeline-architecture-redirection.md`), so every
+> removed on 2026-09-01 (`docs/adr/0001-se-pipeline-architecture-redirection.md`), so every
 > `dot_smithers/**` path cited below is readable only in git history. The boundary remains relevant
 > to any workflow that ships checkout content to third-party model providers. See **Coverage
 > regression** below for what no longer holds.

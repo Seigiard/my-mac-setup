@@ -31,7 +31,7 @@ tags:
 
 The se-pipeline (a durable Smithers workflow that runs coding agents) gained an always-present "simplify" stage that auto-edits code after the work stage (`docs/plans/2026-07-27-001-feat-se-simplify-and-work-fork-plan.md`, merged in commit `ba16224`, reachable from `main`). Because the stage mutates code and spends money on agent legs, it is not user-toggled — a heuristic gate (`shouldRunSimplify` in `stage-gate.ts`) decides per run whether the work-diff is worth a simplify pass.
 
-> **Where this evidence lives now.** The Smithers runtime and both executors were removed on 2026-09-01, so every `stage-gate.ts` line reference below is readable only in git history (see `docs/decisions/0001-se-pipeline-architecture-redirection.md`). The rule they demonstrate is stage-agnostic and is applied today by gates that never ran under Smithers; those are the Examples.
+> **Where this evidence lives now.** The Smithers runtime and both executors were removed on 2026-09-01, so every `stage-gate.ts` line reference below is readable only in git history (see `docs/adr/0001-se-pipeline-architecture-redirection.md`). The rule they demonstrate is stage-agnostic and is applied today by gates that never ran under Smithers; those are the Examples.
 
 That gate forced a design question every heuristic gate faces: **which way do you lean when the heuristic can't decide?** The plan's decision record (KTD-I; rationale in R14) answers it with a rule that generalizes beyond this pipeline.
 
