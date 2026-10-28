@@ -19,4 +19,4 @@ for rep in 1 2 3; do
     log "end rep$rep $task exit $?"
   done
 done
-echo done > $B/logs/driver.done; log "all rounds attempted"
+echo "done" > "$B/logs/driver.done"; log "all rounds attempted"
