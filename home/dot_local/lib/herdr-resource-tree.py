@@ -788,9 +788,10 @@ def normalize_snapshot(envelope):
                 raise SnapshotError(
                     f"{path}.{key} does not match pane {pane_id!r}"
                 )
+        presentation_name = optional_label(agent.get("name"), f"{path}.name")
         observed_agents[pane_id] = {
             "client": required_string(agent.get("agent"), f"{path}.agent"),
-            "presentation_name": required_string(agent.get("name"), f"{path}.name"),
+            "presentation_name": presentation_name or None,
             "session": normalize_session(agent.get("agent_session"), f"{path}.agent_session"),
             "parent_session": None,
             "parent_name": None,

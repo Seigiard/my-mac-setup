@@ -10770,6 +10770,227 @@ function test_scripts_1248_claude_resource_context_states_one_outage_once() {
   assert_output --partial 'parent-a'
 }
 
+function test_scripts_1249_claude_resource_context_skips_an_empty_recovery_without_a_successful_projection() {
+  _bats_test_init 1249 'Claude resource context skips an empty recovery without a successful projection'
+  local root="$BATS_TEST_TMPDIR/resource-context-empty-recovery"
+  hrc_stub_hooks "$root"
+  : > "$root/context"
+
+  # #given a new conversation where the first resource query fails
+  HRC_QUERY_STATUS=1 run hrc_run "$root" SessionStart session-empty-recovery startup
+  assert_success
+  local unavailable="$output"
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$unavailable"
+  assert_success
+  assert_output 'Agent resource context unavailable: the shared resource query failed. The earlier generated resource context is stale, and this must not be treated as an empty resource branch.'
+
+  # #when the same session recovers with an empty projection
+  run hrc_run "$root" UserPromptSubmit session-empty-recovery
+
+  # #then nothing claims that context the model never received is stale
+  assert_success
+  assert_output ''
+}
+
+function test_scripts_1254_claude_resource_context_skips_an_empty_recovery_after_an_empty_successful_projection() {
+  _bats_test_init 1254 'Claude resource context skips an empty recovery after an empty successful projection'
+  local root="$BATS_TEST_TMPDIR/resource-context-empty-successful-recovery" unavailable
+  hrc_stub_hooks "$root"
+  : > "$root/context"
+
+  # #given an empty projection that completed successfully for this session
+  run hrc_run "$root" SessionStart session-empty-successful-recovery startup
+  assert_success
+  assert_output ''
+  assert_file_exists "$root/state/session-empty-successful-recovery.successful"
+
+  # #when a later query fails and recovers with the same empty projection
+  HRC_QUERY_STATUS=1 run hrc_run "$root" PostToolBatch session-empty-successful-recovery
+  assert_success
+  unavailable="$output"
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$unavailable"
+  assert_success
+  assert_output 'Agent resource context unavailable: the shared resource query failed. The earlier generated resource context is stale, and this must not be treated as an empty resource branch.'
+  run hrc_run "$root" UserPromptSubmit session-empty-successful-recovery
+
+  # #then no stale notice describes an empty projection the model already has
+  assert_success
+  assert_output ''
+}
+
+function test_scripts_1250_claude_resource_context_reports_empty_recovery_after_a_successful_projection() {
+  _bats_test_init 1250 'Claude resource context reports empty recovery after a successful projection'
+  local root="$BATS_TEST_TMPDIR/resource-context-empty-after-success"
+  hrc_stub_hooks "$root"
+  printf '%s\n' 'Resources:' '- pane "owned" [w1:p1]' > "$root/context"
+
+  # #given a projection that reached the model before a transient query failure
+  run hrc_run "$root" SessionStart session-empty-after-success startup
+  assert_success
+  local initial="$output"
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$initial"
+  assert_success
+  assert_output --partial 'pane "owned"'
+  HRC_QUERY_STATUS=1 run hrc_run "$root" PostToolBatch session-empty-after-success
+  assert_success
+  assert_output --partial 'Agent resource context unavailable'
+  : > "$root/context"
+
+  # #when the query recovers with no resources
+  run hrc_run "$root" UserPromptSubmit session-empty-after-success
+  assert_success
+
+  # #then the earlier delivered projection is explicitly invalidated
+  local cleared="$output"
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$cleared"
+  assert_success
+  assert_output 'Agent resource context update: the earlier generated resource context is stale; there are now no resources or parent to report.'
+}
+
+function test_scripts_1251_claude_resource_context_ignores_resource_label_only_updates_but_keeps_current_labels() {
+  _bats_test_init 1251 'Claude resource context ignores label-only updates but keeps current labels'
+  local root="$BATS_TEST_TMPDIR/resource-context-labels" response
+  hrc_stub_hooks "$root"
+  printf '%s\n' \
+    'Resources:' \
+    '- workspace "Project" [w1] creator=unknown' \
+    '  - tab "Alpha" [w1:t1] creator=unknown' \
+    '    - pane "Alpha worker" [w1:p1] terminal=term-1 creator=unknown' > "$root/context"
+
+  # #given a resource projection already delivered to the model
+  run hrc_run "$root" SessionStart session-labels startup
+  assert_success
+  response="$output"
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+  assert_output --partial 'pane "Alpha worker"'
+
+  # #when only the tab and pane labels change
+  printf '%s\n' \
+    'Resources:' \
+    '- workspace "Project" [w1] creator=unknown' \
+    '  - tab "Beta" [w1:t1] creator=unknown' \
+    '    - pane "Beta worker" [w1:p1] terminal=term-1 creator=unknown' > "$root/context"
+  run hrc_run "$root" UserPromptSubmit session-labels
+  assert_success
+  assert_output ''
+
+  # #then a later SessionStart restores the latest labels, and a structural
+  # change still reaches the model with those labels
+  run hrc_run "$root" SessionStart session-labels compact
+  assert_success
+  response="$output"
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+  assert_output --partial 'tab "Beta"'
+  refute_output --partial 'tab "Alpha"'
+  printf '%s\n' \
+    'Resources:' \
+    '- workspace "Project" [w1] creator=unknown' \
+    '  - tab "Beta" [w1:t1] creator=unknown' \
+    '    - pane "Beta worker" [w1:p1] terminal=term-1 creator=unknown' \
+    '      occupant=claude "child" session=herdr:claude/id/child-1 parent=unknown' > "$root/context"
+  run hrc_run "$root" PostToolBatch session-labels
+  assert_success
+  response="$output"
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+  assert_output --partial 'occupant=claude "child"'
+  assert_output --partial 'pane "Beta worker"'
+}
+
+function test_scripts_1252_claude_resource_context_emits_for_a_workspace_label_only_change() {
+  _bats_test_init 1252 'Claude resource context emits for a workspace-label-only change'
+  local root="$BATS_TEST_TMPDIR/resource-context-workspace-label" response
+  hrc_stub_hooks "$root"
+  printf '%s\n' \
+    'Resources:' \
+    '- workspace "Project" [w1] creator=unknown' \
+    '  - tab "Stable tab" [w1:t1] creator=unknown' \
+    '    - pane "Stable pane" [w1:p1] terminal=term-1 creator=unknown' > "$root/context"
+
+  # #given an initial projection delivered to the model
+  run hrc_run "$root" SessionStart session-workspace-label startup
+  assert_success
+
+  # #when only the workspace presentation label changes
+  printf '%s\n' \
+    'Resources:' \
+    '- workspace "Renamed project" [w1] creator=unknown' \
+    '  - tab "Stable tab" [w1:t1] creator=unknown' \
+    '    - pane "Stable pane" [w1:p1] terminal=term-1 creator=unknown' > "$root/context"
+  run hrc_run "$root" UserPromptSubmit session-workspace-label
+  assert_success
+  response="$output"
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+
+  # #then the changed workspace label is sent in an authoritative update
+  assert_output $'Agent resource context update (authoritative; earlier generated resource context is stale):\nResources:\n- workspace "Renamed project" [w1] creator=unknown\n  - tab "Stable tab" [w1:t1] creator=unknown\n    - pane "Stable pane" [w1:p1] terminal=term-1 creator=unknown'
+}
+
+function test_scripts_1253_claude_resource_context_emits_for_an_occupant_name_only_change() {
+  _bats_test_init 1253 'Claude resource context emits for an occupant-name-only change'
+  local root="$BATS_TEST_TMPDIR/resource-context-occupant-name" response
+  hrc_stub_hooks "$root"
+  printf '%s\n' \
+    'Resources:' \
+    '- workspace "Project" [w1] creator=unknown' \
+    '  - tab "Stable tab" [w1:t1] creator=unknown' \
+    '    - pane "Stable pane" [w1:p1] terminal=term-1 creator=unknown' \
+    '      occupant=claude "before rename" session=herdr:claude/id/child-1 parent=unknown' > "$root/context"
+
+  # #given an observed occupant with a stable native session identity
+  run hrc_run "$root" SessionStart session-occupant-name startup
+  assert_success
+
+  # #when only that occupant's presentation name changes
+  printf '%s\n' \
+    'Resources:' \
+    '- workspace "Project" [w1] creator=unknown' \
+    '  - tab "Stable tab" [w1:t1] creator=unknown' \
+    '    - pane "Stable pane" [w1:p1] terminal=term-1 creator=unknown' \
+    '      occupant=claude "after rename" session=herdr:claude/id/child-1 parent=unknown' > "$root/context"
+  run hrc_run "$root" UserPromptSubmit session-occupant-name
+  assert_success
+  response="$output"
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+
+  # #then the new presentation name reaches the model in an authoritative update
+  assert_output $'Agent resource context update (authoritative; earlier generated resource context is stale):\nResources:\n- workspace "Project" [w1] creator=unknown\n  - tab "Stable tab" [w1:t1] creator=unknown\n    - pane "Stable pane" [w1:p1] terminal=term-1 creator=unknown\n      occupant=claude "after rename" session=herdr:claude/id/child-1 parent=unknown'
+}
+
+function test_scripts_1255_claude_resource_context_emits_for_a_pane_id_only_change() {
+  _bats_test_init 1255 'Claude resource context emits for a pane-id-only change'
+  local root="$BATS_TEST_TMPDIR/resource-context-pane-id" response
+  hrc_stub_hooks "$root"
+  printf '%s\n' \
+    'Resources:' \
+    '- workspace "Project" [w1] creator=unknown' \
+    '  - tab "Stable tab" [w1:t1] creator=unknown' \
+    '    - pane "Stable pane" [w1:p1] terminal=term-1 creator=unknown' > "$root/context"
+
+  # #given a resource projection delivered to the model
+  run hrc_run "$root" SessionStart session-pane-id startup
+  assert_success
+
+  # #when the pane is replaced but keeps its presentation label and metadata
+  printf '%s\n' \
+    'Resources:' \
+    '- workspace "Project" [w1] creator=unknown' \
+    '  - tab "Stable tab" [w1:t1] creator=unknown' \
+    '    - pane "Stable pane" [w1:p2] terminal=term-1 creator=unknown' > "$root/context"
+  run hrc_run "$root" UserPromptSubmit session-pane-id
+  assert_success
+  response="$output"
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+
+  # #then the model receives the replacement pane id in an authoritative update
+  assert_output $'Agent resource context update (authoritative; earlier generated resource context is stale):\nResources:\n- workspace "Project" [w1] creator=unknown\n  - tab "Stable tab" [w1:t1] creator=unknown\n    - pane "Stable pane" [w1:p2] terminal=term-1 creator=unknown'
+}
+
 function test_scripts_1224_opencode_worktree_identity_plugin_uses_deployed_consumer_boundary() {
   _bats_test_init 1224 'deployed OpenCode V2 plugin cleans up and excludes native and observed children'
   command_exists bun || skip 'bun is required'

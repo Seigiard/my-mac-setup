@@ -41,15 +41,17 @@ state_dir="${HERDR_RESOURCE_CONTEXT_STATE_DIR:-${HOME:-}/.cache/herdr-resource-c
 umask 077
 mkdir -p "$state_dir" 2>/dev/null || exit 0
 state_file="$state_dir/$session"
+successful_state_file="$state_file.successful"
 unavailable_sentinel='__HERDR_RESOURCE_CONTEXT_UNAVAILABLE__'
 write_state() {
-  local value="$1" temporary
-  temporary="$(mktemp "$state_dir/.${session}.XXXXXX" 2>/dev/null)" || return 1
+  local target="$1" value="$2" filename temporary
+  filename="${target##*/}"
+  temporary="$(mktemp "$state_dir/.${filename}.XXXXXX" 2>/dev/null)" || return 1
   printf '%s' "$value" > "$temporary" 2>/dev/null || {
     rm -f "$temporary"
     return 1
   }
-  mv -f "$temporary" "$state_file" 2>/dev/null || {
+  mv -f "$temporary" "$target" 2>/dev/null || {
     rm -f "$temporary"
     return 1
   }
@@ -61,9 +63,27 @@ if [ -f "$state_file" ]; then
   had_state=true
   previous="$(cat "$state_file" 2>/dev/null)" || exit 0
 fi
+had_successful_state=false
+previous_successful=""
+if [ -f "$successful_state_file" ]; then
+  had_successful_state=true
+  previous_successful="$(cat "$successful_state_file" 2>/dev/null)" || exit 0
+elif [ "$had_state" = true ] && [ "$previous" != "$unavailable_sentinel" ]; then
+  # Read state written by versions that did not separate failed queries.
+  had_successful_state=true
+  previous_successful="$previous"
+fi
+
+# Tab and pane labels are useful in the full context, but they change as Herdr
+# reconciles a resource without changing the structure the model acts on.
+structural_projection() {
+  sed -E \
+    -e 's/^  - tab .* \[/  - tab [/' \
+    -e 's/^    - pane .* \[/    - pane [/'
+}
 
 if ! context="$("$resource_cli" --context --caller-agent claude --caller-session-id "$session" 2>/dev/null)"; then
-  write_state "$unavailable_sentinel" || exit 0
+  write_state "$state_file" "$unavailable_sentinel" || exit 0
   # A failed query stays failed for a whole conversation when the pane has no
   # observable Agent session, and Claude's transcript is append-only: restating
   # the notice on every tool batch only grows context. A fresh session still
@@ -83,16 +103,22 @@ if ! context="$("$resource_cli" --context --caller-agent claude --caller-session
 fi
 
 # Session restoration needs the projection again after resume or compaction.
-# Mid-session events only emit when the projection changes, avoiding duplicate
-# reminders while preserving a fresh value before the next model request.
-if [ "$event" != SessionStart ] && [ "$had_state" = true ] && [ "$context" = "$previous" ]; then
+# Mid-session events only emit when the projection structure changes. Label-only
+# changes are stored for the next SessionStart or structural update.
+if [ "$event" != SessionStart ] && [ "$had_state" = true ] && \
+  [ "$had_successful_state" = true ] && \
+  [ "$previous" != "$unavailable_sentinel" ] && \
+  [ "$(printf '%s' "$context" | structural_projection)" = "$(printf '%s' "$previous_successful" | structural_projection)" ]; then
+  write_state "$state_file" "$context" || exit 0
+  write_state "$successful_state_file" "$context" || exit 0
   exit 0
 fi
 
-write_state "$context" || exit 0
+write_state "$state_file" "$context" || exit 0
+write_state "$successful_state_file" "$context" || exit 0
 
 if [ -z "$context" ]; then
-  if [ "$had_state" = true ] && [ -n "$previous" ]; then
+  if [ "$had_successful_state" = true ] && [ -n "$previous_successful" ]; then
     context='Agent resource context update: the earlier generated resource context is stale; there are now no resources or parent to report.'
   else
     exit 0
