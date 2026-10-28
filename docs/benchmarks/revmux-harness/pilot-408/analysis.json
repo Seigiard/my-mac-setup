@@ -1,0 +1,1492 @@
+{
+  "rounds": [
+    {
+      "case": "issue-509",
+      "arm": "baseline",
+      "repetition": 1,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 5,
+          "minor": 18
+        },
+        "synthesized": {
+          "major": 3,
+          "minor": 4
+        },
+        "verified": {
+          "major": 1,
+          "minor": 6
+        },
+        "final": {
+          "major": 1,
+          "minor": 6
+        }
+      },
+      "found_fates": {
+        "kept": 7,
+        "dropped": 3,
+        "merged": 13
+      },
+      "fates": {
+        "claude": {
+          "findings": 4,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "claude+codex": {
+          "findings": 2,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "codex": {
+          "findings": 0,
+          "pre_existing": 0,
+          "immaterial": 1,
+          "open_questions": 0,
+          "gone": 0
+        }
+      }
+    },
+    {
+      "case": "issue-509",
+      "arm": "baseline",
+      "repetition": 2,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 6,
+          "minor": 24
+        },
+        "synthesized": {
+          "major": 4,
+          "minor": 3
+        },
+        "verified": {
+          "major": 2,
+          "minor": 5
+        },
+        "final": {
+          "major": 2,
+          "minor": 5
+        }
+      },
+      "found_fates": {
+        "kept": 7,
+        "dropped": 3,
+        "merged": 20
+      },
+      "fates": {
+        "claude": {
+          "findings": 3,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "claude+codex": {
+          "findings": 3,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "codex": {
+          "findings": 1,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        }
+      }
+    },
+    {
+      "case": "issue-509",
+      "arm": "baseline",
+      "repetition": 3,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 4,
+          "minor": 23
+        },
+        "synthesized": {
+          "major": 4,
+          "minor": 4
+        },
+        "verified": {
+          "major": 2,
+          "minor": 6
+        },
+        "final": {
+          "major": 2,
+          "minor": 6
+        }
+      },
+      "found_fates": {
+        "kept": 8,
+        "dropped": 3,
+        "merged": 16
+      },
+      "fates": {
+        "claude": {
+          "findings": 4,
+          "pre_existing": 0,
+          "immaterial": 1,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "claude+codex": {
+          "findings": 2,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "codex": {
+          "findings": 1,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        }
+      }
+    },
+    {
+      "case": "issue-509",
+      "arm": "sonnet",
+      "repetition": 1,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 1,
+          "minor": 14
+        },
+        "synthesized": {
+          "major": 1,
+          "minor": 3
+        },
+        "verified": {
+          "minor": 4
+        },
+        "final": {
+          "minor": 4
+        }
+      },
+      "found_fates": {
+        "kept": 4,
+        "dropped": 2,
+        "merged": 9
+      },
+      "fates": {
+        "claude": {
+          "findings": 0,
+          "pre_existing": 0,
+          "immaterial": 1,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "claude+codex": {
+          "findings": 2,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "codex": {
+          "findings": 1,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        }
+      }
+    },
+    {
+      "case": "issue-509",
+      "arm": "sonnet",
+      "repetition": 2,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 1,
+          "minor": 16
+        },
+        "synthesized": {
+          "major": 1,
+          "minor": 4
+        },
+        "verified": {
+          "minor": 5
+        },
+        "final": {
+          "minor": 5
+        }
+      },
+      "found_fates": {
+        "kept": 5,
+        "dropped": 2,
+        "merged": 10
+      },
+      "fates": {
+        "claude": {
+          "findings": 1,
+          "pre_existing": 0,
+          "immaterial": 1,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "claude+codex": {
+          "findings": 3,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        }
+      }
+    },
+    {
+      "case": "issue-509",
+      "arm": "sonnet",
+      "repetition": 3,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 1,
+          "minor": 18
+        },
+        "synthesized": {
+          "major": 1,
+          "minor": 5
+        },
+        "verified": {
+          "minor": 6
+        },
+        "final": {
+          "minor": 6
+        }
+      },
+      "found_fates": {
+        "kept": 6,
+        "dropped": 0,
+        "merged": 13
+      },
+      "fates": {
+        "claude": {
+          "findings": 2,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "claude+codex": {
+          "findings": 3,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "codex": {
+          "findings": 1,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        }
+      }
+    },
+    {
+      "case": "issue-509",
+      "arm": "terra",
+      "repetition": 1,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 13,
+          "minor": 16
+        },
+        "synthesized": {
+          "major": 7,
+          "minor": 1
+        },
+        "verified": {
+          "major": 3,
+          "minor": 5
+        },
+        "final": {
+          "major": 3,
+          "minor": 5
+        }
+      },
+      "found_fates": {
+        "kept": 8,
+        "dropped": 0,
+        "merged": 21
+      },
+      "fates": {
+        "claude": {
+          "findings": 1,
+          "pre_existing": 0,
+          "immaterial": 1,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "claude+codex": {
+          "findings": 4,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "codex": {
+          "findings": 1,
+          "pre_existing": 0,
+          "immaterial": 1,
+          "open_questions": 0,
+          "gone": 0
+        }
+      }
+    },
+    {
+      "case": "issue-509",
+      "arm": "terra",
+      "repetition": 2,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 8,
+          "minor": 23
+        },
+        "synthesized": {
+          "major": 6,
+          "minor": 3
+        },
+        "verified": {
+          "major": 5,
+          "minor": 4
+        },
+        "final": {
+          "major": 5,
+          "minor": 4
+        }
+      },
+      "found_fates": {
+        "kept": 9,
+        "dropped": 2,
+        "merged": 20
+      },
+      "fates": {
+        "claude": {
+          "findings": 1,
+          "pre_existing": 0,
+          "immaterial": 2,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "claude+codex": {
+          "findings": 3,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "codex": {
+          "findings": 1,
+          "pre_existing": 1,
+          "immaterial": 1,
+          "open_questions": 0,
+          "gone": 0
+        }
+      }
+    },
+    {
+      "case": "issue-509",
+      "arm": "terra",
+      "repetition": 3,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 11,
+          "minor": 19
+        },
+        "synthesized": {
+          "major": 7,
+          "minor": 1
+        },
+        "verified": {
+          "major": 3,
+          "minor": 5
+        },
+        "final": {
+          "major": 3,
+          "minor": 5
+        }
+      },
+      "found_fates": {
+        "kept": 8,
+        "dropped": 4,
+        "merged": 18
+      },
+      "fates": {
+        "claude": {
+          "findings": 4,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "claude+codex": {
+          "findings": 2,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "codex": {
+          "findings": 2,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        }
+      }
+    },
+    {
+      "case": "prd-3488",
+      "arm": "baseline",
+      "repetition": 1,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 1,
+          "minor": 12
+        },
+        "synthesized": {
+          "major": 1,
+          "minor": 8
+        },
+        "verified": {
+          "major": 1,
+          "minor": 8
+        },
+        "final": {
+          "major": 1,
+          "minor": 8
+        }
+      },
+      "found_fates": {
+        "kept": 9,
+        "dropped": 2,
+        "merged": 2
+      },
+      "fates": {
+        "claude": {
+          "findings": 4,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "codex": {
+          "findings": 4,
+          "pre_existing": 1,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        }
+      }
+    },
+    {
+      "case": "prd-3488",
+      "arm": "baseline",
+      "repetition": 2,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 3,
+          "minor": 15
+        },
+        "synthesized": {
+          "major": 1,
+          "minor": 8
+        },
+        "verified": {
+          "major": 1,
+          "minor": 8
+        },
+        "final": {
+          "major": 1,
+          "minor": 8
+        }
+      },
+      "found_fates": {
+        "kept": 9,
+        "dropped": 1,
+        "merged": 8
+      },
+      "fates": {
+        "claude": {
+          "findings": 4,
+          "pre_existing": 1,
+          "immaterial": 1,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "claude+codex": {
+          "findings": 1,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "codex": {
+          "findings": 0,
+          "pre_existing": 2,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        }
+      }
+    },
+    {
+      "case": "prd-3488",
+      "arm": "baseline",
+      "repetition": 3,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 1,
+          "minor": 12
+        },
+        "synthesized": {
+          "major": 1,
+          "minor": 5
+        },
+        "verified": {
+          "major": 1,
+          "minor": 5
+        },
+        "final": {
+          "major": 1,
+          "minor": 5
+        }
+      },
+      "found_fates": {
+        "kept": 6,
+        "dropped": 2,
+        "merged": 5
+      },
+      "fates": {
+        "claude": {
+          "findings": 4,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "codex": {
+          "findings": 1,
+          "pre_existing": 1,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        }
+      }
+    },
+    {
+      "case": "prd-3488",
+      "arm": "sonnet",
+      "repetition": 1,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 1,
+          "minor": 6
+        },
+        "synthesized": {
+          "major": 1,
+          "minor": 2
+        },
+        "verified": {
+          "major": 1,
+          "minor": 2
+        },
+        "final": {
+          "major": 1,
+          "minor": 2
+        }
+      },
+      "found_fates": {
+        "kept": 3,
+        "dropped": 4,
+        "merged": 0
+      },
+      "fates": {
+        "codex": {
+          "findings": 2,
+          "pre_existing": 1,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        }
+      }
+    },
+    {
+      "case": "prd-3488",
+      "arm": "sonnet",
+      "repetition": 2,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "minor": 5
+        },
+        "synthesized": {
+          "minor": 3
+        },
+        "verified": {
+          "minor": 3
+        },
+        "final": {
+          "minor": 3
+        }
+      },
+      "found_fates": {
+        "kept": 3,
+        "dropped": 2,
+        "merged": 0
+      },
+      "fates": {
+        "claude": {
+          "findings": 0,
+          "pre_existing": 1,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "codex": {
+          "findings": 1,
+          "pre_existing": 1,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        }
+      }
+    },
+    {
+      "case": "prd-3488",
+      "arm": "sonnet",
+      "repetition": 3,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "minor": 4
+        },
+        "synthesized": {
+          "minor": 1
+        },
+        "verified": {
+          "minor": 1
+        },
+        "final": {
+          "minor": 1
+        }
+      },
+      "found_fates": {
+        "kept": 1,
+        "dropped": 3,
+        "merged": 0
+      },
+      "fates": {
+        "codex": {
+          "findings": 0,
+          "pre_existing": 1,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        }
+      }
+    },
+    {
+      "case": "prd-3488",
+      "arm": "terra",
+      "repetition": 1,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 10,
+          "minor": 13
+        },
+        "synthesized": {
+          "major": 6,
+          "minor": 4
+        },
+        "verified": {
+          "major": 3,
+          "minor": 6
+        },
+        "final": {
+          "major": 3,
+          "minor": 6
+        }
+      },
+      "found_fates": {
+        "kept": 10,
+        "dropped": 2,
+        "merged": 11
+      },
+      "fates": {
+        "claude": {
+          "findings": 3,
+          "pre_existing": 1,
+          "immaterial": 1,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "claude+codex": {
+          "findings": 1,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "codex": {
+          "findings": 2,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 1,
+          "gone": 1
+        }
+      }
+    },
+    {
+      "case": "prd-3488",
+      "arm": "terra",
+      "repetition": 2,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 12,
+          "minor": 6
+        },
+        "synthesized": {
+          "major": 7,
+          "minor": 3
+        },
+        "verified": {
+          "major": 1,
+          "minor": 7
+        },
+        "final": {
+          "major": 1,
+          "minor": 7
+        }
+      },
+      "found_fates": {
+        "kept": 10,
+        "dropped": 2,
+        "merged": 6
+      },
+      "fates": {
+        "claude": {
+          "findings": 4,
+          "pre_existing": 0,
+          "immaterial": 1,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "codex": {
+          "findings": 3,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 2
+        }
+      }
+    },
+    {
+      "case": "prd-3488",
+      "arm": "terra",
+      "repetition": 3,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 9,
+          "minor": 14
+        },
+        "synthesized": {
+          "major": 5,
+          "minor": 5
+        },
+        "verified": {
+          "major": 1,
+          "minor": 7
+        },
+        "final": {
+          "major": 1,
+          "minor": 7
+        }
+      },
+      "found_fates": {
+        "kept": 10,
+        "dropped": 4,
+        "merged": 9
+      },
+      "fates": {
+        "claude": {
+          "findings": 6,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "codex": {
+          "findings": 2,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 2
+        }
+      }
+    },
+    {
+      "case": "r249-2",
+      "arm": "baseline",
+      "repetition": 1,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 6,
+          "minor": 17
+        },
+        "synthesized": {
+          "major": 3,
+          "minor": 5
+        },
+        "verified": {
+          "major": 2,
+          "minor": 6
+        },
+        "final": {
+          "major": 2,
+          "minor": 6
+        }
+      },
+      "found_fates": {
+        "kept": 8,
+        "dropped": 3,
+        "merged": 12
+      },
+      "fates": {
+        "claude": {
+          "findings": 3,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "claude+codex": {
+          "findings": 2,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "codex": {
+          "findings": 0,
+          "pre_existing": 2,
+          "immaterial": 0,
+          "open_questions": 1,
+          "gone": 0
+        }
+      }
+    },
+    {
+      "case": "r249-2",
+      "arm": "baseline",
+      "repetition": 2,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 7,
+          "minor": 12
+        },
+        "synthesized": {
+          "major": 5,
+          "minor": 3
+        },
+        "verified": {
+          "major": 4,
+          "minor": 4
+        },
+        "final": {
+          "major": 4,
+          "minor": 4
+        }
+      },
+      "found_fates": {
+        "kept": 8,
+        "dropped": 3,
+        "merged": 8
+      },
+      "fates": {
+        "claude": {
+          "findings": 2,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "claude+codex": {
+          "findings": 1,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "codex": {
+          "findings": 1,
+          "pre_existing": 4,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        }
+      }
+    },
+    {
+      "case": "r249-2",
+      "arm": "baseline",
+      "repetition": 3,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 1,
+          "minor": 15
+        },
+        "synthesized": {
+          "major": 1,
+          "minor": 5
+        },
+        "verified": {
+          "minor": 6
+        },
+        "final": {
+          "minor": 6
+        }
+      },
+      "found_fates": {
+        "kept": 6,
+        "dropped": 2,
+        "merged": 8
+      },
+      "fates": {
+        "claude": {
+          "findings": 4,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "claude+codex": {
+          "findings": 1,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "codex": {
+          "findings": 0,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 1,
+          "gone": 0
+        }
+      }
+    },
+    {
+      "case": "r249-2",
+      "arm": "sonnet",
+      "repetition": 1,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 2,
+          "minor": 16
+        },
+        "synthesized": {
+          "major": 2,
+          "minor": 3
+        },
+        "verified": {
+          "major": 1,
+          "minor": 4
+        },
+        "final": {
+          "major": 1,
+          "minor": 4
+        }
+      },
+      "found_fates": {
+        "kept": 5,
+        "dropped": 1,
+        "merged": 12
+      },
+      "fates": {
+        "claude": {
+          "findings": 2,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "claude+codex": {
+          "findings": 1,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "codex": {
+          "findings": 0,
+          "pre_existing": 1,
+          "immaterial": 0,
+          "open_questions": 1,
+          "gone": 0
+        }
+      }
+    },
+    {
+      "case": "r249-2",
+      "arm": "sonnet",
+      "repetition": 2,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 5,
+          "minor": 12
+        },
+        "synthesized": {
+          "major": 3,
+          "minor": 4
+        },
+        "verified": {
+          "major": 2,
+          "minor": 4
+        },
+        "final": {
+          "major": 2,
+          "minor": 4
+        }
+      },
+      "found_fates": {
+        "kept": 7,
+        "dropped": 0,
+        "merged": 10
+      },
+      "fates": {
+        "claude": {
+          "findings": 1,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 1
+        },
+        "claude+codex": {
+          "findings": 1,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "codex": {
+          "findings": 0,
+          "pre_existing": 2,
+          "immaterial": 1,
+          "open_questions": 1,
+          "gone": 0
+        }
+      }
+    },
+    {
+      "case": "r249-2",
+      "arm": "sonnet",
+      "repetition": 3,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 1,
+          "minor": 15
+        },
+        "synthesized": {
+          "major": 1,
+          "minor": 2
+        },
+        "verified": {
+          "major": 1,
+          "minor": 2
+        },
+        "final": {
+          "major": 1,
+          "minor": 2
+        }
+      },
+      "found_fates": {
+        "kept": 3,
+        "dropped": 4,
+        "merged": 9
+      },
+      "fates": {
+        "claude": {
+          "findings": 2,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "claude+codex": {
+          "findings": 1,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        }
+      }
+    },
+    {
+      "case": "r249-2",
+      "arm": "terra",
+      "repetition": 1,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 4,
+          "minor": 17
+        },
+        "synthesized": {
+          "major": 2,
+          "minor": 6
+        },
+        "verified": {
+          "major": 1,
+          "minor": 6
+        },
+        "final": {
+          "major": 1,
+          "minor": 6
+        }
+      },
+      "found_fates": {
+        "kept": 8,
+        "dropped": 2,
+        "merged": 11
+      },
+      "fates": {
+        "claude": {
+          "findings": 2,
+          "pre_existing": 0,
+          "immaterial": 1,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "claude+codex": {
+          "findings": 2,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "codex": {
+          "findings": 1,
+          "pre_existing": 0,
+          "immaterial": 1,
+          "open_questions": 0,
+          "gone": 1
+        }
+      }
+    },
+    {
+      "case": "r249-2",
+      "arm": "terra",
+      "repetition": 2,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 3,
+          "minor": 18
+        },
+        "synthesized": {
+          "major": 2,
+          "minor": 6
+        },
+        "verified": {
+          "major": 2,
+          "minor": 6
+        },
+        "final": {
+          "major": 2,
+          "minor": 6
+        }
+      },
+      "found_fates": {
+        "kept": 8,
+        "dropped": 1,
+        "merged": 12
+      },
+      "fates": {
+        "claude": {
+          "findings": 2,
+          "pre_existing": 0,
+          "immaterial": 1,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "claude+codex": {
+          "findings": 2,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "codex": {
+          "findings": 1,
+          "pre_existing": 1,
+          "immaterial": 0,
+          "open_questions": 1,
+          "gone": 0
+        }
+      }
+    },
+    {
+      "case": "r249-2",
+      "arm": "terra",
+      "repetition": 3,
+      "degraded": false,
+      "verify_failed": false,
+      "stages": {
+        "found": {
+          "major": 3,
+          "minor": 17
+        },
+        "synthesized": {
+          "major": 2,
+          "minor": 6
+        },
+        "verified": {
+          "major": 1,
+          "minor": 7
+        },
+        "final": {
+          "major": 1,
+          "minor": 7
+        }
+      },
+      "found_fates": {
+        "kept": 8,
+        "dropped": 1,
+        "merged": 11
+      },
+      "fates": {
+        "claude": {
+          "findings": 2,
+          "pre_existing": 0,
+          "immaterial": 1,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "claude+codex": {
+          "findings": 1,
+          "pre_existing": 0,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        },
+        "codex": {
+          "findings": 2,
+          "pre_existing": 2,
+          "immaterial": 0,
+          "open_questions": 0,
+          "gone": 0
+        }
+      }
+    }
+  ],
+  "aggregates": {
+    "by_case": {
+      "issue-509": {
+        "rounds": 9,
+        "degraded_rounds": 0,
+        "unreadable_rounds": 0,
+        "verify_failed_rounds": 0,
+        "stages": {
+          "found": {
+            "major": 50,
+            "minor": 171
+          },
+          "synthesized": {
+            "major": 34,
+            "minor": 28
+          },
+          "verified": {
+            "major": 16,
+            "minor": 46
+          },
+          "final": {
+            "major": 16,
+            "minor": 46
+          }
+        }
+      },
+      "prd-3488": {
+        "rounds": 9,
+        "degraded_rounds": 0,
+        "unreadable_rounds": 0,
+        "verify_failed_rounds": 0,
+        "stages": {
+          "found": {
+            "major": 37,
+            "minor": 87
+          },
+          "synthesized": {
+            "major": 22,
+            "minor": 39
+          },
+          "verified": {
+            "major": 9,
+            "minor": 47
+          },
+          "final": {
+            "major": 9,
+            "minor": 47
+          }
+        }
+      },
+      "r249-2": {
+        "rounds": 9,
+        "degraded_rounds": 0,
+        "unreadable_rounds": 0,
+        "verify_failed_rounds": 0,
+        "stages": {
+          "found": {
+            "major": 32,
+            "minor": 139
+          },
+          "synthesized": {
+            "major": 21,
+            "minor": 40
+          },
+          "verified": {
+            "major": 14,
+            "minor": 45
+          },
+          "final": {
+            "major": 14,
+            "minor": 45
+          }
+        }
+      }
+    },
+    "by_arm": {
+      "baseline": {
+        "rounds": 9,
+        "degraded_rounds": 0,
+        "unreadable_rounds": 0,
+        "verify_failed_rounds": 0,
+        "stages": {
+          "found": {
+            "major": 34,
+            "minor": 148
+          },
+          "synthesized": {
+            "major": 23,
+            "minor": 45
+          },
+          "verified": {
+            "major": 14,
+            "minor": 54
+          },
+          "final": {
+            "major": 14,
+            "minor": 54
+          }
+        }
+      },
+      "sonnet": {
+        "rounds": 9,
+        "degraded_rounds": 0,
+        "unreadable_rounds": 0,
+        "verify_failed_rounds": 0,
+        "stages": {
+          "found": {
+            "major": 12,
+            "minor": 106
+          },
+          "synthesized": {
+            "major": 10,
+            "minor": 27
+          },
+          "verified": {
+            "major": 5,
+            "minor": 31
+          },
+          "final": {
+            "major": 5,
+            "minor": 31
+          }
+        }
+      },
+      "terra": {
+        "rounds": 9,
+        "degraded_rounds": 0,
+        "unreadable_rounds": 0,
+        "verify_failed_rounds": 0,
+        "stages": {
+          "found": {
+            "major": 73,
+            "minor": 143
+          },
+          "synthesized": {
+            "major": 44,
+            "minor": 35
+          },
+          "verified": {
+            "major": 20,
+            "minor": 53
+          },
+          "final": {
+            "major": 20,
+            "minor": 53
+          }
+        }
+      }
+    }
+  }
+}

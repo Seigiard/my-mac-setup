@@ -1,0 +1,713 @@
+[
+  {
+    "round_code": "037c350750f6551a7797b47799f1355c",
+    "finding_code": "07d51082456d8960f9b526f78322d7e0",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "A verbatim multi-line quote can supply the first Status line or next heading that the parser treats as metadata."
+  },
+  {
+    "round_code": "037c350750f6551a7797b47799f1355c",
+    "finding_code": "6a08332a129625dd812257c10c9fce44",
+    "cause": "prompt-contract-assertions-are-nondiscriminating",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The whole-prompt assertions leave both the facts-block instruction and either required inference-rule copy unprotected."
+  },
+  {
+    "round_code": "037c350750f6551a7797b47799f1355c",
+    "finding_code": "ee2716ea7844642509221441b1d41d7f",
+    "cause": "last-request-boundary-regression-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "No fixture reaches the next-heading exit with a later Status line, so deleting that guard remains undetected."
+  },
+  {
+    "round_code": "037c350750f6551a7797b47799f1355c",
+    "finding_code": "14f83a05bfb861f89335bc5c9e25a2cd",
+    "cause": "verbatim-quote-word-cap-conflict",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A required 4000-character verbatim request can exceed the unchanged 400-word handoff cap without a stated precedence."
+  },
+  {
+    "round_code": "037c350750f6551a7797b47799f1355c",
+    "finding_code": "2da25dbe1561ac1e86ac00cc981920a8",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The prompt order makes the parser ambiguity reachable because quoted lines precede the actual Status line."
+  },
+  {
+    "round_code": "3df277627cb1276703fff9c703ff9263",
+    "finding_code": "87410323c6d8d65d7b05cfde06891be2",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The first matching Status line or heading can come from the unframed verbatim quote rather than handoff metadata."
+  },
+  {
+    "round_code": "3df277627cb1276703fff9c703ff9263",
+    "finding_code": "9f4523533efa75a5adac8511bd6a01d0",
+    "cause": "inference-rule-section-coverage-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "One whole-prompt match cannot detect removal of the required inference rule from either section."
+  },
+  {
+    "round_code": "3df277627cb1276703fff9c703ff9263",
+    "finding_code": "b3ae15d71d45a17a66c3e01d34b57c88",
+    "cause": "last-request-boundary-regression-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The tests do not distinguish the section-boundary guard from a parser that scans into Key Details."
+  },
+  {
+    "round_code": "3df277627cb1276703fff9c703ff9263",
+    "finding_code": "3543b6b4e4542d20b7ea1ff430a014bc",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "Putting an unframed quote before Status allows quote content to be parsed as status metadata."
+  },
+  {
+    "round_code": "41350a2e9d0e933ad4e5afea035e8a64",
+    "finding_code": "5ba622359751eadc8bc228593fd89ccd",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The parser scans quote lines before the generated status and therefore accepts quote structure as metadata."
+  },
+  {
+    "round_code": "41350a2e9d0e933ad4e5afea035e8a64",
+    "finding_code": "46e41ec4bc52ef43f4fe716b4eb1bf62",
+    "cause": "verbatim-quote-word-cap-conflict",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The mandatory verbatim quote and total 400-word cap conflict for permitted long facts input."
+  },
+  {
+    "round_code": "41350a2e9d0e933ad4e5afea035e8a64",
+    "finding_code": "51d85580abc0793dbf06f233c2cc2fe8",
+    "cause": "last-request-prompt-instruction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The asserted phrase comes from existing facts output rather than the new verbatim-quote instruction."
+  },
+  {
+    "round_code": "41350a2e9d0e933ad4e5afea035e8a64",
+    "finding_code": "9d5bb4dd0c486dd35d75bd7e9ece6809",
+    "cause": "last-request-boundary-regression-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The negative fixture never enters Last request, so it cannot exercise the section-end guard."
+  },
+  {
+    "round_code": "41350a2e9d0e933ad4e5afea035e8a64",
+    "finding_code": "b61c725e940154a5aa6de2ba73d3e453",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A quote-provided Status line can be displayed instead of the extractor-generated status."
+  },
+  {
+    "round_code": "41350a2e9d0e933ad4e5afea035e8a64",
+    "finding_code": "c68228d5808beec335087cb0a340caa9",
+    "cause": "verbatim-quote-word-cap-conflict",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The prompt has no rule that resolves a long required quote against its 400-word cap."
+  },
+  {
+    "round_code": "41350a2e9d0e933ad4e5afea035e8a64",
+    "finding_code": "7a4e39372de3be1582cb5bac48ec08c8",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The fixture omits the quote shape that triggers the real parser defect."
+  },
+  {
+    "round_code": "41350a2e9d0e933ad4e5afea035e8a64",
+    "finding_code": "a6793f3f223f8c028b1163fc0b3ded53",
+    "cause": "last-request-boundary-regression-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "None of the fixtures puts a later-section Status after a status-less Last request section."
+  },
+  {
+    "round_code": "41350a2e9d0e933ad4e5afea035e8a64",
+    "finding_code": "c7b1b11c9ed71dc6f4eb08742d617e29",
+    "cause": "status-line-format-ambiguous",
+    "basis": "none yet",
+    "verdict": "unclear",
+    "severity_agree": false,
+    "note": "The template’s enumerated Status syntax reasonably implies a bare value, so the claimed formatting failure is speculative."
+  },
+  {
+    "round_code": "41350a2e9d0e933ad4e5afea035e8a64",
+    "finding_code": "a096f46f29d841b7d9d2ed41dc877bd8",
+    "cause": "last-request-boundary-regression-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "Removing the next-heading exit is not distinguished by any added fixture."
+  },
+  {
+    "round_code": "41350a2e9d0e933ad4e5afea035e8a64",
+    "finding_code": "df70a3dd1933421ae11fa81d2adf4f32",
+    "cause": "last-request-prompt-instruction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The asserted facts label is pre-existing and cannot prove the new verbatim instruction or its required placement."
+  },
+  {
+    "round_code": "41350a2e9d0e933ad4e5afea035e8a64",
+    "finding_code": "909576ebcf2eec3f6c32120224bf3b6f",
+    "cause": "accepted-status-variants-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Only Not answered is tested through the allow-list, leaving the other two accepted values unprotected."
+  },
+  {
+    "round_code": "41350a2e9d0e933ad4e5afea035e8a64",
+    "finding_code": "8e8255ad8e4ed23d04a5db38308864ef",
+    "cause": "last-request-boundary-regression-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The supposed outside-section fixture lacks Last request and cannot test where that section ends."
+  },
+  {
+    "round_code": "41350a2e9d0e933ad4e5afea035e8a64",
+    "finding_code": "1c1d8091d7de035a6612d9528f32f2e3",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "Unescaped quote lines can terminate the section or satisfy the parser before the actual status."
+  },
+  {
+    "round_code": "516a5cca12ade878f2e8006b53e90fb6",
+    "finding_code": "8efb1e4926ed2c2daac326a047033a99",
+    "cause": "last-request-boundary-regression-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The fixtures never scan from Last request into a later Status line, so the exit rule lacks a regression oracle."
+  },
+  {
+    "round_code": "516a5cca12ade878f2e8006b53e90fb6",
+    "finding_code": "5cb025ac22752e0fb5fb4739b609d579",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "A first-match parser cannot distinguish raw quoted Status or heading lines from handoff metadata."
+  },
+  {
+    "round_code": "516a5cca12ade878f2e8006b53e90fb6",
+    "finding_code": "f2bfcce7407f145f068c1034021476af",
+    "cause": "last-request-prompt-instruction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Last user request is emitted by transcript facts independently of the newly added instruction."
+  },
+  {
+    "round_code": "516a5cca12ade878f2e8006b53e90fb6",
+    "finding_code": "e52533c21100284249ac1c1cf5c43c91",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The required raw quote precedes Status, allowing quoted lines to control the displayed status."
+  },
+  {
+    "round_code": "516a5cca12ade878f2e8006b53e90fb6",
+    "finding_code": "ce53f9b885ce28f0d91634c95a830d05",
+    "cause": "inference-rule-section-coverage-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A single assertion over the full prompt cannot protect both required section-local copies."
+  },
+  {
+    "round_code": "516a5cca12ade878f2e8006b53e90fb6",
+    "finding_code": "d2497ab031f59134cf65e4f80a867373",
+    "cause": "missing-none-request-policy",
+    "basis": "none yet",
+    "verdict": "unclear",
+    "severity_agree": false,
+    "note": "The fallback fact explicitly says None, but the code does not establish that choosing an allowed status is incorrect."
+  },
+  {
+    "round_code": "52ef4ccc3709b401013dc688fd39948f",
+    "finding_code": "abf76310d0261c9af978d0a4d2f96837",
+    "cause": "last-request-boundary-regression-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The fixture has no Last request section and therefore does not reach the boundary guard it claims to cover."
+  },
+  {
+    "round_code": "52ef4ccc3709b401013dc688fd39948f",
+    "finding_code": "e364c9069f15de6dddcd5fff435d91a9",
+    "cause": "last-request-prompt-instruction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The checked label is supplied by the facts block even when the new instruction is absent."
+  },
+  {
+    "round_code": "52ef4ccc3709b401013dc688fd39948f",
+    "finding_code": "eea95bd163a573478953bd5367f03f84",
+    "cause": "last-request-boundary-regression-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "All current fixtures remain equivalent when the next-heading exit is removed."
+  },
+  {
+    "round_code": "52ef4ccc3709b401013dc688fd39948f",
+    "finding_code": "855c1005537255b1774457a524bcd636",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The raw quote can contain either parser sentinel before the generated status line."
+  },
+  {
+    "round_code": "52ef4ccc3709b401013dc688fd39948f",
+    "finding_code": "2380cc81465830e41d4ffaeeaea9d4c5",
+    "cause": "last-request-boundary-regression-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "No test has a Last request section without Status followed by a later Status line."
+  },
+  {
+    "round_code": "52ef4ccc3709b401013dc688fd39948f",
+    "finding_code": "beedb859be0acc5957e7ce8ff8ea1720",
+    "cause": "inference-rule-section-coverage-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "One global occurrence check does not establish the rule remains in both required sections."
+  },
+  {
+    "round_code": "52ef4ccc3709b401013dc688fd39948f",
+    "finding_code": "5d3a67b4b06765537d5627673a998921",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The test input omits the multi-line quote condition that exposes the parser defect."
+  },
+  {
+    "round_code": "52ef4ccc3709b401013dc688fd39948f",
+    "finding_code": "0a5f5e86602becb5122d09a6d137d537",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "A verbatim quote can introduce an eligible Status line or heading before the intended metadata."
+  },
+  {
+    "round_code": "52ef4ccc3709b401013dc688fd39948f",
+    "finding_code": "ed0d13204aacc929f5865d0e347afeed",
+    "cause": "verbatim-quote-word-cap-conflict",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new mandatory quote can itself exceed the unchanged cap with no precedence instruction."
+  },
+  {
+    "round_code": "6b07ea04f61e6df4b60a3cba8ee90b60",
+    "finding_code": "c748431c95f539f87484c47cc83df14c",
+    "cause": "last-request-boundary-regression-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The parser boundary is not exercised by a later-section Status after an entered Last request section."
+  },
+  {
+    "round_code": "6b07ea04f61e6df4b60a3cba8ee90b60",
+    "finding_code": "3ebfc0126b1dc0dcbbc499d8350d9afb",
+    "cause": "last-request-prompt-instruction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The loose assertions do not prove the new instruction or parser-facing Last request layout."
+  },
+  {
+    "round_code": "6b07ea04f61e6df4b60a3cba8ee90b60",
+    "finding_code": "1bddd6685c19e221ba3898082128a496",
+    "cause": "redundant-additional-context-test",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "50902 verifies a distinct response field with an exact equality check, so it is not a duplicate of 50901."
+  },
+  {
+    "round_code": "6b07ea04f61e6df4b60a3cba8ee90b60",
+    "finding_code": "2c6f8daa94e8c3d6099cecf798647ed6",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The parser scans raw quote lines as eligible status metadata before the generated Status line."
+  },
+  {
+    "round_code": "6b07ea04f61e6df4b60a3cba8ee90b60",
+    "finding_code": "7d1febd58c8965eb3bde9a3b49ab4194",
+    "cause": "last-request-boundary-regression-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The current cases do not detect removal of the only rule that stops scanning at the following section."
+  },
+  {
+    "round_code": "6b07ea04f61e6df4b60a3cba8ee90b60",
+    "finding_code": "941899dd6796b66dc2ea45ad7e0a9eb5",
+    "cause": "last-request-boundary-regression-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The no-Last-request negative case tests section entry, not its termination."
+  },
+  {
+    "round_code": "6b07ea04f61e6df4b60a3cba8ee90b60",
+    "finding_code": "84e667da1dd47bbb78729da9bd131046",
+    "cause": "inference-rule-section-coverage-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The whole-prompt check remains green if either required section loses its copy."
+  },
+  {
+    "round_code": "6b07ea04f61e6df4b60a3cba8ee90b60",
+    "finding_code": "aca883e69828e65a8c6142d2f7188c79",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The layout exposes parser sentinels from a verbatim quote before the actual status."
+  },
+  {
+    "round_code": "6b07ea04f61e6df4b60a3cba8ee90b60",
+    "finding_code": "fe0f70f3e4704436631ce7ef1b4c05e3",
+    "cause": "verbatim-quote-word-cap-conflict",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The mandatory long quote and 400-word cap cannot both be satisfied for some permitted input."
+  },
+  {
+    "round_code": "75635383e08ad15059094fdfa1b8cbf4",
+    "finding_code": "6e214d192ec0d70e8927f8f68e6a9943",
+    "cause": "last-request-boundary-regression-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "No existing fixture distinguishes the next-heading exit from a scan into Key Details."
+  },
+  {
+    "round_code": "75635383e08ad15059094fdfa1b8cbf4",
+    "finding_code": "76f238aaf2498a3faa87624d8df69d4d",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Raw multiline quote content can be accepted as the first status or terminate parsing before it."
+  },
+  {
+    "round_code": "75635383e08ad15059094fdfa1b8cbf4",
+    "finding_code": "70644df30800800f7433c73684bc7411",
+    "cause": "last-request-prompt-instruction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The current substrings do not bind the new instructions to the Last request section or exact parser-facing line shape."
+  },
+  {
+    "round_code": "75635383e08ad15059094fdfa1b8cbf4",
+    "finding_code": "02a727dd98897ec0e501c5f74ee5db77",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A quote line starting with Status or a heading is indistinguishable from structural metadata to the awk parser."
+  },
+  {
+    "round_code": "75635383e08ad15059094fdfa1b8cbf4",
+    "finding_code": "dee1253eaaf54ab0ef85cbfc42be8e1e",
+    "cause": "inference-rule-section-coverage-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "One occurrence search leaves either section’s required inference rule removable without a test failure."
+  },
+  {
+    "round_code": "75635383e08ad15059094fdfa1b8cbf4",
+    "finding_code": "909bd936ecc754019a0119de89767ce1",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The first eligible Status line can come from the operator quote rather than the extractor result."
+  },
+  {
+    "round_code": "75635383e08ad15059094fdfa1b8cbf4",
+    "finding_code": "4775038a943e889d65c82b0b34d034df",
+    "cause": "inference-rule-section-coverage-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The test has no section-local assertion and therefore permits loss of either required instruction."
+  },
+  {
+    "round_code": "75635383e08ad15059094fdfa1b8cbf4",
+    "finding_code": "836771b2098b2c5fb2af27820b72b912",
+    "cause": "verbatim-quote-word-cap-conflict",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The prompt leaves a required long verbatim quote in direct conflict with the overall word limit."
+  },
+  {
+    "round_code": "75635383e08ad15059094fdfa1b8cbf4",
+    "finding_code": "0a704fa6e0142824835afd6708b8810d",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The tested single-line quote does not cover quote-provided headings or eligible Status values."
+  },
+  {
+    "round_code": "75635383e08ad15059094fdfa1b8cbf4",
+    "finding_code": "f38cfe1c012b8e8b64cc2660680b68d8",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The test omits the exact quoted Status condition that causes incorrect operator output."
+  },
+  {
+    "round_code": "75635383e08ad15059094fdfa1b8cbf4",
+    "finding_code": "39810f5c800b2343121fa86303b90ce8",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The prompt does not delimit raw quote lines that the parser treats as structural input."
+  },
+  {
+    "round_code": "75635383e08ad15059094fdfa1b8cbf4",
+    "finding_code": "62f2c003f31b53054c93e8e419f33231",
+    "cause": "status-line-format-ambiguous",
+    "basis": "none yet",
+    "verdict": "unclear",
+    "severity_agree": false,
+    "note": "The shown Status template can reasonably be read as requiring exactly one bare allowed value, so a formatting failure is not established."
+  },
+  {
+    "round_code": "75635383e08ad15059094fdfa1b8cbf4",
+    "finding_code": "aef017c4cff2f278b14753596c436c01",
+    "cause": "verbatim-quote-word-cap-conflict",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The mandatory quote can exceed the retained global cap and the prompt provides no priority rule."
+  },
+  {
+    "round_code": "75d1cc4bae1ecb06fc05ce5de9f5ccff",
+    "finding_code": "93f419939e2e3fdcfaab49979ebf845c",
+    "cause": "last-request-prompt-instruction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The facts block makes the asserted label present regardless of the new Last request instruction."
+  },
+  {
+    "round_code": "75d1cc4bae1ecb06fc05ce5de9f5ccff",
+    "finding_code": "02df127601682b898c7a0d554bb53fa4",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "Verbatim raw multiline content can match either parser control pattern before the generated Status line."
+  },
+  {
+    "round_code": "75d1cc4bae1ecb06fc05ce5de9f5ccff",
+    "finding_code": "c7dc2fcdb850c50cfb5ba57a6e9c557a",
+    "cause": "last-request-boundary-regression-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "No added case reaches the section-end rule with a later Status line to reject."
+  },
+  {
+    "round_code": "75d1cc4bae1ecb06fc05ce5de9f5ccff",
+    "finding_code": "11b51c244ad5273dd1ceb0b411f336cc",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "Without framing, the operator’s quote can alter the parser’s section and status decisions."
+  },
+  {
+    "round_code": "75d1cc4bae1ecb06fc05ce5de9f5ccff",
+    "finding_code": "be4dd01ffe1eef891dc2a4e6d1fa7c65",
+    "cause": "inference-rule-section-coverage-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A whole-prompt occurrence check does not prove each mandated section retains the rule."
+  },
+  {
+    "round_code": "75d1cc4bae1ecb06fc05ce5de9f5ccff",
+    "finding_code": "8c541bd5dadfa9f39a1c8f1841108300",
+    "cause": "verbatim-quote-word-cap-conflict",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A long verbatim fact can exceed the handoff cap without any stated exception or truncation policy."
+  },
+  {
+    "round_code": "75d1cc4bae1ecb06fc05ce5de9f5ccff",
+    "finding_code": "5134af37413100cc92b1ee3422fabf64",
+    "cause": "missing-none-request-policy",
+    "basis": "none yet",
+    "verdict": "unclear",
+    "severity_agree": false,
+    "note": "The facts fallback is explicit, but the code does not establish that an allowed status for it is a defect."
+  },
+  {
+    "round_code": "75d1cc4bae1ecb06fc05ce5de9f5ccff",
+    "finding_code": "0aeb19c9de7ef7f281838820053e839a",
+    "cause": "status-line-format-ambiguous",
+    "basis": "none yet",
+    "verdict": "unclear",
+    "severity_agree": false,
+    "note": "The bracketed template already specifies an exact allowed value and does not establish the claimed output variant."
+  },
+  {
+    "round_code": "92feb55702b175098fc6bd7918da515e",
+    "finding_code": "8bac902a5dd837b397624c473bf80cc6",
+    "cause": "last-request-boundary-regression-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The existing fixtures cannot distinguish deletion of the section-end guard."
+  },
+  {
+    "round_code": "92feb55702b175098fc6bd7918da515e",
+    "finding_code": "857aae0936b09c1ab80fa12cc0c7eb5e",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The first-match scan reaches unframed quote content before the intended generated status."
+  },
+  {
+    "round_code": "92feb55702b175098fc6bd7918da515e",
+    "finding_code": "707af80ea9847255ba41021f34780107",
+    "cause": "verbatim-quote-word-cap-conflict",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The required quote and total word cap have no precedence for valid long input."
+  },
+  {
+    "round_code": "92feb55702b175098fc6bd7918da515e",
+    "finding_code": "d74a3bb82426b068bd2f060adc9404bb",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The prompt-side layout makes the raw quote capable of controlling parser output."
+  },
+  {
+    "round_code": "92feb55702b175098fc6bd7918da515e",
+    "finding_code": "b9756e9d0f21866693d60567b336cea7",
+    "cause": "unframed-last-request-status-spoofing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The test does not cover the quote-provided Status condition that produces a wrong displayed status."
+  },
+  {
+    "round_code": "92feb55702b175098fc6bd7918da515e",
+    "finding_code": "c50db80e48ddefa68853e898bb2035af",
+    "cause": "additional-context-trailing-newline-loss",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Command substitution strips trailing newlines before additionalContext, and the new equality test does not exercise that pre-existing loss."
+  },
+  {
+    "round_code": "92feb55702b175098fc6bd7918da515e",
+    "finding_code": "c27d2728183a160c113e4610060f6499",
+    "cause": "last-request-boundary-regression-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "A status-less Last request followed by a later Status is absent, leaving the boundary guard untested."
+  },
+  {
+    "round_code": "92feb55702b175098fc6bd7918da515e",
+    "finding_code": "5c6162434a0644caae18d294298b7755",
+    "cause": "last-request-prompt-instruction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The current checks are satisfied by unrelated text and do not protect the parser-facing prompt contract."
+  },
+  {
+    "round_code": "92feb55702b175098fc6bd7918da515e",
+    "finding_code": "31071a58d1e68d1db5983797a791d3d3",
+    "cause": "accepted-status-variants-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Only one of the three allow-listed status values is verified in the displayed output."
+  },
+  {
+    "round_code": "92feb55702b175098fc6bd7918da515e",
+    "finding_code": "38b1426e2dbea6b70560d50a5d6e8800",
+    "cause": "verbatim-quote-word-cap-conflict",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "A mandatory quote may alone exceed the retained cap, with no defined resolution."
+  },
+  {
+    "round_code": "92feb55702b175098fc6bd7918da515e",
+    "finding_code": "805e379ce85c062065edb485c2e6febe",
+    "cause": "missing-none-request-policy",
+    "basis": "none yet",
+    "verdict": "unclear",
+    "severity_agree": false,
+    "note": "The fallback fact is clear but no code path proves that an allowed status in this case is wrong."
+  }
+]

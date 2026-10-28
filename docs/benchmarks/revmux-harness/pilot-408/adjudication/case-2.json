@@ -1,0 +1,695 @@
+[
+  {
+    "round_code": "0d937e4350b77d2b6f12b32274344967",
+    "finding_code": "fb7b4cd66f4c04c2ecdfe22334c4ef15",
+    "cause": "enqueue-refusal-exit-code",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "0d937e4350b77d2b6f12b32274344967",
+    "finding_code": "feadf044e0b4ab493369abac0bbfe8ec",
+    "cause": "effect-polling-idiom-violation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new polling loop manually schedules sleeps instead of using the repository-required Effect polling form."
+  },
+  {
+    "round_code": "0d937e4350b77d2b6f12b32274344967",
+    "finding_code": "f70e52a215b2bc7c7d290c8ca29517b4",
+    "cause": "unquoted-follow-up-arguments",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The printed command loses a workspace name containing spaces when pasted into a shell."
+  },
+  {
+    "round_code": "23faa51aea9d98d65ca951040bb152b1",
+    "finding_code": "ae5b5efaaab1fc7d4e836f196aa8b1c8",
+    "cause": "verdict-refusal-hides-auth-errors",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Credential and session failures are classified as an unavailable engine verdict and lose their actionable remedy."
+  },
+  {
+    "round_code": "23faa51aea9d98d65ca951040bb152b1",
+    "finding_code": "9a4a557b5b1c8fe870d6b11912fae9c6",
+    "cause": "verdict-refusal-hides-auth-errors",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Credential and session failures are classified as an unavailable engine verdict and lose their actionable remedy."
+  },
+  {
+    "round_code": "23faa51aea9d98d65ca951040bb152b1",
+    "finding_code": "11d06ec307f0d4134c1cd87a19a1da20",
+    "cause": "json-output-envelope-break",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The changed test command emits the bare version object rather than its prior documented response envelope."
+  },
+  {
+    "round_code": "23faa51aea9d98d65ca951040bb152b1",
+    "finding_code": "fce5f477ca2a5ecba80556f93e15d17f",
+    "cause": "untested-hint-loses-target",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The untested follow-up omits the selected workspace/session and version, so it may run the wrong command."
+  },
+  {
+    "round_code": "23faa51aea9d98d65ca951040bb152b1",
+    "finding_code": "f100ee203f02ae94059de029a7987d25",
+    "cause": "invalid-code-pull-documentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "23faa51aea9d98d65ca951040bb152b1",
+    "finding_code": "f0ce720f244f077a7e73edb3d58c83b1",
+    "cause": "repeated-workspace-overview-fetch",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Each unattached list poll reloads the overview before resolving the same workspace."
+  },
+  {
+    "round_code": "23faa51aea9d98d65ca951040bb152b1",
+    "finding_code": "9e08236a137286f5542433b4c986cf49",
+    "cause": "no-op-verdict-error-handler",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The catchTag handler re-fails with the same error and has no runtime effect."
+  },
+  {
+    "round_code": "37dedaa3f4af90fc5f3c0c680ef87955",
+    "finding_code": "adbd2902c50cb12dd3f3216fb7993c99",
+    "cause": "verdict-refusal-hides-auth-errors",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Credential and session failures are classified as an unavailable engine verdict and lose their actionable remedy."
+  },
+  {
+    "round_code": "37dedaa3f4af90fc5f3c0c680ef87955",
+    "finding_code": "44e2fca52be41cc2d87d8d5676516d70",
+    "cause": "no-wait-queue-success",
+    "basis": "reproduced defect",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The no-wait branch reports successful queueing rather than a final test verdict."
+  },
+  {
+    "round_code": "37dedaa3f4af90fc5f3c0c680ef87955",
+    "finding_code": "d6f161d958b7ed48880d2fa31f6b6446",
+    "cause": "enqueue-refusal-exit-code",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "37dedaa3f4af90fc5f3c0c680ef87955",
+    "finding_code": "745048fb98e7fd35dcf27acf5a5c3653",
+    "cause": "untested-hint-loses-target",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The untested follow-up omits the selected workspace/session and version, so it may run the wrong command."
+  },
+  {
+    "round_code": "37dedaa3f4af90fc5f3c0c680ef87955",
+    "finding_code": "2e4d4c502911fb79295c386b0148cf03",
+    "cause": "verdict-refusal-hides-auth-errors",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Credential and session failures are classified as an unavailable engine verdict and lose their actionable remedy."
+  },
+  {
+    "round_code": "37dedaa3f4af90fc5f3c0c680ef87955",
+    "finding_code": "2efe217fa23c2651bf7f6195850c8e1f",
+    "cause": "status-initial-read-deadline",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The first status read is canceled at an already-expired deadline and reported as pending."
+  },
+  {
+    "round_code": "37dedaa3f4af90fc5f3c0c680ef87955",
+    "finding_code": "d7005db939b7d85e6f4387cfbe803ac3",
+    "cause": "json-output-envelope-break",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The changed test command emits the bare version object rather than its prior documented response envelope."
+  },
+  {
+    "round_code": "37dedaa3f4af90fc5f3c0c680ef87955",
+    "finding_code": "c5749abe68ac29c226ab254be4a5058d",
+    "cause": "enqueue-refusal-exit-code",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "37dedaa3f4af90fc5f3c0c680ef87955",
+    "finding_code": "bef19bd868c5a711ea98e3bc1c3cb19e",
+    "cause": "poll-misses-deadline-verdict",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": null,
+    "note": "The loop sleeps to its deadline then exits before a final read, missing verdicts that settle during the last interval."
+  },
+  {
+    "round_code": "37dedaa3f4af90fc5f3c0c680ef87955",
+    "finding_code": "ae61f91b6776b54cb09d923c87d68884",
+    "cause": "verdict-refusal-hides-auth-errors",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Credential and session failures are classified as an unavailable engine verdict and lose their actionable remedy."
+  },
+  {
+    "round_code": "37dedaa3f4af90fc5f3c0c680ef87955",
+    "finding_code": "3b2fbd30c3949994b4c00858356660f2",
+    "cause": "json-output-envelope-break",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The changed test command emits the bare version object rather than its prior documented response envelope."
+  },
+  {
+    "round_code": "37dedaa3f4af90fc5f3c0c680ef87955",
+    "finding_code": "8254382f050db4c1d86e5b15619531c7",
+    "cause": "untested-hint-loses-target",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The untested follow-up omits the selected workspace/session and version, so it may run the wrong command."
+  },
+  {
+    "round_code": "37dedaa3f4af90fc5f3c0c680ef87955",
+    "finding_code": "414761f3fe2f47a478354ed4a4870813",
+    "cause": "verdict-refusal-hides-auth-errors",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Credential and session failures are classified as an unavailable engine verdict and lose their actionable remedy."
+  },
+  {
+    "round_code": "37dedaa3f4af90fc5f3c0c680ef87955",
+    "finding_code": "4c4acce1f60f29e8c8a536ace6096160",
+    "cause": "enqueue-refusal-exit-code",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "37dedaa3f4af90fc5f3c0c680ef87955",
+    "finding_code": "4aa8051ea314170dafb9dbac6af69be8",
+    "cause": "repeated-workspace-overview-fetch",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Each unattached list poll reloads the overview before resolving the same workspace."
+  },
+  {
+    "round_code": "41f1b3bef173bc795eb76881dc79108c",
+    "finding_code": "5401d0f6b0f2e1b4905137871a7d1ce2",
+    "cause": "tree-test-location-documentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "41f1b3bef173bc795eb76881dc79108c",
+    "finding_code": "952aa03d28691f051550d69448de3ddd",
+    "cause": "unquoted-follow-up-arguments",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The printed command loses a workspace name containing spaces when pasted into a shell."
+  },
+  {
+    "round_code": "41f1b3bef173bc795eb76881dc79108c",
+    "finding_code": "b79fd3c93fb8c278bf9c7de21ec21670",
+    "cause": "tree-test-location-documentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "4ecff79983959c5865a3349c54ab8449",
+    "finding_code": "4906d89dea146c3a9c15c53343ae65ec",
+    "cause": "enqueue-refusal-exit-code",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "4ecff79983959c5865a3349c54ab8449",
+    "finding_code": "f8e902c8a09fa00d79b4d9e90bd2dfe6",
+    "cause": "no-wait-queue-success",
+    "basis": "reproduced defect",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The no-wait branch reports successful queueing rather than a final test verdict."
+  },
+  {
+    "round_code": "4ecff79983959c5865a3349c54ab8449",
+    "finding_code": "7900e5c9b87219c106aaa821b16bc2cc",
+    "cause": "poll-misses-deadline-verdict",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": null,
+    "note": "The loop sleeps to its deadline then exits before a final read, missing verdicts that settle during the last interval."
+  },
+  {
+    "round_code": "4ecff79983959c5865a3349c54ab8449",
+    "finding_code": "75f28c189ef0113e9733dcadf6802087",
+    "cause": "verdict-refusal-hides-auth-errors",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Credential and session failures are classified as an unavailable engine verdict and lose their actionable remedy."
+  },
+  {
+    "round_code": "4ecff79983959c5865a3349c54ab8449",
+    "finding_code": "4458c3dc0482e00d6172716d817c25d0",
+    "cause": "effect-polling-idiom-violation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new polling loop manually schedules sleeps instead of using the repository-required Effect polling form."
+  },
+  {
+    "round_code": "4ecff79983959c5865a3349c54ab8449",
+    "finding_code": "baa85bbaa02c00c4725c90981f559cbb",
+    "cause": "no-wait-queue-success",
+    "basis": "reproduced defect",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The no-wait branch reports successful queueing rather than a final test verdict."
+  },
+  {
+    "round_code": "4ecff79983959c5865a3349c54ab8449",
+    "finding_code": "899d9c2ce2603dd2419a5acbfe747f82",
+    "cause": "verdict-refusal-hides-auth-errors",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Credential and session failures are classified as an unavailable engine verdict and lose their actionable remedy."
+  },
+  {
+    "round_code": "4ecff79983959c5865a3349c54ab8449",
+    "finding_code": "6a791839043516ee8d84f92b1f79c488",
+    "cause": "refusal-test-misses-retry-cause",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The 401 fixture reaches the message-regex path after refresh failure rather than the rejected-credential cause path."
+  },
+  {
+    "round_code": "4ecff79983959c5865a3349c54ab8449",
+    "finding_code": "54505f8e986eeb4e5e5c08deb4c1ddc7",
+    "cause": "untested-hint-loses-target",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The untested follow-up omits the selected workspace/session and version, so it may run the wrong command."
+  },
+  {
+    "round_code": "4ecff79983959c5865a3349c54ab8449",
+    "finding_code": "f76e6f2848b9536e191ce3dba8352503",
+    "cause": "json-output-envelope-break",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The changed test command emits the bare version object rather than its prior documented response envelope."
+  },
+  {
+    "round_code": "4ecff79983959c5865a3349c54ab8449",
+    "finding_code": "717023c32559d38006ccffd87dd68867",
+    "cause": "poll-misses-deadline-verdict",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The loop sleeps to its deadline then exits before a final read, missing verdicts that settle during the last interval."
+  },
+  {
+    "round_code": "4ecff79983959c5865a3349c54ab8449",
+    "finding_code": "0a5f203c4d3bade652830be81398030f",
+    "cause": "enqueue-refusal-exit-code",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "4ecff79983959c5865a3349c54ab8449",
+    "finding_code": "11d50ac395fa36ad4882b85bc8b68b13",
+    "cause": "no-op-verdict-error-handler",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The catchTag handler re-fails with the same error and has no runtime effect."
+  },
+  {
+    "round_code": "4ecff79983959c5865a3349c54ab8449",
+    "finding_code": "1436a25ac539f89355ceb25aac15b611",
+    "cause": "docs-omit-new-code-verbs",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The documentation introduces status in prose but omits its syntax and flags from the primary verb synopses."
+  },
+  {
+    "round_code": "750ac083ebc716b4e5a40bcd3af1abbb",
+    "finding_code": "eecd5dcee4713398ae41e098af27bf10",
+    "cause": "invalid-code-pull-documentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "95df236218331d912cda350cdd0f3aaf",
+    "finding_code": "ff45701528354373fe33147179daff24",
+    "cause": "status-initial-read-deadline",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The first status read is canceled at an already-expired deadline and reported as pending."
+  },
+  {
+    "round_code": "95df236218331d912cda350cdd0f3aaf",
+    "finding_code": "589fcef182f23b9504d37eb694b33100",
+    "cause": "enqueue-refusal-exit-code",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "95df236218331d912cda350cdd0f3aaf",
+    "finding_code": "cccb1eb9deb372ff4b128f6588d06d9d",
+    "cause": "poll-misses-deadline-verdict",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": null,
+    "note": "The loop sleeps to its deadline then exits before a final read, missing verdicts that settle during the last interval."
+  },
+  {
+    "round_code": "95df236218331d912cda350cdd0f3aaf",
+    "finding_code": "b8291b6100a068d182289ba946c59c08",
+    "cause": "verdict-refusal-hides-auth-errors",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Credential and session failures are classified as an unavailable engine verdict and lose their actionable remedy."
+  },
+  {
+    "round_code": "95df236218331d912cda350cdd0f3aaf",
+    "finding_code": "8b199c7c7d42a2581aa0830ee5fcbc03",
+    "cause": "json-output-envelope-break",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The changed test command emits the bare version object rather than its prior documented response envelope."
+  },
+  {
+    "round_code": "95df236218331d912cda350cdd0f3aaf",
+    "finding_code": "bb99a2dec700824fb10348d3ce938f82",
+    "cause": "effect-polling-idiom-violation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new polling loop manually schedules sleeps instead of using the repository-required Effect polling form."
+  },
+  {
+    "round_code": "95df236218331d912cda350cdd0f3aaf",
+    "finding_code": "6ca081ee9011da7714ddce897a499b17",
+    "cause": "json-output-envelope-break",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The changed test command emits the bare version object rather than its prior documented response envelope."
+  },
+  {
+    "round_code": "95df236218331d912cda350cdd0f3aaf",
+    "finding_code": "08a77cba4a46abc79d817d1c6683e4ba",
+    "cause": "verdict-refusal-hides-auth-errors",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Credential and session failures are classified as an unavailable engine verdict and lose their actionable remedy."
+  },
+  {
+    "round_code": "95df236218331d912cda350cdd0f3aaf",
+    "finding_code": "2306f8bfac828662afd77791e71581c6",
+    "cause": "poll-misses-deadline-verdict",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The loop sleeps to its deadline then exits before a final read, missing verdicts that settle during the last interval."
+  },
+  {
+    "round_code": "95df236218331d912cda350cdd0f3aaf",
+    "finding_code": "31a6b319724c313a8c40cdffa58990e0",
+    "cause": "verdict-refusal-hides-auth-errors",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Credential and session failures are classified as an unavailable engine verdict and lose their actionable remedy."
+  },
+  {
+    "round_code": "95df236218331d912cda350cdd0f3aaf",
+    "finding_code": "4c97797f7b9afd8ece3057b86a5c0497",
+    "cause": "poll-misses-deadline-verdict",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The loop sleeps to its deadline then exits before a final read, missing verdicts that settle during the last interval."
+  },
+  {
+    "round_code": "95df236218331d912cda350cdd0f3aaf",
+    "finding_code": "3925c3aa84a61db996150ecb84464bb8",
+    "cause": "no-op-verdict-error-handler",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The catchTag handler re-fails with the same error and has no runtime effect."
+  },
+  {
+    "round_code": "95df236218331d912cda350cdd0f3aaf",
+    "finding_code": "13090844be15702d0d9026eb7e97abd1",
+    "cause": "regression-test-oracle-unverified",
+    "basis": "none yet",
+    "verdict": "unclear",
+    "severity_agree": false,
+    "note": "The frozen code shows the test exists but cannot show whether it failed against the regression."
+  },
+  {
+    "round_code": "95df236218331d912cda350cdd0f3aaf",
+    "finding_code": "1f939aeaab8e41e5af4d1fa775c59342",
+    "cause": "tree-test-location-documentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "bf2108a690d68a83fe94224de3ebe41d",
+    "finding_code": "89ac8482f5c4e74202550e1e9f1cc959",
+    "cause": "verdict-refusal-hides-auth-errors",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Credential and session failures are classified as an unavailable engine verdict and lose their actionable remedy."
+  },
+  {
+    "round_code": "bf2108a690d68a83fe94224de3ebe41d",
+    "finding_code": "5403bbaf6a0bb2c6c183268b274c41d2",
+    "cause": "no-op-verdict-error-handler",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The catchTag handler re-fails with the same error and has no runtime effect."
+  },
+  {
+    "round_code": "bf2108a690d68a83fe94224de3ebe41d",
+    "finding_code": "929c137dcd3e8595c50f5ae817827f51",
+    "cause": "verdict-refusal-hides-auth-errors",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Credential and session failures are classified as an unavailable engine verdict and lose their actionable remedy."
+  },
+  {
+    "round_code": "bf2108a690d68a83fe94224de3ebe41d",
+    "finding_code": "ac8cdcb79078e55009ea938c376afde8",
+    "cause": "tree-test-location-documentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "bf2108a690d68a83fe94224de3ebe41d",
+    "finding_code": "08ed345a35baee395f6a02417a7d346b",
+    "cause": "invalid-code-pull-documentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "bf2108a690d68a83fe94224de3ebe41d",
+    "finding_code": "db155f2849e15275bb5c82a67ff8a852",
+    "cause": "poll-misses-deadline-verdict",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": null,
+    "note": "The loop sleeps to its deadline then exits before a final read, missing verdicts that settle during the last interval."
+  },
+  {
+    "round_code": "bf2108a690d68a83fe94224de3ebe41d",
+    "finding_code": "e50e8e6399c5b565b29e4260b00d8da4",
+    "cause": "json-output-envelope-break",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The changed test command emits the bare version object rather than its prior documented response envelope."
+  },
+  {
+    "round_code": "bf2108a690d68a83fe94224de3ebe41d",
+    "finding_code": "e7e5d1522672cf20c8d2d2dc37520286",
+    "cause": "verdict-refusal-hides-auth-errors",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Credential and session failures are classified as an unavailable engine verdict and lose their actionable remedy."
+  },
+  {
+    "round_code": "bf2108a690d68a83fe94224de3ebe41d",
+    "finding_code": "bd7eaa89918a0d4327d6accfb3c68cef",
+    "cause": "repeated-workspace-overview-fetch",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Each unattached list poll reloads the overview before resolving the same workspace."
+  },
+  {
+    "round_code": "bf2108a690d68a83fe94224de3ebe41d",
+    "finding_code": "5c7ed648a8653d43465d1057b7ea4682",
+    "cause": "docs-omit-new-code-verbs",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The documentation introduces status in prose but omits its syntax and flags from the primary verb synopses."
+  },
+  {
+    "round_code": "bf2108a690d68a83fe94224de3ebe41d",
+    "finding_code": "946fad3c4642dda308fdde61ae51f946",
+    "cause": "tree-test-location-documentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "dcb4fbd0d7cb5b79672d54b08f9baffd",
+    "finding_code": "94c50e409dd1fdc9ec2a1adc9099d569",
+    "cause": "verdict-refusal-hides-auth-errors",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Credential and session failures are classified as an unavailable engine verdict and lose their actionable remedy."
+  },
+  {
+    "round_code": "dcb4fbd0d7cb5b79672d54b08f9baffd",
+    "finding_code": "48a78478cb38808e0b8da144f6161222",
+    "cause": "no-op-verdict-error-handler",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The catchTag handler re-fails with the same error and has no runtime effect."
+  },
+  {
+    "round_code": "dcb4fbd0d7cb5b79672d54b08f9baffd",
+    "finding_code": "97e7cdc923db8d7c037326a6b57e13a1",
+    "cause": "effect-polling-idiom-violation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new polling loop manually schedules sleeps instead of using the repository-required Effect polling form."
+  },
+  {
+    "round_code": "dcb4fbd0d7cb5b79672d54b08f9baffd",
+    "finding_code": "3f03cb1d725d13f0d0f296d10cfbf6fa",
+    "cause": "unquoted-follow-up-arguments",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The printed command loses a workspace name containing spaces when pasted into a shell."
+  },
+  {
+    "round_code": "dcb4fbd0d7cb5b79672d54b08f9baffd",
+    "finding_code": "9a412352d17707dfa63cdbc305600690",
+    "cause": "docs-omit-new-code-verbs",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The documentation introduces status in prose but omits its syntax and flags from the primary verb synopses."
+  },
+  {
+    "round_code": "dcb4fbd0d7cb5b79672d54b08f9baffd",
+    "finding_code": "96c423794546f788d60d0d82b13d6bb9",
+    "cause": "tree-test-location-documentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "dcb4fbd0d7cb5b79672d54b08f9baffd",
+    "finding_code": "1ffeddaf52d7d3a9a77553085dea547e",
+    "cause": "untested-hint-loses-target",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The untested follow-up omits the selected workspace/session and version, so it may run the wrong command."
+  },
+  {
+    "round_code": "dcb4fbd0d7cb5b79672d54b08f9baffd",
+    "finding_code": "2ddace085914b356464e463d0270e650",
+    "cause": "status-initial-read-deadline",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The first status read is canceled at an already-expired deadline and reported as pending."
+  },
+  {
+    "round_code": "dcb4fbd0d7cb5b79672d54b08f9baffd",
+    "finding_code": "1c5203c1639596b285cdeff4eef3863a",
+    "cause": "repeated-workspace-overview-fetch",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Each unattached list poll reloads the overview before resolving the same workspace."
+  }
+]
