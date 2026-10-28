@@ -46,7 +46,7 @@ Fill the spec template into `~/.claude/artifacts/<id>/spec.html` (pf-cycle → a
 - **Deferred deltas** — the explicit list `/pf-build` must produce, each with its expected artifact diff.
 - **Iteration ledger** — dated rounds: feedback → classification (missing-prior analysis) → what changed and where any prior landed.
 
-## Step 4 — Frontier review pass (opencode)
+## Step 4 — `high+` review pass (opencode)
 
 Before presenting each substantive revision to the user, run the contract spec past opencode on the **`high+` tier** of `~/.claude/shared/model-tiers.md` and fold in what survives your judgement. This review remains user-mandated on that tier. Implementation runs through the `tdd` chain, which owns its tiers.
 
@@ -56,7 +56,7 @@ The stdin redirect prevents `opencode run` from waiting for EOF. Add `--standalo
 (
   cd <epic worktree> || exit
   exec opencode run \
-    -m <the `high+` OpenCode model from ~/.claude/shared/model-tiers.md> \
+    -m <the `high+` OpenCode model and variant from ~/.claude/shared/model-tiers.md, as model#variant> \
     --standalone \
     -f <screenshot1.png> -f <screenshot2.png> ... \
     "<review prompt>"
@@ -84,7 +84,7 @@ wording. Report numbered findings, each with a severity, covering:
 5. Deploy risks the spec does not carry.
 ```
 
-Triage open-mindedly, but don't be a pushover — record accept/reject with reasons, and include a short "high+ review" section when presenting: each finding, accepted (and where it landed) or rejected (and why).
+Judge each finding on its merits: record accept/reject with reasons, and include a short "high+ review" section when presenting: each finding, accepted (and where it landed) or rejected (and why).
 
 ## Step 5 — Iterate with the user
 

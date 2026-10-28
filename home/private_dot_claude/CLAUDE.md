@@ -32,7 +32,7 @@ Use `code-review` by default; it runs the review loop and delegates fixes. When 
 
 For follow-up revmux rounds, use the **Follow-up profile selection** policy in `code-review` without a separate approval question. It preserves an explicit user profile choice.
 
-For revmux archive housekeeping, the thresholds are 300MB and 200MB: stay silent while `totals.size_mb` is under 300MB, and above it propose cleanup back to roughly 200MB. These replace the skill's 20MB and 10MB.
+For revmux archive housekeeping, the thresholds are 300MB and 200MB: stay silent while `totals.size_mb` is under 300MB, and above it propose cleanup back to roughly 200MB. These replace the archive thresholds in the `revmux` skill.
 
 </important>
 
@@ -72,9 +72,9 @@ Read `~/.claude/shared/pull-requests.md`. It carries the zero-context reviewer r
 
 </important>
 
-<important if="you are writing a report for me as a file, or building any HTML page or dashboard">
+<important if="you are writing a report for me as a file, or building an HTML page or dashboard for me to read">
 
-A report for me is an HTML page on the render kit. Every page built for me is published with the `agent-reports` skill, and the reply carries its viewer link, unless the project's instructions name another destination. A page a skill opens locally as its own working tool, such as a scratch view, a lesson or an eval viewer, is not a report and stays local. A `.md` file is for a deliverable that lives in a repository or that another agent reads. Read `~/.claude/shared/render-kit.md`. It carries the bare-semantic-HTML contract, the three markers `assemble.py` replaces with the kit's files, and how the assembled page publishes.
+A report for me is an HTML page on the render kit. Every page built for me is published with the `agent-reports` skill, and the reply carries its viewer link, unless the project's instructions name another destination. A page a skill opens locally as its own working tool stays local. A `.md` file is for a deliverable that lives in a repository or that another agent reads. Read `~/.claude/shared/render-kit.md`. It carries the bare-semantic-HTML contract, the three markers `assemble.py` replaces with the kit's files, and how the assembled page publishes.
 
 </important>
 
@@ -102,9 +102,9 @@ Read the `writing-for-agents` skill first.
 
 </important>
 
-## My rules beat upstream skills
+## Precedence
 
-Skills installed from upstream through the Skills CLI or a plugin are not edited here. Where one of them disagrees with this file or with `~/.claude/shared/`, this file wins: the reply language, one question at a time through the harness question tool, `commits.md` for commits, the `make-pr` template for a PR body, `agent-reports` for a page built for me, and the ADR location the project names.
+Skills installed from upstream through the Skills CLI or a plugin are not edited here. Where one of them disagrees with this file or with `~/.claude/shared/`, this file wins. A project's CLAUDE.md beats an upstream skill the same way.
 
 ## Executor MCP
 

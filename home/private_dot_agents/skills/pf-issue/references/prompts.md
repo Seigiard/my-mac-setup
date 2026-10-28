@@ -4,7 +4,7 @@ Fill the angle-bracket slots. Every prompt names the repo root as an absolute pa
 
 ## Current-state map (step 2, Explore agent on the `medium` tier of `~/.claude/shared/model-tiers.md`)
 
-The map only locates and quotes code, so run it on Sonnet.
+The map only locates and quotes code, which is why the tier is `medium`.
 
 ```
 You are mapping the current state for issue <ID> in the repo at <ROOT> (a git worktree; git works). Read ~/.claude/artifacts/<ID>/context.md first — it holds the issue text and what is already verified; correct it only with evidence. The frame at its top bounds your scope: map what its required claims need, and report any other finding as one line under Out of scope. Budget: about 60 tool calls.

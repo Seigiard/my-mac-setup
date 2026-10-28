@@ -1,6 +1,6 @@
 ---
 name: markdown-new
-description: "Read URLs and research web sources through curl-backed providers: markdown.new for URL-to-Markdown conversion, Tavily for API-backed web search, and DeepWiki for public GitHub repository documentation. Use when reading a known URL as Markdown, searching the web, or reading the documentation of a public GitHub repository."
+description: "Read a known URL as Markdown, search the web, or read a public GitHub repository's documentation through curl-backed providers (markdown.new, Tavily, DeepWiki). Use when a task needs any of those three."
 ---
 
 # Web research

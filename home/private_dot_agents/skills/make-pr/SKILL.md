@@ -80,7 +80,7 @@ The comment begins with the block from step 4, followed by one line: `Delivered 
 
 ### 8. Report
 
-Finish in the language used in the chat, in this order:
+Report in the chat language, in this order, then continue to step 9; in `describe` mode this report ends the run:
 
 1. **PR status:** PR URL, evidence (frame count and where they are hosted, or why none), issue comment URL or "no related issue", and what the user should do next. In `describe` mode, report the updated PR and omit checks and actions that mode did not run.
 2. **For the manager:** reuse the stakeholder block written into the PR in step 4. Translate it into the chat language when needed, preserving its meaning and claims.

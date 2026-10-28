@@ -9,7 +9,7 @@ argument-hint: "<issue URL or ID>"
 
 The defect entry to the pf cycle: `/pf-research` starts from a product change, `/pf-issue` starts from a reported issue. Both end at the same fork — `/pf-spec` when the fix changes a contract, `/pf-build` when it stays inside the contracts. Shared mechanics (artifact storage, Linear as opt-in, naming on public surfaces, language, missing-prior analysis): read `~/.claude/shared/pf-cycle.md` first; for the audit page and its frames also `~/.claude/shared/pf-cycle-narratives.md`. This step changes nothing in the repo and writes nothing to the tracker.
 
-Authority runs contracts → code → issue. Past audits confirmed the issue's complaint every time and found it incomplete every time: a stale number, a second symmetric leak, a wrong mechanism, a premise the contract itself contradicts. The audit's value is what the issue did not say and the fix direction it got wrong.
+Authority runs contracts → code → issue. The issue is a hypothesis: expect its symptom to be real and its cause, numbers, and fix direction to be incomplete. The audit's value is what the issue did not say.
 
 The artifact directory `~/.claude/artifacts/<ISSUE-ID>/` carries the state between steps — `issue-source.md` for the fetched issue, `context.md` for verified facts, `candidates.md` for the options, `issue.html` for the audit — and subagents read those files instead of re-researching.
 
@@ -66,7 +66,7 @@ Launch each validator with the validator prompt in `references/prompts.md` and `
 
 Re-verify against source only the findings that change a verdict (BROKEN, VIABLE WITH CHANGES), and only at the `file:line` the validator cites; reject with a reason. Take the rest as reported. A claim you cannot verify locally gets a research agent for the workaround before it is reported as open.
 
-Done when the recommended option carries a verdict you have re-verified, every required change is listed, and any visual prototype has its screenshot in the artifact directory.
+Done when the recommended option carries a validator verdict, every verdict-changing finding is checked against source at the cited `file:line`, every required change is listed, and any visual prototype has its screenshot in the artifact directory.
 
 ## 5. Report
 

@@ -17,13 +17,13 @@ If one of these paths does not exist, proceed silently. Do not suggest creating 
 ├── CONCEPTS.md
 ├── CONTEXT.md              # optional, created only when needed
 ├── docs/
-│   └── decisions/
+│   └── adr/
 │       ├── 0001-example-decision.md
 │       └── 0002-another-decision.md
 └── home/
 ```
 
-Architectural decisions belong in `docs/adr/`; do not create a parallel `docs/adr/` tree.
+Costly-to-reverse architecture decisions go to `docs/adr/` as minimal Architecture Decision Records with `Context`, `Considered options`, and `Decision` sections.
 
 ## Use the glossary's vocabulary
 

@@ -13,14 +13,14 @@ Summarize the user's completed Linear issues for a date range, in one of four ou
 
 - Convert relative ranges ("last week") to absolute dates.
 - Ask **only** when the period is genuinely unresolvable: no period stated at all, or an outright contradiction (e.g. "last week (12-17 jun)" when today is July). The brief is the exception to the first case: with no period stated, it covers the previous calendar week, Monday to Sunday.
-- If the period is clear — "last week", explicit dates, "this month" — resolve it and proceed. **Do not re-confirm, do not ask for approval.** State the resolved range in the output and move on.
+- If the period is clear — "last week", explicit dates, "this month" — resolve it and proceed. State the resolved range in the output and proceed.
 
 ### 2. Fetch completed issues
 
-`linear` is installed from the macOS Brewfile (`schpet/tap/linear`). When it is missing, use `bunx @schpet/linear-cli` — **not `npx`**: repo hooks in the Membrane platform checkout ban `npx` outright and the call fails before it runs. Query completed issues assigned to the user via GraphQL:
+`linear` comes from the macOS Brewfile (`schpet/tap/linear`). Without it, substitute `bunx @schpet/linear-cli` for `linear` in the commands below; `bunx` is the only runner the Membrane platform hooks admit.
 
 ```bash
-bunx @schpet/linear-cli api --variables-json '{"filter": {"assignee": {"isMe": {"eq": true}}, "completedAt": {"gte": "<START>T00:00:00Z", "lte": "<END>T23:59:59Z"}}}' <<'GRAPHQL' 2>/dev/null | grep -o '{"data".*' | jq '.data.issues.nodes'
+linear api --variables-json '{"filter": {"assignee": {"isMe": {"eq": true}}, "completedAt": {"gte": "<START>T00:00:00Z", "lte": "<END>T23:59:59Z"}}}' <<'GRAPHQL' 2>/dev/null | grep -o '{"data".*' | jq '.data.issues.nodes'
 query($filter: IssueFilter!) {
   issues(filter: $filter, first: 100) {
     nodes { identifier url title completedAt project { name } state { name } description attachments { nodes { title url sourceType } } }
@@ -29,7 +29,7 @@ query($filter: IssueFilter!) {
 GRAPHQL
 ```
 
-An attachment with `sourceType: "github"` is the issue's PR. The runner prints an install warning on first run that breaks `jq` — the `grep -o '{"data".*'` pipe strips it. Output can be large; if persisted to a file, extract per-issue title + first description lines with `jq` rather than reading raw.
+An attachment with `sourceType: "github"` is the issue's PR. On the `bunx` route the runner prints an install warning on first run that breaks `jq` — the `grep -o '{"data".*'` pipe strips it. Output can be large; if persisted to a file, extract per-issue title + first description lines with `jq` rather than reading raw.
 
 If exactly 100 nodes return, the window overflowed the page — narrow the range or page with `after`. Window boundaries are UTC: an issue closed late Friday local time may land in Saturday.
 
@@ -59,7 +59,7 @@ The focus changes the output shape: with a focus, the update is anchored on it (
 "Still ahead" must come from Linear state, never from re-reading the focus prose:
 
 ```bash
-bunx @schpet/linear-cli api --variables-json '{"filter": {"assignee": {"isMe": {"eq": true}}, "state": {"type": {"nin": ["completed", "canceled"]}}}}' <<'GRAPHQL' 2>/dev/null | grep -o '{"data".*' | jq -r '.data.issues.nodes[] | "\(.identifier) | \(.state.name) | \(.title)"'
+linear api --variables-json '{"filter": {"assignee": {"isMe": {"eq": true}}, "state": {"type": {"nin": ["completed", "canceled"]}}}}' <<'GRAPHQL' 2>/dev/null | grep -o '{"data".*' | jq -r '.data.issues.nodes[] | "\(.identifier) | \(.state.name) | \(.title)"'
 query($filter: IssueFilter!) {
   issues(filter: $filter, first: 100) {
     nodes { identifier title state { name } }
@@ -71,7 +71,7 @@ GRAPHQL
 **When the focus text names a problem that appears in neither list, search before claiming it is untracked** — it was probably closed just outside the window:
 
 ```bash
-bunx @schpet/linear-cli api --variables-json '{"q": "<keyword>"}' <<'GRAPHQL' 2>/dev/null | grep -o '{"data".*' | jq -r '.data.searchIssues.nodes[] | "\(.identifier) | \(.state.name) | \(.completedAt // "-") | \(.assignee.name // "unassigned") | \(.title)"'
+linear api --variables-json '{"q": "<keyword>"}' <<'GRAPHQL' 2>/dev/null | grep -o '{"data".*' | jq -r '.data.searchIssues.nodes[] | "\(.identifier) | \(.state.name) | \(.completedAt // "-") | \(.assignee.name // "unassigned") | \(.title)"'
 query($q: String!) {
   searchIssues(term: $q, first: 25) {
     nodes { identifier title state { name } completedAt assignee { name } }

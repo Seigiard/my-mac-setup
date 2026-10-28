@@ -36,7 +36,7 @@ The canonical triage roles use native GitHub labels. See `docs/agents/triage-lab
 
 ### Domain docs
 
-This is a single-context repository: domain vocabulary lives at the root and architectural decisions live under `docs/adr/`. See `docs/agents/domain.md`.
+This is a single-context repository: domain vocabulary lives at the root and architectural decisions live under `docs/adr/`. Read `docs/agents/domain.md` before you change an area: it names the vocabulary and the decisions to read first.
 
 <important if="you need to run commands to build, test, lint, or run scripts">
 
@@ -126,7 +126,7 @@ Adding a managed config, step by step:
 
 <important if="you are retiring a managed file, or a deployed file whose source left the repository">
 
-**Never add a path to `home/.chezmoiremove`.** A path listed there is deleted at every apply, so a file that later comes back under that path, managed or not, vanishes silently. The file was dropped on purpose in `3a320075`. Retired files are removed by hand on each machine: name the paths and the `rm` command in the PR body, and do not add any mechanism that deletes them automatically.
+**Never add a path to `home/.chezmoiremove`.** A path listed there is deleted at every apply, so a file that later comes back under that path, managed or not, vanishes silently. Retired files are removed by hand on each machine: name the paths and the `rm` command in the PR body.
 
 </important>
 
@@ -166,8 +166,6 @@ Keep `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` in `home/dot_zshenv.tmpl` so OpenCo
 ## Repository issues
 
 For repository issue queries, lifecycle changes, or unresolved work, load the `repository-issues` skill. Apply its ownership gate before creating a GitHub issue, and use `gh` directly for queries and mutations.
-
-Costly-to-reverse architecture decisions go to `docs/adr/` as minimal Architecture Decision Records with `Context`, `Considered options`, and `Decision` sections.
 
 <important if="you are deciding whether a test is warranted, or adding, changing, deleting, or reviewing tests">
 
