@@ -8,7 +8,7 @@ status: pilot
 
 # Revmux model pilot for #408
 
-A pilot, not a holdout: it proves the chain from harness to blind adjudication and sizes the holdout. It decides neither hypothesis. Full page: [pilot report](https://reports.1218217.xyz/reports/my-mac-setup/20261027T225931Z-4c99b79c/index.html) (expires after 28 days; `report.py` rebuilds it from `metrics.json`).
+A pilot, not a holdout: it proves the chain from harness to blind adjudication and sizes the holdout. It decides neither hypothesis. Full page: [pilot report](https://reports.1218217.xyz/reports/my-mac-setup/20261027T225931Z-4c99b79c/index.html), Russian version in ASD-STE100 style: [отчёт](https://reports.1218217.xyz/reports/my-mac-setup/20261028T044525Z-22a47005/index.html). Both expire after 28 days; `report.py` and `report_ru.py` rebuild them from `metrics.json`.
 
 ## Setup
 
