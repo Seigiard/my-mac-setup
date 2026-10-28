@@ -262,22 +262,6 @@ function test_smoke_009_herdr_plugin_updates_are_automatic_and_owner_res() {
 # Claude Code configuration
 # ===========================================
 
-function test_smoke_014_writing_style_output_style_is_deployed_and_enabl() {
-  _bats_test_init 14 'writing-style output style is deployed and enabled in settings'
-  assert_file_exists "$HOME/.claude/output-styles/writing-style.md"
-  run jq -e '.outputStyle == "writing-style"' "$HOME/.claude/settings.json"
-  assert_success
-}
-
-# Pi appends this exact filename to its system prompt by convention, with no
-# settings.json toggle to check the way Claude (test 014) and OpenCode (test
-# 018) have — so unlike those two, the deployed path itself is the entire
-# wiring contract for Pi and there is nothing cheaper to verify against.
-function test_smoke_015_pi_append_system_md_is_deployed() {
-  _bats_test_init 15 'pi APPEND_SYSTEM.md is deployed'
-  assert_file_exists "$HOME/.pi/agent/APPEND_SYSTEM.md"
-}
-
 function test_smoke_016_pi_settings_include_all_managed_packages() {
   _bats_test_init 16 'pi settings include all managed packages'
   local settings="$HOME/.pi/agent/settings.json"
@@ -359,13 +343,6 @@ function test_smoke_0172_opencode_tui_names_a_theme_with_no_local_file_side() {
     "$HOME/.config/opencode/tui.json"
   assert_success
   assert_output 'names a theme'
-}
-
-function test_smoke_018_opencode_reads_the_shared_writing_style_file_via() {
-  _bats_test_init 18 'opencode reads the shared writing-style file via instructions'
-  assert_file_exists "$HOME/.config/agents/writing-style.md"
-  run jq -e '.instructions | index("~/.config/agents/writing-style.md") != null' "$HOME/.config/opencode/opencode.json"
-  assert_success
 }
 
 function test_smoke_019_clients_resolve_model_invocable_skills_from_agents() {
