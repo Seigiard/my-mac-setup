@@ -67,6 +67,14 @@ chezmoi clones into `~/.local/share/chezmoi` (it reads `.chezmoiroot = home` aut
 - Applies macOS system preferences
 - Sets up all configs (zsh, git, starship, yazi, etc.)
 
+On a development machine, point chezmoi at the working checkout instead of the clone, so edits reach `chezmoi apply` without a `git pull` in between:
+
+```sh
+git clone git@github.com:Seigiard/my-mac-setup.git ~/Projects/my-mac-setup
+chezmoi init --source ~/Projects/my-mac-setup
+rm -rf ~/.local/share/chezmoi
+```
+
 ## Repository checks
 
 Run `make lint` to check shell scripts, YAML files, and Markdown YAML frontmatter.

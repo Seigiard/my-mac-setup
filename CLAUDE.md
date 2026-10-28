@@ -89,13 +89,14 @@ Edit the **source** in `home/` (e.g., `home/dot_zshenv.tmpl`), not the live file
 
 <important if="you edited a managed file and expect the change to take effect, or you ran chezmoi and got surprising results">
 
-**By default, chezmoi reads its own clone, NOT this working checkout.** `make test-local` is the deliberate exception: it passes `--source=./home` to compare this checkout. There are THREE copies of every managed file:
+**chezmoi reads this checkout directly.** On every machine `sourceDir` in `~/.config/chezmoi/chezmoi.yaml` is `~/Projects/my-mac-setup/home`, so `chezmoi source-path ~/<live-path>` returns a path inside this repository. There are TWO copies of every managed file:
 
-1. **This repo checkout** (`~/Projects/my-mac-setup/home/...`) — where you edit and commit. `chezmoi` does **not** read it.
-2. **chezmoi source** (`~/.local/share/chezmoi/home/...`) — a **separate git clone** of the same repo. Raw `chezmoi` commands without an explicit `--source` read this, not copy 1.
-3. **Live file** (`~/.config/...`, `~/.claude/...`) — what tools actually run. `chezmoi apply` deploys it from copy 2.
+1. **This repo checkout** (`home/...`) — where you edit and commit. Raw `chezmoi` commands read it, uncommitted edits included.
+2. **Live file** (`~/.config/...`, `~/.claude/...`) — what tools actually run. Only `chezmoi apply` writes it, and the user runs that, never an agent (see the rule above).
 
-Consequence: an edit in this checkout is **commit-ready but NOT live** — it hasn't reached copy 2 or 3. The path to live is commit here → sync into copy 2 (`git pull` there) → `chezmoi apply` (forbidden on host per the rule above, so the user runs it). Never assume your edit took effect in-session. Verify a file's chezmoi source with `chezmoi source-path ~/<live-path>` — it returns a path under `~/.local/share/chezmoi`, confirming the split.
+Consequence: an edit here is **not live until the user applies**. Never assume your edit took effect in-session; `make test-local` shows what an apply would change. A file whose source left the repository stays on disk after apply: name it and its `rm` command in the PR body.
+
+If `chezmoi source-path` returns a path under `~/.local/share/chezmoi`, that machine still uses a separate clone: re-init it once with `chezmoi init --source ~/Projects/my-mac-setup` and delete the clone.
 
 </important>
 
