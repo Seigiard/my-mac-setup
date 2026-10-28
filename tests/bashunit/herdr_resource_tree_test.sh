@@ -10,6 +10,7 @@ TREE_CLI="$SOURCE_ROOT/dot_local/bin/executable_herdr-resource-tree"
 HERDR_WRAPPER="$SOURCE_ROOT/dot_local/bin/executable_herdr"
 HERDR_CHILD="$SOURCE_ROOT/dot_local/bin/executable_herdr-child"
 HRC_OPENCODE_PLUGIN="$SOURCE_ROOT/private_dot_config/opencode/plugins/herdr-resource-context.ts"
+HRC_CLAUDE_HOOK="$SOURCE_ROOT/private_dot_claude/hooks/executable_herdr-resource-context.sh"
 
 setup() {
   TREE_WORK="$BATS_TEST_TMPDIR/resource-tree"
@@ -2560,4 +2561,292 @@ tree = json.loads(sys.argv[1])
 assert tree["branch"]["session"]["value"] == "session-caller", tree["branch"]
 PY
   assert_success
+}
+
+function test_resource_tree_023_an_empty_agent_name_keeps_the_agent_in_all_resource_views() {
+  _bats_test_init 23 'an empty agent name keeps the agent in all resource views'
+
+  # #given a snapshot from the observed startup window, where the agent exists
+  # but Herdr has not assigned its presentation name yet
+  run python3 - "$TREE_WORK/snapshot.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    snapshot = json.load(handle)
+snapshot["result"]["snapshot"]["agents"][0]["name"] = ""
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(snapshot, handle)
+PY
+  assert_success
+
+  # #when the CLI renders the complete human and machine-readable projections
+  run tree_stub_run
+  assert_success
+  local expected_human
+  expected_human="$(cat <<'RENDER'
+local Herdr server (version 0.9.0, protocol 22)
+workspace "Project" [w1]
+  creator: unknown
+  tab "Agents" [w1:t1]
+    creator: unknown
+    pane "implementation" [w1:p1]
+      terminal: term-1
+      creator: unknown
+      agent: opencode (unlabeled)
+      session: herdr:opencode/id/session-1
+      parent: unknown
+  tab "Shells" [w1:t2]
+    creator: unknown
+    pane "logs" [w1:p2]
+      terminal: term-2
+      creator: unknown
+      agent: none
+workspace "Unrelated" [w2]
+  creator: unknown
+  tab "Elsewhere" [w2:t1]
+    creator: unknown
+    pane "manual" [w2:p1]
+      terminal: term-3
+      creator: unknown
+      agent: claude "blue-whale"
+      session: unknown
+      parent: unknown
+RENDER
+)"
+  assert_output "$expected_human"
+
+  run tree_stub_run --json
+  assert_success
+  local tree_json="$output"
+  run python3 - "$tree_json" <<'PY'
+import json
+import sys
+
+tree = json.loads(sys.argv[1])
+agent = tree["workspaces"][0]["tabs"][0]["panes"][0]["agent"]
+assert agent == {
+    "client": "opencode",
+    "presentation_name": None,
+    "session": {
+        "agent": "opencode",
+        "kind": "id",
+        "source": "herdr:opencode",
+        "value": "session-1",
+    },
+    "parent_session": None,
+    "parent_name": None,
+}
+PY
+  assert_success
+
+  cat > "$TREE_BIN/herdr" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}:${2:-}" in
+  pane:current)
+    printf '%s\n' '{"id":"cli:pane:current","result":{"type":"pane_current","pane":{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p1","terminal_id":"term-1","agent":"claude","agent_session":{"agent":"claude","kind":"id","source":"herdr:claude","value":"session-caller"}}}}'
+    ;;
+  api:snapshot) cat "$TREE_SNAPSHOT" ;;
+  *) exit 64 ;;
+esac
+SH
+  chmod +x "$TREE_BIN/herdr"
+
+  # #then the context query also accepts the snapshot; this caller owns no
+  # branch resources, so success has an intentionally empty projection
+  run tree_stub_run --context --caller-agent claude --caller-session-id session-caller
+  assert_success
+  assert_output ''
+}
+
+function test_resource_tree_024_a_missing_agent_name_is_rendered_as_absent() {
+  _bats_test_init 24 'a missing agent name is rendered as absent'
+
+  # #given the equivalent startup snapshot with the optional field omitted
+  run python3 - "$TREE_WORK/snapshot.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    snapshot = json.load(handle)
+del snapshot["result"]["snapshot"]["agents"][0]["name"]
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(snapshot, handle)
+PY
+  assert_success
+
+  # #when the JSON projection is requested
+  run tree_stub_run --json
+  assert_success
+  local tree_json="$output"
+
+  # #then the observed agent remains present with no presentation name
+  run python3 - "$tree_json" <<'PY'
+import json
+import sys
+
+tree = json.loads(sys.argv[1])
+agent = tree["workspaces"][0]["tabs"][0]["panes"][0]["agent"]
+assert agent["client"] == "opencode"
+assert agent["presentation_name"] is None
+assert agent["session"]["value"] == "session-1"
+PY
+  assert_success
+}
+
+function test_resource_tree_026_claude_resource_context_preserves_real_tab_and_pane_structure() {
+  _bats_test_init 26 'Claude resource context preserves real tab and pane structure'
+  local initial_context label_context updated_context response
+  tree_install_managed_creation_stub
+
+  run python3 - "$TREE_WORK/created-snapshot.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    snapshot = json.load(handle)
+agents = snapshot["result"]["snapshot"]["agents"]
+parent = next(agent for agent in agents if agent["pane_id"] == "w1:p1")
+parent.update(
+    agent="claude",
+    name="caller",
+    agent_session={
+        "agent": "claude",
+        "kind": "id",
+        "source": "herdr:claude",
+        "value": "session-caller",
+    },
+)
+agents.append(
+    {
+        "workspace_id": "w1",
+        "tab_id": "w1:t1",
+        "pane_id": "w1:p3",
+        "terminal_id": "term-4",
+        "agent": "pi",
+        "name": "child",
+        "agent_session": {
+            "agent": "pi",
+            "kind": "id",
+            "source": "herdr:pi",
+            "value": "session-child",
+        },
+    }
+)
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(snapshot, handle)
+PY
+  assert_success
+  cat > "$TREE_WORK/caller.json" <<'JSON'
+{"id":"cli:pane:current","result":{"type":"pane_current","pane":{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p1","terminal_id":"term-1","agent":"claude","agent_session":{"agent":"claude","kind":"id","source":"herdr:claude","value":"session-caller"}}}}
+JSON
+  run tree_wrapper_fixture_run "$HERDR_WRAPPER" pane split --pane w1:p1
+  assert_success
+  run tree_wrapper_fixture_run "$TREE_CLI" record-child \
+    --pane w1:p3 --terminal term-4 --child-name child \
+    --child-session-json '{"agent":"pi","kind":"id","source":"herdr:pi","value":"session-child"}'
+  assert_success
+
+  # #given the hook's context from the real CLI fixture world
+  run tree_wrapper_fixture_run "$TREE_CLI" --context \
+    --caller-agent claude --caller-session-id session-caller
+  assert_success
+  initial_context="$output"
+  run tree_wrapper_fixture_run env HERDR_ENV=1 \
+    HERDR_RESOURCE_CONTEXT_CLI="$TREE_CLI" \
+    HERDR_RESOURCE_CONTEXT_STATE_DIR="$TREE_WORK/hook-state" \
+    bash "$HRC_CLAUDE_HOOK" <<< '{"hook_event_name":"SessionStart","session_id":"session-caller","cwd":"/tmp"}'
+  assert_success
+  response="$output"
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+  assert_output "Agent resource context (current):
+$initial_context"
+
+  # #when the real producer changes only tab and pane presentation labels
+  run python3 - "$TREE_WORK/created-snapshot.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    snapshot = json.load(handle)
+data = snapshot["result"]["snapshot"]
+next(tab for tab in data["tabs"] if tab["tab_id"] == "w1:t1")["label"] = "Renamed tab"
+next(pane for pane in data["panes"] if pane["pane_id"] == "w1:p3")["label"] = "Renamed pane"
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(snapshot, handle)
+PY
+  assert_success
+  run tree_wrapper_fixture_run "$TREE_CLI" --context \
+    --caller-agent claude --caller-session-id session-caller
+  assert_success
+  label_context="$output"
+  assert_not_equals "$initial_context" "$label_context"
+  run tree_wrapper_fixture_run env HERDR_ENV=1 \
+    HERDR_RESOURCE_CONTEXT_CLI="$TREE_CLI" \
+    HERDR_RESOURCE_CONTEXT_STATE_DIR="$TREE_WORK/hook-state" \
+    bash "$HRC_CLAUDE_HOOK" <<< '{"hook_event_name":"UserPromptSubmit","session_id":"session-caller","cwd":"/tmp"}'
+  assert_success
+  assert_output ''
+
+  # #then an id change from the same real layout reaches the model
+  run python3 - "$TREE_WORK/created-snapshot.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    snapshot = json.load(handle)
+pane = next(pane for pane in snapshot["result"]["snapshot"]["panes"] if pane["pane_id"] == "w1:p3")
+pane["pane_id"] = "w1:p4"
+agent = next(agent for agent in snapshot["result"]["snapshot"]["agents"] if agent["pane_id"] == "w1:p3")
+agent["pane_id"] = "w1:p4"
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(snapshot, handle)
+PY
+  assert_success
+  run tree_wrapper_fixture_run "$TREE_CLI" --context \
+    --caller-agent claude --caller-session-id session-caller
+  assert_success
+  updated_context="$output"
+  assert_not_equals "$label_context" "$updated_context"
+  run tree_wrapper_fixture_run env HERDR_ENV=1 \
+    HERDR_RESOURCE_CONTEXT_CLI="$TREE_CLI" \
+    HERDR_RESOURCE_CONTEXT_STATE_DIR="$TREE_WORK/hook-state" \
+    bash "$HRC_CLAUDE_HOOK" <<< '{"hook_event_name":"PostToolBatch","session_id":"session-caller","cwd":"/tmp"}'
+  assert_success
+  response="$output"
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$response"
+  assert_success
+  assert_output "Agent resource context update (authoritative; earlier generated resource context is stale):
+$updated_context"
+}
+
+function test_resource_tree_025_an_agent_without_a_client_still_rejects_the_snapshot() {
+  _bats_test_init 25 'an agent without a client still rejects the snapshot'
+
+  # #given a snapshot whose observed agent lacks a required identity field
+  run python3 - "$TREE_WORK/snapshot.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    snapshot = json.load(handle)
+del snapshot["result"]["snapshot"]["agents"][0]["agent"]
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(snapshot, handle)
+PY
+  assert_success
+
+  # #when the tree is requested
+  run tree_stub_run --json
+
+  # #then the malformed required field remains an error
+  assert_failure 1
+  assert_output 'herdr-resource-tree: malformed snapshot: snapshot.agents[0].agent must be a non-empty string'
 }
