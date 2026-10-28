@@ -2,7 +2,7 @@
 
 Fill the angle-bracket slots. Every prompt names the repo root as an absolute path and the artifact directory files; agents trust the context file and verify only what their task needs.
 
-## Current-state map (step 2, Explore agent, `model: "sonnet"`)
+## Current-state map (step 2, Explore agent on the `medium` tier of `~/.claude/shared/model-tiers.md`)
 
 The map only locates and quotes code, so run it on Sonnet.
 
@@ -16,7 +16,7 @@ Map:
 4. Pins. Which existing tests, behaviour entries, or e2e specs pin the current behaviour.
 5. History. `git log --follow` on <files>; `gh pr view <N> --json title,body` for the PRs that shaped them. Deliberate or accidental?
 
-Report in English, under 1000 words, every fact with file:line, sections: Consumers / Server truth / Contracts / Pins / History / Corrections to the context file / Out of scope.
+Report in English, as short as the facts allow, every fact with file:line, sections: Consumers / Server truth / Contracts / Pins / History / Corrections to the context file / Out of scope.
 ```
 
 ## Validator (step 4, one per validated candidate, general-purpose agent, `isolation: "worktree"`)
@@ -40,7 +40,7 @@ Before you run tests or render, install dependencies and build what the check lo
 
 Also check: which contract artifacts move and the impact label per the classifier in scripts/contracts; which gate blocks and who can override it; whether an existing e2e capability or fixture breaks.
 
-Report in English, under 900 words: verdict VIABLE / VIABLE WITH CHANGES / BROKEN; per-claim findings with file:line evidence; the list of changes the candidate needs beyond its spec; UNVERIFIED for any check you could not finish.
+Report in English, compact: verdict VIABLE / VIABLE WITH CHANGES / BROKEN; per-claim findings with file:line evidence; the list of changes the candidate needs beyond its spec; UNVERIFIED for any check you could not finish.
 ```
 
 Resume message when a long validator dies: `Continue from check <N>. Wrap up with the evidence you already have; mark unfinished checks UNVERIFIED and write the final report now.`
@@ -52,5 +52,5 @@ Ground everything in the repo at <ROOT>; read ~/.claude/artifacts/<ID>/context.m
 
 Derive the user flows for Candidate <N> across viewer classes <(a)…(g)> and surfaces <list>, including mid-load states (role unresolved, grant pending, empty result, 403). For each cell: what the viewer sees, what the server returns, whether the candidate changes it.
 
-Output under 900 words: ### User Flows; ### Gaps (Critical / Important / Minor, each naming the scenario, the viewer, the data state, file:line); ### Questions (what is at stake, your default assumption).
+Output, compact: ### User Flows; ### Gaps (Critical / Important / Minor, each naming the scenario, the viewer, the data state, file:line); ### Questions (what is at stake, your default assumption).
 ```

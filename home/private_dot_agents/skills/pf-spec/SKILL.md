@@ -48,7 +48,7 @@ Fill the spec template into `~/.claude/artifacts/<id>/spec.html` (pf-cycle → a
 
 ## Step 4 — Frontier review pass (opencode)
 
-Before presenting each substantive revision to the user, run the contract spec past opencode on the **frontier tier** and fold in what survives your judgement. This review remains user-mandated on the frontier tier. Implementation runs through the `tdd` chain, which owns its tiers.
+Before presenting each substantive revision to the user, run the contract spec past opencode on the **`high+` tier** of `~/.claude/shared/model-tiers.md` and fold in what survives your judgement. This review remains user-mandated on that tier. Implementation runs through the `tdd` chain, which owns its tiers.
 
 The stdin redirect prevents `opencode run` from waiting for EOF. Add `--standalone` so the run uses a private server with this shell's environment instead of the shared background service.
 
@@ -56,14 +56,14 @@ The stdin redirect prevents `opencode run` from waiting for EOF. Add `--standalo
 (
   cd <epic worktree> || exit
   exec opencode run \
-    -m openai/gpt-5.6-sol \
+    -m <the `high+` OpenCode model from ~/.claude/shared/model-tiers.md> \
     --standalone \
     -f <screenshot1.png> -f <screenshot2.png> ... \
     "<review prompt>"
 ) < /dev/null
 ```
 
-Run **without** `--auto`, but do not treat this as a read-only boundary: opencode can still execute a tool when the effective permission policy allows it. The review prompt below is the mutation boundary. Pass **every screenshot as a real PNG via repeated `-f` flags** — inlined base64 is opaque to the model. If the frontier slug has rotated off `openai/gpt-5.6-sol`, use the current frontier model and note the new slug in your report.
+Run **without** `--auto`, but do not treat this as a read-only boundary: opencode can still execute a tool when the effective permission policy allows it. The review prompt below is the mutation boundary. Pass **every screenshot as a real PNG via repeated `-f` flags** — inlined base64 is opaque to the model. The tier table owns the model slug; a slug it no longer lists is a `model-tiers.md` update, not a note in the report.
 
 The review prompt, filled in:
 
@@ -84,7 +84,7 @@ wording. Report numbered findings, each with a severity, covering:
 5. Deploy risks the spec does not carry.
 ```
 
-Triage open-mindedly, but don't be a pushover — record accept/reject with reasons, and include a short "frontier review" section when presenting: each finding, accepted (and where it landed) or rejected (and why).
+Triage open-mindedly, but don't be a pushover — record accept/reject with reasons, and include a short "high+ review" section when presenting: each finding, accepted (and where it landed) or rejected (and why).
 
 ## Step 5 — Iterate with the user
 

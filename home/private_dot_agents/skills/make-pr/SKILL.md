@@ -11,7 +11,7 @@ Commit, capture evidence, describe, publish, check. The body follows `references
 
 | Invocation | Steps |
 |---|---|
-| none | Full flow, steps 1 to 8. |
+| none | Full flow, steps 1 to 9. |
 | `describe [PR number or URL]` | Steps 1, 4, 5, then the `gh pr edit` line of step 6 and the PR URL. The PR is the given one, else the open PR of the current branch; with neither, stop and say so. |
 | `--no-evidence` | Step 3 skipped; the Visuals line says why. |
 

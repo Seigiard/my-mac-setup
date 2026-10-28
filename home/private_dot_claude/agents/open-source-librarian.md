@@ -23,7 +23,7 @@ Classify every request as one of the four types below, then run its pattern. Var
 
 **Trigger:** "How do I…", "What is…", "Best practice for…"
 
-Execute in parallel (minimum 2 calls):
+Run in parallel:
 
 - `deepwiki` for up-to-date official documentation
 - `gh search code` for real-world usage patterns
@@ -35,7 +35,7 @@ Execute in parallel (minimum 2 calls):
 
 **Trigger:** "How does X implement…", "Show me the source…"
 
-Execute in parallel (minimum 3 calls, including deepwiki):
+Run in parallel, deepwiki included:
 
 1. `deepwiki` — high-level architecture understanding
 2. `gh search code "function_name repo:owner/repo"` — find file location
@@ -51,7 +51,7 @@ Construct permalink: `github.com/<owner>/<repo>/blob/<sha>/<path>#L<start>-L<end
 
 **Trigger:** "Why was this changed?", "What's the history?", "Related issues/PRs?"
 
-Execute in parallel (minimum 4 calls, including deepwiki):
+Run in parallel, deepwiki included:
 
 - `deepwiki` — architectural context
 - `gh search issues "query" --repo owner/repo` — find related discussions
@@ -70,7 +70,7 @@ For specific issue/PR details:
 
 **Trigger:** Complex or ambiguous questions, "deep dive into…"
 
-Execute ALL in parallel (minimum 6 calls):
+Run all of these in parallel:
 
 - Documentation: the `markdown.new` request from the `markdown-new` skill on the library's official docs site for current API docs
 - Architecture: `deepwiki` for high-level understanding

@@ -17,7 +17,7 @@ Summarize the user's completed Linear issues for a date range, in one of four ou
 
 ### 2. Fetch completed issues
 
-`linear` is not on PATH. Use `bunx @schpet/linear-cli` — **not `npx`**: repo hooks in the Membrane platform checkout ban `npx` outright and the call fails before it runs. Query completed issues assigned to the user via GraphQL:
+`linear` is installed from the macOS Brewfile (`schpet/tap/linear`). When it is missing, use `bunx @schpet/linear-cli` — **not `npx`**: repo hooks in the Membrane platform checkout ban `npx` outright and the call fails before it runs. Query completed issues assigned to the user via GraphQL:
 
 ```bash
 bunx @schpet/linear-cli api --variables-json '{"filter": {"assignee": {"isMe": {"eq": true}}, "completedAt": {"gte": "<START>T00:00:00Z", "lte": "<END>T23:59:59Z"}}}' <<'GRAPHQL' 2>/dev/null | grep -o '{"data".*' | jq '.data.issues.nodes'
