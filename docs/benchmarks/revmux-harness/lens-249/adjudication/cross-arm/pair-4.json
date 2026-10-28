@@ -1,0 +1,98 @@
+[
+  {
+    "task": "pair-4-r01",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the former equal-sequence acceptance; the stub-only concern is a different weakness."
+  },
+  {
+    "task": "pair-4-r02",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the stub's acceptance of an equal metadata sequence."
+  },
+  {
+    "task": "pair-4-r03",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the repaired equal-sequence condition; the stub-only concern is a different weakness."
+  },
+  {
+    "task": "pair-4-r04",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the equal-sequence metadata behavior in the stub."
+  },
+  {
+    "task": "pair-4-r05",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the stub's equal-sequence acceptance."
+  },
+  {
+    "task": "pair-4-r06",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies a remaining equal-sequence acceptance in the repaired stub."
+  },
+  {
+    "task": "pair-4-r07",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the equal-sequence defect or a remaining instance after repair."
+  },
+  {
+    "task": "pair-4-r08",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the stub's equal-sequence acceptance; the argument-order finding is distinct."
+  },
+  {
+    "task": "pair-4-r09",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies a remaining equal-sequence acceptance in the repaired stub."
+  },
+  {
+    "task": "pair-4-r10",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the equal-sequence metadata defect in the stub."
+  },
+  {
+    "task": "pair-4-r11",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The findings concern status checks and calibration, not an equal-sequence acceptance that remains after repair."
+  },
+  {
+    "task": "pair-4-r12",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the stub's acceptance of equal metadata sequences."
+  }
+]

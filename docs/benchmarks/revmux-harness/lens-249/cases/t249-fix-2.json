@@ -1,0 +1,8 @@
+{
+ "id": "t249-fix-2",
+ "repository": "/Users/andrew.b/Projects/my-mac-setup",
+ "base": "806a7757a3093e95ea6514ef3e4767047cb8fdde",
+ "head": "3eea07d62a73d99d82cf61d3e49f03f72674c5b0",
+ "scope": "# Scope\n\n- Repo: Seigiard/my-mac-setup, one squashed commit (PR #135): the Pi brew auto-updater surfaces failures instead of failing silently.\n- 4 files, +215/-42: `home/dot_pi/agent/extensions/brew-auto-update/index.ts` (the change), `tests/pi-brew-auto-update.test.ts` (its tests), `docs/issues/2026-08-21-022-brew-auto-update-failures-are-invisible.md` (decisions recorded), `docs/issues/2026-09-02-007-ui-notify-is-a-no-op-in-pi-s-headless-print-json-mode-so-update-failures-still-don-t-surface-there.md` (new follow-up issue).\n\n## Files to read in full\n- home/dot_pi/agent/extensions/brew-auto-update/index.ts\n- tests/pi-brew-auto-update.test.ts\n- both docs/issues files above\n",
+ "goal": "# Goal\n\nEvery terminal outcome of the Pi brew auto-updater (failed, skipped, contended, up-to-date, updated) reaches the user through `ui.notify`: a failure notifies on every startup at level `warning`; the manual command always reports its outcome; startup stays silent on non-failure outcomes unless something was updated.\n\nThis is correct only if:\n- no terminal result is returned without passing the finish/shouldNotify pair;\n- the tests would fail if a result were silently discarded again, with an oracle independent of the implementation;\n- the recorded decisions in the issue document match what the code does;\n- the new follow-up issue states a real, pre-existing gap (headless mode) without contradicting the settled policy.\n"
+}

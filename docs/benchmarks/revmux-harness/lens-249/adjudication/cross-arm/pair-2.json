@@ -1,0 +1,98 @@
+[
+  {
+    "task": "pair-2-r01",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired timeout and nonzero-exit tests require warning notifications; the findings concern other paths."
+  },
+  {
+    "task": "pair-2-r02",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "bugs+impl-1",
+    "false_positive": [],
+    "note": "The finding identifies the timeout and nonzero-exit tests as asserting silent failures."
+  },
+  {
+    "task": "pair-2-r03",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired timeout and nonzero-exit tests require warning notifications; the findings concern other paths."
+  },
+  {
+    "task": "pair-2-r04",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The finder identifies the silent-failure oracle, but synthesis retains only a test-name mismatch rather than that defect."
+  },
+  {
+    "task": "pair-2-r05",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "bugs+impl-1",
+    "false_positive": [],
+    "note": "The finding identifies the timeout and nonzero-exit tests as asserting silent failures."
+  },
+  {
+    "task": "pair-2-r06",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "bugs+impl-1",
+    "false_positive": [],
+    "note": "The finding identifies the timeout and nonzero-exit tests as asserting silent failures."
+  },
+  {
+    "task": "pair-2-r07",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "bugs+impl-1",
+    "false_positive": [],
+    "note": "The finding identifies the timeout and nonzero-exit tests as asserting silent failures."
+  },
+  {
+    "task": "pair-2-r08",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "bugs+impl-1",
+    "false_positive": [],
+    "note": "The finding identifies the timeout and nonzero-exit tests as asserting silent failures."
+  },
+  {
+    "task": "pair-2-r09",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired timeout and nonzero-exit tests require warning notifications; the findings concern other paths."
+  },
+  {
+    "task": "pair-2-r10",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired timeout and nonzero-exit tests require warning notifications; the findings concern other paths."
+  },
+  {
+    "task": "pair-2-r11",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired timeout and nonzero-exit tests require warning notifications; the findings concern other paths."
+  },
+  {
+    "task": "pair-2-r12",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired timeout and nonzero-exit tests require warning notifications; the findings concern other paths."
+  }
+]

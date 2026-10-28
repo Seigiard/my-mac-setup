@@ -1,0 +1,54 @@
+[
+  {
+    "task": "t249-bad-3-lean-1#rep1",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The findings discuss untested allocation branches or callback rename coverage, not the lifecycle assertions that hard-code the historical allocated alias."
+  },
+  {
+    "task": "t249-bad-3-lean-1#rep2",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The alias findings concern collision, exhaustion, or renamed-callback behavior rather than the lifecycle tests using a historical allocation as their oracle."
+  },
+  {
+    "task": "t249-bad-3-lean-1#rep3",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The reported callback-alias coverage gap is distinct from the weak lifecycle oracle that assumes orange-panda after a start."
+  },
+  {
+    "task": "t249-fix-3-lean-1#rep1",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [
+      "arch+quality-1"
+    ],
+    "note": "The repair reads the alias actually passed to the stub, so the finding incorrectly treats that lifecycle consistency oracle as the historical-allocation defect."
+  },
+  {
+    "task": "t249-fix-3-lean-1#rep2",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [
+      "docs+tests-1"
+    ],
+    "note": "The repair follows the stub-received alias; this finding falsely recasts the removed historical alias assumption as an allocation test requirement."
+  },
+  {
+    "task": "t249-fix-3-lean-1#rep3",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No findings were emitted for the repaired round."
+  }
+]

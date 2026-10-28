@@ -1,0 +1,50 @@
+[
+  {
+    "task": "t249-bad-2-lean-1#rep1",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The finder identifies the timeout and nonzero-exit assertions as tests that lock in silent failure, but no final finding makes that oracle-evidence diagnosis."
+  },
+  {
+    "task": "t249-bad-2-lean-1#rep2",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "bugs+impl-1",
+    "false_positive": [],
+    "note": "Both stages identify that the timeout and command-failure tests expect empty notifications and therefore protect silent failure."
+  },
+  {
+    "task": "t249-bad-2-lean-1#rep3",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "bugs+impl-1",
+    "false_positive": [],
+    "note": "Both stages directly identify the empty-notification assertions for timeout and nonzero results as a regression-insensitive oracle."
+  },
+  {
+    "task": "t249-fix-2-lean-1#rep1",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired timeout and nonzero-result tests assert warning notifications, and the final findings describe separate real coverage or wording issues."
+  },
+  {
+    "task": "t249-fix-2-lean-1#rep2",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired tests independently assert failure notifications, while the final findings concern other observable gaps or message wording that the frozen code supports."
+  },
+  {
+    "task": "t249-fix-2-lean-1#rep3",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired failure tests no longer assert silence, and the final coverage observations do not falsely claim the labelled defect remains."
+  }
+]

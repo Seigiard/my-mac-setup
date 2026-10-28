@@ -1,0 +1,52 @@
+[
+  {
+    "task": "t249-bad-4-lean-1#rep1",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the equal-sequence metadata-stub flaw or its lack of independent evidence."
+  },
+  {
+    "task": "t249-bad-4-lean-1#rep2",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The findings address timeout, documentation, and unrelated test concerns, not the equal-sequence stub defect."
+  },
+  {
+    "task": "t249-bad-4-lean-1#rep3",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No candidate identifies that the stub accepts an equal metadata sequence that production rejects."
+  },
+  {
+    "task": "t249-fix-4-lean-1#rep1",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The final set is empty, and the found items do not show that the repaired equal-sequence behavior remains wrong."
+  },
+  {
+    "task": "t249-fix-4-lean-1#rep2",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The stub-only concern does not identify a remaining equal-sequence acceptance after the frozen repair changes the comparison to <=."
+  },
+  {
+    "task": "t249-fix-4-lean-1#rep3",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [
+      "lean-1"
+    ],
+    "note": "The equal-sequence assertion directly fails under the original < comparison, so the final calibration claim is a false positive."
+  }
+]

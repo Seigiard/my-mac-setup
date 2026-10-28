@@ -1,0 +1,8 @@
+{
+ "id": "t249-fix-3",
+ "repository": "/Users/andrew.b/Projects/my-mac-setup",
+ "base": "cfe2e401fefae74195475911595b0d0f3085673d",
+ "head": "68d8894ea7e1983b391b96b628c8370baad4e7ea",
+ "scope": "# Scope\n\n- Repo: Seigiard/my-mac-setup, one squashed commit (PR #167): `fix(tests): follow allocated herdr child aliases`.\n- 1 file, +42/-36: `tests/bashunit/scripts_test.sh`, the herdr child lifecycle tests.\n\n## Files to read in full\n- the changed tests in tests/bashunit/scripts_test.sh and the stub they drive (tests/helpers/herdr_pane_labels.bash)\n",
+ "goal": "# Goal\n\nHerdr child lifecycle tests follow the alias actually passed to the Herdr stub instead of assuming a fixed historical allocation, so a change in the alias pool cannot make continuation and reap tests target a child that does not exist. The suite still verifies that the allocated alias propagates through launch output, pane metadata, prompts, replies and reap.\n\nCorrect only if the tests now derive the alias from the stub's record and would fail if propagation broke.\n"
+}
