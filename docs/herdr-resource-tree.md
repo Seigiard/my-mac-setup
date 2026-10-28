@@ -310,13 +310,17 @@ unchanged after it; a pane whose occupant changes across that interval fails
 rather than authenticating one session against another's observation.
 
 Claude's adapter supplies the projection as `additionalContext` on
-`SessionStart`, `UserPromptSubmit`, and `PostToolBatch`. It emits nothing when a
-mid-session projection is unchanged. When the projection changes, the new
-reminder declares itself authoritative and invalidates the earlier generated
-context. Claude's transcript is append-only, so the earlier reminder remains in
-history; the supported hook API cannot physically remove it. A failed query
-emits an unavailable reminder that explicitly invalidates the earlier generated
-context without claiming the branch is empty.
+`SessionStart`, `UserPromptSubmit`, and `PostToolBatch`. On mid-session events,
+it emits nothing when the projection structure is unchanged, including when
+only tab or pane labels changed. The full projection is still stored, so those
+labels appear on the next `SessionStart` or structural update. When the
+projection changes, the new reminder declares itself authoritative and
+invalidates the earlier generated context. Claude's transcript is append-only,
+so the earlier reminder remains in history; the supported hook API cannot
+physically remove it. A failed query emits an unavailable reminder that
+explicitly invalidates the earlier generated context without claiming the branch
+is empty. If that failed query recovers to an empty projection and no successful
+non-empty projection was previously delivered, the recovery is silent.
 
 OpenCode's adapter queries with the native `sessionID` at
 the `context` session hook via `setup`, the model-request boundary used for
