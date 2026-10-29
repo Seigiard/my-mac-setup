@@ -98,7 +98,7 @@ Children merge into the epic branch as they're accepted, so the branch tip advan
 There is no local usage meter for opencode. Throttle by policy instead:
 
 - **Cap at most 2 chain children running at once across all sub-tasks**; the cap counts running children, not sub-tasks or chains. A chain between phases, or in validation, holds no slot. Small steady waves beat a fan-out.
-- If a child log shows provider throttling (HTTP 429, quota or rate-limit errors), **PAUSE** dispatching, report it as a blocker, and resume only after a one-child probe succeeds.
+- If a child log shows provider throttling (HTTP 429, quota or rate-limit errors), hold new dispatches, report it as a blocker, and resume only after a one-child probe succeeds.
 - Each `step_finish` JSONL event carries a `tokens` object — sum them from the children's JSONL logs in their run directories when the user asks what a build run consumed.
 
 ## Findings routing

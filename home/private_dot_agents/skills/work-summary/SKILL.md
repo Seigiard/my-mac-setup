@@ -35,6 +35,8 @@ If exactly 100 nodes return, the window overflowed the page — narrow the range
 
 ### 3. Establish the period's focus
 
+Skip this step when the user asked for the flat shape, when they said the period had no focus, and for the brief and the weekly: those two are anchored on the bets page instead, read as `references/brief-format.md` describes.
+
 **Read it before asking for it.** The focus lives on the user's workstream in vector-prime, the Membrane workstreams dashboard — the `current_focus` field, alongside the `north_star` and the `slack_channel` the update gets posted to. Load the `vector-prime` skill for the API, or read it directly:
 
 ```bash
@@ -49,8 +51,6 @@ Then, in order:
 - If the user pasted a focus, use it — it wins over the dashboard.
 - If the dashboard's focus is present and still describes the period you are summarizing, use it and **say which focus you used in one line outside the artifact**, so a stale field is caught by the user rather than shipped.
 - If it is absent, or clearly describes an earlier period, ask the user for the focus of this one. One question, then proceed.
-- Skip this step only when the user asked for the flat shape or said the period had no focus.
-- For the brief and the weekly, skip it: both are anchored on the bets page instead, read as `references/brief-format.md` describes.
 
 The focus changes the output shape: with a focus, the update is anchored on it (default); without one, it is a flat list of accomplishments.
 

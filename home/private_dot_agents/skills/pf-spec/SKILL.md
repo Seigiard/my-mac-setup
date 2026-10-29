@@ -48,7 +48,7 @@ Fill the spec template into `~/.claude/artifacts/<id>/spec.html` (pf-cycle → a
 
 ## Step 4 — `high+` review pass (opencode)
 
-Before presenting each substantive revision to the user, run the contract spec past opencode on the **`high+` tier** of `~/.claude/shared/model-tiers.md` and fold in what survives your judgement. This review remains user-mandated on that tier. Implementation runs through the `tdd` chain, which owns its tiers.
+Before presenting each substantive revision to the user, run the contract spec past opencode on the **`high+` tier** of `~/.claude/shared/model-tiers.md`, the tier the user set for this review, and fold in what survives your judgement.
 
 The stdin redirect prevents `opencode run` from waiting for EOF. Add `--standalone` so the run uses a private server with this shell's environment instead of the shared background service.
 
