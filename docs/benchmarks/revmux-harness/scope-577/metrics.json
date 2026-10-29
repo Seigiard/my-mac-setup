@@ -1,0 +1,631 @@
+{
+ "pairs": {
+  "pair-2": {
+   "category": "regression-insensitive",
+   "defect": "tests/pi-brew-auto-update.test.ts asserted that notifications stayed empty after a timeout and after a nonzero command result, so the suite protected silent failure instead of catching it (regression-insensitive / same-patch oracle).",
+   "basis": "prior human verdict: PR #135 body and its proof-first run (6 tests red against the unfixed code)",
+   "baseline": {
+    "bad_rounds": 3,
+    "found_hits": 3,
+    "final_hits": 2,
+    "lost_in_pipeline": 1,
+    "repaired_rounds": 3,
+    "false_positive_rounds": 0,
+    "false_positives": 0
+   },
+   "scope": {
+    "bad_rounds": 3,
+    "found_hits": 3,
+    "final_hits": 3,
+    "lost_in_pipeline": 0,
+    "repaired_rounds": 3,
+    "false_positive_rounds": 0,
+    "false_positives": 0
+   }
+  },
+  "pair-3": {
+   "category": "implementation-coupling",
+   "defect": "herdr child lifecycle tests assumed the historical `orange-panda` allocation instead of following the alias actually passed to the stub; the expected alias came from the same allocator path as the value under test (implementation-coupling / same-patch oracle).",
+   "basis": "prior human verdict: PR #167 body; legacy audit in docs/issues/2026-09-06-007",
+   "baseline": {
+    "bad_rounds": 3,
+    "found_hits": 0,
+    "final_hits": 0,
+    "lost_in_pipeline": 0,
+    "repaired_rounds": 3,
+    "false_positive_rounds": 0,
+    "false_positives": 0
+   },
+   "scope": {
+    "bad_rounds": 3,
+    "found_hits": 0,
+    "final_hits": 0,
+    "lost_in_pipeline": 0,
+    "repaired_rounds": 3,
+    "false_positive_rounds": 2,
+    "false_positives": 2
+   }
+  },
+  "pair-4": {
+   "category": "reimplemented-production-logic",
+   "defect": "the Herdr stub in tests/helpers/herdr_task_sync.bash accepted an equal sequence report (`$seq < $current`) that production Herdr rejects, so tests accepted metadata writes production ignores (reimplemented-production-logic).",
+   "basis": "prior human verdict: PR #115 body; legacy audit in docs/issues/2026-09-06-007",
+   "baseline": {
+    "bad_rounds": 3,
+    "found_hits": 0,
+    "final_hits": 0,
+    "lost_in_pipeline": 0,
+    "repaired_rounds": 3,
+    "false_positive_rounds": 1,
+    "false_positives": 1
+   },
+   "scope": {
+    "bad_rounds": 3,
+    "found_hits": 0,
+    "final_hits": 0,
+    "lost_in_pipeline": 0,
+    "repaired_rounds": 3,
+    "false_positive_rounds": 0,
+    "false_positives": 0
+   }
+  }
+ },
+ "cost": {
+  "baseline": {
+   "total": {
+    "rounds": 18,
+    "tokens": 58666035,
+    "ms": 4653413,
+    "degraded": 0,
+    "claude": 44035872,
+    "codex": 3874579,
+    "docs_tests": 16538303,
+    "final_findings": 92
+   },
+   "per_case": {
+    "t249-bad-4": {
+     "rounds": 3,
+     "tokens": 5968633,
+     "ms": 814869,
+     "degraded": 0,
+     "claude": 4324618,
+     "codex": 817888,
+     "docs_tests": 1663974,
+     "final_findings": 9
+    },
+    "t249-fix-3": {
+     "rounds": 3,
+     "tokens": 7108239,
+     "ms": 433230,
+     "degraded": 0,
+     "claude": 6234340,
+     "codex": 617023,
+     "docs_tests": 2520768,
+     "final_findings": 0
+    },
+    "t249-bad-2": {
+     "rounds": 3,
+     "tokens": 2661310,
+     "ms": 569589,
+     "degraded": 0,
+     "claude": 1536707,
+     "codex": 322681,
+     "docs_tests": 544299,
+     "final_findings": 13
+    },
+    "t249-fix-2": {
+     "rounds": 3,
+     "tokens": 5562922,
+     "ms": 692976,
+     "degraded": 0,
+     "claude": 4276656,
+     "codex": 370473,
+     "docs_tests": 1677980,
+     "final_findings": 11
+    },
+    "t249-bad-3": {
+     "rounds": 3,
+     "tokens": 32316844,
+     "ms": 1714273,
+     "degraded": 0,
+     "claude": 23279595,
+     "codex": 1419790,
+     "docs_tests": 8732148,
+     "final_findings": 58
+    },
+    "t249-fix-4": {
+     "rounds": 3,
+     "tokens": 5048087,
+     "ms": 428476,
+     "degraded": 0,
+     "claude": 4383956,
+     "codex": 326724,
+     "docs_tests": 1399134,
+     "final_findings": 1
+    }
+   }
+  },
+  "scope": {
+   "total": {
+    "rounds": 18,
+    "tokens": 66266242,
+    "ms": 5485177,
+    "degraded": 0,
+    "claude": 50815692,
+    "codex": 4575203,
+    "docs_tests": 20873418,
+    "final_findings": 89
+   },
+   "per_case": {
+    "t249-fix-2": {
+     "rounds": 3,
+     "tokens": 5500834,
+     "ms": 986209,
+     "degraded": 0,
+     "claude": 4456196,
+     "codex": 393608,
+     "docs_tests": 1746032,
+     "final_findings": 8
+    },
+    "t249-bad-2": {
+     "rounds": 3,
+     "tokens": 2798827,
+     "ms": 717191,
+     "degraded": 0,
+     "claude": 1576098,
+     "codex": 359112,
+     "docs_tests": 516804,
+     "final_findings": 14
+    },
+    "t249-bad-3": {
+     "rounds": 3,
+     "tokens": 38623335,
+     "ms": 1757637,
+     "degraded": 0,
+     "claude": 29818382,
+     "codex": 1394991,
+     "docs_tests": 13299886,
+     "final_findings": 53
+    },
+    "t249-fix-3": {
+     "rounds": 3,
+     "tokens": 8394646,
+     "ms": 591572,
+     "degraded": 0,
+     "claude": 6786853,
+     "codex": 880160,
+     "docs_tests": 2492248,
+     "final_findings": 2
+    },
+    "t249-fix-4": {
+     "rounds": 3,
+     "tokens": 4809421,
+     "ms": 433643,
+     "degraded": 0,
+     "claude": 3928480,
+     "codex": 567585,
+     "docs_tests": 1473487,
+     "final_findings": 0
+    },
+    "t249-bad-4": {
+     "rounds": 3,
+     "tokens": 6139179,
+     "ms": 998925,
+     "degraded": 0,
+     "claude": 4249683,
+     "codex": 979747,
+     "docs_tests": 1344961,
+     "final_findings": 12
+    }
+   }
+  }
+ },
+ "rows": {
+  "baseline": [
+   {
+    "task": "t249-bad-2-lean-1#rep3",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "bugs+impl-1",
+    "false_positive": [],
+    "note": "Both stages identify the timeout and nonzero-result assertions that lock in silent failures.",
+    "arm": "baseline",
+    "source": "t249-bad-2-lean-1#rep3",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-fix-2-lean-1#rep2",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The retained coverage and wording findings do not claim that the repaired timeout or nonzero-result tests still assert silence.",
+    "arm": "baseline",
+    "source": "t249-fix-2-lean-1#rep2",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-bad-2-lean-1#rep1",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": null,
+    "false_positive": [],
+    "note": "A finder identifies the weak silent-failure oracle, but the final findings retain only stale-comment and different test weaknesses.",
+    "arm": "baseline",
+    "source": "t249-bad-2-lean-1#rep1",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-fix-2-lean-1#rep1",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired failure tests check warning notifications; final findings address separate outer-catch and startup-skip coverage gaps.",
+    "arm": "baseline",
+    "source": "t249-fix-2-lean-1#rep1",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-bad-2-lean-1#rep2",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "bugs+impl-1",
+    "false_positive": [],
+    "note": "Both stages identify the timeout and nonzero-command tests as accepting silent failures rather than independently detecting them.",
+    "arm": "baseline",
+    "source": "t249-bad-2-lean-1#rep2",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-fix-2-lean-1#rep3",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired timeout and nonzero-result tests require warning notifications; retained findings are separate coverage and documentation issues.",
+    "arm": "baseline",
+    "source": "t249-fix-2-lean-1#rep3",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-bad-3-lean-1#rep3",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The alias findings concern pool exhaustion or callback lookup, not the lifecycle assertions that hard-code orange-panda.",
+    "arm": "baseline",
+    "source": "t249-bad-3-lean-1#rep3",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-bad-3-lean-1#rep2",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The reported callback-alias and allocator coverage issues do not identify the hard-coded lifecycle alias oracle.",
+    "arm": "baseline",
+    "source": "t249-bad-3-lean-1#rep2",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-fix-3-lean-1#rep3",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "This repaired round contains no findings.",
+    "arm": "baseline",
+    "source": "t249-fix-3-lean-1#rep3",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-fix-3-lean-1#rep2",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The candidate mistakes an externally recorded stub argument for an allocator-derived expectation, and no final finding remains.",
+    "arm": "baseline",
+    "source": "t249-fix-3-lean-1#rep2",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-bad-3-lean-1#rep1",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding names the lifecycle tests' reliance on orange-panda instead of the alias supplied to the stub.",
+    "arm": "baseline",
+    "source": "t249-bad-3-lean-1#rep1",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-fix-3-lean-1#rep1",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired lifecycle assertions use the stub-observed start name, while the findings address other prompt-target checks.",
+    "arm": "baseline",
+    "source": "t249-fix-3-lean-1#rep1",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-bad-4-lean-1#rep1",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The findings concern the Bats timeout guard, not equal-sequence metadata acceptance.",
+    "arm": "baseline",
+    "source": "t249-bad-4-lean-1#rep1",
+    "pair": "pair-4"
+   },
+   {
+    "task": "t249-fix-4-lean-1#rep3",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [
+     "lean-1"
+    ],
+    "note": "The equal-sequence assertion demonstrably fails under the prior < guard, so lean-1 is a false positive.",
+    "arm": "baseline",
+    "source": "t249-fix-4-lean-1#rep3",
+    "pair": "pair-4"
+   },
+   {
+    "task": "t249-bad-4-lean-1#rep3",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the stub accepting equal sequence reports.",
+    "arm": "baseline",
+    "source": "t249-bad-4-lean-1#rep3",
+    "pair": "pair-4"
+   },
+   {
+    "task": "t249-fix-4-lean-1#rep2",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The equal-sequence check directly distinguishes the repaired <= guard from the prior < guard.",
+    "arm": "baseline",
+    "source": "t249-fix-4-lean-1#rep2",
+    "pair": "pair-4"
+   },
+   {
+    "task": "t249-fix-4-lean-1#rep1",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No final finding claims the repaired equal-sequence test retains the labelled mismatch.",
+    "arm": "baseline",
+    "source": "t249-fix-4-lean-1#rep1",
+    "pair": "pair-4"
+   },
+   {
+    "task": "t249-bad-4-lean-1#rep2",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The candidates address timeout, parsing, and documentation issues, not equal-sequence acceptance.",
+    "arm": "baseline",
+    "source": "t249-bad-4-lean-1#rep2",
+    "pair": "pair-4"
+   }
+  ],
+  "scope": [
+   {
+    "task": "t249-bad-2-scope-1#rep3",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "bugs+impl-1",
+    "false_positive": [],
+    "note": "Both stages identify the same manual timeout and command-failure tests as asserting silence instead of failure feedback.",
+    "arm": "scope",
+    "source": "t249-bad-2-scope-1#rep3",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-fix-2-scope-1#rep1",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired timeout and nonzero-result tests assert warning notifications; retained findings concern distinct uncovered paths or message wording.",
+    "arm": "scope",
+    "source": "t249-fix-2-scope-1#rep1",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-fix-2-scope-1#rep3",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The final findings concern a real outer-catch coverage gap and manual wording, not the repaired timeout or nonzero-result oracle.",
+    "arm": "scope",
+    "source": "t249-fix-2-scope-1#rep3",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-bad-2-scope-1#rep2",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "bugs+impl-1",
+    "false_positive": [],
+    "note": "Both stages identify that timeout and command-failure tests require empty notifications and thus protect silent failure.",
+    "arm": "scope",
+    "source": "t249-bad-2-scope-1#rep2",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-fix-2-scope-1#rep2",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The final findings concern outer-catch coverage and a manual-only wording issue, while the repaired failure tests assert notifications.",
+    "arm": "scope",
+    "source": "t249-fix-2-scope-1#rep2",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-bad-2-scope-1#rep1",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "docs+tests-1",
+    "false_positive": [],
+    "note": "The finder and final report both identify the timeout and nonzero-result empty-notification assertions as locking in silence.",
+    "arm": "scope",
+    "source": "t249-bad-2-scope-1#rep1",
+    "pair": "pair-2"
+   },
+   {
+    "task": "t249-bad-3-scope-1#rep2",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the lifecycle tests' historical orange-panda expectation rather than a separate allocator or callback coverage gap.",
+    "arm": "scope",
+    "source": "t249-bad-3-scope-1#rep2",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-fix-3-scope-1#rep2",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired assertions read the name recorded by the stub's agent-start boundary, so the sole candidate describes a different alleged coverage gap.",
+    "arm": "scope",
+    "source": "t249-fix-3-scope-1#rep2",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-fix-3-scope-1#rep1",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [
+     "bugs+impl-1"
+    ],
+    "note": "The stub records the actual agent-start argument, so deriving propagation expectations from that record is not the historical fixed-alias oracle.",
+    "arm": "scope",
+    "source": "t249-fix-3-scope-1#rep1",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-bad-3-scope-1#rep3",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The callback test finding targets live-versus-launch alias resolution, not the lifecycle test's fixed orange-panda expectation.",
+    "arm": "scope",
+    "source": "t249-bad-3-scope-1#rep3",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-bad-3-scope-1#rep1",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The findings address missing allocation scenarios and callback aliases, not the fixed expected alias in the lifecycle tests.",
+    "arm": "scope",
+    "source": "t249-bad-3-scope-1#rep1",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-fix-3-scope-1#rep3",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [
+     "arch+quality-1"
+    ],
+    "note": "The expected alias is observed at the stub boundary, so the final finding incorrectly treats the repair as an allocator-coupled oracle.",
+    "arm": "scope",
+    "source": "t249-fix-3-scope-1#rep3",
+    "pair": "pair-3"
+   },
+   {
+    "task": "t249-bad-4-scope-1#rep2",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the stub accepting an equal metadata sequence.",
+    "arm": "scope",
+    "source": "t249-bad-4-scope-1#rep2",
+    "pair": "pair-4"
+   },
+   {
+    "task": "t249-fix-4-scope-1#rep1",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired <= guard and equal-sequence assertion remove the labelled stub mismatch.",
+    "arm": "scope",
+    "source": "t249-fix-4-scope-1#rep1",
+    "pair": "pair-4"
+   },
+   {
+    "task": "t249-bad-4-scope-1#rep1",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The findings address nested-Bats timing and documentation, not the equal-sequence stub flaw.",
+    "arm": "scope",
+    "source": "t249-bad-4-scope-1#rep1",
+    "pair": "pair-4"
+   },
+   {
+    "task": "t249-fix-4-scope-1#rep3",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired stub rejects equal reports; the findings raise different test-evidence concerns.",
+    "arm": "scope",
+    "source": "t249-fix-4-scope-1#rep3",
+    "pair": "pair-4"
+   },
+   {
+    "task": "t249-bad-4-scope-1#rep3",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "All findings concern the progress guard, issue records, or comments rather than equal sequences.",
+    "arm": "scope",
+    "source": "t249-bad-4-scope-1#rep3",
+    "pair": "pair-4"
+   },
+   {
+    "task": "t249-fix-4-scope-1#rep2",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No final finding remains, and the frozen stub rejects equal metadata sequences.",
+    "arm": "scope",
+    "source": "t249-fix-4-scope-1#rep2",
+    "pair": "pair-4"
+   }
+  ]
+ }
+}

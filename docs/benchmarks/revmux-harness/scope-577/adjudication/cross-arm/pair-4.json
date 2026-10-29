@@ -1,0 +1,100 @@
+[
+  {
+    "task": "pair-4-r01",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the stub accepting an equal metadata sequence."
+  },
+  {
+    "task": "pair-4-r02",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The findings concern the Bats timeout guard, not equal-sequence metadata acceptance."
+  },
+  {
+    "task": "pair-4-r03",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired <= guard and equal-sequence assertion remove the labelled stub mismatch."
+  },
+  {
+    "task": "pair-4-r04",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The findings address nested-Bats timing and documentation, not the equal-sequence stub flaw."
+  },
+  {
+    "task": "pair-4-r05",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [
+      "lean-1"
+    ],
+    "note": "The equal-sequence assertion demonstrably fails under the prior < guard, so lean-1 is a false positive."
+  },
+  {
+    "task": "pair-4-r06",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the stub accepting equal sequence reports."
+  },
+  {
+    "task": "pair-4-r07",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired stub rejects equal reports; the findings raise different test-evidence concerns."
+  },
+  {
+    "task": "pair-4-r08",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "All findings concern the progress guard, issue records, or comments rather than equal sequences."
+  },
+  {
+    "task": "pair-4-r09",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The equal-sequence check directly distinguishes the repaired <= guard from the prior < guard."
+  },
+  {
+    "task": "pair-4-r10",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No final finding claims the repaired equal-sequence test retains the labelled mismatch."
+  },
+  {
+    "task": "pair-4-r11",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The candidates address timeout, parsing, and documentation issues, not equal-sequence acceptance."
+  },
+  {
+    "task": "pair-4-r12",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No final finding remains, and the frozen stub rejects equal metadata sequences."
+  }
+]
