@@ -24,7 +24,7 @@ Translate one technical change into language a product owner reads at sprint pla
    - **Impact**: what it cost, in time, errors, blocked work, or numbers. This slot carries the "why"; when it is weak, the whole block fails. Numbers come from the PR discussion, the author's production queries, or the tests; when none exist, say who is affected and how often, in words.
    - **What was done**: the change as a capability. A refactor with no visible effect says so plainly: "nothing changes in daily use; this makes X possible next".
    - **What you will notice**: the visible result, or the honest "nothing yet, this is groundwork for X". State what is still not done when a reader could assume otherwise.
-3. **Run the reader test**, twice. First as the product owner: if they could not answer "why do this" from the Impact slot alone, rewrite that slot before anything else. Then as an editor: read `~/.claude/shared/reporting-voice.md` and apply its rules, with the product's own vocabulary (`GLOSSARY.md`, or the per-context glossaries that `GLOSSARY-MAP.md` points to, when present) supplying the domain terms.
+3. **Run the reader test**, twice. First as the product owner: if they could not answer "why do this" from the Impact slot alone, rewrite that slot before anything else. Then as an editor: read `~/.claude/shared/reporting-voice.md` and apply its rules, with the product's own vocabulary supplying the domain terms: `GLOSSARY.md`, or in a multi-context repo the `GLOSSARY.md` of the changed context as `GLOSSARY-MAP.md` lists it, when present.
 
 ## Output
 
