@@ -4,7 +4,7 @@ This is a single-context repository. These rules define how engineering skills c
 
 ## Before exploring, read these
 
-- **`CONCEPTS.md`** at the repository root: the current shared domain vocabulary.
+- **`GLOSSARY.md`** at the repository root: the current shared domain vocabulary.
 - **`CONTEXT.md`** at the repository root, if introduced later: broader domain context beyond the glossary.
 - **`docs/adr/`**: read decisions that touch the area being changed.
 
@@ -14,7 +14,7 @@ If one of these paths does not exist, proceed silently. Do not suggest creating 
 
 ```text
 /
-├── CONCEPTS.md
+├── GLOSSARY.md
 ├── CONTEXT.md              # optional, created only when needed
 ├── docs/
 │   └── adr/
@@ -27,7 +27,7 @@ Costly-to-reverse architecture decisions go to `docs/adr/` as minimal Architectu
 
 ## Use the glossary's vocabulary
 
-When output names a domain concept in an issue title, refactor proposal, hypothesis, or test name, use the term defined in `CONCEPTS.md` or `CONTEXT.md`. Do not drift to synonyms those documents explicitly avoid.
+When output names a domain concept in an issue title, refactor proposal, hypothesis, or test name, use the term defined in `GLOSSARY.md`. Do not drift to synonyms those documents explicitly avoid.
 
 If a needed concept is absent, reconsider whether the project uses that language. If the gap is real, note it for `domain-modeling`.
 

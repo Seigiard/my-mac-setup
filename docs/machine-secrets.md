@@ -4,7 +4,7 @@ How API keys and SSH keys reach a machine without a password manager in the
 loop. The decision and its trade-offs are in
 [ADR-0023](decisions/0023-deliver-machine-secrets-with-age-and-per-machine-identities.md);
 the vocabulary (Machine identity, Enrollment, Revocation) is in
-[`CONCEPTS.md`](../CONCEPTS.md).
+[`GLOSSARY.md`](../GLOSSARY.md).
 
 ## The model in one screen
 

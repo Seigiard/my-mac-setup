@@ -40,7 +40,7 @@ tags:
 
 > **Where this evidence lives now.** The Smithers runtime and both `se-pipeline` executors were
 > removed on 2026-09-01 (`docs/adr/0001-se-pipeline-architecture-redirection.md`), so every
-> `dot_smithers/**` path cited below is readable only in git history. The rule is now settled vocabulary in this repo: `CONCEPTS.md` (*Child-agent contract*) states "Lifecycle settlement is a wake signal, not a task verdict", enforced at `home/dot_local/lib/herdr-child-watcher.sh:85` and `home/private_dot_claude/shared/child-agent-contract.md:215`.
+> `dot_smithers/**` path cited below is readable only in git history. The rule is now settled vocabulary in this repo: `GLOSSARY.md` (*Child-agent contract*) states "Lifecycle settlement is a wake signal, not a task verdict", enforced at `home/dot_local/lib/herdr-child-watcher.sh:85` and `home/private_dot_claude/shared/child-agent-contract.md:215`.
 
 `se-pipeline` is a durable multi-stage workflow on the Smithers engine, driven by the bash launcher `se` (source: `home/private_dot_claude/dot_smithers/`, deployed to `~/.claude/.smithers/`). Each stage ends in a *gate*: a pure predicate returning `green`, `failed`, or `degraded`. A non-green gate parks the run at an approval pause and waits for a human.
 

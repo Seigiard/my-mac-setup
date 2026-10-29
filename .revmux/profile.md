@@ -140,4 +140,4 @@ the rules exist because the consequence already happened once.
   `severity` and `applies_when`. Nineteen of them. When a change falls inside an
   `applies_when`, that document sets the severity, not your general instinct.
 - `docs/adr/` — ADRs for costly-to-reverse choices.
-- `CONCEPTS.md` — domain vocabulary.
+- `GLOSSARY.md` — domain vocabulary.
