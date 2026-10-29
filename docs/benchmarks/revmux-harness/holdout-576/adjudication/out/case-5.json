@@ -1,0 +1,524 @@
+[
+  {
+    "round_code": "2164889e531f1438e221a9054ab8e8e5",
+    "finding_code": "cfa1ab5084aef8b84a0a098837d1107e",
+    "cause": "fixed-containing-block",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The editor’s inline-size container establishes the fixed bar’s containing block, so it scrolls away with the editor."
+  },
+  {
+    "round_code": "2164889e531f1438e221a9054ab8e8e5",
+    "finding_code": "f5d98374189fe5a1a02f2b96a99c2bda",
+    "cause": "sticky-bar-e2e-visibility-gap",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The role locator excludes the aria-hidden bar, so its hidden assertions do not test the bar’s visual CSS state or viewport position."
+  },
+  {
+    "round_code": "2164889e531f1438e221a9054ab8e8e5",
+    "finding_code": "06fe3319a44096437b0b50214afb0eaf",
+    "cause": "summary-truncation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The summary keeps the truncate utility at narrow widths, so long current settings are visually clipped."
+  },
+  {
+    "round_code": "2164889e531f1438e221a9054ab8e8e5",
+    "finding_code": "2d6d45eed0ea08c733a4b0891249927b",
+    "cause": "summary-bar-pdf-feedback",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The visible summary action retains a fixed label while busy and exposes its status and failures only in the header card."
+  },
+  {
+    "round_code": "2164889e531f1438e221a9054ab8e8e5",
+    "finding_code": "fe7b19547907155e68c115bbbcc9298b",
+    "cause": "edit-focus-scroll-order",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Focusing the off-screen format trigger before scrollIntoView causes an immediate focus scroll that bypasses the selected smooth-scroll behavior."
+  },
+  {
+    "round_code": "2164889e531f1438e221a9054ab8e8e5",
+    "finding_code": "e429d9c3b99f57fc91290bc83fb632da",
+    "cause": "orphaned-accordion-primitive",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "An unused local UI primitive is not a demonstrated user-facing or maintenance defect in this change."
+  },
+  {
+    "round_code": "2164889e531f1438e221a9054ab8e8e5",
+    "finding_code": "49fdf0726c1277977de2c1074534761c",
+    "cause": "popover-class-cleanup",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The extra and unused styling classes do not demonstrate incorrect rendered behavior."
+  },
+  {
+    "round_code": "2164889e531f1438e221a9054ab8e8e5",
+    "finding_code": "619b9499386101a8d0bbd2777d61de9c",
+    "cause": "redundant-popover-dismissal-test",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "Overlapping assertions in tests do not by themselves establish a defect."
+  },
+  {
+    "round_code": "2164889e531f1438e221a9054ab8e8e5",
+    "finding_code": "0b18a728f3ab17cb4ec683de42c98e50",
+    "cause": "sticky-bar-e2e-visibility-gap",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The hidden-state role locator resolves no aria-hidden button, so the assertions can pass while the bar’s hiding CSS is broken."
+  },
+  {
+    "round_code": "2164889e531f1438e221a9054ab8e8e5",
+    "finding_code": "ac9d0971043b149d9a1c3e9ebefae3bc",
+    "cause": "popover-e2e-dismissal-coverage",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The lack of additional browser coverage does not establish a defect in the implemented popover behavior."
+  },
+  {
+    "round_code": "2164889e531f1438e221a9054ab8e8e5",
+    "finding_code": "5aaecf765d32b43478c0037f294351ca",
+    "cause": "sticky-download-test-identity",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "Checking only the PDF signature would accept a different PDF, but that test weakness is minor rather than major."
+  },
+  {
+    "round_code": "2164889e531f1438e221a9054ab8e8e5",
+    "finding_code": "a71ec79f26057525759227166a2da608",
+    "cause": "decorative-glyph-accessible-name",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The literal disclosure glyph is included in the scale button’s accessible name instead of being hidden as decorative."
+  },
+  {
+    "round_code": "2164889e531f1438e221a9054ab8e8e5",
+    "finding_code": "57a1ed2dfb33c2e973a9dd9a1e426079",
+    "cause": "redundant-popover-dismissal-test",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The standalone test duplicates dismissal coverage but does not create a behavioral defect."
+  },
+  {
+    "round_code": "4ac6ff2523119efab3b8fccf47fe49d3",
+    "finding_code": "52161be3e72c44470ce1d3607044b108",
+    "cause": "summary-bar-pdf-feedback",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The bar action has no visible busy, disabled-reason, or failure feedback while those states remain in the off-screen card."
+  },
+  {
+    "round_code": "4ac6ff2523119efab3b8fccf47fe49d3",
+    "finding_code": "32ce2d6120d0460d1b7162ac6ec53b3c",
+    "cause": "popover-class-cleanup",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The class list’s redundant and unused entries do not establish incorrect product behavior."
+  },
+  {
+    "round_code": "4ac6ff2523119efab3b8fccf47fe49d3",
+    "finding_code": "f043d349b991654125dc97901e7f67de",
+    "cause": "summary-bar-glassmorphism",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new translucent blurred and shadowed bar directly conflicts with the documented prohibition on glassmorphism and default drop shadows."
+  },
+  {
+    "round_code": "4ac6ff2523119efab3b8fccf47fe49d3",
+    "finding_code": "0d698417444256b9c1db868f25cdf72c",
+    "cause": "sticky-bar-e2e-visibility-gap",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The aria-hidden role lookup lets the hidden assertions pass without observing whether CSS actually hides the bar."
+  },
+  {
+    "round_code": "4ac6ff2523119efab3b8fccf47fe49d3",
+    "finding_code": "de25b3a4dd36007c57f29e9b12f1650f",
+    "cause": "summary-bar-pdf-feedback",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The summary button does not mirror the header action’s busy label or visible failure and disabled-state explanation."
+  },
+  {
+    "round_code": "4ac6ff2523119efab3b8fccf47fe49d3",
+    "finding_code": "ba8998ac07e04bcf7abc81e4761e2a86",
+    "cause": "e2e-modal-popover-left-open",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "After Tab the modal React Aria popover remains open, so locating and scrolling the outside mini is blocked before the test’s later checks."
+  },
+  {
+    "round_code": "4ac6ff2523119efab3b8fccf47fe49d3",
+    "finding_code": "89ccf743249fe68f81a43feb3817a5fc",
+    "cause": "duplicated-base-style-labels",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The separately lowercased labels are currently correct, and hypothetical future drift is not a present defect."
+  },
+  {
+    "round_code": "4ac6ff2523119efab3b8fccf47fe49d3",
+    "finding_code": "7a5621e2e5baad814ab85cde0eb18da7",
+    "cause": "redundant-popover-dismissal-test",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "Repeated dismissal assertions are not a product or test failure."
+  },
+  {
+    "round_code": "4ac6ff2523119efab3b8fccf47fe49d3",
+    "finding_code": "7c3057a73b8aaecd11b84c09bcec7135",
+    "cause": "sticky-download-test-identity",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The sticky-download test accepts any PDF signature and therefore cannot distinguish the intended minis document from another PDF."
+  },
+  {
+    "round_code": "702a056f08037d382dfc1efe4209b372",
+    "finding_code": "865ebd2c3ef037ea363fcaa43436ea99",
+    "cause": "edit-focus-scroll-order",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The call to focus the off-screen trigger occurs before the intended motion-controlled scroll and initiates its own immediate scroll."
+  },
+  {
+    "round_code": "702a056f08037d382dfc1efe4209b372",
+    "finding_code": "2b6730bb9d8818113dfe63e884dd7851",
+    "cause": "summary-bar-pdf-feedback",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The bar’s fixed button label and absent local status leave sighted users without generation, failure, or disabled-state feedback."
+  },
+  {
+    "round_code": "702a056f08037d382dfc1efe4209b372",
+    "finding_code": "c5a25de38dbfb4c5416e4de969e0cf54",
+    "cause": "sticky-bar-e2e-visibility-gap",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The test’s hidden assertion targets a role locator that disappears solely because its ancestor is aria-hidden."
+  },
+  {
+    "round_code": "702a056f08037d382dfc1efe4209b372",
+    "finding_code": "cb7d7ce5dd3024ea0a7e8aa657657f6c",
+    "cause": "summary-bar-pdf-feedback",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The summary action shares the header state gate but not its visible explanation of busy, invalid, or failed states."
+  },
+  {
+    "round_code": "702a056f08037d382dfc1efe4209b372",
+    "finding_code": "3b03765b7cfafa3d656c2093ae633873",
+    "cause": "popover-class-cleanup",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "Unused and repeated class tokens do not show a user-visible fault."
+  },
+  {
+    "round_code": "702a056f08037d382dfc1efe4209b372",
+    "finding_code": "f33d4acdde805457d75b40ddab8837d6",
+    "cause": "duplicated-base-style-labels",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The current two label tables agree, so the claimed problem is only speculative future maintenance drift."
+  },
+  {
+    "round_code": "72ba015b8182c14d0f8ff8b16ce7ed70",
+    "finding_code": "836e90496d7ca3054a9828146ec7e698",
+    "cause": "fixed-containing-block",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "Because the editor’s container establishes the bar’s fixed containing block, the bar scrolls away instead of overlaying focused workspace controls."
+  },
+  {
+    "round_code": "72ba015b8182c14d0f8ff8b16ce7ed70",
+    "finding_code": "e63e345e8a50cfae272b0ecc90b48e21",
+    "cause": "summary-truncation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The one-line truncated summary hides trailing settings at narrow widths with no way to reveal them in the bar."
+  },
+  {
+    "round_code": "72ba015b8182c14d0f8ff8b16ce7ed70",
+    "finding_code": "3933466f38dfd44f83585ac99486965e",
+    "cause": "summary-bar-pdf-feedback",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The bar leaves progress, errors, and disabled reasons in the out-of-view header card while keeping a fixed download label."
+  },
+  {
+    "round_code": "72ba015b8182c14d0f8ff8b16ce7ed70",
+    "finding_code": "09d7faedd200b0f25b54d0efa61689cf",
+    "cause": "edit-focus-scroll-order",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Focus performs its default immediate scroll before the reduced-motion-aware scrollIntoView call can control the transition."
+  },
+  {
+    "round_code": "72ba015b8182c14d0f8ff8b16ce7ed70",
+    "finding_code": "ba7782497aab819c3e17575797113f61",
+    "cause": "sticky-bar-e2e-visibility-gap",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The test neither observes the aria-hidden bar’s real hidden state nor requires the visible bar to be in the viewport."
+  },
+  {
+    "round_code": "72ba015b8182c14d0f8ff8b16ce7ed70",
+    "finding_code": "d6c9c6abeaafee5c01b5a58713c86581",
+    "cause": "edit-focus-scroll-order",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Focusing before scrolling makes the motion preference branch ineffective for the primary return scroll."
+  },
+  {
+    "round_code": "72ba015b8182c14d0f8ff8b16ce7ed70",
+    "finding_code": "27181843b4036f2b0c7d73682ffd38e1",
+    "cause": "summary-bar-glassmorphism",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The bar’s translucent backdrop blur and drop shadow are the glass treatment the design document explicitly forbids."
+  },
+  {
+    "round_code": "72ba015b8182c14d0f8ff8b16ce7ed70",
+    "finding_code": "d42682974321175cc48cc84dc543d5db",
+    "cause": "popover-e2e-dismissal-coverage",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The absence of browser duplication for behavior covered in component tests does not itself prove a defect."
+  },
+  {
+    "round_code": "72ba015b8182c14d0f8ff8b16ce7ed70",
+    "finding_code": "932d1e9132f96cfcdf70dc95e8a676e9",
+    "cause": "summary-bar-pdf-feedback",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A generation failure triggered from the bar is rendered only in the header card that is out of view."
+  },
+  {
+    "round_code": "b081541e955830866a35566ffc38d69a",
+    "finding_code": "2e9ae7ce5bc3c2e0132dacf5a9efdbb1",
+    "cause": "edit-focus-scroll-order",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The off-screen trigger is focused before scrollIntoView, producing an immediate jump before the selected animation can run."
+  },
+  {
+    "round_code": "b081541e955830866a35566ffc38d69a",
+    "finding_code": "dca1300e75ed589a7271dfcc194a630b",
+    "cause": "popover-class-cleanup",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "An unmatched local class name is dead styling metadata rather than a demonstrated defect."
+  },
+  {
+    "round_code": "b081541e955830866a35566ffc38d69a",
+    "finding_code": "efa863d1255ea60e8a29fd2ebeffc6fb",
+    "cause": "orphaned-accordion-primitive",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "Leaving an unused shared primitive in the repository does not demonstrate a defect."
+  },
+  {
+    "round_code": "b081541e955830866a35566ffc38d69a",
+    "finding_code": "5c0ca77c5fe7d5578bbc6bc9b0e6c1fe",
+    "cause": "popover-class-cleanup",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The ring and border combination is a subjective visual choice, not a reproduced malfunction."
+  },
+  {
+    "round_code": "b081541e955830866a35566ffc38d69a",
+    "finding_code": "8dcb86816f5a84bdb04ce11251eabe44",
+    "cause": "summary-bar-pdf-feedback",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The sticky action exposes neither a busy label nor the header card’s failure and draft-error feedback."
+  },
+  {
+    "round_code": "b081541e955830866a35566ffc38d69a",
+    "finding_code": "850045abacbdfef46a7b7dfbe1cdabbe",
+    "cause": "summary-bar-pdf-feedback",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The bar button’s fixed label and lack of adjacent state text omit feedback that the same header action provides."
+  },
+  {
+    "round_code": "b081541e955830866a35566ffc38d69a",
+    "finding_code": "fe183c2bf09820c542494ba89e45de2a",
+    "cause": "fixed-containing-block",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The container-bound fixed bar scrolls with the editor, so it cannot obscure focus at the viewport top as described."
+  },
+  {
+    "round_code": "b081541e955830866a35566ffc38d69a",
+    "finding_code": "c5f45d9dd19fba4535716ae42414d4b4",
+    "cause": "popover-class-cleanup",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The unused class is harmless and does not establish incorrect application behavior."
+  },
+  {
+    "round_code": "b081541e955830866a35566ffc38d69a",
+    "finding_code": "a6eab5137719ef6c3ad59570421ef6ed",
+    "cause": "sticky-bar-e2e-visibility-gap",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The role locator is absent when aria-hidden is true, so the negative assertions do not test the CSS hiding rule."
+  },
+  {
+    "round_code": "e7300c17145240cce4ac00e3ed9a638b",
+    "finding_code": "8c3205ef420da33e1515a22f6d68a779",
+    "cause": "summary-bar-pdf-feedback",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The bar places no visible failure, draft-error, or busy feedback beside the action that generated it."
+  },
+  {
+    "round_code": "e7300c17145240cce4ac00e3ed9a638b",
+    "finding_code": "fcbca792bcc08aada4b0ad082dd01983",
+    "cause": "edit-focus-scroll-order",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The default focus scroll happens before the explicit scrollIntoView call and defeats the intended smooth return."
+  },
+  {
+    "round_code": "e7300c17145240cce4ac00e3ed9a638b",
+    "finding_code": "f833bd9e803428a7b67d1d2fd8d7950a",
+    "cause": "summary-truncation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The summary remains nowrap and ellipsized after the narrow container query gives it a full line, hiding trailing settings."
+  },
+  {
+    "round_code": "e7300c17145240cce4ac00e3ed9a638b",
+    "finding_code": "b9d9e37521834097d76b1615e97c1b70",
+    "cause": "popover-e2e-dismissal-coverage",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "Missing an additional browser dismissal scenario is not by itself a demonstrated behavior defect."
+  },
+  {
+    "round_code": "e7300c17145240cce4ac00e3ed9a638b",
+    "finding_code": "ad712494e1e3ec60f6cd2f16b9941392",
+    "cause": "summary-bar-glassmorphism",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The bar implements a translucent blurred shadowed surface contrary to the project’s documented visual rules."
+  },
+  {
+    "round_code": "e7300c17145240cce4ac00e3ed9a638b",
+    "finding_code": "59c65924433973b794bc200ef00658d9",
+    "cause": "popover-class-cleanup",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The cited duplicate and unused style tokens do not establish an incorrect rendered result."
+  },
+  {
+    "round_code": "e7300c17145240cce4ac00e3ed9a638b",
+    "finding_code": "089695bef707c991b219dc7e57cb66d5",
+    "cause": "orphaned-accordion-primitive",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "A now-unused internal primitive is not a reproduced behavioral or size-limit defect."
+  },
+  {
+    "round_code": "e7300c17145240cce4ac00e3ed9a638b",
+    "finding_code": "f761a7040b2ef429a4c7c8c814d6ba86",
+    "cause": "sticky-bar-e2e-visibility-gap",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The e2e test relies on ARIA visibility for hidden checks and never asserts that the shown bar is inside the viewport."
+  },
+  {
+    "round_code": "e7300c17145240cce4ac00e3ed9a638b",
+    "finding_code": "efb5e2affac83a7e31a59a2d98fded86",
+    "cause": "popover-e2e-dismissal-coverage",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The missing browser-only dismissal checks are not evidence of a defect in the current implementation."
+  },
+  {
+    "round_code": "e7300c17145240cce4ac00e3ed9a638b",
+    "finding_code": "ff5b7cbfad2561421fb98e53bb4fda28",
+    "cause": "sticky-bar-e2e-visibility-gap",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The hidden assertions resolve no role element under aria-hidden and therefore do not exercise the CSS concealment."
+  },
+  {
+    "round_code": "e7300c17145240cce4ac00e3ed9a638b",
+    "finding_code": "a025557012da6071d9a5c9c09d997e0a",
+    "cause": "summary-truncation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The summary is constrained to one ellipsized line, so a narrow viewport hides part of the current configuration."
+  },
+  {
+    "round_code": "e7300c17145240cce4ac00e3ed9a638b",
+    "finding_code": "4811530e06932845c24a4ed5a0bc1c37",
+    "cause": "redundant-popover-dismissal-test",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The test overlaps existing dismissal coverage but that duplication is not a defect."
+  }
+]

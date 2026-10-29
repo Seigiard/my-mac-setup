@@ -1,0 +1,497 @@
+[
+  {
+    "round_code": "047cab7e6851e43dd1f0c185e12a9127",
+    "finding_code": "cd45b4f5fe73e937c70defa7fca36b34",
+    "cause": "only-exclude-interaction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The successful tests never supply both options, so their positional split and separate rendered output have no regression oracle."
+  },
+  {
+    "round_code": "047cab7e6851e43dd1f0c185e12a9127",
+    "finding_code": "b1200b718924dfca4f9b94fa883df46c",
+    "cause": "code-duplication-no-current-defect",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The duplicated branches currently use the same pathspecs and do not produce an incorrect result."
+  },
+  {
+    "round_code": "047cab7e6851e43dd1f0c185e12a9127",
+    "finding_code": "d8532ede2ed576e304d8095f84f273ee",
+    "cause": "post-apply-order-not-defective",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "Order 28 is unique in the frozen suite, so the header change causes no duplicate-order failure."
+  },
+  {
+    "round_code": "047cab7e6851e43dd1f0c185e12a9127",
+    "finding_code": "52b0da38a94628b69ee6c205de9f9b85",
+    "cause": "path-limited-round-policy-ambiguous",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new path-limit instruction conflicts with the cumulative-scope and finish rules, so a reduced review can be treated as convergence."
+  },
+  {
+    "round_code": "047cab7e6851e43dd1f0c185e12a9127",
+    "finding_code": "dc69fc1392e81eab0776445e6490dd9d",
+    "cause": "only-exclude-interaction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The successful tests never supply both options, so their positional split and separate rendered output have no regression oracle."
+  },
+  {
+    "round_code": "047cab7e6851e43dd1f0c185e12a9127",
+    "finding_code": "926974134e7f575a590941f8755d595c",
+    "cause": "negative-pathspec-noop-accepted",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A typo in an exclude-magic pathspec selects other changed files by itself and can pass both checks without excluding anything."
+  },
+  {
+    "round_code": "047cab7e6851e43dd1f0c185e12a9127",
+    "finding_code": "e746886371e6e57e6b6537a67863d8ec",
+    "cause": "only-exclude-interaction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The successful tests never supply both options, so their positional split and separate rendered output have no regression oracle."
+  },
+  {
+    "round_code": "047cab7e6851e43dd1f0c185e12a9127",
+    "finding_code": "4c7919a65c3f068d9a64e0b34709aa97",
+    "cause": "code-duplication-no-current-defect",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The duplicated branches currently use the same pathspecs and do not produce an incorrect result."
+  },
+  {
+    "round_code": "047cab7e6851e43dd1f0c185e12a9127",
+    "finding_code": "5ccfaef198028c7638e4d688bc9c9435",
+    "cause": "path-limited-round-policy-ambiguous",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new path-limit instruction conflicts with the cumulative-scope and finish rules, so a reduced review can be treated as convergence."
+  },
+  {
+    "round_code": "047cab7e6851e43dd1f0c185e12a9127",
+    "finding_code": "5ed83f46378a687ad2167dacdfdec2b8",
+    "cause": "pathspec-command-quoting-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "No successful scope test uses a pathspec requiring shell escaping, so a regression from `%q` is unguarded."
+  },
+  {
+    "round_code": "161830901b0cd45d3ed5bf69f5cbde0e",
+    "finding_code": "e76814137aae4f9858f35d8f32d1b3d9",
+    "cause": "negative-pathspec-noop-accepted",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A typo in an exclude-magic pathspec selects other changed files by itself and can pass both checks without excluding anything."
+  },
+  {
+    "round_code": "161830901b0cd45d3ed5bf69f5cbde0e",
+    "finding_code": "4ae80d8728d654e7ec404c2586945bd5",
+    "cause": "only-exclude-interaction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The successful tests never supply both options, so their positional split and separate rendered output have no regression oracle."
+  },
+  {
+    "round_code": "161830901b0cd45d3ed5bf69f5cbde0e",
+    "finding_code": "a35cbfe8711aed50d944dd64808bea9f",
+    "cause": "negative-pathspec-noop-accepted",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A typo in an exclude-magic pathspec selects other changed files by itself and can pass both checks without excluding anything."
+  },
+  {
+    "round_code": "161830901b0cd45d3ed5bf69f5cbde0e",
+    "finding_code": "3bca6973d5fb0d90c8a2b722c6b7c0b0",
+    "cause": "post-apply-order-not-defective",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "Order 28 is unique in the frozen suite, so the header change causes no duplicate-order failure."
+  },
+  {
+    "round_code": "161830901b0cd45d3ed5bf69f5cbde0e",
+    "finding_code": "70be4f88a433dcc526108c3daa1c1ac6",
+    "cause": "pathspec-command-quoting-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "No successful scope test uses a pathspec requiring shell escaping, so a regression from `%q` is unguarded."
+  },
+  {
+    "round_code": "161830901b0cd45d3ed5bf69f5cbde0e",
+    "finding_code": "f4051e768347f862adcf0fea85245fd4",
+    "cause": "code-duplication-no-current-defect",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The duplicated branches currently use the same pathspecs and do not produce an incorrect result."
+  },
+  {
+    "round_code": "161830901b0cd45d3ed5bf69f5cbde0e",
+    "finding_code": "0568e257747235d19498e6d1b82d9b54",
+    "cause": "test-calibration-evidence-undetermined",
+    "basis": "none yet",
+    "verdict": "unclear",
+    "severity_agree": false,
+    "note": "The frozen code does not establish whether required mutation-calibration evidence exists outside the tree."
+  },
+  {
+    "round_code": "161830901b0cd45d3ed5bf69f5cbde0e",
+    "finding_code": "6cba28c68af32595a0e32b75282cad2c",
+    "cause": "path-limited-round-policy-ambiguous",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new path-limit instruction conflicts with the cumulative-scope and finish rules, so a reduced review can be treated as convergence."
+  },
+  {
+    "round_code": "161830901b0cd45d3ed5bf69f5cbde0e",
+    "finding_code": "a3ebd23a5c00dd16b96a6c8e5020c229",
+    "cause": "path-limited-round-policy-ambiguous",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new path-limit instruction conflicts with the cumulative-scope and finish rules, so a reduced review can be treated as convergence."
+  },
+  {
+    "round_code": "1a5f48beebcc48c234464b309d5d19cf",
+    "finding_code": "f2e9349db7d61440517392e0e6a0fe88",
+    "cause": "only-exclude-interaction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The successful tests never supply both options, so their positional split and separate rendered output have no regression oracle."
+  },
+  {
+    "round_code": "1a5f48beebcc48c234464b309d5d19cf",
+    "finding_code": "34dbce50e6ffe1dbf014f23b592b0cfd",
+    "cause": "only-exclude-interaction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The successful tests never supply both options, so their positional split and separate rendered output have no regression oracle."
+  },
+  {
+    "round_code": "1a5f48beebcc48c234464b309d5d19cf",
+    "finding_code": "a031ee9ca8e1a8072896f26dfb4e5eea",
+    "cause": "only-exclude-interaction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The successful tests never supply both options, so their positional split and separate rendered output have no regression oracle."
+  },
+  {
+    "round_code": "1a5f48beebcc48c234464b309d5d19cf",
+    "finding_code": "002a3b05df4f52c1af0223c37f01d961",
+    "cause": "code-duplication-no-current-defect",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The duplicated branches currently use the same pathspecs and do not produce an incorrect result."
+  },
+  {
+    "round_code": "1a5f48beebcc48c234464b309d5d19cf",
+    "finding_code": "7b710aa83b9680a03f74dd4e7d86b995",
+    "cause": "path-limited-round-policy-ambiguous",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new path-limit instruction conflicts with the cumulative-scope and finish rules, so a reduced review can be treated as convergence."
+  },
+  {
+    "round_code": "1a5f48beebcc48c234464b309d5d19cf",
+    "finding_code": "54e34bc04f8ef0d89115b11a1abd4bbf",
+    "cause": "path-limited-round-policy-ambiguous",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new path-limit instruction conflicts with the cumulative-scope and finish rules, so a reduced review can be treated as convergence."
+  },
+  {
+    "round_code": "1a5f48beebcc48c234464b309d5d19cf",
+    "finding_code": "b34a2c13f754e92a7b1d725bc72c9fe9",
+    "cause": "only-exclude-interaction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The successful tests never supply both options, so their positional split and separate rendered output have no regression oracle."
+  },
+  {
+    "round_code": "1a5f48beebcc48c234464b309d5d19cf",
+    "finding_code": "9cf022cf46d4fb12ef0fc56aa67c3239",
+    "cause": "only-exclude-interaction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The successful tests never supply both options, so their positional split and separate rendered output have no regression oracle."
+  },
+  {
+    "round_code": "1a5f48beebcc48c234464b309d5d19cf",
+    "finding_code": "4e13bb13ec8de483e12d97b650671ed4",
+    "cause": "only-exclude-interaction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The successful tests never supply both options, so their positional split and separate rendered output have no regression oracle."
+  },
+  {
+    "round_code": "1a5f48beebcc48c234464b309d5d19cf",
+    "finding_code": "2c272ece38206e0e554be74591b8278c",
+    "cause": "pathspec-command-quoting-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "No successful scope test uses a pathspec requiring shell escaping, so a regression from `%q` is unguarded."
+  },
+  {
+    "round_code": "1a5f48beebcc48c234464b309d5d19cf",
+    "finding_code": "7a306a4a3dd90faf9292f4d1e6bad9f9",
+    "cause": "path-limited-round-policy-ambiguous",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new path-limit instruction conflicts with the cumulative-scope and finish rules, so a reduced review can be treated as convergence."
+  },
+  {
+    "round_code": "22c5aba38a59242bbb5984e26fbcc676",
+    "finding_code": "d09e598feaf269fc2b1e94e0d288b22f",
+    "cause": "only-exclude-interaction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The successful tests never supply both options, so their positional split and separate rendered output have no regression oracle."
+  },
+  {
+    "round_code": "22c5aba38a59242bbb5984e26fbcc676",
+    "finding_code": "3ffa134c95b676a85015e8d3bedb40b1",
+    "cause": "pathspec-command-quoting-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "No successful scope test uses a pathspec requiring shell escaping, so a regression from `%q` is unguarded."
+  },
+  {
+    "round_code": "22c5aba38a59242bbb5984e26fbcc676",
+    "finding_code": "e20ef0c68c5246bc0db84c66c0f25f61",
+    "cause": "code-duplication-no-current-defect",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The duplicated branches currently use the same pathspecs and do not produce an incorrect result."
+  },
+  {
+    "round_code": "22c5aba38a59242bbb5984e26fbcc676",
+    "finding_code": "a22641a18cd417f2ee585bdd3a7715bd",
+    "cause": "path-limited-round-policy-ambiguous",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new path-limit instruction conflicts with the cumulative-scope and finish rules, so a reduced review can be treated as convergence."
+  },
+  {
+    "round_code": "22c5aba38a59242bbb5984e26fbcc676",
+    "finding_code": "4ea933b8cfd1db07cfb7c9a983b121a1",
+    "cause": "post-apply-order-not-defective",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "Order 28 is unique in the frozen suite, so the header change causes no duplicate-order failure."
+  },
+  {
+    "round_code": "22c5aba38a59242bbb5984e26fbcc676",
+    "finding_code": "b57cf745890b18305b502a41e46a6815",
+    "cause": "path-limited-round-policy-ambiguous",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The new path-limit instruction conflicts with the cumulative-scope and finish rules, so a reduced review can be treated as convergence."
+  },
+  {
+    "round_code": "22c5aba38a59242bbb5984e26fbcc676",
+    "finding_code": "576753118adf852f4059eaf6de2d0d9b",
+    "cause": "path-limited-round-policy-ambiguous",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new path-limit instruction conflicts with the cumulative-scope and finish rules, so a reduced review can be treated as convergence."
+  },
+  {
+    "round_code": "34c460d762b7c20ec88394320bfe2baa",
+    "finding_code": "02dd175c2266afedec57251b7e87a129",
+    "cause": "path-limited-round-policy-ambiguous",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The new path-limit instruction conflicts with the cumulative-scope and finish rules, so a reduced review can be treated as convergence."
+  },
+  {
+    "round_code": "34c460d762b7c20ec88394320bfe2baa",
+    "finding_code": "5f9ff81f3893e3c1f4232a4db022e687",
+    "cause": "code-duplication-no-current-defect",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The duplicated branches currently use the same pathspecs and do not produce an incorrect result."
+  },
+  {
+    "round_code": "34c460d762b7c20ec88394320bfe2baa",
+    "finding_code": "6b2d4c89502d4bf27f9f5802bb8c4801",
+    "cause": "only-exclude-interaction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The successful tests never supply both options, so their positional split and separate rendered output have no regression oracle."
+  },
+  {
+    "round_code": "34c460d762b7c20ec88394320bfe2baa",
+    "finding_code": "9f3a0e4d7e57ce3c205785ad5763fa12",
+    "cause": "redundant-combined-query-no-current-defect",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The extra read-only query does not make the frozen script return an incorrect result."
+  },
+  {
+    "round_code": "34c460d762b7c20ec88394320bfe2baa",
+    "finding_code": "859613ed8d1e6aa5756b1b3b867dd9ac",
+    "cause": "test-calibration-evidence-undetermined",
+    "basis": "none yet",
+    "verdict": "unclear",
+    "severity_agree": false,
+    "note": "The frozen code does not establish whether required mutation-calibration evidence exists outside the tree."
+  },
+  {
+    "round_code": "34c460d762b7c20ec88394320bfe2baa",
+    "finding_code": "17793b0375bd15cfd6d20288fa351587",
+    "cause": "path-limited-round-policy-ambiguous",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new path-limit instruction conflicts with the cumulative-scope and finish rules, so a reduced review can be treated as convergence."
+  },
+  {
+    "round_code": "419dae42f96d01314b5e91aa64e42e19",
+    "finding_code": "a5ac3eff82b14d96b94dd60a3a9138f0",
+    "cause": "only-exclude-interaction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The successful tests never supply both options, so their positional split and separate rendered output have no regression oracle."
+  },
+  {
+    "round_code": "419dae42f96d01314b5e91aa64e42e19",
+    "finding_code": "da5ea32cea80993dc47cac87ce47a1f9",
+    "cause": "only-exclude-interaction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The successful tests never supply both options, so their positional split and separate rendered output have no regression oracle."
+  },
+  {
+    "round_code": "419dae42f96d01314b5e91aa64e42e19",
+    "finding_code": "97a7f67a8e72ecc67a687dd676307555",
+    "cause": "code-duplication-no-current-defect",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The duplicated branches currently use the same pathspecs and do not produce an incorrect result."
+  },
+  {
+    "round_code": "419dae42f96d01314b5e91aa64e42e19",
+    "finding_code": "5ab3612ff01b19df97b734fd5d6acdc9",
+    "cause": "path-limited-round-policy-ambiguous",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new path-limit instruction conflicts with the cumulative-scope and finish rules, so a reduced review can be treated as convergence."
+  },
+  {
+    "round_code": "419dae42f96d01314b5e91aa64e42e19",
+    "finding_code": "83a90f99e36eb333987d2262a45705a6",
+    "cause": "path-limited-round-policy-ambiguous",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new path-limit instruction conflicts with the cumulative-scope and finish rules, so a reduced review can be treated as convergence."
+  },
+  {
+    "round_code": "419dae42f96d01314b5e91aa64e42e19",
+    "finding_code": "e9233aa03175b8732be8ebdb63f03aa8",
+    "cause": "only-exclude-interaction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The successful tests never supply both options, so their positional split and separate rendered output have no regression oracle."
+  },
+  {
+    "round_code": "419dae42f96d01314b5e91aa64e42e19",
+    "finding_code": "9e6157af5bf585019ae94cb0143b3141",
+    "cause": "path-limited-round-policy-ambiguous",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new path-limit instruction conflicts with the cumulative-scope and finish rules, so a reduced review can be treated as convergence."
+  },
+  {
+    "round_code": "419dae42f96d01314b5e91aa64e42e19",
+    "finding_code": "33f5d1dca2511019c53f3b77035a78ef",
+    "cause": "only-exclude-interaction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The successful tests never supply both options, so their positional split and separate rendered output have no regression oracle."
+  },
+  {
+    "round_code": "419dae42f96d01314b5e91aa64e42e19",
+    "finding_code": "7271edb7e96bc90e88bb4ff038688c7f",
+    "cause": "negative-pathspec-noop-accepted",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A typo in an exclude-magic pathspec selects other changed files by itself and can pass both checks without excluding anything."
+  },
+  {
+    "round_code": "419dae42f96d01314b5e91aa64e42e19",
+    "finding_code": "519d5f5e1e59e36b98e267cf59b42b26",
+    "cause": "only-exclude-interaction-untested",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The successful tests never supply both options, so their positional split and separate rendered output have no regression oracle."
+  },
+  {
+    "round_code": "419dae42f96d01314b5e91aa64e42e19",
+    "finding_code": "870d8577bb01bcae2558b2f18c9b96a1",
+    "cause": "test-calibration-evidence-undetermined",
+    "basis": "none yet",
+    "verdict": "unclear",
+    "severity_agree": false,
+    "note": "The frozen code does not establish whether required mutation-calibration evidence exists outside the tree."
+  },
+  {
+    "round_code": "419dae42f96d01314b5e91aa64e42e19",
+    "finding_code": "c190e7cd03eecae29a6413ca557b87c9",
+    "cause": "path-limited-round-policy-ambiguous",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new path-limit instruction conflicts with the cumulative-scope and finish rules, so a reduced review can be treated as convergence."
+  }
+]
