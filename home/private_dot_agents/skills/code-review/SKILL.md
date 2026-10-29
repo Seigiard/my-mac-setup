@@ -198,8 +198,8 @@ modes, tiers, calibration, turn budget, and the response to a failure.
 
 Children commit fixes on the reviewed branch. Before the first delegation, require a clean
 worktree; when in-scope work is uncommitted, report the dirty paths and stop. Pushes and PR
-creation follow the two-way-door rule in the global `CLAUDE.md`. A fetched PR in a temporary worktree and `mode:agent` stay
-report-only.
+creation follow the two-way-door rule in the global `CLAUDE.md`. Editing a fetched PR or running under `mode:agent`
+follows the report-only rules in step 1.
 
 When no child can start, report the reason and stop. The caller never writes a fix itself.
 
