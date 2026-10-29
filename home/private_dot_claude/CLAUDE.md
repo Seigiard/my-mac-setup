@@ -84,9 +84,9 @@ Read `~/.claude/shared/peer-message-contract.md`. It defines peer addresses, mes
 
 </important>
 
-<important if="you are reporting work done to a person who did not do it: an update, a weekly, a Linear comment, a brief, an explanation of a change">
+<important if="you are reporting work done to a person who did not do it, or a problem to the person who owns it: an update, a weekly, a Linear comment or issue, a brief, an explanation of a change">
 
-Read `~/.claude/shared/reporting-voice.md` and apply its sentence-level rules: achievements, was → now with the artifact, the evidence bound, facts once, zero context, plain words, the summary last.
+Read `~/.claude/shared/reporting-voice.md` and apply its sentence-level rules: achievements, was → now with the artifact, the evidence bound, a problem goes to its owner, facts once, zero context, plain words, the summary last.
 
 </important>
 
