@@ -96,7 +96,7 @@ creating tabs." Content that reaches a third-party model cannot be recalled, so 
 scanner refuses the launch instead of waving it through. Same doc, opposite default — the blast
 radius, not the gate's position in the flow, decides.
 
-**Deployment guards inherit it too.** `CONCEPTS.md` records both directions as settled vocabulary:
+**Deployment guards inherit it too.** `GLOSSARY.md` records both directions as settled vocabulary:
 *Hooks core* — "Every failure path fails open"; *Disposable home* — "The guard fails closed. An
 environment that looks like a runner but carries no declaration is reported as misconfigured
 rather than run or silently skipped."

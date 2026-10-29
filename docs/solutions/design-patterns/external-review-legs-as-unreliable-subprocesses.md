@@ -83,7 +83,7 @@ The surrounding comment (`agents.ts:128-141`) records two layers: a system-promp
 > *harder than the prose above it*, not as enforcement:
 > `capturing-child-output-hides-the-prompt.md` measured this exact layer declining — `CI=1` was
 > set, upstream ignored it, and the only symptom was a hang. The ordering the repo now holds is
-> prose < env/flag request < capability removal or closed descriptor; `CONCEPTS.md`
+> prose < env/flag request < capability removal or closed descriptor; `GLOSSARY.md`
 > (*Captured child*) states it.
 
 **3. Give legs liveness detection AND generous wall-clock — they are different budgets.**

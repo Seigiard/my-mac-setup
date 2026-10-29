@@ -366,4 +366,4 @@ retry notice(G7, gap=A)             — повтор того же уведом�
 | [Исходная задача](https://github.com/Seigiard/my-mac-setup/issues/214) | Resource tree завершён; оставшаяся реализация supervisor отменена как преждевременная |
 | [Resource tree](herdr-resource-tree.md) | Уже реализованная основа, которую используем |
 | [ADR-0019](decisions/0019-use-one-delivery-owner-per-supervision-generation.md) | Отмена проекта и рассмотренный вариант с одним владельцем доставки на generation |
-| [Глоссарий](../CONCEPTS.md) | Общие термины |
+| [Глоссарий](../GLOSSARY.md) | Общие термины |

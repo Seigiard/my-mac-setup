@@ -112,7 +112,7 @@ Verify the round trip: `printf '\356\261\257' | xxd` → `ee b1 af`, the UTF-8 e
 
 - `2026-08-20-007` — the hand-duplicated icon table defect and its single-source resolution.
 - `docs/plans/2026-08-20-001-feat-herdr-label-system-plan.md` — origin plan of the label system.
-- `CONCEPTS.md` Theming section — the sibling terminal-rendering convention (palette-only, no baked hex); complementary, does not cover glyph encoding.
+- `GLOSSARY.md` Theming section — the sibling terminal-rendering convention (palette-only, no baked hex); complementary, does not cover glyph encoding.
 - `semantic-regression-tests-over-source-shape.md` — the test-oracle gate for locally owned behavior.
 - `2026-09-02-005` — the discriminator between single-sourcing for generation and pinning literals
   for a test whose job is to catch a change to the glyph itself; resolved in `5d7c8fc` (PR #179).
