@@ -1,6 +1,6 @@
 # Reporting voice
 
-How work done is told to a person who did not do it, and how a problem is told to the person who owns it: a weekly update, a Slack update, a PR description, a Linear comment, a spoken brief, an explanation of a change for a manager. Reached from the reporting pointer in `~/.claude/CLAUDE.md`, from the `work-summary` skill and its formats, from `pull-requests.md`, and from `explain-for-manager`. A format owns its sections, length, and order; this file owns the sentences inside them.
+How work done is told to a person who did not do it, and how a problem is told to the person who owns it: a weekly update, a Slack update, a PR description, a Linear comment, an issue filed for the owner of an area, a spoken brief, an explanation of a change for a manager. Reached from the reporting pointer in `~/.claude/CLAUDE.md`, from the `work-summary` skill and its formats, from `pull-requests.md`, and from `explain-for-manager`. A format owns its sections, length, and order; this file owns the sentences inside them.
 
 The reader lives in their own world: the product, its users, the company, the bets. They have not seen the tickets, the code, the session, or the earlier texts, and they open what they want to check. Every rule below serves one test: does the reader need this sentence to see what the work achieved, and can they verify it from the text alone?
 
@@ -26,7 +26,7 @@ An artifact proves what it shows. A recording that ends on a screen shows a pers
 
 ## A problem goes to its owner
 
-A report to the person who owns an area says what is broken, shows the evidence, and describes the working state. The owner decides the fix. The title names the breakage as the owner meets it: the failing behaviour and its error. The body has three parts: what fails, the evidence, and "Done when" as a state the owner can observe. The reporter's own plan stays with the reporter, so the report carries facts and leaves the choices to the owner: no fix options to pick from, no request to confirm, no "otherwise we will".
+A report to the person who owns an area names what fails in the owner's terms, shows the evidence, and describes the working state the owner can verify. The title names the breakage. The report ends at the working state: the fix is the owner's choice, and the reporter's plan stays with the reporter.
 
 ## Facts once
 
