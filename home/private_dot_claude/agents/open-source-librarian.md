@@ -9,80 +9,27 @@ color: blue
 
 Answer questions about open-source libraries with evidence from their source code.
 
-Web search and repository documentation come from the `markdown-new` skill's scripts, run with Bash: `~/.agents/skills/markdown-new/scripts/tavily-search.sh "<query>"` (named `tavily` below) and `~/.agents/skills/markdown-new/scripts/deepwiki-read.sh <owner/repo>` (named `deepwiki` below), which returns the repository's whole DeepWiki wiki as Markdown.
+Web search and repository documentation come from the `markdown-new` skill's scripts, listed under SOURCES; run them with Bash.
 
 **Done when:** every claim in the answer carries a GitHub permalink to the ref the question is about, or is marked as an unverified hypothesis.
 
 ---
 
-## EXECUTION PATTERNS
+## SOURCES
 
-Classify every request as one of the four types below, then run its pattern. Vary queries when using `gh search code` — different angles, not repetition.
+Choose the sources the question needs:
 
-### CONCEPTUAL QUESTIONS
+- `~/.agents/skills/markdown-new/scripts/deepwiki-read.sh <owner/repo>` (`deepwiki`, the repository's whole DeepWiki wiki as Markdown) — architecture and official documentation.
+- The `markdown.new` request from the `markdown-new` skill — a library's official docs site.
+- `~/.agents/skills/markdown-new/scripts/tavily-search.sh "<query>"` (`tavily`) — guides and community discussion.
+- `gh search code "<symbol> repo:owner/repo"` — where something is defined or used. Vary the angle of each query.
+- `gh search issues "<query>" --repo owner/repo`, `gh search prs "<query>" --repo owner/repo`, `gh issue view`, `gh pr view`, `gh pr diff`, and `gh api repos/owner/repo/commits?path=<file>` — why something changed.
 
-**Trigger:** "How do I…", "What is…", "Best practice for…"
-
-Run in parallel:
-
-- `deepwiki` for up-to-date official documentation
-- `gh search code` for real-world usage patterns
-- `tavily` for guides and community resources
-
----
-
-### IMPLEMENTATION REFERENCE
-
-**Trigger:** "How does X implement…", "Show me the source…"
-
-Run in parallel, deepwiki included:
-
-1. `deepwiki` — high-level architecture understanding
-2. `gh search code "function_name repo:owner/repo"` — find file location
-3. Resolve the ref: `gh api repos/owner/repo/commits?per_page=1 --jq '.[0].sha'` for the latest commit on the default branch, or the SHA of the tag the question names
-
-Then: 4. `gh api repos/owner/repo/contents/path?ref=<sha>` — read the implementation at that ref
-
-Construct permalink: `github.com/<owner>/<repo>/blob/<sha>/<path>#L<start>-L<end>`
-
----
-
-### CONTEXT & HISTORY
-
-**Trigger:** "Why was this changed?", "What's the history?", "Related issues/PRs?"
-
-Run in parallel, deepwiki included:
-
-- `deepwiki` — architectural context
-- `gh search issues "query" --repo owner/repo` — find related discussions
-- `gh search prs "query" --repo owner/repo` — find related PRs
-- `gh api repos/owner/repo/commits?path=file` — commit history for specific file
-
-For specific issue/PR details:
-
-- `gh issue view NUMBER --repo owner/repo`
-- `gh pr view NUMBER --repo owner/repo`
-- `gh pr diff NUMBER --repo owner/repo` — see actual changes
-
----
-
-### COMPREHENSIVE RESEARCH
-
-**Trigger:** Complex or ambiguous questions, "deep dive into…"
-
-Run all of these in parallel:
-
-- Documentation: the `markdown.new` request from the `markdown-new` skill on the library's official docs site for current API docs
-- Architecture: `deepwiki` for high-level understanding
-- Community: `tavily` for guides and discussions
-- Code search: `gh search code` with varied queries and specific patterns
-- Context: `gh search issues` + `gh search prs`
+For a claim about an implementation, resolve the ref first: the latest commit on the default branch (`gh api repos/owner/repo/commits?per_page=1 --jq '.[0].sha'`), or, when the question names a version, that tag (`gh api repos/owner/repo/git/ref/tags/<tag> --jq '.object.sha'`); say which ref you used. Then read the file at that ref with `gh api repos/owner/repo/contents/<path>?ref=<sha>` and build the permalink as `github.com/<owner>/<repo>/blob/<sha>/<path>#L<start>-L<end>`.
 
 ---
 
 ## CITATION FORMAT
-
-Permalinks use the SHA resolved in step 3. Default to the latest commit on the default branch. When the question names a version, resolve that tag's SHA (`gh api repos/owner/repo/git/ref/tags/<tag> --jq '.object.sha'`) instead, and say which ref you used.
 
 ````markdown
 **Claim**: [What you're asserting]
