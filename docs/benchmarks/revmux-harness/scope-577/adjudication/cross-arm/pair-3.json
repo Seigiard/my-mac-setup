@@ -1,0 +1,102 @@
+[
+  {
+    "task": "pair-3-r01",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The alias findings concern pool exhaustion or callback lookup, not the lifecycle assertions that hard-code orange-panda."
+  },
+  {
+    "task": "pair-3-r02",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding identifies the lifecycle tests' historical orange-panda expectation rather than a separate allocator or callback coverage gap."
+  },
+  {
+    "task": "pair-3-r03",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired assertions read the name recorded by the stub's agent-start boundary, so the sole candidate describes a different alleged coverage gap."
+  },
+  {
+    "task": "pair-3-r04",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [
+      "bugs+impl-1"
+    ],
+    "note": "The stub records the actual agent-start argument, so deriving propagation expectations from that record is not the historical fixed-alias oracle."
+  },
+  {
+    "task": "pair-3-r05",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The reported callback-alias and allocator coverage issues do not identify the hard-coded lifecycle alias oracle."
+  },
+  {
+    "task": "pair-3-r06",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "This repaired round contains no findings."
+  },
+  {
+    "task": "pair-3-r07",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The candidate mistakes an externally recorded stub argument for an allocator-derived expectation, and no final finding remains."
+  },
+  {
+    "task": "pair-3-r08",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The callback test finding targets live-versus-launch alias resolution, not the lifecycle test's fixed orange-panda expectation."
+  },
+  {
+    "task": "pair-3-r09",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "No finding names the lifecycle tests' reliance on orange-panda instead of the alias supplied to the stub."
+  },
+  {
+    "task": "pair-3-r10",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired lifecycle assertions use the stub-observed start name, while the findings address other prompt-target checks."
+  },
+  {
+    "task": "pair-3-r11",
+    "stage": "bad",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The findings address missing allocation scenarios and callback aliases, not the fixed expected alias in the lifecycle tests."
+  },
+  {
+    "task": "pair-3-r12",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [
+      "arch+quality-1"
+    ],
+    "note": "The expected alias is observed at the stub boundary, so the final finding incorrectly treats the repair as an allocator-coupled oracle."
+  }
+]

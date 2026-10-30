@@ -1,0 +1,98 @@
+[
+  {
+    "task": "pair-2-r01",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "bugs+impl-1",
+    "false_positive": [],
+    "note": "Both stages identify the timeout and nonzero-result assertions that lock in silent failures."
+  },
+  {
+    "task": "pair-2-r02",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "bugs+impl-1",
+    "false_positive": [],
+    "note": "Both stages identify the same manual timeout and command-failure tests as asserting silence instead of failure feedback."
+  },
+  {
+    "task": "pair-2-r03",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired timeout and nonzero-result tests assert warning notifications; retained findings concern distinct uncovered paths or message wording."
+  },
+  {
+    "task": "pair-2-r04",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The final findings concern a real outer-catch coverage gap and manual wording, not the repaired timeout or nonzero-result oracle."
+  },
+  {
+    "task": "pair-2-r05",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The retained coverage and wording findings do not claim that the repaired timeout or nonzero-result tests still assert silence."
+  },
+  {
+    "task": "pair-2-r06",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": null,
+    "false_positive": [],
+    "note": "A finder identifies the weak silent-failure oracle, but the final findings retain only stale-comment and different test weaknesses."
+  },
+  {
+    "task": "pair-2-r07",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired failure tests check warning notifications; final findings address separate outer-catch and startup-skip coverage gaps."
+  },
+  {
+    "task": "pair-2-r08",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "bugs+impl-1",
+    "false_positive": [],
+    "note": "Both stages identify that timeout and command-failure tests require empty notifications and thus protect silent failure."
+  },
+  {
+    "task": "pair-2-r09",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The final findings concern outer-catch coverage and a manual-only wording issue, while the repaired failure tests assert notifications."
+  },
+  {
+    "task": "pair-2-r10",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "bugs+impl-1",
+    "false_positive": [],
+    "note": "Both stages identify the timeout and nonzero-command tests as accepting silent failures rather than independently detecting them."
+  },
+  {
+    "task": "pair-2-r11",
+    "stage": "repaired",
+    "found_hit": null,
+    "final_hit": null,
+    "false_positive": [],
+    "note": "The repaired timeout and nonzero-result tests require warning notifications; retained findings are separate coverage and documentation issues."
+  },
+  {
+    "task": "pair-2-r12",
+    "stage": "bad",
+    "found_hit": "bugs+impl-1",
+    "final_hit": "docs+tests-1",
+    "false_positive": [],
+    "note": "The finder and final report both identify the timeout and nonzero-result empty-notification assertions as locking in silence."
+  }
+]

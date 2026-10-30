@@ -1,0 +1,23 @@
+{
+ "pair-2": {
+  "bad": "t249-bad-2",
+  "repaired": "t249-fix-2",
+  "defect": "tests/pi-brew-auto-update.test.ts asserted that notifications stayed empty after a timeout and after a nonzero command result, so the suite protected silent failure instead of catching it (regression-insensitive / same-patch oracle).",
+  "basis": "prior human verdict: PR #135 body and its proof-first run (6 tests red against the unfixed code)",
+  "category": "regression-insensitive"
+ },
+ "pair-3": {
+  "bad": "t249-bad-3",
+  "repaired": "t249-fix-3",
+  "defect": "herdr child lifecycle tests assumed the historical `orange-panda` allocation instead of following the alias actually passed to the stub; the expected alias came from the same allocator path as the value under test (implementation-coupling / same-patch oracle).",
+  "basis": "prior human verdict: PR #167 body; legacy audit in docs/issues/2026-09-06-007",
+  "category": "implementation-coupling"
+ },
+ "pair-4": {
+  "bad": "t249-bad-4",
+  "repaired": "t249-fix-4",
+  "defect": "the Herdr stub in tests/helpers/herdr_task_sync.bash accepted an equal sequence report (`$seq < $current`) that production Herdr rejects, so tests accepted metadata writes production ignores (reimplemented-production-logic).",
+  "basis": "prior human verdict: PR #115 body; legacy audit in docs/issues/2026-09-06-007",
+  "category": "reimplemented-production-logic"
+ }
+}
