@@ -1,0 +1,560 @@
+[
+  {
+    "round_code": "45f46a39e84462f39ae76fb47f9d805f",
+    "finding_code": "b8fda145c743c1f180a0d4c4922f8dbb",
+    "cause": "journald-unsafe-rerun",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new cap has no standalone application path, so applying it to the populated host requires the unsafe bootstrap rerun."
+  },
+  {
+    "round_code": "45f46a39e84462f39ae76fb47f9d805f",
+    "finding_code": "e7f0070ef854f210b6261217924cac89",
+    "cause": "rollback-image-pruned",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A pull can untag the old image and the subsequent unused-image prune removes that supposed local rollback copy."
+  },
+  {
+    "round_code": "45f46a39e84462f39ae76fb47f9d805f",
+    "finding_code": "4d1fb2afe4c8a716dd465751a227ad34",
+    "cause": "disk-alert-free-unit-missing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Both notification templates render the free-space state without its unit."
+  },
+  {
+    "round_code": "45f46a39e84462f39ae76fb47f9d805f",
+    "finding_code": "0f1849c6135a556d7f9438be3e852ffb",
+    "cause": "dashboard-group-comment-stale",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The comment says there are three groups while the added Место separator makes four."
+  },
+  {
+    "round_code": "45f46a39e84462f39ae76fb47f9d805f",
+    "finding_code": "e58e574f78b27e9473ebedd978458568",
+    "cause": "redundant-config-source",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The second source is redundant but does not cause an observable defect."
+  },
+  {
+    "round_code": "45f46a39e84462f39ae76fb47f9d805f",
+    "finding_code": "b4e61aa2b5c54aac322c1c2e833ec2fb",
+    "cause": "journald-unsafe-rerun",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new cap has no standalone application path, so applying it to the populated host requires the unsafe bootstrap rerun."
+  },
+  {
+    "round_code": "45f46a39e84462f39ae76fb47f9d805f",
+    "finding_code": "7952769788bc7996147cb8bd73f91951",
+    "cause": "rollback-image-pruned",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A pull can untag the old image and the subsequent unused-image prune removes that supposed local rollback copy."
+  },
+  {
+    "round_code": "45f46a39e84462f39ae76fb47f9d805f",
+    "finding_code": "afa43e6b0d05e431c3aeb6dc9547097b",
+    "cause": "rollback-image-pruned",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A pull can untag the old image and the subsequent unused-image prune removes that supposed local rollback copy."
+  },
+  {
+    "round_code": "45f46a39e84462f39ae76fb47f9d805f",
+    "finding_code": "d653aaaec0187369eb9d8704acca9b73",
+    "cause": "journald-unsafe-rerun",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new cap has no standalone application path, so applying it to the populated host requires the unsafe bootstrap rerun."
+  },
+  {
+    "round_code": "45f46a39e84462f39ae76fb47f9d805f",
+    "finding_code": "b1cd3228880e91c255bd921d70f1f483",
+    "cause": "disk-alert-missed-after-reload",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A restart or automation reload clears the pending for timer and an already-high numeric state does not retrigger."
+  },
+  {
+    "round_code": "45f46a39e84462f39ae76fb47f9d805f",
+    "finding_code": "8d4828ff634aaf312478bcfdb4da868b",
+    "cause": "mixed-language-instructions",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The English additions do not make the instructions incorrect or unusable."
+  },
+  {
+    "round_code": "4a6f7c6314bb2e1e85a23896369fdad8",
+    "finding_code": "9b243ae8bcbcd792a67c078b53ac9834",
+    "cause": "disk-alert-free-unit-missing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Both notification templates render the free-space state without its unit."
+  },
+  {
+    "round_code": "4a6f7c6314bb2e1e85a23896369fdad8",
+    "finding_code": "efe243bfbf0948715d34fde234834598",
+    "cause": "disk-alert-missed-after-reload",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A restart or automation reload clears the pending for timer and an already-high numeric state does not retrigger."
+  },
+  {
+    "round_code": "4a6f7c6314bb2e1e85a23896369fdad8",
+    "finding_code": "51560a80a282b56ad6e4832314538069",
+    "cause": "rollback-image-pruned",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A pull can untag the old image and the subsequent unused-image prune removes that supposed local rollback copy."
+  },
+  {
+    "round_code": "4a6f7c6314bb2e1e85a23896369fdad8",
+    "finding_code": "0adade4fa3cec35963d453a11bcbcd4b",
+    "cause": "redundant-config-source",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The second source is redundant but does not cause an observable defect."
+  },
+  {
+    "round_code": "4a6f7c6314bb2e1e85a23896369fdad8",
+    "finding_code": "2c5c92c2e94ce55abd4ef9b06d03c411",
+    "cause": "dashboard-group-comment-stale",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The comment says there are three groups while the added Место separator makes four."
+  },
+  {
+    "round_code": "4a6f7c6314bb2e1e85a23896369fdad8",
+    "finding_code": "94771693ad2007ccbdc16d6af9f4e29b",
+    "cause": "dashboard-group-comment-stale",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The comment says there are three groups while the added Место separator makes four."
+  },
+  {
+    "round_code": "4a6f7c6314bb2e1e85a23896369fdad8",
+    "finding_code": "8ffd6a1881eb2fc12dec65204c2e0d46",
+    "cause": "disk-alert-free-unit-missing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Both notification templates render the free-space state without its unit."
+  },
+  {
+    "round_code": "4a6f7c6314bb2e1e85a23896369fdad8",
+    "finding_code": "d97619cd9d634f6c2cf6f5f3de7c0113",
+    "cause": "journald-unsafe-rerun",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new cap has no standalone application path, so applying it to the populated host requires the unsafe bootstrap rerun."
+  },
+  {
+    "round_code": "4a6f7c6314bb2e1e85a23896369fdad8",
+    "finding_code": "10bd841938846053db14e6140666e03d",
+    "cause": "disk-alert-missed-after-reload",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "A restart or automation reload clears the pending for timer and an already-high numeric state does not retrigger."
+  },
+  {
+    "round_code": "4a6f7c6314bb2e1e85a23896369fdad8",
+    "finding_code": "5155a0371bfe26aa61519dc85361d32d",
+    "cause": "rollback-image-pruned",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "A pull can untag the old image and the subsequent unused-image prune removes that supposed local rollback copy."
+  },
+  {
+    "round_code": "4a6f7c6314bb2e1e85a23896369fdad8",
+    "finding_code": "89561b7f540026c1b7656934ea464b04",
+    "cause": "journal-cap-doc-drift",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The documented 1G value matches the configuration in this frozen revision."
+  },
+  {
+    "round_code": "4a6f7c6314bb2e1e85a23896369fdad8",
+    "finding_code": "198d782105bcfd748745f7e9b090bd4c",
+    "cause": "instruction-trigger-overbroad",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The broader instruction trigger adds context but causes no defect."
+  },
+  {
+    "round_code": "6c0b8e8addcd992245c489dec7c4b24c",
+    "finding_code": "8feac311ee731ae133a4e2cda65a173f",
+    "cause": "dashboard-group-comment-stale",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The comment says there are three groups while the added Место separator makes four."
+  },
+  {
+    "round_code": "6c0b8e8addcd992245c489dec7c4b24c",
+    "finding_code": "3b8866472267d64fad2a9df0f4d9f293",
+    "cause": "disk-alert-free-unit-missing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Both notification templates render the free-space state without its unit."
+  },
+  {
+    "round_code": "6c0b8e8addcd992245c489dec7c4b24c",
+    "finding_code": "1a901e5ce3f95064cc2fcb8ab02a47f1",
+    "cause": "redundant-config-source",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The second source is redundant but does not cause an observable defect."
+  },
+  {
+    "round_code": "6c0b8e8addcd992245c489dec7c4b24c",
+    "finding_code": "eefbc468f1f65863dc282af9ba10db42",
+    "cause": "rebuild-header-omits-prune",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The header remains a true summary and does not promise that pruning is absent."
+  },
+  {
+    "round_code": "6c0b8e8addcd992245c489dec7c4b24c",
+    "finding_code": "bf0b746e0f31069c4497a7dedf33c5e6",
+    "cause": "journald-unsafe-rerun",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new cap has no standalone application path, so applying it to the populated host requires the unsafe bootstrap rerun."
+  },
+  {
+    "round_code": "6c0b8e8addcd992245c489dec7c4b24c",
+    "finding_code": "78775382e7e6f3976e5f68d5e73444ec",
+    "cause": "disk-alert-missed-after-reload",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A restart or automation reload clears the pending for timer and an already-high numeric state does not retrigger."
+  },
+  {
+    "round_code": "6c0b8e8addcd992245c489dec7c4b24c",
+    "finding_code": "be4a1e72bca1bfb607a00966fee0f3bc",
+    "cause": "rollback-image-pruned",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A pull can untag the old image and the subsequent unused-image prune removes that supposed local rollback copy."
+  },
+  {
+    "round_code": "6c0b8e8addcd992245c489dec7c4b24c",
+    "finding_code": "cafe7616ef153747a3e1e1e6662b7b26",
+    "cause": "rollback-image-pruned",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "A pull can untag the old image and the subsequent unused-image prune removes that supposed local rollback copy."
+  },
+  {
+    "round_code": "a56ac733b1bb8c404827d57390b593a8",
+    "finding_code": "dfce6b7d352e61949e133aa983e1542b",
+    "cause": "journald-unsafe-rerun",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new cap has no standalone application path, so applying it to the populated host requires the unsafe bootstrap rerun."
+  },
+  {
+    "round_code": "a56ac733b1bb8c404827d57390b593a8",
+    "finding_code": "032dadb5e4165eca0c3dc091f84fcfc7",
+    "cause": "rollback-image-pruned",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A pull can untag the old image and the subsequent unused-image prune removes that supposed local rollback copy."
+  },
+  {
+    "round_code": "a56ac733b1bb8c404827d57390b593a8",
+    "finding_code": "a0b0a5cadc77242610cdd6d836faa64b",
+    "cause": "disk-alert-free-unit-missing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Both notification templates render the free-space state without its unit."
+  },
+  {
+    "round_code": "a56ac733b1bb8c404827d57390b593a8",
+    "finding_code": "d4897d39c289e6c018bbe3dc5be0c86c",
+    "cause": "dashboard-group-comment-stale",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The comment says there are three groups while the added Место separator makes four."
+  },
+  {
+    "round_code": "a56ac733b1bb8c404827d57390b593a8",
+    "finding_code": "58bb73247eb700c5fa8cfe2ecca59d82",
+    "cause": "disk-alert-missed-after-reload",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A restart or automation reload clears the pending for timer and an already-high numeric state does not retrigger."
+  },
+  {
+    "round_code": "a56ac733b1bb8c404827d57390b593a8",
+    "finding_code": "ad0533b766139634e01d41304ba98d4d",
+    "cause": "redundant-config-source",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The second source is redundant but does not cause an observable defect."
+  },
+  {
+    "round_code": "a56ac733b1bb8c404827d57390b593a8",
+    "finding_code": "83d8887b9e84c91101a50398965fe9ef",
+    "cause": "journald-test-mode-failure",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The test image replaces systemctl with a successful mock, so this new call does not stop its bootstrap run."
+  },
+  {
+    "round_code": "a56ac733b1bb8c404827d57390b593a8",
+    "finding_code": "e174f4fb86f94d2ebf49a56afddd53cb",
+    "cause": "rollback-image-pruned",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A pull can untag the old image and the subsequent unused-image prune removes that supposed local rollback copy."
+  },
+  {
+    "round_code": "a56ac733b1bb8c404827d57390b593a8",
+    "finding_code": "5cb24a246cc78185349e68dcf8ba627b",
+    "cause": "rollback-image-pruned",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A pull can untag the old image and the subsequent unused-image prune removes that supposed local rollback copy."
+  },
+  {
+    "round_code": "a56ac733b1bb8c404827d57390b593a8",
+    "finding_code": "9b4d92eed40b6f057377d1aab0e56373",
+    "cause": "disk-alert-missed-after-reload",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "A restart or automation reload clears the pending for timer and an already-high numeric state does not retrigger."
+  },
+  {
+    "round_code": "a56ac733b1bb8c404827d57390b593a8",
+    "finding_code": "c8460cfefedd01eca1e761bba5d2333b",
+    "cause": "instruction-trigger-overbroad",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The broader instruction trigger adds context but causes no defect."
+  },
+  {
+    "round_code": "b2e71e7d2f6ca7530b2b689e16d3e9ff",
+    "finding_code": "d79ee85e2208e5ee1f53fd76dbac40c0",
+    "cause": "disk-alert-free-unit-missing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Both notification templates render the free-space state without its unit."
+  },
+  {
+    "round_code": "b2e71e7d2f6ca7530b2b689e16d3e9ff",
+    "finding_code": "aa11f2d7c2f207df67adfac1fb78ba24",
+    "cause": "rollback-image-pruned",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A pull can untag the old image and the subsequent unused-image prune removes that supposed local rollback copy."
+  },
+  {
+    "round_code": "b2e71e7d2f6ca7530b2b689e16d3e9ff",
+    "finding_code": "a34a12ac50e79badcc2028b977242b70",
+    "cause": "rollback-image-pruned",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A pull can untag the old image and the subsequent unused-image prune removes that supposed local rollback copy."
+  },
+  {
+    "round_code": "b2e71e7d2f6ca7530b2b689e16d3e9ff",
+    "finding_code": "e2b425e472ed234026590ca6583e6fa1",
+    "cause": "dashboard-group-comment-stale",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The comment says there are three groups while the added Место separator makes four."
+  },
+  {
+    "round_code": "b2e71e7d2f6ca7530b2b689e16d3e9ff",
+    "finding_code": "d436c0581cb9d1b4631a3a8c8603e897",
+    "cause": "rollback-image-pruned",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A pull can untag the old image and the subsequent unused-image prune removes that supposed local rollback copy."
+  },
+  {
+    "round_code": "b2e71e7d2f6ca7530b2b689e16d3e9ff",
+    "finding_code": "5711cf4c2988eb85b83005b8f898bd38",
+    "cause": "rollback-image-pruned",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "A pull can untag the old image and the subsequent unused-image prune removes that supposed local rollback copy."
+  },
+  {
+    "round_code": "b2e71e7d2f6ca7530b2b689e16d3e9ff",
+    "finding_code": "619bcb4eda12e7127fb9af32353c50ae",
+    "cause": "journal-cap-doc-drift",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The documented 1G value matches the configuration in this frozen revision."
+  },
+  {
+    "round_code": "ffe9e88a86feae11527bea90d70f7222",
+    "finding_code": "6d1e9a6914cd02ee807fa4d06c79a2f9",
+    "cause": "rollback-image-pruned",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A pull can untag the old image and the subsequent unused-image prune removes that supposed local rollback copy."
+  },
+  {
+    "round_code": "ffe9e88a86feae11527bea90d70f7222",
+    "finding_code": "5fd0b1eb0e8888a7a09692ecb4dc4e62",
+    "cause": "disk-alert-missed-after-reload",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A restart or automation reload clears the pending for timer and an already-high numeric state does not retrigger."
+  },
+  {
+    "round_code": "ffe9e88a86feae11527bea90d70f7222",
+    "finding_code": "d788cd8850543022ad01f9f158ca3c67",
+    "cause": "journald-unsafe-rerun",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new cap has no standalone application path, so applying it to the populated host requires the unsafe bootstrap rerun."
+  },
+  {
+    "round_code": "ffe9e88a86feae11527bea90d70f7222",
+    "finding_code": "9041a5c1c9372d56d52799611698e55c",
+    "cause": "disk-alert-free-unit-missing",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "Both notification templates render the free-space state without its unit."
+  },
+  {
+    "round_code": "ffe9e88a86feae11527bea90d70f7222",
+    "finding_code": "19feef0f10d255eab7223241135be278",
+    "cause": "redundant-config-source",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The second source is redundant but does not cause an observable defect."
+  },
+  {
+    "round_code": "ffe9e88a86feae11527bea90d70f7222",
+    "finding_code": "1f771e34c12ba1d2298391852a52196c",
+    "cause": "dashboard-group-comment-stale",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The comment says there are three groups while the added Место separator makes four."
+  },
+  {
+    "round_code": "ffe9e88a86feae11527bea90d70f7222",
+    "finding_code": "1acac180944859a60375cdf48adb8656",
+    "cause": "rollback-image-pruned",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "A pull can untag the old image and the subsequent unused-image prune removes that supposed local rollback copy."
+  },
+  {
+    "round_code": "ffe9e88a86feae11527bea90d70f7222",
+    "finding_code": "9e4939f396c499090f496d0fd78c1837",
+    "cause": "dashboard-group-comment-stale",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The comment says there are three groups while the added Место separator makes four."
+  },
+  {
+    "round_code": "ffe9e88a86feae11527bea90d70f7222",
+    "finding_code": "e4e5afaae6294b720ab684f56d25ff0f",
+    "cause": "disk-alert-missed-after-reload",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "A restart or automation reload clears the pending for timer and an already-high numeric state does not retrigger."
+  },
+  {
+    "round_code": "ffe9e88a86feae11527bea90d70f7222",
+    "finding_code": "deb34869c65590ebad92db76bac83bb8",
+    "cause": "journald-unsafe-rerun",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The new cap has no standalone application path, so applying it to the populated host requires the unsafe bootstrap rerun."
+  },
+  {
+    "round_code": "ffe9e88a86feae11527bea90d70f7222",
+    "finding_code": "e169de10cdbea4918e80a5ce01e1c8eb",
+    "cause": "missing-combined-failure-test",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The code already preserves the service failure after logging a prune failure, so the omitted combined fixture is not a defect."
+  },
+  {
+    "round_code": "ffe9e88a86feae11527bea90d70f7222",
+    "finding_code": "803c3aa1e922f589d87dc31f33247b3b",
+    "cause": "weak-prune-warning-test",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The fixture has no other warning path, so the assertion establishes the intended prune-failure warning here."
+  },
+  {
+    "round_code": "ffe9e88a86feae11527bea90d70f7222",
+    "finding_code": "54aa8bd60ff9e88fcce79dbfdde2f9c1",
+    "cause": "instruction-trigger-overbroad",
+    "basis": "none yet",
+    "verdict": "invalid",
+    "severity_agree": false,
+    "note": "The broader instruction trigger adds context but causes no defect."
+  }
+]

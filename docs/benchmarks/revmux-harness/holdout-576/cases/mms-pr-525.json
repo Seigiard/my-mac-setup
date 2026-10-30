@@ -1,0 +1,8 @@
+{
+ "id": "mms-pr-525",
+ "repository": "/Users/andrew.b/Projects/my-mac-setup",
+ "base": "60f2988e8bde8d979735b028a2c94650078dd7ff",
+ "head": "c645688b338f6525def9c7a92c7a837f7f11738a",
+ "scope": "# Scope\n\n- Repo: Seigiard/my-mac-setup, the branch for issue #520 (PR #525): `revmux-round.sh next` gains a repeatable `--only <pathspec>` option that limits a follow-up review round's scope to chosen paths.\n- 3 files, +227/-20: `home/private_dot_agents/skills/code-review/scripts/executable_revmux-round.sh` (the change), `tests/bashunit/revmux_round_test.sh` (its tests), `home/private_dot_agents/skills/code-review/SKILL.md` (the option as described to the agent that runs follow-up rounds).\n\n## Files to read in full\n- all three\n",
+ "goal": "# Goal\n\nA follow-up review round can be limited to chosen paths: `next --only P` (repeatable) computes the scale, the commit list, the changed files and the read commands of `scope.md` over those pathspecs only, states the limit in the scope, and refuses to create a round when any one pathspec, or the combined set, selects no change. Without `--only`, `next` and `summary` are unchanged.\n\nCorrect only if:\n- every git fact in the generated scope takes the same pathspec list;\n- a dead pathspec is an error before `revmux new`, never a silently empty scope;\n- `--only` and `--exclude` stay separate (`--exclude` remains prose for reviewers);\n- the tests would fail if any of these regressed;\n- `SKILL.md` describes the option the way the script behaves.\n\nFinding nothing is a valid answer.\n"
+}

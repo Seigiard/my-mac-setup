@@ -1,0 +1,776 @@
+[
+  {
+    "round_code": "2e10ed6dc76e0579d9ec76ded3ea836e",
+    "finding_code": "09e076c9b1363f9102d36ac28218c4df",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "2e10ed6dc76e0579d9ec76ded3ea836e",
+    "finding_code": "248c8243db5b4e2cdaa1161b03b439f6",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "2e10ed6dc76e0579d9ec76ded3ea836e",
+    "finding_code": "66cb207aabb9b1d9d184d90e60c90621",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "2e10ed6dc76e0579d9ec76ded3ea836e",
+    "finding_code": "676599b44fe151300b8efc81d1f25377",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "2e10ed6dc76e0579d9ec76ded3ea836e",
+    "finding_code": "a087843a57f1c3d7d9be66f29daefb03",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "2e10ed6dc76e0579d9ec76ded3ea836e",
+    "finding_code": "f0119d923b0e74dff758b6ef9fd3f51d",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "2e10ed6dc76e0579d9ec76ded3ea836e",
+    "finding_code": "375455915db2377670a424fbdf3be388",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "2e10ed6dc76e0579d9ec76ded3ea836e",
+    "finding_code": "edfb3efd3f628931fa042e4dc7c87c50",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "2e10ed6dc76e0579d9ec76ded3ea836e",
+    "finding_code": "113a7b8e1c2c06cef7ad187ac3268c90",
+    "cause": "offer-pages-publish-path-mismatch",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "2e10ed6dc76e0579d9ec76ded3ea836e",
+    "finding_code": "5352869d1e698c7fbd947ecb4a2a1211",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "2e10ed6dc76e0579d9ec76ded3ea836e",
+    "finding_code": "fc50b14de430e11654bcff25c72d5ab5",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "2e10ed6dc76e0579d9ec76ded3ea836e",
+    "finding_code": "f7f701da867273a182e5bfe1dabbdc23",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "2e10ed6dc76e0579d9ec76ded3ea836e",
+    "finding_code": "79e271b7571ff838dab6b6d47f806317",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "2e10ed6dc76e0579d9ec76ded3ea836e",
+    "finding_code": "7912d0d4f2561636054bda22adc768a9",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "2e10ed6dc76e0579d9ec76ded3ea836e",
+    "finding_code": "9cfbfd79b1fb83b2e4d8e1b2198b6ba4",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "2e10ed6dc76e0579d9ec76ded3ea836e",
+    "finding_code": "e8742fd86a8654905bbfe3c7edf5db61",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "395397b8b1dcc3ee1c2935731de5e634",
+    "finding_code": "8b5bee67d6c4d717483f7963eca74147",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "395397b8b1dcc3ee1c2935731de5e634",
+    "finding_code": "6d412ce8a1fa0161b1631c6059975568",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "395397b8b1dcc3ee1c2935731de5e634",
+    "finding_code": "b06e8816fd6a9c29f24f744e13e9945d",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "395397b8b1dcc3ee1c2935731de5e634",
+    "finding_code": "8e12df85a0f011d9eb9cfc7c15a94d94",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "395397b8b1dcc3ee1c2935731de5e634",
+    "finding_code": "c1bbdb66a508f613c24c0dc24faca9e8",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "395397b8b1dcc3ee1c2935731de5e634",
+    "finding_code": "4fe8470002ec7f6b65978abac0dc4a17",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "395397b8b1dcc3ee1c2935731de5e634",
+    "finding_code": "3b91324e3e956a87d4a1692a19a6f865",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "395397b8b1dcc3ee1c2935731de5e634",
+    "finding_code": "88f1fff68d3954493b90dafb2e75923b",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "395397b8b1dcc3ee1c2935731de5e634",
+    "finding_code": "b0089ebb6f59fc271e00628501af4c7e",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "395397b8b1dcc3ee1c2935731de5e634",
+    "finding_code": "c373a5d082b6cc5c6ada7e1ff5066067",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "395397b8b1dcc3ee1c2935731de5e634",
+    "finding_code": "5dd91913636afcb2e2da7d4c38169a35",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "395397b8b1dcc3ee1c2935731de5e634",
+    "finding_code": "b3b489aeb56eac6835c3e4cae7a0c92b",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "395397b8b1dcc3ee1c2935731de5e634",
+    "finding_code": "810ac664196ddcf7bbcd8de02b7f844e",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "7112e76d9e8838bb2c27a000ed281d43",
+    "finding_code": "137a4d8a97d54fa3930f5c7339df5097",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "7112e76d9e8838bb2c27a000ed281d43",
+    "finding_code": "ba258bd7ea41e106b61194cc45e9e1ba",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "7112e76d9e8838bb2c27a000ed281d43",
+    "finding_code": "f137368672817505b33f35269fa3b423",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "7112e76d9e8838bb2c27a000ed281d43",
+    "finding_code": "7f6a49cba3b32c6a5ec74bf4ced1f28f",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "7112e76d9e8838bb2c27a000ed281d43",
+    "finding_code": "18e00b7c0f36d0a3b10451417b82f208",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "7112e76d9e8838bb2c27a000ed281d43",
+    "finding_code": "241efb062c1c148018bf32e436446316",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "7112e76d9e8838bb2c27a000ed281d43",
+    "finding_code": "0b428a125b82a0d4101b022d42bd7ffc",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "7112e76d9e8838bb2c27a000ed281d43",
+    "finding_code": "6ad31a4091373169c07576354bc2e6cf",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "7112e76d9e8838bb2c27a000ed281d43",
+    "finding_code": "9e9659296d0b6fd7d87f133f4ecd91ec",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "7112e76d9e8838bb2c27a000ed281d43",
+    "finding_code": "49b8246cb884ca1598054236af03b0f8",
+    "cause": "auxclick-right-button-records-acceptance",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "7112e76d9e8838bb2c27a000ed281d43",
+    "finding_code": "fb29e76fea6292cb5c9d52608f417306",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "7112e76d9e8838bb2c27a000ed281d43",
+    "finding_code": "7d0f387d5276233a3a6bc16d549a0bcc",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "7112e76d9e8838bb2c27a000ed281d43",
+    "finding_code": "0862f216bf1b5358811a656f18f60762",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "949c8c9afe952f3839556987af9dff0f",
+    "finding_code": "6a02240e452a4d409346d2aba7a7d660",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "949c8c9afe952f3839556987af9dff0f",
+    "finding_code": "c5e9cc06cae970fcea6d9465ad02f116",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "949c8c9afe952f3839556987af9dff0f",
+    "finding_code": "26ca6c6acfc935deef15f4ac2510376c",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "949c8c9afe952f3839556987af9dff0f",
+    "finding_code": "bd0a8478662602cf2251c33b82360252",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "949c8c9afe952f3839556987af9dff0f",
+    "finding_code": "82235f1fc1e8fff14114f58278e0dc73",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "949c8c9afe952f3839556987af9dff0f",
+    "finding_code": "9f74cbeab914f268f840a54554ccbf03",
+    "cause": "offer-pages-publish-path-mismatch",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "949c8c9afe952f3839556987af9dff0f",
+    "finding_code": "3c5830545af2ba843ca18950c97a4d1a",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "949c8c9afe952f3839556987af9dff0f",
+    "finding_code": "ac1c4cf1c4a27a53045c180a223d7277",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "949c8c9afe952f3839556987af9dff0f",
+    "finding_code": "f3ae7ceb70206cedfac06745152e1388",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "949c8c9afe952f3839556987af9dff0f",
+    "finding_code": "17bfbd84485f56a8254dbd209ad02bc3",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "949c8c9afe952f3839556987af9dff0f",
+    "finding_code": "f46978f45dd04ac4451e5e02e41c766f",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "949c8c9afe952f3839556987af9dff0f",
+    "finding_code": "3a4a2857f9009217f8baad44f1e225be",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "949c8c9afe952f3839556987af9dff0f",
+    "finding_code": "87bb72eb1ededc803dd1fe0a67d425a8",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "949c8c9afe952f3839556987af9dff0f",
+    "finding_code": "4c669b568035837a76b106b61818c042",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "949c8c9afe952f3839556987af9dff0f",
+    "finding_code": "0304a38e9d81c0de15de096d43d22b5c",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "c95164772c8eb4e50c5cab403c099c5f",
+    "finding_code": "6cb176050875197871914447c41ab8dd",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "c95164772c8eb4e50c5cab403c099c5f",
+    "finding_code": "4cc320df3de2b3ad5a73362b1e79ffea",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "c95164772c8eb4e50c5cab403c099c5f",
+    "finding_code": "4f260e9151613fbf8bc65c2d3f4d3032",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "c95164772c8eb4e50c5cab403c099c5f",
+    "finding_code": "46b062e67483c0b50ff9f4f7250d8290",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "c95164772c8eb4e50c5cab403c099c5f",
+    "finding_code": "9e51ad82d8cd3f3b3f5ef0a8274d7038",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "c95164772c8eb4e50c5cab403c099c5f",
+    "finding_code": "b3776d0ac341a8fd8195c48c7ea8f33d",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "c95164772c8eb4e50c5cab403c099c5f",
+    "finding_code": "0c96f9c4315ce870ed633acd1cbc121d",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "c95164772c8eb4e50c5cab403c099c5f",
+    "finding_code": "d737cb3ebf4ebd04e6277fee502fe821",
+    "cause": "offer-pages-publish-path-mismatch",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "c95164772c8eb4e50c5cab403c099c5f",
+    "finding_code": "73a3da6158c57ea45a62dc8db2fc9e01",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "c95164772c8eb4e50c5cab403c099c5f",
+    "finding_code": "1d2f42142bb18eae6f3131dea763f8ef",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "c95164772c8eb4e50c5cab403c099c5f",
+    "finding_code": "1f421a0b8a0e0e54aebca72a7c81fb8d",
+    "cause": "auxclick-right-button-records-acceptance",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "c95164772c8eb4e50c5cab403c099c5f",
+    "finding_code": "c9fe5bb04932de841840a7a870d13c83",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "c95164772c8eb4e50c5cab403c099c5f",
+    "finding_code": "dbfec9dddc7f6c27071431d19ee1e606",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "c95164772c8eb4e50c5cab403c099c5f",
+    "finding_code": "14ebf1df34946fcc0a873925a11fd384",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "cb91f401d41b93788f1affcb01b05a9c",
+    "finding_code": "c79b45fb9c23a75b3988af0dde7f977f",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "cb91f401d41b93788f1affcb01b05a9c",
+    "finding_code": "4ed0825de25f83ff37d990a002995463",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "cb91f401d41b93788f1affcb01b05a9c",
+    "finding_code": "cdfe4c46aed998b56d5ea9468dbea492",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "cb91f401d41b93788f1affcb01b05a9c",
+    "finding_code": "5170a5c3eed09ce900f602b47460ee31",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "cb91f401d41b93788f1affcb01b05a9c",
+    "finding_code": "d70fba58ddc3c5633ff7730fc2e9955b",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "cb91f401d41b93788f1affcb01b05a9c",
+    "finding_code": "aee939dec7f8d27fc3080bd860c42dd2",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "cb91f401d41b93788f1affcb01b05a9c",
+    "finding_code": "3df6443fd832506ab449163d9fd3cee1",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "cb91f401d41b93788f1affcb01b05a9c",
+    "finding_code": "51a97df620eaf809571d0367016aa202",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "cb91f401d41b93788f1affcb01b05a9c",
+    "finding_code": "f5f75e7e68b9b68b783d9b59aa164674",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "cb91f401d41b93788f1affcb01b05a9c",
+    "finding_code": "fb1a15acae34613fd576620675cbe27e",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "cb91f401d41b93788f1affcb01b05a9c",
+    "finding_code": "8a930f9cc8448b9717e36f73769cd2f5",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "cb91f401d41b93788f1affcb01b05a9c",
+    "finding_code": "39605a032abb1b9a49b1f399d7b16325",
+    "cause": "auxclick-right-button-records-acceptance",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "pre-existing"
+  },
+  {
+    "round_code": "cb91f401d41b93788f1affcb01b05a9c",
+    "finding_code": "fec484e7b2314b83ca510b3f4e42bc92",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": false,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "cb91f401d41b93788f1affcb01b05a9c",
+    "finding_code": "271aa6f80e9db311eaa474148db6793b",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  },
+  {
+    "round_code": "cb91f401d41b93788f1affcb01b05a9c",
+    "finding_code": "599e94867771617e3f546c7f2165c9ee",
+    "cause": "wrong-review-target-reverts-cta-instrumentation",
+    "basis": "reproduced defect",
+    "verdict": "valid",
+    "severity_agree": true,
+    "note": "The frozen non-descendant range omits the requested feature and reverses established CTA tracking."
+  }
+]
