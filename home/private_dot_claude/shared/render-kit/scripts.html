@@ -86,9 +86,14 @@
     const write = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} };
     const normalizeText = (text) => text.replace(/\s+/g, " ").trim();
     const textFor = (annotation) => annotation.text ?? annotation.comment ?? "";
-    const cleanText = (kind, value) => kind === "replace"
-      ? value.trim().split(/\r?\n\s*\r?\n/, 1)[0]
-      : value.trim();
+    const cleanText = (value) => value.replace(/\r\n?/g, "\n").trim();
+    // Text of more than one line goes into a fence longer than any backtick run inside it, so blank lines, "> " and "## " in it stay text.
+    const actionText = (text) => {
+      if (!text) return "";
+      if (!text.includes("\n")) return ` ${text}`;
+      const fence = "`".repeat(Math.max(3, ...(text.match(/`+/g) || []).map((run) => run.length + 1)));
+      return `\n${fence}text\n${text}\n${fence}`;
+    };
     const isEmptyMark = (annotation) => ["comment", "replace"].includes(annotation.kind) && !textFor(annotation).trim();
     let enabled = read(modeKey, false) === true;
     let pending = null;
@@ -378,7 +383,7 @@
           kind.dataset.kind = annotation.kind;
           kind.textContent = `\n**${annotation.kind}:**`;
           open.append(kind);
-          if (textFor(annotation)) open.append(document.createTextNode(` ${textFor(annotation)}`));
+          if (textFor(annotation)) open.append(document.createTextNode(actionText(textFor(annotation))));
           block.append(open);
           const trash = document.createElement("button");
           trash.type = "button";
@@ -508,7 +513,7 @@
         else { syncPopover(); paintPreview(); }
       } else {
         editing.kind = kind;
-        editing.text = cleanText(kind, input.value);
+        editing.text = cleanText(input.value);
         persist();
         syncPopover();
         renderDock();
@@ -518,7 +523,7 @@
     };
     const updateText = () => {
       const kind = editing?.kind || pendingKind;
-      const value = cleanText(kind, input.value);
+      const value = cleanText(input.value);
       if (!editing && pending && value) createMark(kind, pending, value);
       else if (editing) { editing.text = value; persist(); renderDock(); }
       paintPreview();
@@ -534,8 +539,7 @@
         const blocks = entries.map((annotation) => {
           const quote = annotation.quote.split("\n").map((line) => `> ${line}`).join("\n");
           const after = annotation.after ? `\n**after:** ${annotation.after}` : "";
-          const text = textFor(annotation);
-          return `${quote}${after}\n**${annotation.kind}:**${text ? ` ${text}` : ""}`;
+          return `${quote}${after}\n**${annotation.kind}:**${actionText(textFor(annotation))}`;
         });
         sections.push(`## ${section}\n${blocks.join("\n\n")}`);
       }
