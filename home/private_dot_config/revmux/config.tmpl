@@ -6,7 +6,13 @@
 # default because that archive showed the second agent of a pair rarely added a finding, while
 # the second model did; `mixed` keeps both models at six agents instead of ten. `dual-model`
 # stays available by name. `code-review` picks a narrower profile when the gap in a diff is small.
-profile = mixed
+#
+# Trial, 2026-10-30 to 2026-11-06: `mixed-terra`, which is `mixed` with a gpt-6.1-terra twin of each
+# codex group, nine agents. The #576 holdout failed Terra on one finding of a kind the owner counts
+# as valid, so a week of real rounds decides instead; `docs/benchmarks/revmux-harness/trial-terra/`
+# holds the tally and the rule. At the end of the week this line goes back to `mixed`, or `mixed`
+# itself moves its codex groups to Terra, in a PR with the tally as evidence.
+profile = mixed-terra
 
 # Six agents in one wave. Each agent runs the diff command in `scope.md` itself, so two waves
 # launched minutes apart would read different material from a working tree still being edited;
