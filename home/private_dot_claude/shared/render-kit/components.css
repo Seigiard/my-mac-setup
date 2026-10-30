@@ -84,7 +84,7 @@ dialog.lightbox img { flex: none; max-inline-size: none; max-block-size: none; m
 #kit-annotations .kit-annotations-tabs button[data-kind="comment"][aria-pressed="true"], #kit-annotations .kit-annotations-tabs button[data-kind="replace"][aria-pressed="true"] { border-block-end-color: var(--accent); }
 #kit-annotations .kit-annotations-tabs button[data-kind="delete"][aria-pressed="true"] { border-block-end-color: var(--bad); }
 .kit-annotations-sample { padding-inline: .15rem; border-radius: 2px; font-weight: 600; }
-.kit-annotations-sample[data-kind="comment"] { background: var(--tint); box-shadow: 0 2px 0 var(--accent); }
+.kit-annotations-sample[data-kind="comment"] { background: color-mix(in oklch, var(--accent) 22%, transparent); box-shadow: 0 2px 0 var(--accent); }
 .kit-annotations-sample[data-kind="delete"] { color: var(--bad); text-decoration: line-through; }
 .kit-annotations-sample[data-kind="replace"] { color: var(--accent); text-decoration: line-through; }
 .kit-annotations-popover-body { display: grid; gap: .5rem; padding: .75rem; }
@@ -134,7 +134,7 @@ dialog.lightbox img { flex: none; max-inline-size: none; max-block-size: none; m
   .kit-annotations-popover { position-anchor: --kit-annotations-range; position-area: block-end span-inline-end; position-try-fallbacks: --kit-annotations-popover-clamp-below, --kit-annotations-popover-above, --kit-annotations-popover-clamp-above, flip-inline; margin: 0; margin-block-start: calc(var(--kit-annotations-range-tail-size, 0px) + .5rem); }
   .kit-annotations-popover.kit-annotations-popover-with-preview { position-anchor: --kit-annotations-preview; margin-block-start: calc(var(--kit-annotations-range-block-size, 0px) + .75rem); }
 }
-::highlight(kit-annotation) { background: var(--tint); color: var(--fg); }
+::highlight(kit-annotation) { background: color-mix(in oklch, var(--accent) 22%, transparent); color: var(--fg); text-decoration: underline; text-decoration-color: var(--accent); }
 ::highlight(kit-annotation-delete) { color: var(--bad); text-decoration: line-through; text-decoration-color: var(--bad); }
 ::highlight(kit-annotation-replace) { color: var(--accent); text-decoration: line-through; text-decoration-color: var(--accent); }
 
