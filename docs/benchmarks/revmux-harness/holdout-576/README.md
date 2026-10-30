@@ -3,7 +3,7 @@ title: Revmux holdout for #576, Terra against Sol
 type: benchmark
 date: 2026-10-29
 topic: revmux-benchmark-holdout-576
-status: measured, human pass pending
+status: closed, superseded by the production trial
 ---
 
 # Revmux holdout for #576, Terra against Sol
@@ -16,7 +16,7 @@ The pre-registered holdout that issue #576 asked for: gpt-6.1-terra against gpt-
 - Cases: five, one per corpus repository, none of the three pilot cases, the `r249` cases kept out (`cases/`): `mms-pr-525`, `homelab-feat-8`, `ttrpg-pr-152`, `platform-prd-3672`, `ux-chain-prd-3567`.
 - 30 rounds (2 arms × 5 cases × 3 repetitions) on 2026-10-29, 20:06 to 22:52, one at a time (`driver.sh`; `codex-quota.sh` is the Codex weekly probe it uses), none degraded, actual model equal to requested in every manifest. Claude weekly quota 45% → 50%, Codex 5% → 8%; no cap reached.
 - Adjudication: blind packet from `export-blind` over the merged archive (`packet.json`, `analysis.json`); `split.py` builds one input per case with every major, every final-list finding and every fourth merged or dropped minor per round (42 of 209 minors); five OpenCode gpt-5.6-terra adjudicators, one per case (`adjudication/prompt-case-1.md` is the first prompt; the others differ only in case, repository and SHAs), wrote `adjudication/out/case-N.json`: 285 of 285 selected findings adjudicated. `join.py` opens the key and applies the gates.
-- **The key is not in this commit.** `key.json` stays sealed on the machine until the owner signs off the human pass; it is added in the follow-up commit that records the sign-off, as the pilot did.
+- `key.json` maps the opaque round and finding codes to arms. It was added after the owner read the five majors: the owner counts a finding of the kind "this test does not check X" as valid when the change set out to cover X, which would overturn gate 2, and chose a one-week production trial of both models over re-adjudication (`../trial-terra/`).
 
 ## Results
 
