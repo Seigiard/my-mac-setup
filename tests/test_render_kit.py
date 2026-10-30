@@ -190,5 +190,44 @@ class KitBuild(unittest.TestCase):
         self.assertNotEqual(expected_first, expected_changed)
 
 
+class RepeatedHeadings(unittest.TestCase):
+    """A heading that repeats another's text needs an id, or annotations can name it only by position."""
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.dir)
+
+    def test_repeated_heading_text_without_an_id_warns_and_still_assembles(self):
+        # #given two sections that each carry an "Evidence" heading without an id
+        draft = self.dir / "page.html"
+        draft.write_text(
+            "<body><h2 id=a>A</h2><h3>Evidence</h3><p>x</p>"
+            "<h2 id=b>B</h2><h3> Evidence </h3><p>y</p></body>",
+            encoding="utf-8",
+        )
+        # #when
+        result = assemble(draft)
+        # #then
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            result.stderr,
+            'assemble: warning: several headings read "Evidence" and one has no id; give each an id\n',
+        )
+
+    def test_repeated_heading_text_with_ids_assembles_silently(self):
+        # #given the same headings, each with its own id
+        draft = self.dir / "page.html"
+        draft.write_text(
+            "<body><h2 id=a>A</h2><h3 id=a-evidence>Evidence</h3><p>x</p>"
+            "<h2 id=b>B</h2><h3 id=b-evidence>Evidence</h3><p>y</p></body>",
+            encoding="utf-8",
+        )
+        # #when
+        result = assemble(draft)
+        # #then
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+
+
 if __name__ == "__main__":
     unittest.main()

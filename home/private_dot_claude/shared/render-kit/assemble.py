@@ -16,6 +16,9 @@ its frames. Remote and data sources stay as written.
 
 A marker the draft does not carry is skipped; a missing kit file or image
 stops the run with exit status 1, so a page is never written half-built.
+
+Headings h1-h4 that share their text and lack an id print a warning: the
+annotation layer can name them only by position, so each needs an id.
 """
 import argparse
 import base64
@@ -23,6 +26,8 @@ import hashlib
 import mimetypes
 import re
 import sys
+from collections import Counter
+from html.parser import HTMLParser
 from pathlib import Path
 
 KIT = Path(__file__).resolve().parent
@@ -57,6 +62,39 @@ def inline_images(html, base):
     return "".join(part if index % 2 else IMG_TAG.sub(inline, part) for index, part in enumerate(parts))
 
 
+class Headings(HTMLParser):
+    """Collects each h1-h4 heading's whitespace-collapsed text and whether it has an id."""
+
+    TAGS = {"h1", "h2", "h3", "h4"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.found = []
+        self.current = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self.TAGS and self.current is None:
+            self.current = (bool(dict(attrs).get("id")), [])
+
+    def handle_endtag(self, tag):
+        if tag in self.TAGS and self.current is not None:
+            has_id, parts = self.current
+            self.found.append((" ".join("".join(parts).split()), has_id))
+            self.current = None
+
+    def handle_data(self, data):
+        if self.current is not None:
+            self.current[1].append(data)
+
+
+def repeated_headings(html):
+    parser = Headings()
+    parser.feed(html)
+    parser.close()
+    counts = Counter(text for text, _ in parser.found)
+    return sorted({text for text, has_id in parser.found if not has_id and counts[text] > 1})
+
+
 def assemble(html, base, build_id=None):
     for marker, load in MARKERS.items():
         if marker in html:
@@ -83,6 +121,8 @@ def main():
     except FileNotFoundError as error:
         print(f"assemble: missing file: {error.filename}", file=sys.stderr)
         return 1
+    for text in repeated_headings(draft_bytes.decode("utf-8")):
+        print(f'assemble: warning: several headings read "{text}" and one has no id; give each an id', file=sys.stderr)
     if args.output:
         output = Path(args.output)
         output.parent.mkdir(parents=True, exist_ok=True)

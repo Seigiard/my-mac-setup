@@ -86,9 +86,14 @@
     const write = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} };
     const normalizeText = (text) => text.replace(/\s+/g, " ").trim();
     const textFor = (annotation) => annotation.text ?? annotation.comment ?? "";
-    const cleanText = (kind, value) => kind === "replace"
-      ? value.trim().split(/\r?\n\s*\r?\n/, 1)[0]
-      : value.trim();
+    const cleanText = (value) => value.replace(/\r\n?/g, "\n").trim();
+    // Text of more than one line goes into a fence longer than any backtick run inside it, so blank lines, "> " and "## " in it stay text.
+    const actionText = (text) => {
+      if (!text) return "";
+      if (!text.includes("\n")) return ` ${text}`;
+      const fence = "`".repeat(Math.max(3, ...(text.match(/`+/g) || []).map((run) => run.length + 1)));
+      return `\n${fence}text\n${text}\n${fence}`;
+    };
     const isEmptyMark = (annotation) => ["comment", "replace"].includes(annotation.kind) && !textFor(annotation).trim();
     let enabled = read(modeKey, false) === true;
     let pending = null;
@@ -236,6 +241,12 @@
       const sameName = [...document.querySelectorAll("h1, h2, h3, h4")].filter((item) => headingText(item) === section);
       return { section, ...(heading.id ? {} : { headingOrdinal: sameName.indexOf(heading) }) };
     };
+    // A heading without an id that shares its text with another h1–h4 heading is named by its place among them: "Evidence #2".
+    const sectionLabel = (annotation) => {
+      if (annotation.headingOrdinal === undefined) return annotation.section;
+      const sameName = [...document.querySelectorAll("h1, h2, h3, h4")].filter((heading) => headingText(heading) === annotation.section);
+      return sameName.length > 1 ? `${annotation.section} #${annotation.headingOrdinal + 1}` : annotation.section;
+    };
     const headingAtRangeEnd = (range) => {
       const container = range.endContainer;
       if (container.nodeType === Node.TEXT_NODE) return range.endOffset === 0 ? container.parentElement?.closest("h1, h2, h3, h4") : null;
@@ -286,9 +297,17 @@
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
         acceptNode: (node) => isPageText(node, bounds) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT,
       });
+      // content is the raw text the browser re-anchors on; spaced puts a space between blocks, as the Markdown's **after:** reads.
       let content = "";
+      let spaced = "";
+      const nodes = [];
+      let previousBlock = null;
       let selectedStart = -1;
       while (walker.nextNode()) {
+        const block = walker.currentNode.parentElement.closest(`${blockSelector}, summary, caption, legend`) || document.body;
+        if (previousBlock && block !== previousBlock) spaced += " ";
+        previousBlock = block;
+        nodes.push({ raw: content.length, spaced: spaced.length });
         if (walker.currentNode === range.startContainer) selectedStart = content.length + range.startOffset;
         else if (selectedStart < 0) {
           const boundary = range.cloneRange();
@@ -296,17 +315,29 @@
           if (boundary.comparePoint(walker.currentNode, 0) >= 0) selectedStart = content.length;
         }
         content += walker.currentNode.nodeValue;
+        spaced += walker.currentNode.nodeValue;
       }
       if (selectedStart < 0) selectedStart = content.length;
+      const spacedAt = (position) => {
+        const node = nodes.findLast((item) => item.raw <= position);
+        return node ? node.spaced + position - node.raw : position;
+      };
+      const rawAt = (position) => {
+        const node = nodes.findLast((item) => item.spaced <= position);
+        return node ? node.raw + position - node.spaced : position;
+      };
       const starts = occurrencesFor(rawQuote, section, headingOrdinal).starts;
       if (starts.length < 2 || selectedStart < 0) return { after: "", rawAfter: "" };
-      for (let length = 1; length <= selectedStart; length += 1) {
-        const rawAfter = content.slice(selectedStart - length, selectedStart);
-        const startsAtWordBoundary = selectedStart === length || /[^\p{L}\p{N}]/u.test(content[selectedStart - length - 1]);
-        const after = normalizeText(rawAfter);
-        if (startsAtWordBoundary && after.length >= 12 && starts.filter((startAt) => normalizeText(content.slice(0, startAt)).endsWith(after)).length === 1) return { after, rawAfter };
+      const end = spacedAt(selectedStart);
+      for (let length = 1; length <= end; length += 1) {
+        const begin = end - length;
+        const startsAtWordBoundary = begin === 0 || /[^\p{L}\p{N}]/u.test(spaced[begin - 1]);
+        const after = normalizeText(spaced.slice(begin, end));
+        if (startsAtWordBoundary && after.length >= 12 && starts.filter((startAt) => normalizeText(spaced.slice(0, spacedAt(startAt))).endsWith(after)).length === 1) {
+          return { after, rawAfter: content.slice(rawAt(begin), selectedStart) };
+        }
       }
-      return { after: content.slice(0, selectedStart).replace(/\s+/g, " ").trim(), rawAfter: content.slice(0, selectedStart) };
+      return { after: normalizeText(spaced.slice(0, end)), rawAfter: content.slice(0, selectedStart) };
     };
     const ordered = () => textMarks().map((annotation) => ({ annotation, range: rangeFor(annotation) })).filter((item) => item.range).sort((first, second) => first.range.compareBoundaryPoints(Range.START_TO_START, second.range));
     const paint = () => {
@@ -340,8 +371,9 @@
       list.replaceChildren();
       const groups = new Map();
       for (const item of ordered()) {
-        if (!groups.has(item.annotation.section)) groups.set(item.annotation.section, []);
-        groups.get(item.annotation.section).push(item.annotation);
+        const section = sectionLabel(item.annotation);
+        if (!groups.has(section)) groups.set(section, []);
+        groups.get(section).push(item.annotation);
       }
       if (!groups.size) {
         const empty = document.createElement("div");
@@ -378,7 +410,7 @@
           kind.dataset.kind = annotation.kind;
           kind.textContent = `\n**${annotation.kind}:**`;
           open.append(kind);
-          if (textFor(annotation)) open.append(document.createTextNode(` ${textFor(annotation)}`));
+          if (textFor(annotation)) open.append(document.createTextNode(actionText(textFor(annotation))));
           block.append(open);
           const trash = document.createElement("button");
           trash.type = "button";
@@ -508,7 +540,7 @@
         else { syncPopover(); paintPreview(); }
       } else {
         editing.kind = kind;
-        editing.text = cleanText(kind, input.value);
+        editing.text = cleanText(input.value);
         persist();
         syncPopover();
         renderDock();
@@ -518,7 +550,7 @@
     };
     const updateText = () => {
       const kind = editing?.kind || pendingKind;
-      const value = cleanText(kind, input.value);
+      const value = cleanText(input.value);
       if (!editing && pending && value) createMark(kind, pending, value);
       else if (editing) { editing.text = value; persist(); renderDock(); }
       paintPreview();
@@ -526,16 +558,16 @@
     const markdownFor = () => {
       const groups = new Map();
       for (const { annotation } of ordered().filter(({ annotation }) => !isEmptyMark(annotation))) {
-        if (!groups.has(annotation.section)) groups.set(annotation.section, []);
-        groups.get(annotation.section).push(annotation);
+        const section = sectionLabel(annotation);
+        if (!groups.has(section)) groups.set(section, []);
+        groups.get(section).push(annotation);
       }
       const sections = [];
       for (const [section, entries] of groups) {
         const blocks = entries.map((annotation) => {
           const quote = annotation.quote.split("\n").map((line) => `> ${line}`).join("\n");
           const after = annotation.after ? `\n**after:** ${annotation.after}` : "";
-          const text = textFor(annotation);
-          return `${quote}${after}\n**${annotation.kind}:**${text ? ` ${text}` : ""}`;
+          return `${quote}${after}\n**${annotation.kind}:**${actionText(textFor(annotation))}`;
         });
         sections.push(`## ${section}\n${blocks.join("\n\n")}`);
       }
