@@ -241,6 +241,12 @@
       const sameName = [...document.querySelectorAll("h1, h2, h3, h4")].filter((item) => headingText(item) === section);
       return { section, ...(heading.id ? {} : { headingOrdinal: sameName.indexOf(heading) }) };
     };
+    // A heading without an id that shares its text with another h1–h4 heading is named by its place among them: "Evidence #2".
+    const sectionLabel = (annotation) => {
+      if (annotation.headingOrdinal === undefined) return annotation.section;
+      const sameName = [...document.querySelectorAll("h1, h2, h3, h4")].filter((heading) => headingText(heading) === annotation.section);
+      return sameName.length > 1 ? `${annotation.section} #${annotation.headingOrdinal + 1}` : annotation.section;
+    };
     const headingAtRangeEnd = (range) => {
       const container = range.endContainer;
       if (container.nodeType === Node.TEXT_NODE) return range.endOffset === 0 ? container.parentElement?.closest("h1, h2, h3, h4") : null;
@@ -365,8 +371,9 @@
       list.replaceChildren();
       const groups = new Map();
       for (const item of ordered()) {
-        if (!groups.has(item.annotation.section)) groups.set(item.annotation.section, []);
-        groups.get(item.annotation.section).push(item.annotation);
+        const section = sectionLabel(item.annotation);
+        if (!groups.has(section)) groups.set(section, []);
+        groups.get(section).push(item.annotation);
       }
       if (!groups.size) {
         const empty = document.createElement("div");
@@ -551,8 +558,9 @@
     const markdownFor = () => {
       const groups = new Map();
       for (const { annotation } of ordered().filter(({ annotation }) => !isEmptyMark(annotation))) {
-        if (!groups.has(annotation.section)) groups.set(annotation.section, []);
-        groups.get(annotation.section).push(annotation);
+        const section = sectionLabel(annotation);
+        if (!groups.has(section)) groups.set(section, []);
+        groups.get(section).push(annotation);
       }
       const sections = [];
       for (const [section, entries] of groups) {
