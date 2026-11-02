@@ -587,9 +587,10 @@ EOF
     fi
   }
   # Claude records parentage before the prompt. OpenCode and Pi may not expose
-  # a session until their first prompt, so lazy sessions record the edge after
-  # that prompt makes the conversation observable. An attached launch from a
-  # shell without a parent session remains usable and records no edge.
+  # a session until their first prompt, so lazy sessions record the edge as
+  # soon as that prompt makes the conversation observable, while the first
+  # turn is still running. An attached launch from a shell without a parent
+  # session remains usable and records no edge.
   if [ -n "$parent_session" ] && [ -n "$child_session" ]; then
     record_parentage || return $?
   fi
@@ -716,7 +717,7 @@ EOF
     [ -z "$prompt_pid" ] || wait "$prompt_pid" 2>/dev/null || true
     preserve_launched_child "$signal" "launch-signal-$signal" "$signal_status"
   }
-  submit_initial_prompt() {
+  launch_initial_prompt() {
     initial_prompt="$(cat <<EOF
 You are child agent '$name' in pane '$pane'. Your launch parent is pane '$HERDR_PANE_ID'.
 If you need a question or blocking decision, run: herdr-child ask '<decision brief>'. Do not open an interactive question dialog. Stop your turn after the call succeeds or fails.
@@ -729,18 +730,22 @@ EOF
 )"
     prompt_out="$(mktemp)"
     prompt_err="$(mktemp)"
-    set +e
+    # The prompt runs in the background in both modes, so the launcher can
+    # bind a lazy session while an attached first turn is still running.
     if [ "$mode" = wait ]; then
-      herdr agent prompt "$name" "$initial_prompt" --wait --timeout "$timeout" >"$prompt_out" 2>"$prompt_err"
+      herdr agent prompt "$name" "$initial_prompt" --wait --timeout "$timeout" >"$prompt_out" 2>"$prompt_err" &
     else
       trap 'launch_signal_handler HUP' HUP
       trap 'launch_signal_handler INT' INT
       trap 'launch_signal_handler TERM' TERM
       prompt_submitted=1
       herdr agent prompt "$name" "$initial_prompt" >"$prompt_out" 2>"$prompt_err" &
-      prompt_pid=$!
-      wait "$prompt_pid"
     fi
+    prompt_pid=$!
+  }
+  settle_initial_prompt() {
+    set +e
+    wait "$prompt_pid"
     prompt_status=$?
     prompt_pid=""
     set -e
@@ -783,24 +788,36 @@ EOF
     rm -f "$prompt_out" "$prompt_err"
     prompt_submitted=1
   }
+  submit_initial_prompt() {
+    launch_initial_prompt
+    settle_initial_prompt
+  }
   if [ "$snapshot_policy" = allow-missing-session ]; then
     # Preserve the pre-prompt baseline even when the first turn finishes before
     # the session appears. There is no safe retry after this submission.
-    submit_initial_prompt || return $?
-    lazy_post_prompt=1
+    local session_deadline="" session_timeout="$timeout" lazy_binding_failed=0 prompt_running=0
     if [ "$mode" = wait ]; then
+      # An attached first turn can run for minutes, and the sidebar shows the
+      # child under its parent only once the edge exists, so the session is
+      # bound while the turn runs. The caller's timeout bounds that turn; once
+      # it returns, binding has its own fixed 3001ms bound.
+      launch_initial_prompt
+      prompt_submitted=1
+      prompt_running=1
+      session_timeout=3001
       trap 'launch_signal_handler HUP' HUP
       trap 'launch_signal_handler INT' INT
       trap 'launch_signal_handler TERM' TERM
+    else
+      submit_initial_prompt || return $?
+      session_deadline=$(( $(now_ms) + session_timeout ))
     fi
-    local session_deadline session_timeout="$timeout" lazy_binding_failed=0
-    # The caller's timeout bounds the initial prompt wait. After that prompt
-    # returns, attached lazy-session binding has its own fixed 3001ms bound.
-    if [ "$mode" = wait ]; then
-      session_timeout=3001
-    fi
-    session_deadline=$(( $(now_ms) + session_timeout ))
+    lazy_post_prompt=1
     while :; do
+      if [ "$prompt_running" -eq 1 ] && ! kill -0 "$prompt_pid" 2>/dev/null; then
+        prompt_running=0
+        session_deadline=$(( $(now_ms) + session_timeout ))
+      fi
       list_json="$(herdr agent list)" || {
         if [ "$mode" = wait ]; then
           printf 'herdr-child: child session could not be read after prompt submission; child preserved without a parent edge\n' >&2
@@ -835,7 +852,7 @@ EOF
         return 1
       fi
       [ -z "$child_session" ] || break
-      if [ "$(now_ms)" -ge "$session_deadline" ]; then
+      if [ -n "$session_deadline" ] && [ "$(now_ms)" -ge "$session_deadline" ]; then
         if [ "$mode" = wait ]; then
           printf 'herdr-child: child-session-timeout after prompt submission; child preserved without a parent edge\n' >&2
           lazy_binding_failed=1
@@ -855,6 +872,9 @@ EOF
       if [ "$parentage_status" -ne 0 ] && [ "$mode" != wait ]; then
         return "$parentage_status"
       fi
+    fi
+    if [ "$mode" = wait ]; then
+      settle_initial_prompt || return $?
     fi
   fi
 

@@ -2820,8 +2820,9 @@ peer_stub_herdr() {
 #!/usr/bin/env bash
 set -u
 
-printf '%q ' "$@" >> "$CHILD_STUB/calls.log"
-printf '\n' >> "$CHILD_STUB/calls.log"
+# One write per call: the launcher's session polls and its background prompt
+# log concurrently, and two writes per line would interleave.
+printf '%s\n' "$(printf '%q ' "$@")" >> "$CHILD_STUB/calls.log"
 
 case "${1:-} ${2:-}" in
   "agent list")
@@ -3075,8 +3076,9 @@ child_stub_herdr() {
   cat > "$CHILD_STUB/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
-printf '%q ' "$@" >> "$CHILD_STUB/calls.log"
-printf '\n' >> "$CHILD_STUB/calls.log"
+# One write per call: the launcher's session polls and its background prompt
+# log concurrently, and two writes per line would interleave.
+printf '%s\n' "$(printf '%q ' "$@")" >> "$CHILD_STUB/calls.log"
 case "${1:-} ${2:-}" in
   "agent list")
     if [ -n "${STUB_AGENTS_JSON_FIRST:-}" ] && [ ! -f "$CHILD_STUB/list-once" ]; then
@@ -3332,8 +3334,9 @@ child_lifecycle_stub_herdr() {
 #!/usr/bin/env bash
 set -u
 
-printf '%q ' "$@" >> "$CHILD_STUB/calls.log"
-printf '\n' >> "$CHILD_STUB/calls.log"
+# One write per call: the launcher's session polls and its background prompt
+# log concurrently, and two writes per line would interleave.
+printf '%s\n' "$(printf '%q ' "$@")" >> "$CHILD_STUB/calls.log"
 
 read_value() {
   local file="$1" fallback="$2" value
@@ -3535,6 +3538,17 @@ case "${1:-} ${2:-}" in
         printf '{"error":{"code":"timeout"}}\n' >&2
         exit 1
       }
+      if [ -f "$CHILD_STUB/block-child-prompt" ]; then
+        # The child's first turn runs until released. Bounded like the parent
+        # prompt block above (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
+        attempt=0
+        while [ ! -f "$CHILD_STUB/release-child-prompt" ]; do
+          [ -d "$CHILD_STUB" ] || exit 1
+          attempt=$((attempt + 1))
+          [ "$attempt" -lt 12000 ] || exit 1
+          sleep 0.01
+        done
+      fi
       if [ -n "${STUB_REPLACE_TERMINAL_ON_PROMPT:-}" ]; then
         printf '%s\n' "$STUB_REPLACE_TERMINAL_ON_PROMPT" > "$CHILD_STUB/child-terminal"
       fi
@@ -4155,6 +4169,38 @@ function test_scripts_34512_attached_lazy_session_children_record_parentage_afte
     assert_success
     assert_output 1
     assert_file_contains "$CHILD_STUB/calls.log" '^agent prompt [^w].*--wait'
+  done
+}
+
+function test_scripts_34521_attached_lazy_session_children_record_parentage_while_the_first_turn_runs() {
+  _bats_test_init 34521 'attached OpenCode and Pi children record parentage while the first turn is still running'
+  local kind launcher_pid edge_seen launcher_alive launcher_status
+  for kind in opencode pi; do
+    # #given — the session appears on the first read after submission, and the first turn runs on
+    child_lifecycle_stub_herdr
+    printf '0\n' > "$CHILD_STUB/session-after-prompt"
+    : > "$CHILD_STUB/block-child-prompt"
+
+    # #when — the launcher is still waiting on that turn
+    child_start --kind "$kind" --posture rw --wait --timeout 60000 \
+      >"$CHILD_STUB/launcher.out" 2>"$CHILD_STUB/launcher.err" &
+    launcher_pid=$!
+    edge_seen=0
+    ! child_wait_for_log '^record-child --pane wT:p9 --terminal term-child' "$CHILD_STUB/resource-tree.log" || edge_seen=1
+    launcher_alive=0
+    ! kill -0 "$launcher_pid" 2>/dev/null || launcher_alive=1
+    : > "$CHILD_STUB/release-child-prompt"
+    launcher_status=0
+    wait "$launcher_pid" || launcher_status=$?
+
+    # #then — the sidebar can show the child under its parent for the whole first turn
+    assert_equal 1 "$edge_seen"
+    assert_equal 1 "$launcher_alive"
+    assert_equal 0 "$launcher_status"
+    assert_equal "{\"agent\":\"$(child_started_name)\",\"pane\":\"wT:p9\"}" "$(cat "$CHILD_STUB/launcher.out")"
+    assert_equal '' "$(cat "$CHILD_STUB/launcher.err")"
+    assert_equal 1 "$(grep -c '^record-child ' "$CHILD_STUB/resource-tree.log")"
+    assert_file_not_exists "$CHILD_STUB/pane-closed"
   done
 }
 
