@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Daily cleanup, run by launchd (com.andrew.morning-cleanup): stale .omc
-# runtime state, platform worktrees/branches fully merged into origin/main,
-# Claude Code projects idle past a month, Claude Code, Pi and OpenCode sessions
-# idle past one shared retention threshold, agent run directories idle past a
-# month, and the space those OpenCode deletions free in opencode.db.
+# runtime state, worktrees/branches of ~/Projects repositories already merged
+# into origin's default branch, Claude Code projects idle past a month, Claude
+# Code, Pi and OpenCode sessions idle past one shared retention threshold,
+# agent run directories idle past a month, and the space those OpenCode
+# deletions free in opencode.db.
 # Idempotent per calendar day via a stamp file, so RunAtLoad + wake coalescing
 # can all fire without triple-running.
 set -uo pipefail
@@ -17,7 +18,7 @@ SESSION_MAX_AGE_DAYS="${MORNING_CLEANUP_SESSION_MAX_AGE_DAYS:-90}"
 PROJECT_MAX_AGE_DAYS="${MORNING_CLEANUP_PROJECT_MAX_AGE_DAYS:-30}"
 ARTIFACT_MAX_AGE_DAYS="${MORNING_CLEANUP_ARTIFACT_MAX_AGE_DAYS:-30}"
 OPENCODE_DB_RECLAIM_MB="${MORNING_CLEANUP_OPENCODE_DB_RECLAIM_MB:-1024}"
-PLATFORM="$HOME/Projects/platform"
+BRANCH_GRACE_DAYS="${MORNING_CLEANUP_BRANCH_GRACE_DAYS:-1}"
 CLAUDE_PROJECTS="$HOME/.claude/projects"
 PI_SESSIONS="$HOME/.pi/agent/sessions"
 ARTIFACTS="$HOME/.claude/artifacts"
@@ -71,35 +72,117 @@ while IFS= read -r dir; do
   fi
 done < <(find "$HOME/Projects" -maxdepth 3 -type d -name .omc 2>/dev/null)
 
-# 2+3) platform: remove worktrees and local branches fully merged into
-# origin/main. Every path is double-guarded: clean status + ancestor check,
-# and soft `branch -d` / `worktree remove` refuse anything git deems unsafe.
-if git -C "$PLATFORM" rev-parse --git-dir >/dev/null 2>&1; then
-  git -C "$PLATFORM" fetch origin main --quiet 2>>"$LOG" ||
-    log "fetch failed — comparing against stale origin/main"
+# 2+3) Linked worktrees and local branches whose work already reached the
+# default branch on origin, in every repository checked out at ~/Projects/<name>.
+# Herdr worktrees under ~/.herdr/worktrees belong to these repositories, so
+# `worktree list` reaches them; the main checkout is never a candidate.
+# A branch counts as merged when its tip is an ancestor of origin's default
+# branch, or when GitHub reports a merged pull request whose head is the local
+# tip or contains it: a squash merge leaves no ancestor link. A branch whose
+# ref moved within the grace period (default 1 day) stays, so a new Herdr
+# worktree with no commits yet, whose tip is still an ancestor, is not removed.
+# A worktree goes only with a clean status, and plain `worktree remove` also
+# refuses untracked files and locked checkouts. A branch still checked out in
+# any worktree stays. `branch -D` is used because `-d` compares against HEAD or
+# the upstream, not origin's default branch, and refuses squash-merged work.
+git_repos() {
+  local dir common
+  for dir in "$HOME/Projects"/*/; do
+    common=$(git -C "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || continue
+    [[ "$common" == */.git ]] && printf '%s\n' "${common%/.git}"
+  done | sort -u
+}
 
-  while IFS= read -r wt; do
-    [[ "$wt" == "$PLATFORM" ]] && continue
-    branch=$(git -C "$wt" symbolic-ref --quiet --short HEAD) || continue
+github_repo() {
+  local url
+  url=$(git -C "$1" config --get remote.origin.url) || return 0
+  [[ "$url" =~ github\.com[:/]([^/]+)/([^/]+)$ ]] || return 0
+  printf '%s/%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]%.git}"
+}
+
+# Days since the branch ref last moved: its newest reflog entry, or the tip's
+# commit date when the reflog is gone.
+branch_age_days() {
+  local repo=$1 branch=$2 stamp
+  stamp=$(git -C "$repo" reflog show -1 --date=unix --format=%gd "refs/heads/$branch" 2>/dev/null)
+  stamp=${stamp##*@\{}
+  stamp=${stamp%\}}
+  [[ "$stamp" =~ ^[0-9]+$ ]] || stamp=$(git -C "$repo" log -1 --format=%ct "refs/heads/$branch")
+  echo $((($(date +%s) - stamp) / 86400))
+}
+
+branch_merged() {
+  local repo=$1 branch=$2 base=$3 gh_repo=$4 tip heads head
+  tip=$(git -C "$repo" rev-parse --verify --quiet "refs/heads/$branch^{commit}") || return 1
+  git -C "$repo" merge-base --is-ancestor "$tip" "$base" 2>/dev/null && return 0
+  [[ -n "$gh_repo" ]] || return 1
+  if ! heads=$(gh pr list -R "$gh_repo" --state merged --head "$branch" \
+    --json headRefOid --jq '.[].headRefOid' 2>>"$LOG"); then
+    log "gh pr list failed: $gh_repo $branch"
+    return 1
+  fi
+  while IFS= read -r head; do
+    [[ -n "$head" ]] || continue
+    [[ "$head" == "$tip" ]] && return 0
+    git -C "$repo" merge-base --is-ancestor "$tip" "$head" 2>/dev/null && return 0
+  done <<<"$heads"
+  return 1
+}
+
+# Linked worktrees only: `worktree list` always prints the main one first.
+linked_worktrees() {
+  git -C "$1" worktree list --porcelain | awk '
+    /^worktree / { path = substr($0, 10); n++ }
+    /^branch refs\/heads\// && n > 1 { print path "\t" substr($0, 19) }'
+}
+have_gh=1
+command -v gh >/dev/null 2>&1 || {
+  have_gh=0
+  log "skip squash-merge check: gh not found"
+}
+
+cleanup_repo() {
+  local repo=$1 base gh_repo="" merged="" checked_out branch wt
+  git -C "$repo" config --get remote.origin.url >/dev/null || return 0
+  base=$(git -C "$repo" symbolic-ref --quiet --short refs/remotes/origin/HEAD) || base=origin/main
+  GIT_TERMINAL_PROMPT=0 git -C "$repo" fetch --quiet origin "${base#origin/}" 2>>"$LOG" ||
+    log "fetch failed: $repo — comparing against stale $base"
+  if ! git -C "$repo" rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
+    log "skip git cleanup: $repo has no $base"
+    return 0
+  fi
+  ((have_gh)) && gh_repo=$(github_repo "$repo")
+
+  while IFS= read -r branch; do
+    [[ "$branch" == "${base#origin/}" ]] && continue
+    (($(branch_age_days "$repo" "$branch") < BRANCH_GRACE_DAYS)) && continue
+    branch_merged "$repo" "$branch" "$base" "$gh_repo" && merged+="$branch"$'\n'
+  done < <(git -C "$repo" branch --format='%(refname:lstrip=2)')
+  [[ -n "$merged" ]] || return 0
+
+  while IFS=$'\t' read -r wt branch; do
+    grep -qxF -- "$branch" <<<"$merged" || continue
     [[ -n "$(git -C "$wt" status --porcelain 2>/dev/null)" ]] && continue
-    if git -C "$PLATFORM" merge-base --is-ancestor "$branch" origin/main 2>/dev/null; then
-      if git -C "$PLATFORM" worktree remove "$wt" 2>>"$LOG"; then
-        log "removed worktree: $wt ($branch)"
-        wt_count=$((wt_count + 1))
-      fi
+    if git -C "$repo" worktree remove "$wt" 2>>"$LOG"; then
+      log "removed worktree: $wt ($branch)"
+      wt_count=$((wt_count + 1))
     fi
-  done < <(git -C "$PLATFORM" worktree list --porcelain | awk '/^worktree /{print $2}')
-  git -C "$PLATFORM" worktree prune 2>>"$LOG"
+  done < <(linked_worktrees "$repo")
+  git -C "$repo" worktree prune 2>>"$LOG"
 
-  while IFS= read -r br; do
-    [[ "$br" == "main" ]] && continue
-    git -C "$PLATFORM" merge-base --is-ancestor "$br" origin/main 2>/dev/null || continue
-    if git -C "$PLATFORM" branch -d "$br" >/dev/null 2>>"$LOG"; then
-      log "deleted branch: $br"
+  checked_out=$(git -C "$repo" worktree list --porcelain | sed -n 's|^branch refs/heads/||p')
+  while IFS= read -r branch; do
+    [[ -n "$branch" ]] || continue
+    grep -qxF -- "$branch" <<<"$checked_out" && continue
+    if git -C "$repo" branch -D "$branch" >/dev/null 2>>"$LOG"; then
+      log "deleted branch: $repo $branch"
       br_count=$((br_count + 1))
     fi
-  done < <(git -C "$PLATFORM" branch --format='%(refname:short)')
-fi
+  done <<<"$merged"
+}
+while IFS= read -r repo; do
+  cleanup_repo "$repo"
+done < <(git_repos)
 
 # 3b) Claude Code projects: one directory per working directory, holding its
 # sessions, their subagent runs and its auto-memory. A project is idle when
