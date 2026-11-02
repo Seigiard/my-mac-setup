@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # post-apply: 25 host-safe
-# morning-cleanup destructive legs (trash purge, platform worktree/branch
+# morning-cleanup destructive legs (trash purge, git worktree/branch
 # cleanup, agent sessions, opencode.db compaction), run against the SOURCE
 # script under a disposable $HOME — every root the script touches derives from
 # $HOME, so the override isolates them.
@@ -184,39 +184,102 @@ fgit() {
   env HOME="$FAKE_HOME" GIT_CONFIG_NOSYSTEM=1 git "$@"
 }
 
-# Bare origin + platform clone-equivalent checkout on main, three worktrees:
-# merged-clean (tip == origin/main, clean), unmerged (commit ahead of
-# origin/main), dirty-merged (tip == origin/main, untracked file).
-build_platform_fixture() {
-  PLATFORM="$FAKE_HOME/Projects/platform"
+# Bare origin + clone-equivalent checkout of an arbitrary ~/Projects repository
+# on main, three Herdr worktrees: merged-clean (tip == origin/main, clean),
+# unmerged (commit ahead of origin/main), dirty-merged (tip == origin/main,
+# untracked file). Every ref update is dated three days back, past the
+# one-day grace for new branches; reflog entries take the committer date.
+build_repo_fixture() {
+  local GIT_COMMITTER_DATE
+  export GIT_COMMITTER_DATE="@$(($(date +%s) - 3 * 86400)) +0000"
+  REPO="$FAKE_HOME/Projects/app"
   ORIGIN="$FAKE_HOME/origin.git"
-  WT_MERGED="$FAKE_HOME/Projects/platform-wt-merged"
-  WT_UNMERGED="$FAKE_HOME/Projects/platform-wt-unmerged"
-  WT_DIRTY="$FAKE_HOME/Projects/platform-wt-dirty"
+  HERDR_WT="$FAKE_HOME/.herdr/worktrees/app"
+  WT_MERGED="$HERDR_WT/merged-clean"
+  WT_UNMERGED="$HERDR_WT/unmerged"
+  WT_DIRTY="$HERDR_WT/dirty-merged"
 
-  mkdir -p "$FAKE_HOME/Projects"
-  fgit init -q "$PLATFORM"
-  fgit -C "$PLATFORM" config user.name "Morning Cleanup Test"
-  fgit -C "$PLATFORM" config user.email mc@example.invalid
-  fgit -C "$PLATFORM" config commit.gpgsign false
-  fgit -C "$PLATFORM" checkout -q -b main
-  printf 'base\n' > "$PLATFORM/base.txt"
-  fgit -C "$PLATFORM" add base.txt
-  fgit -C "$PLATFORM" commit -q -m 'base commit'
+  mkdir -p "$FAKE_HOME/Projects" "$HERDR_WT"
+  fgit init -q "$REPO"
+  fgit -C "$REPO" config user.name "Morning Cleanup Test"
+  fgit -C "$REPO" config user.email mc@example.invalid
+  fgit -C "$REPO" config commit.gpgsign false
+  fgit -C "$REPO" checkout -q -b main
+  printf 'base\n' > "$REPO/base.txt"
+  fgit -C "$REPO" add base.txt
+  fgit -C "$REPO" commit -q -m 'base commit'
   fgit init -q --bare "$ORIGIN"
-  fgit -C "$PLATFORM" remote add origin "$ORIGIN"
-  fgit -C "$PLATFORM" push -q origin main
+  fgit -C "$REPO" remote add origin "$ORIGIN"
+  fgit -C "$REPO" push -q origin main
   # The script's own fetch tolerates failure; the fixture must guarantee
   # refs/remotes/origin/main exists regardless.
-  fgit -C "$PLATFORM" fetch -q origin
+  fgit -C "$REPO" fetch -q origin
 
-  fgit -C "$PLATFORM" worktree add -q -b merged-clean "$WT_MERGED"
-  fgit -C "$PLATFORM" worktree add -q -b unmerged "$WT_UNMERGED"
+  fgit -C "$REPO" worktree add -q -b merged-clean "$WT_MERGED"
+  fgit -C "$REPO" worktree add -q -b unmerged "$WT_UNMERGED"
   printf 'ahead\n' > "$WT_UNMERGED/ahead.txt"
   fgit -C "$WT_UNMERGED" add ahead.txt
   fgit -C "$WT_UNMERGED" commit -q -m 'unmerged commit'
-  fgit -C "$PLATFORM" worktree add -q -b dirty-merged "$WT_DIRTY"
+  fgit -C "$REPO" worktree add -q -b dirty-merged "$WT_DIRTY"
   printf 'dirt\n' > "$WT_DIRTY/untracked.txt"
+}
+
+# The repository fixture with a GitHub origin URL, rewritten to the local bare
+# origin for fetches, and two more aged worktrees whose commits never reach
+# origin/main. squashed: GitHub reports a merged PR whose head is the local tip,
+# and main carries the squash commit. squashed-then-more: the merged PR's head
+# is the local tip's parent, so the newest commit exists only here.
+# A `gh` stand-in answers merged-PR queries from $GH_MERGED_DIR/<branch>.
+build_squash_fixture() {
+  build_repo_fixture
+  local GIT_COMMITTER_DATE
+  export GIT_COMMITTER_DATE="@$(($(date +%s) - 3 * 86400)) +0000"
+  WT_SQUASHED="$HERDR_WT/squashed"
+  WT_MORE="$HERDR_WT/squashed-then-more"
+  GH_MERGED_DIR="$FAKE_HOME/gh-merged"
+  mkdir -p "$GH_MERGED_DIR"
+  fgit -C "$REPO" config remote.origin.url https://github.com/test-owner/app.git
+  fgit -C "$REPO" config "url.$ORIGIN.insteadOf" https://github.com/test-owner/app.git
+
+  fgit -C "$REPO" worktree add -q -b squashed "$WT_SQUASHED"
+  printf 'feature\n' > "$WT_SQUASHED/feature.txt"
+  fgit -C "$WT_SQUASHED" add feature.txt
+  fgit -C "$WT_SQUASHED" commit -q -m 'feature'
+  fgit -C "$WT_SQUASHED" rev-parse HEAD > "$GH_MERGED_DIR/squashed"
+  printf 'feature\n' > "$REPO/feature.txt"
+  fgit -C "$REPO" add feature.txt
+  fgit -C "$REPO" commit -q -m 'feature (#1)'
+  fgit -C "$REPO" push -q origin main
+
+  fgit -C "$REPO" worktree add -q -b squashed-then-more "$WT_MORE"
+  printf 'reviewed\n' > "$WT_MORE/more.txt"
+  fgit -C "$WT_MORE" add more.txt
+  fgit -C "$WT_MORE" commit -q -m 'reviewed part'
+  fgit -C "$WT_MORE" rev-parse HEAD > "$GH_MERGED_DIR/squashed-then-more"
+  printf 'later\n' >> "$WT_MORE/more.txt"
+  fgit -C "$WT_MORE" commit -q -am 'after the merge'
+
+  cat > "$FAKE_HOME/bin/gh" <<'GH'
+#!/usr/bin/env bash
+# `gh pr list -R <repo> --state merged --head <branch>` with a --jq that prints
+# one head commit per line; nothing else is answered.
+[[ "$1 $2" == 'pr list' ]] || exit 2
+shift 2
+repo='' state='' head=''
+while (($#)); do
+  case "$1" in
+    -R) repo=$2; shift 2 ;;
+    --state) state=$2; shift 2 ;;
+    --head) head=$2; shift 2 ;;
+    --json | --jq) shift 2 ;;
+    *) exit 2 ;;
+  esac
+done
+[[ "$repo" == test-owner/app && "$state" == merged && -n "$head" ]] || exit 2
+cat "$GH_MERGED_DIR/$head" 2>/dev/null
+exit 0
+GH
+  chmod +x "$FAKE_HOME/bin/gh"
 }
 
 # No positive aged-removal test: `-ctime +N` cannot be reached by a fixture,
@@ -238,12 +301,12 @@ function test_morning_cleanup_002_default_threshold_keeps_a_fresh_entry() {
 
 function test_morning_cleanup_003_git_cleanup_removes_only_merged_clean() {
   _bats_test_init 3 'git cleanup removes only the merged-clean worktree and branch'
-  build_platform_fixture
+  build_repo_fixture
 
   run_cleanup
   assert_success
 
-  run fgit -C "$PLATFORM" worktree list --porcelain
+  run fgit -C "$REPO" worktree list --porcelain
   assert_success
   # Positive control first: degenerate output cannot satisfy the refute.
   assert_output --partial "worktree $WT_UNMERGED"
@@ -258,13 +321,50 @@ function test_morning_cleanup_003_git_cleanup_removes_only_merged_clean() {
   # and nothing else, so the whole set is the oracle. It states in one assertion
   # that merged-clean is gone and that the three survivors are untouched —
   # over-deletion and under-deletion both fail here.
-  run fgit -C "$PLATFORM" branch --list --format='%(refname:short)'
+  run fgit -C "$REPO" branch --list --format='%(refname:short)'
   assert_success
   assert_output $'dirty-merged\nmain\nunmerged'
 
   # The main checkout itself is never a cleanup candidate.
-  assert_dir_exists "$PLATFORM"
-  assert_file_exists "$PLATFORM/base.txt"
+  assert_dir_exists "$REPO"
+  assert_file_exists "$REPO/base.txt"
+}
+
+# A squash merge leaves the branch tip outside origin/main, so only GitHub's
+# merged-PR record shows the work landed. The record must cover the local tip:
+# a commit added after the PR's head keeps the branch and its worktree.
+function test_morning_cleanup_036_squash_merged_pr_branch_goes_with_its_worktree() {
+  _bats_test_init 36 'a branch whose merged PR head covers its tip goes with its worktree; later local commits keep it'
+  build_squash_fixture
+
+  run_cleanup "GH_MERGED_DIR=$GH_MERGED_DIR"
+  assert_success
+
+  run fgit -C "$REPO" branch --list --format='%(refname:short)'
+  assert_success
+  assert_output $'dirty-merged\nmain\nsquashed-then-more\nunmerged'
+  assert_dir_not_exists "$WT_SQUASHED"
+  assert_dir_exists "$WT_MORE"
+  assert_file_exists "$WT_MORE/more.txt"
+}
+
+# Herdr resets a new worktree's branch to origin's default branch, so before
+# its first commit the tip is an ancestor and looks merged. The ref moved within
+# the grace period, which keeps it.
+function test_morning_cleanup_037_new_worktree_inside_grace_period_stays() {
+  _bats_test_init 37 'a worktree whose branch was created today stays although its tip is on origin/main'
+  build_repo_fixture
+  local wt_fresh="$HERDR_WT/fresh"
+  fgit -C "$REPO" worktree add -q -b fresh "$wt_fresh"
+
+  run_cleanup
+  assert_success
+
+  run fgit -C "$REPO" branch --list --format='%(refname:short)'
+  assert_success
+  # merged-clean is gone: the leg ran and still kept fresh.
+  assert_output $'dirty-merged\nfresh\nmain\nunmerged'
+  assert_dir_exists "$wt_fresh"
 }
 
 last_summary() {
@@ -469,7 +569,7 @@ function test_morning_cleanup_011_missing_docker_cli_is_logged_when_no_discovery
   PATH="$scheduled_path" command -v docker >/dev/null &&
     skip 'Docker CLI is reachable in the scheduled-job discovery PATH'
   rm "$FAKE_HOME/bin/docker"
-  build_platform_fixture
+  build_repo_fixture
 
   run env HOME="$FAKE_HOME" MORNING_CLEANUP_NO_NOTIFY=1 \
     DOCKER_CONFIG="$FAKE_HOME/.docker" \
@@ -554,7 +654,7 @@ function test_morning_cleanup_016_one_daemon_stays_fixed_when_current_context_ch
 
 function test_morning_cleanup_017_unavailable_daemon_is_logged_while_other_cleanup_continues() {
   _bats_test_init 17 'an unavailable Docker daemon is logged while existing cleanup continues'
-  build_platform_fixture
+  build_repo_fixture
 
   run_cleanup MORNING_CLEANUP_DOCKER_FIXTURE=unavailable
   assert_success
