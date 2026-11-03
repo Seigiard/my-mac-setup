@@ -1,6 +1,6 @@
-import { View, div, svg } from "gpui-kit";
+import { View, div, image, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { spaces, agents, theme, run, window, keys, exec, home } from "herdr";
+import { spaces, agents, theme, run, window, keys, exec, home, knownAgents } from "herdr";
 
 const PROVIDERS = { "\uEC82": "claude", "\uEC81": "codex" };
 
@@ -22,6 +22,14 @@ export default class WorkspaceStatus extends View {
   init(_props, cx) {
     this.limits = null;
     this.refreshing = false;
+    this.programs = new Map();
+    cx.spawn(async (cx) => {
+      try {
+        const programs = await knownAgents();
+        this.programs = new Map(programs.map((program) => [program.key, program]));
+        cx.notify();
+      } catch {}
+    });
     this.refresh(cx);
     cx.timer.every(60000, (cx) => this.refresh(cx));
   }
@@ -65,6 +73,14 @@ export default class WorkspaceStatus extends View {
     const list = agents();
     const needs = list.filter(a => a.status === "blocked").length;
 
+    const providerIcon = (provider) => {
+      const program = this.programs.get(provider);
+
+      if (!program?.icon) return image(`icons/${provider}.svg`).w(12).h(12).flex_none();
+
+      return program.tint ? svg(program.icon).size(12).flex_none().text_color(t.muted) : image(program.icon).w(12).h(12).flex_none();
+    };
+
     const label = (icon, text) => h_flex().gap(6).items_center().child(svg(`mods/workspace-chrome/${icon}.svg`).size(13)).child(text);
 
     return h_flex().size_full().px(14).gap(16).items_center().bg(t.chrome).border_t(1).border_color(t.border).text_size(11.8).text_color(t.muted)
@@ -75,7 +91,7 @@ export default class WorkspaceStatus extends View {
       .child(div().flex_1())
       .when(Boolean(this.limits), el => el.child(h_flex().gap(10).items_center().children(this.limits.map(({ provider, text }) =>
         h_flex().gap(4).items_center()
-          .child(svg(`icons/${provider}.svg`).size(12).flex_none().text_color(t.muted))
+          .child(providerIcon(provider))
           .child(div().text_color(text.includes("⊘") ? t.blocked : t.muted).child(text)),
       ))))
       .child(div().id("palette").text_color(t.dim).on_click(() => run("app.palette")).child(this.hint(t)));
