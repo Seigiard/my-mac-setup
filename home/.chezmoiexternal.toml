@@ -79,4 +79,4 @@
     url = "https://github.com/Seigiard/herdr-worktree-setup/archive/60b2b897789fbbadc187e1697e724bf3df252d5c.tar.gz"
     exact = true
     stripComponents = 1
-    include = ["setup.ts", "vendor/**", "LICENSE", "README.md", "herdr-plugin.toml"]
+    include = ["*/setup.ts", "*/vendor/**", "*/LICENSE", "*/README.md", "*/herdr-plugin.toml"]
