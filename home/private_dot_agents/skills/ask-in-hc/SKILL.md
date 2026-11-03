@@ -36,6 +36,8 @@ The launcher creates a private temporary directory and appends a `[report-transp
 
 After `hc-run --cwd <dir> <template> <task>`, the launcher waits with `hc wait --json --timeout 1800 <address>`. A missing or empty report gets exactly one bounded recovery request through `hc send --wait --timeout 120`. The transport directory is removed after settled outcomes and retained when the peer may still write; its path is printed on stderr.
 
+If `hc-run` exits 3 because the task was not delivered, its stdout still carries the child address; run `hc read <address>`, resolve readiness, then `hc send <address> "<task>"`.
+
 ## Outcome contract
 
 Only `status=answered` puts the report on stdout. The last stderr line is the status line.

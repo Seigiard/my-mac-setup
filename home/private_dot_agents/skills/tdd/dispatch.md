@@ -20,6 +20,8 @@ Choose the launch mode in this order:
 
 When `HC_TERMINAL_ID` is set, use hc mode: run `hc-run --cwd <checkout> implementer-<tier> "$(cat <prompt>)"`. Map the tdd tier to `implementer-low`, `implementer-low-plus`, `implementer-medium`, `implementer-high`, or `implementer-high-plus`; the test writer uses the same read-write opencode role and its prompt carries the role. Record the printed `<address> <alias>`. The child wakes you through the core's notes (`<hc>… is blocked/exited…</hc>`) and `hc send`; wait inside a turn with `hc wait --json --timeout S <address>`. The parent duties and cleanup guard are in `~/.claude/shared/hc-agent-contract.md`.
 
+If `hc-run` exits 3 because the task was not delivered, it still prints the child address; run `hc read <address>`, resolve readiness, then `hc send <address> "<task>"`.
+
 1. `HERDR_ENV=1` and `HERDR_CHILD_PARENT_PANE` is unset: start a visible tab with `herdr-child start --kind opencode --posture rw --model <model> --effort <effort of tier> --cwd <checkout> --prompt-file <prompt> --detach`. Tabs avoid the narrow-pane OpenCode hang. Follow the parent duties in `~/.claude/shared/child-agent-contract.md`; the supervision marker wakes you. Answer a child's `herdr-child ask` from `ticket.md`; pass it to the user only when it needs a product decision. A herdr child goes straight to mode 2 because `herdr-child start` refuses to run from a child pane.
 2. `opencode` is on `PATH`: run the following as a background process that re-invokes you on exit (in Claude Code, the Bash tool's `run_in_background`). The stdin redirect prevents `opencode run` from waiting for EOF. `~/.claude/shared/long-running-work.md` owns its supervision.
 

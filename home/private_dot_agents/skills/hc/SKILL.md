@@ -25,6 +25,8 @@ Start children with the launcher. It runs in the background by default:
 hc-run <template> "<task>"
 ```
 
+If `hc-run` exits 3 because the task was not delivered, it still prints the child address; run `hc read <address>`, resolve readiness, then `hc send <address> "<task>"`.
+
 Use `--tab` only when the person asks to see the child. Templates live in
 `~/.config/herdr-core/templates/`; list them with `hc templates`. Use `ask-in-hc` for a
 peer's answer.
