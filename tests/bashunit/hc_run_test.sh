@@ -7,8 +7,8 @@ load 'helpers/common'
 
 setup() {
   HC_RUN="$SOURCE_ROOT/dot_local/bin/executable_hc-run"
-  HC_RUN_CWD="$BATS_TEST_TMPDIR/cwd"
-  mkdir -p "$HC_RUN_CWD"
+  mkdir -p "$BATS_TEST_TMPDIR/cwd"
+  HC_RUN_CWD="$(CDPATH='' cd -- "$BATS_TEST_TMPDIR/cwd" && pwd)"
   write_hc_stub
   write_herdr_app_stub
   write_aliases_lib
