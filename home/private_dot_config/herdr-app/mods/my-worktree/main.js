@@ -247,10 +247,17 @@ export default class Worktree extends View {
     const p = props();
     // Leave spaces unnamed so they follow the checkout folder and nest under the repo.
     run("space.new", { folder: path, machine: this.on, tab: p.tab, argv: p.argv });
-    run("tab.new", {
-      folder: path,
-      argv: [`${home()}/.local/bin/herdr-worktree-setup-run`, path, branch],
-    });
+    const space = spaces().find((s) => s.folder === path && (s.machine ?? null) === (this.on ?? null));
+
+    if (this.on && !space) {
+      // A remote setup tab needs a target space that Herdr could not place.
+    } else {
+      run("tab.new", {
+        space: space?.id,
+        folder: path,
+        argv: [`${this.userHome}/.local/bin/herdr-worktree-setup-run`, path, branch],
+      });
+    }
 
     return "";
   }
