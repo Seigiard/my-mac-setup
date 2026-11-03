@@ -90,10 +90,11 @@ wait_out="$(mktemp)"
 wait_err="$(mktemp)"
 read_out="$(mktemp)"
 read_err="$(mktemp)"
+recovery_out="$(mktemp)"
 recovery_err="$(mktemp)"
 cleanup_err="$(mktemp)"
 retain_transport=0
-trap 'rm -f "$question_file" "$start_out" "$start_err" "$wait_out" "$wait_err" "$read_out" "$read_err" "$recovery_err" "$cleanup_err"; if [ "$retain_transport" -eq 0 ]; then rm -f "$report_path" "$report_path.tmp"; rmdir "$report_dir" 2>/dev/null || true; fi' EXIT
+trap 'rm -f "$question_file" "$start_out" "$start_err" "$wait_out" "$wait_err" "$read_out" "$read_err" "$recovery_out" "$recovery_err" "$cleanup_err"; if [ "$retain_transport" -eq 0 ]; then rm -f "$report_path" "$report_path.tmp"; rmdir "$report_dir" 2>/dev/null || true; fi' EXIT
 
 {
   printf '%s\n\n' "$question"
@@ -145,25 +146,23 @@ read_screen() {
 }
 
 json_wait_fields() {
-  python3 - "$1" <<'PY'
+  python3 - "$1" "${2:-}" <<'PY'
 import json
 import sys
 
 try:
     with open(sys.argv[1], encoding="utf-8") as stream:
         raw = stream.read().strip()
-except (OSError, ValueError):
-    raise SystemExit(1)
-
-try:
     data = json.loads(raw)
-except ValueError:
-    if not raw.endswith("}"):
-        raise SystemExit(1)
-    try:
-        data = json.loads(raw[:-1])
-    except ValueError:
-        raise SystemExit(1)
+    if sys.argv[2]:
+        nested = data.get(sys.argv[2])
+        data = nested if isinstance(nested, dict) else {
+            "ended": True,
+            "reason": "status",
+            "status": data.get("status"),
+        }
+except (OSError, ValueError, TypeError):
+    raise SystemExit(1)
 
 ended = data.get("ended")
 if ended is True:
@@ -176,60 +175,6 @@ print("\t".join((ended, str(data.get("reason") or ""), str(data.get("status") or
 PY
 }
 
-set +e
-hc wait --json --timeout 1800 "$address" >"$wait_out" 2>"$wait_err"
-wait_status=$?
-set -e
-if [ "$wait_status" -ne 0 ]; then
-  cat "$wait_err" >&2
-  retain
-  close_hint
-  status_exit undelivered 1
-fi
-
-wait_fields=''
-wait_fields="$(json_wait_fields "$wait_out" 2>/dev/null)" || true
-wait_ended=''
-wait_reason=''
-wait_state=''
-IFS=$'\t' read -r wait_ended wait_reason wait_state <<< "$wait_fields"
-
-if [ "$wait_ended" = false ] || [ "$wait_reason" = message ] || [ "$wait_reason" = timeout ]; then
-  read_screen
-  [ "$read_status" -eq 0 ] && cat "$read_out"
-  [ -s "$read_err" ] && cat "$read_err" >&2
-  retain
-  close_hint
-  status_exit working 124
-fi
-
-if [ -z "$wait_ended" ]; then
-  cat "$wait_out" >&2
-  retain
-  close_hint
-  status_exit undelivered 1
-fi
-
-if [ "$wait_state" = blocked ]; then
-  read_screen
-  [ "$read_status" -eq 0 ] && cat "$read_out"
-  [ -s "$read_err" ] && cat "$read_err" >&2
-  retain
-  close_hint
-  status_exit blocked 1
-fi
-
-settled=0
-if [ "$wait_state" = "idle" ] || [ "$wait_state" = "done" ] || [ "$wait_reason" = "exit" ]; then
-  settled=1
-fi
-if [ "$settled" -eq 0 ]; then
-  cat "$wait_out" >&2
-  retain
-  close_hint
-  status_exit undelivered 1
-fi
-
 classify_report() {
   [ ! -L "$report_path" ] || return 5
   if [ -e "$report_path" ] && [ ! -f "$report_path" ]; then
@@ -240,28 +185,166 @@ classify_report() {
   return 0
 }
 
-set +e
-classify_report
-report_state=$?
-set -e
+remaining_wait_timeout() {
+  local remaining now
+  now="$(date +%s)"
+  remaining=$((wait_deadline - now))
+  [ "$remaining" -gt 0 ] || remaining=1
+  printf '%s' "$remaining"
+}
 
-if [ "$report_state" -ne 0 ] && [ "$wait_state" != "idle" ] && [ "$wait_state" != "done" ]; then
-  cat "$wait_out" >&2
+wait_for_child() {
+  local timeout command_status
+  timeout="$1"
+  : > "$wait_out"
+  : > "$wait_err"
+  set +e
+  hc wait --json --timeout "$timeout" "$address" >"$wait_out" 2>"$wait_err"
+  command_status=$?
+  set -e
+  return "$command_status"
+}
+
+read_wait_fields() {
+  wait_fields=''
+  wait_fields="$(json_wait_fields "$wait_out" 2>/dev/null)" || true
+  wait_ended=''
+  wait_reason=''
+  wait_state=''
+  IFS=$'\t' read -r wait_ended wait_reason wait_state <<< "$wait_fields"
+}
+
+wait_deadline=$(( $(date +%s) + 1800 ))
+set +e
+wait_for_child 1800
+wait_status=$?
+set -e
+if [ "$wait_status" -ne 0 ]; then
+  cat "$wait_err" >&2
   retain
   close_hint
   status_exit undelivered 1
 fi
 
+read_wait_fields
+message_answered=0
+report_state=''
+while :; do
+  if [ "$wait_ended" = false ] || [ "$wait_reason" = timeout ]; then
+    read_screen
+    [ "$read_status" -eq 0 ] && cat "$read_out"
+    [ -s "$read_err" ] && cat "$read_err" >&2
+    retain
+    close_hint
+    status_exit working 124
+  fi
+
+  if [ -z "$wait_ended" ]; then
+    cat "$wait_out" >&2
+    retain
+    close_hint
+    status_exit undelivered 1
+  fi
+
+  if [ "$wait_reason" = message ]; then
+    set +e
+    classify_report
+    report_state=$?
+    set -e
+    if [ "$report_state" -eq 0 ]; then
+      message_answered=1
+      break
+    fi
+    if [ "$report_state" -ne 3 ] && [ "$report_state" -ne 4 ]; then
+      read_screen
+      [ "$read_status" -eq 0 ] && cat "$read_out"
+      [ -s "$read_err" ] && cat "$read_err" >&2
+      retain
+      close_hint
+      status_exit working 124
+    fi
+
+    next_wait_timeout="$(remaining_wait_timeout)"
+    set +e
+    wait_for_child "$next_wait_timeout"
+    wait_status=$?
+    set -e
+    if [ "$wait_status" -ne 0 ]; then
+      cat "$wait_err" >&2
+      retain
+      close_hint
+      status_exit undelivered 1
+    fi
+    read_wait_fields
+    continue
+  fi
+
+  if [ "$wait_state" = blocked ]; then
+    read_screen
+    [ "$read_status" -eq 0 ] && cat "$read_out"
+    [ -s "$read_err" ] && cat "$read_err" >&2
+    retain
+    close_hint
+    status_exit blocked 1
+  fi
+
+  break
+done
+
+if [ "$message_answered" -eq 0 ]; then
+  settled=0
+  if [ "$wait_state" = "idle" ] || [ "$wait_state" = "done" ] || [ "$wait_reason" = "exit" ]; then
+    settled=1
+  fi
+  if [ "$settled" -eq 0 ]; then
+    cat "$wait_out" >&2
+    retain
+    close_hint
+    status_exit undelivered 1
+  fi
+
+  set +e
+  classify_report
+  report_state=$?
+  set -e
+
+  if [ "$report_state" -ne 0 ] && [ "$wait_state" != "idle" ] && [ "$wait_state" != "done" ]; then
+    cat "$wait_out" >&2
+    retain
+    close_hint
+    status_exit undelivered 1
+  fi
+fi
+
 if [ "$report_state" -eq 3 ] || [ "$report_state" -eq 4 ]; then
   recovery_prompt="The report transport file at $report_path is missing or empty. Write your exact complete previous answer, byte-for-byte, using your shell: write it to $report_path.tmp and then rename that file to $report_path. Do not use a file-editing tool. Then reply with only the path."
   set +e
-  hc send --wait --timeout 120 "$address" "$recovery_prompt" >/dev/null 2>"$recovery_err"
+  hc send --wait --timeout 120 "$address" "$recovery_prompt" --json >"$recovery_out" 2>"$recovery_err"
+  recovery_status=$?
   set -e
   [ -s "$recovery_err" ] && cat "$recovery_err" >&2
   set +e
   classify_report
   report_state=$?
   set -e
+
+  if [ "$report_state" -eq 3 ] || [ "$report_state" -eq 4 ]; then
+    recovery_fields=""
+    recovery_fields="$(json_wait_fields "$recovery_out" wait 2>/dev/null)" || true
+    recovery_ended=''
+    recovery_reason=''
+    recovery_state=''
+    IFS=$'\t' read -r recovery_ended recovery_reason recovery_state <<< "$recovery_fields"
+    recovery_settled=0
+    if [ "$recovery_ended" = "true" ] && { [ "$recovery_state" = "idle" ] || [ "$recovery_state" = "done" ] || [ "$recovery_reason" = "exit" ]; }; then
+      recovery_settled=1
+    fi
+    if [ "$recovery_status" -ne 0 ] || [ "$recovery_settled" -eq 0 ]; then
+      retain
+      close_hint
+      status_exit working 124
+    fi
+  fi
 fi
 
 if [ "$report_state" -ne 0 ]; then

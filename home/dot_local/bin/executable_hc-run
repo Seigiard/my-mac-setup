@@ -74,6 +74,7 @@ trap 'rm -f "$run_stdout_file" "$run_stderr_file" "$tab_stderr_file"' EXIT
 
 child_address=""
 selected_alias=""
+first_message_sent=""
 name_taken=0
 
 start_child() {
@@ -104,6 +105,12 @@ start_child() {
   if [ -z "$child_address" ]; then
     printf '%s\n' 'hc-run: failed to determine child address' >&2
     return 1
+  fi
+
+  if printf '%s\n' "$run_result" | grep -Eq '"first_message"[[:space:]]*:[[:space:]]*\{[[:space:]]*"sent"[[:space:]]*:[[:space:]]*false'; then
+    first_message_sent=false
+  else
+    first_message_sent=""
   fi
 
   selected_alias="$alias"
@@ -141,3 +148,7 @@ if [ "$open_tab" -eq 1 ]; then
 fi
 
 printf '%s %s\n' "$child_address" "$selected_alias"
+if [ "$first_message_sent" = false ]; then
+  printf 'hc-run: task not sent: hc read %s\n' "$child_address" >&2
+  exit 3
+fi

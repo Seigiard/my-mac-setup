@@ -42,7 +42,9 @@ fi
 
 send_out="$(mktemp)"
 send_err="$(mktemp)"
-trap 'rm -f "$send_out" "$send_err"' EXIT
+wait_out="$(mktemp)"
+wait_err="$(mktemp)"
+trap 'rm -f "$send_out" "$send_err" "$wait_out" "$wait_err"' EXIT
 
 args=(send)
 if [ "$wait_for_turn" -eq 1 ]; then
@@ -52,6 +54,10 @@ if [ "$force" -eq 1 ]; then
   args+=(--force)
 fi
 args+=("$address" "$text")
+
+if [ "$wait_for_turn" -eq 1 ]; then
+  wait_deadline=$(( $(date +%s) + 1800 ))
+fi
 
 set +e
 hc "${args[@]}" >"$send_out" 2>"$send_err"
@@ -68,22 +74,19 @@ if [ "$send_status" -ne 0 ]; then
 fi
 
 if [ "$wait_for_turn" -eq 1 ]; then
-  wait_fields=''
-  wait_fields="$(python3 - "$send_out" 2>/dev/null <<'PY'
+  json_wait_fields() {
+    python3 - "$1" "${2:-}" <<'PY'
 import json
 import sys
 
 try:
     with open(sys.argv[1], encoding="utf-8") as stream:
         raw = stream.read().strip()
-    try:
-        data = json.loads(raw)
-    except ValueError:
-        if not raw.endswith("}"):
-            raise SystemExit(1)
-        data = json.loads(raw[:-1])
-    waited = data.get("wait") or {}
-except (OSError, ValueError):
+    data = json.loads(raw)
+    waited = data
+    if sys.argv[2]:
+        waited = data.get(sys.argv[2]) or {}
+except (OSError, ValueError, TypeError):
     raise SystemExit(1)
 
 ended = waited.get("ended")
@@ -95,12 +98,49 @@ else:
     ended = ""
 print("\t".join((ended, str(waited.get("reason") or ""), str(waited.get("status") or ""))))
 PY
-)" || true
+  }
+
+  remaining_wait_timeout() {
+    local remaining now
+    now="$(date +%s)"
+    remaining=$((wait_deadline - now))
+    [ "$remaining" -gt 0 ] || remaining=1
+    printf '%s' "$remaining"
+  }
+
+  wait_fields=''
+  wait_fields="$(json_wait_fields "$send_out" wait 2>/dev/null)" || true
   wait_ended=''
   wait_reason=''
   wait_state=''
   IFS=$'\t' read -r wait_ended wait_reason wait_state <<< "$wait_fields"
-  if [ "$wait_ended" = false ] || [ "$wait_reason" = timeout ] || [ "$wait_reason" = message ]; then
+  if [ "$wait_ended" = false ] || [ "$wait_reason" = timeout ]; then
+    status_exit working 124
+  fi
+  if [ "$wait_reason" = message ] && [ "$wait_state" = working ]; then
+    wait_timeout="$(remaining_wait_timeout)"
+    set +e
+    hc wait --json --timeout "$wait_timeout" "$address" >"$wait_out" 2>"$wait_err"
+    wait_status=$?
+    set -e
+    if [ "$wait_status" -ne 0 ]; then
+      [ -s "$wait_err" ] && cat "$wait_err" >&2
+      status_exit delivery-unknown 1
+    fi
+    wait_fields=''
+    wait_fields="$(json_wait_fields "$wait_out" 2>/dev/null)" || true
+    wait_ended=''
+    wait_reason=''
+    wait_state=''
+    IFS=$'\t' read -r wait_ended wait_reason wait_state <<< "$wait_fields"
+    if [ "$wait_ended" = false ] || [ "$wait_reason" = timeout ]; then
+      status_exit working 124
+    fi
+    if [ "$wait_reason" = message ] && [ "$wait_state" != "idle" ] && [ "$wait_state" != "done" ]; then
+      status_exit working 124
+    fi
+  fi
+  if [ "$wait_reason" = message ] && [ "$wait_state" != "idle" ] && [ "$wait_state" != "done" ]; then
     status_exit working 124
   fi
   if [ "$wait_state" != "idle" ] && [ "$wait_state" != "done" ] && [ "$wait_reason" != "exit" ]; then
