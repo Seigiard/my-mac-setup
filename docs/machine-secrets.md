@@ -66,8 +66,12 @@ each inventory row lists exactly the fixtures its source template reads:
    `tests/helpers/chezmoi-unattended-targets.tsv`, and set the canary in
    `tests/helpers/common.bash`, `.github/workflows/test-dotfiles.yml`,
    `docker/docker-compose.yml` and `docker/Dockerfile.ubuntu`.
-4. Extend the canary assertion in `tests/bashunit/templates_test.sh`
-   (tests 0091, 0093 and 0095 list every exported name).
+4. No per-key canary assertion list needs a manual update. The age-branch
+   fixture derives its keys from the `$secrets.NAME` references in the copied
+   template, and the contract test checks that the fixture inventory matches
+   the template. A template key missing from the secrets file fails the
+   render with `map has no entry for key`, so the problem is reported instead
+   of being silently omitted.
 
 ## Enrollment: a new laptop, or a reinstalled one
 
