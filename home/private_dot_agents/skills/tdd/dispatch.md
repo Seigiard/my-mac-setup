@@ -18,6 +18,8 @@ Work in <checkout> on branch <branch>. Commit prepare and implementation work. C
 
 Choose the launch mode in this order:
 
+When `HC_TERMINAL_ID` is set, use hc mode: run `hc-run --cwd <checkout> implementer-<tier> "$(cat <prompt>)"`. Map the tdd tier to `implementer-low`, `implementer-low-plus`, `implementer-medium`, `implementer-high`, or `implementer-high-plus`; the test writer uses the same read-write opencode role and its prompt carries the role. Record the printed `<address> <alias>`. The child wakes you through the core's notes (`<hc>… is blocked/exited…</hc>`) and `hc send`; wait inside a turn with `hc wait --json --timeout S <address>`. The parent duties and cleanup guard are in `~/.claude/shared/hc-agent-contract.md`.
+
 1. `HERDR_ENV=1` and `HERDR_CHILD_PARENT_PANE` is unset: start a visible tab with `herdr-child start --kind opencode --posture rw --model <model> --effort <effort of tier> --cwd <checkout> --prompt-file <prompt> --detach`. Tabs avoid the narrow-pane OpenCode hang. Follow the parent duties in `~/.claude/shared/child-agent-contract.md`; the supervision marker wakes you. Answer a child's `herdr-child ask` from `ticket.md`; pass it to the user only when it needs a product decision. A herdr child goes straight to mode 2 because `herdr-child start` refuses to run from a child pane.
 2. `opencode` is on `PATH`: run the following as a background process that re-invokes you on exit (in Claude Code, the Bash tool's `run_in_background`). The stdin redirect prevents `opencode run` from waiting for EOF. `~/.claude/shared/long-running-work.md` owns its supervision.
 
@@ -32,5 +34,9 @@ Choose the launch mode in this order:
 3. Otherwise no child can start. Stop.
 
 **Resuming a child** for a handoff gap keeps its session, tier, and attempt number, and counts as one turn. In herdr mode: `herdr-child prompt --to <name> --pane <pane-id> --detach '<the missing items>'`. In headless mode: the same subshell command with `--session <id>` added and `'<the missing items>'` as the prompt, appending to `<run-dir>/<role>-<n>-resume.jsonl`, where the id is the `sessionID` in the attempt's JSONL log. Every resumed turn of the attempt appends to that file in order.
+
+In hc mode, resume a child with `hc send <address> '<the missing items>'`; its session stays in its terminal. Wait with `hc wait --json --timeout S <address>`.
+
+In hc mode, reap a child only after `hc get <address>` shows that its status is not `working` or `blocked`: run `hc kill <address>` and then `hc rm <address>`.
 
 The child's answer is its report file; its tool output and logs are the evidence the report cites. In herdr mode, reap each child with `herdr-child reap` per the `herdr` skill's lifecycle rule. In headless mode, confirm the process has exited before the next phase starts.

@@ -28,5 +28,5 @@ Impact labels are decided by `scripts/contracts/impact.ts`, `scripts/contracts/a
 ## Primary evidence
 
 - Dev database rows: `docker exec … psql` against the dev stack.
-- Live UX by role: dev stack in a herdr pane, `bun run dev:wait`, then "View as…" impersonation; a Vite dev-auto-login plugin rewrites `localStorage.jwt`, so the PAT does not switch seats by itself.
+- Live UX by role: dev stack in a herdr pane (TUI) or, when `HC_TERMINAL_ID` is set, in an hc terminal (`hc run --bg --name dev --cwd <repo> -- <command>`; `hc read dev`), `bun run dev:wait`, then "View as…" impersonation; a Vite dev-auto-login plugin rewrites `localStorage.jwt`, so the PAT does not switch seats by itself.
 - A failing test file of unclear origin: run it against `origin/main` before blaming the change; `git log -- <file>` tells where it came from.
