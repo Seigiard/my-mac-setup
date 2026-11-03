@@ -114,35 +114,33 @@ PY
   wait_reason=''
   wait_state=''
   IFS=$'\t' read -r wait_ended wait_reason wait_state <<< "$wait_fields"
-  if [ "$wait_ended" = false ] || [ "$wait_reason" = timeout ]; then
-    status_exit working 124
-  fi
-  if [ "$wait_reason" = message ] && [ "$wait_state" = working ]; then
-    wait_timeout="$(remaining_wait_timeout)"
-    set +e
-    hc wait --json --timeout "$wait_timeout" "$address" >"$wait_out" 2>"$wait_err"
-    wait_status=$?
-    set -e
-    if [ "$wait_status" -ne 0 ]; then
-      [ -s "$wait_err" ] && cat "$wait_err" >&2
-      status_exit delivery-unknown 1
+  while :; do
+    if [ "$wait_reason" = message ]; then
+      if [ "$wait_state" = idle ] || [ "$wait_state" = 'done' ]; then
+        break
+      fi
+      wait_timeout="$(remaining_wait_timeout)"
+      set +e
+      hc wait --json --timeout "$wait_timeout" "$address" >"$wait_out" 2>"$wait_err"
+      wait_status=$?
+      set -e
+      if [ "$wait_status" -ne 0 ]; then
+        [ -s "$wait_err" ] && cat "$wait_err" >&2
+        status_exit delivery-unknown 1
+      fi
+      wait_fields=''
+      wait_fields="$(json_wait_fields "$wait_out" 2>/dev/null)" || true
+      wait_ended=''
+      wait_reason=''
+      wait_state=''
+      IFS=$'\t' read -r wait_ended wait_reason wait_state <<< "$wait_fields"
+      continue
     fi
-    wait_fields=''
-    wait_fields="$(json_wait_fields "$wait_out" 2>/dev/null)" || true
-    wait_ended=''
-    wait_reason=''
-    wait_state=''
-    IFS=$'\t' read -r wait_ended wait_reason wait_state <<< "$wait_fields"
     if [ "$wait_ended" = false ] || [ "$wait_reason" = timeout ]; then
       status_exit working 124
     fi
-    if [ "$wait_reason" = message ] && [ "$wait_state" != "idle" ] && [ "$wait_state" != "done" ]; then
-      status_exit working 124
-    fi
-  fi
-  if [ "$wait_reason" = message ] && [ "$wait_state" != "idle" ] && [ "$wait_state" != "done" ]; then
-    status_exit working 124
-  fi
+    break
+  done
   if [ "$wait_state" != "idle" ] && [ "$wait_state" != "done" ] && [ "$wait_reason" != "exit" ]; then
     status_exit delivery-unknown 1
   fi

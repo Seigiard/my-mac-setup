@@ -93,8 +93,9 @@ read_err="$(mktemp)"
 recovery_out="$(mktemp)"
 recovery_err="$(mktemp)"
 cleanup_err="$(mktemp)"
+cleanup_out="$(mktemp)"
 retain_transport=0
-trap 'rm -f "$question_file" "$start_out" "$start_err" "$wait_out" "$wait_err" "$read_out" "$read_err" "$recovery_out" "$recovery_err" "$cleanup_err"; if [ "$retain_transport" -eq 0 ]; then rm -f "$report_path" "$report_path.tmp"; rmdir "$report_dir" 2>/dev/null || true; fi' EXIT
+trap 'rm -f "$question_file" "$start_out" "$start_err" "$wait_out" "$wait_err" "$read_out" "$read_err" "$recovery_out" "$recovery_err" "$cleanup_err" "$cleanup_out"; if [ "$retain_transport" -eq 0 ]; then rm -f "$report_path" "$report_path.tmp"; rmdir "$report_dir" 2>/dev/null || true; fi' EXIT
 
 {
   printf '%s\n\n' "$question"
@@ -105,31 +106,38 @@ trap 'rm -f "$question_file" "$start_out" "$start_err" "$wait_out" "$wait_err" "
   printf '%s\n' 'Do not write any other file.'
 } > "$question_file"
 
+close_hint() {
+  printf 'ask.sh: consult is in hc terminal %s (%s) (left open; close with: hc kill %s; hc rm %s)\n' \
+    "$address" "$alias" "$address" "$address" >&2
+}
+
 set +e
 hc-run --cwd "$cwd" "$template" "$(cat "$question_file")" >"$start_out" 2>"$start_err"
 start_status=$?
 set -e
 
+start_result="$(cat "$start_out")"
+address=''
+alias=''
+read -r address alias _ <<< "$start_result"
+if [ "$start_status" -eq 3 ]; then
+  cat "$start_err" >&2
+  if [ -n "$address" ] && [ -n "$alias" ]; then
+    close_hint
+  fi
+  status_exit undelivered 1
+fi
 if [ "$start_status" -ne 0 ]; then
   cat "$start_err" >&2
   status_exit undelivered 1
 fi
 
-start_result="$(cat "$start_out")"
-address=''
-alias=''
-read -r address alias _ <<< "$start_result"
 if [ -z "$address" ] || [ -z "$alias" ]; then
   cat "$start_err" >&2
   retain_transport=1
   printf 'ask.sh: child may still write its report; transport retained at %s\n' "$report_dir" >&2
   status_exit undelivered 1
 fi
-
-close_hint() {
-  printf 'ask.sh: consult is in hc terminal %s (%s) (left open; close with: hc kill %s; hc rm %s)\n' \
-    "$address" "$alias" "$address" "$address" >&2
-}
 
 retain() {
   retain_transport=1
@@ -198,10 +206,8 @@ wait_for_child() {
   timeout="$1"
   : > "$wait_out"
   : > "$wait_err"
-  set +e
-  hc wait --json --timeout "$timeout" "$address" >"$wait_out" 2>"$wait_err"
-  command_status=$?
-  set -e
+  command_status=0
+  hc wait --json --timeout "$timeout" "$address" >"$wait_out" 2>"$wait_err" || command_status=$?
   return "$command_status"
 }
 
@@ -230,22 +236,6 @@ read_wait_fields
 message_answered=0
 report_state=''
 while :; do
-  if [ "$wait_ended" = false ] || [ "$wait_reason" = timeout ]; then
-    read_screen
-    [ "$read_status" -eq 0 ] && cat "$read_out"
-    [ -s "$read_err" ] && cat "$read_err" >&2
-    retain
-    close_hint
-    status_exit working 124
-  fi
-
-  if [ -z "$wait_ended" ]; then
-    cat "$wait_out" >&2
-    retain
-    close_hint
-    status_exit undelivered 1
-  fi
-
   if [ "$wait_reason" = message ]; then
     set +e
     classify_report
@@ -277,6 +267,22 @@ while :; do
     fi
     read_wait_fields
     continue
+  fi
+
+  if [ "$wait_ended" = false ] || [ "$wait_reason" = timeout ]; then
+    read_screen
+    [ "$read_status" -eq 0 ] && cat "$read_out"
+    [ -s "$read_err" ] && cat "$read_err" >&2
+    retain
+    close_hint
+    status_exit working 124
+  fi
+
+  if [ -z "$wait_ended" ]; then
+    cat "$wait_out" >&2
+    retain
+    close_hint
+    status_exit undelivered 1
   fi
 
   if [ "$wait_state" = blocked ]; then
@@ -361,6 +367,40 @@ fi
 
 cat "$report_path"
 if [ "$close_terminal" -eq 1 ]; then
+  : > "$cleanup_out"
+  : > "$cleanup_err"
+  set +e
+  hc get "$address" --json >"$cleanup_out" 2>"$cleanup_err"
+  get_status=$?
+  set -e
+  if [ "$get_status" -eq 0 ]; then
+    terminal_state="$({
+      python3 - "$cleanup_out" <<'PY'
+import json
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as stream:
+        terminal = json.load(stream)
+except (OSError, ValueError, TypeError):
+    raise SystemExit(1)
+
+status = terminal.get("status")
+if isinstance(status, dict):
+    print(status.get("state") or "")
+elif terminal.get("state") == "finished":
+    print("finished")
+PY
+    })" || terminal_state=''
+    if [ "$terminal_state" = working ] || [ "$terminal_state" = blocked ]; then
+      close_hint
+      status_exit answered 0
+    fi
+  else
+    [ -s "$cleanup_err" ] && cat "$cleanup_err" >&2
+    close_hint
+    status_exit answered 0
+  fi
   : > "$cleanup_err"
   set +e
   hc kill "$address" >/dev/null 2>"$cleanup_err"

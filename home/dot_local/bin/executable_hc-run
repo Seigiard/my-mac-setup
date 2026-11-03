@@ -107,8 +107,17 @@ start_child() {
     return 1
   fi
 
-  if printf '%s\n' "$run_result" | grep -Eq '"first_message"[[:space:]]*:[[:space:]]*\{[[:space:]]*"sent"[[:space:]]*:[[:space:]]*false'; then
-    first_message_sent=false
+  if first_message_sent="$({
+    python3 -c '
+import json
+import sys
+
+raw = sys.stdin.read().lstrip()
+message = json.JSONDecoder().raw_decode(raw)[0].get("first_message")
+print("false" if isinstance(message, dict) and message.get("sent") is False else "")
+' <<< "$run_result"
+  })"; then
+    :
   else
     first_message_sent=""
   fi
