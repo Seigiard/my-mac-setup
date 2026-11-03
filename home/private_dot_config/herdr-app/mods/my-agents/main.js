@@ -32,6 +32,7 @@ function toggleSidebar() {
 
 const clean = (s) => (s ?? "").replace(/^[^\p{L}\p{N}]+/u, "").trim();
 
+// The pool's source of truth is ~/.local/lib/herdr-pane-labels/herdr-aliases.sh.
 const ALIAS_COLORS = [
   "amber", "aqua", "azure", "beige", "black", "blue", "brown", "coral",
   "cream", "cyan", "gold", "gray", "green", "ivory", "jade", "khaki",
@@ -52,6 +53,16 @@ const ALIAS_ANIMALS = [
 ];
 
 const ALIAS_POOL = ALIAS_COLORS.length * ALIAS_ANIMALS.length;
+
+const ALIAS_COLOR_SET = new Set(ALIAS_COLORS);
+
+const ALIAS_ANIMAL_SET = new Set(ALIAS_ANIMALS);
+
+function isPoolAlias(name) {
+  const parts = name?.split("-") ?? [];
+
+  return parts.length === 2 && ALIAS_COLOR_SET.has(parts[0]) && ALIAS_ANIMAL_SET.has(parts[1]);
+}
 
 // FNV-1a is stable in the mod and intentionally does not reproduce POSIX cksum.
 function aliasOffset(seed) {
@@ -249,10 +260,25 @@ export default class Agents extends View {
     return this.changed[a.address]?.at ?? 0;
   }
 
-  assignAliases(rows, spaceList) {
+  assignAliases(rows, spaceList, terminalList) {
     const machines = new Map(spaceList.map((space) => [space.id, space.machine ?? ""]));
+
     const used = new Set();
+
     const aliases = new Map();
+
+    const liveAliases = new Map(terminalList
+      .filter((terminal) => terminal.state === "live" && isPoolAlias(terminal.name))
+      .map((terminal) => [terminal.address, terminal.name]));
+
+    for (const row of rows) {
+      const alias = liveAliases.get(row.address);
+
+      if (!alias || used.has(alias)) continue;
+      this.alias.set(row.address, alias);
+      aliases.set(row.address, alias);
+      used.add(alias);
+    }
 
     for (const row of rows) {
       const alias = this.alias.get(row.address);
@@ -674,7 +700,7 @@ export default class Agents extends View {
     const spaceList = spaces();
     this.refreshOrigins(spaceList, cx);
     const tabs = spaceList.flatMap(s => s.tabs);
-    this.assignAliases([...list, ...list.flatMap((a) => this.tree(all, a.address).map((s) => s.t))], spaceList);
+    this.assignAliases([...list, ...list.flatMap((a) => this.tree(all, a.address).map((s) => s.t))], spaceList, all);
     this.syncTabNames(spaceList, panes(), list, cx);
 
     const label = (a) => {
