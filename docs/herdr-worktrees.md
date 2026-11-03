@@ -16,8 +16,11 @@ the sole owner of pane, tab, and agent identity.
   `~/.config/herdr/config.toml` has no `[worktrees]` section.
 
 The standalone [`seigi.worktree-setup`](https://github.com/Seigiard/herdr-worktree-setup)
-plugin handles the one capability outside Herdr's native lifecycle: preparing a
-newly created checkout. Its sole policy file is
+package is pinned as a chezmoi external at
+`~/.local/lib/herdr-worktree-setup`. It handles the one capability outside
+Herdr's native lifecycle: preparing a newly created checkout. The Herdr app's
+`my-worktree` mod (`Cmd+Shift+N`) and the Claude Code `WorktreeCreate` hook both
+run it by fixed path. Its sole policy file is
 `~/.config/herdr/plugins/config/seigi.worktree-setup/config.toml`. Tables are
 keyed by the canonical `origin` remote, matching the former Worktrunk project
 keys. A repository with no table receives no setup or fresh-base mutation.
@@ -78,6 +81,15 @@ contained by another local branch, the remote cannot be fetched, or files
 appear before reset. Only an untouched new branch is reset to fetched
 `origin/HEAD`.
 
+## Herdr app
+
+The `my-worktree` mod handles `Cmd+Shift+N`: after `git worktree add`, it opens
+the new space and a terminal running
+`herdr-worktree-setup-run <path> <branch>`. The setup log is visible and has no
+time cap. The app passes the real branch, so fresh-base and the
+`herdr-generated-worktree` marker apply. Space names remain folder-derived;
+`herdr-worktree-identity` is not ported.
+
 ## Claude Code nested worktrees
 
 Claude Code's `EnterWorktree` and worktree-isolated child agents use the global
@@ -89,18 +101,19 @@ its tip unchanged. An already registered path is returned as is; a stale
 registration whose directory is gone is removed first, and other worktree
 registrations stay untouched.
 
-After Git creates the checkout, the hook invokes the `seigi.worktree-setup`
-plugin with the checkout path and an empty branch field. The hook finds the
-plugin through `herdr plugin list --json` (the `plugin_root` of the enabled
-`seigi.worktree-setup` entry); `CLAUDE_WORKTREE_SETUP_PLUGIN_DIR` overrides it.
-The empty field tells the plugin to skip fresh-base and the
-`herdr-generated-worktree` marker, so the new branch keeps the parent checkout's
-unpushed commits and `herdr-worktree-identity` leaves it alone. Setup is best
-effort: the hook still returns the created path when a setup prerequisite is
-missing (`herdr`, `jq`, `bun`, an enabled plugin, its `setup.ts`) or when setup
-fails, and prints the reason on stderr. Untracked files reach the checkout only
-through the plugin's `copy` list in `config.toml`: the hook replaces Claude
-Code's default creation, including its `.worktreeinclude` handling.
+After Git creates the checkout, the hook invokes `setup.ts` from
+`CLAUDE_WORKTREE_SETUP_PLUGIN_DIR`, exported in `~/.zshenv` and defaulting to
+`~/.local/lib/herdr-worktree-setup`. It no longer needs `herdr plugin list`.
+The hook passes the checkout path and an empty branch field. The empty field
+tells the plugin to skip fresh-base and the `herdr-generated-worktree` marker,
+so the new branch keeps the parent checkout's unpushed commits and
+`herdr-worktree-identity` leaves it alone. Setup is best effort: the hook still
+returns the created path when a setup
+prerequisite is missing (`setup.ts` or `bun`) or when setup fails, and prints
+the reason on stderr. Untracked files
+reach the checkout only through the plugin's `copy` list in `config.toml`: the
+hook replaces Claude Code's default creation, including its `.worktreeinclude`
+handling.
 
 Claude Code's matching `WorktreeRemove` hook refuses a path that contains
 another registered worktree. Otherwise it force-removes the linked checkout. It
@@ -128,8 +141,9 @@ unsupported creation paths remain unknown-provenance paths.
 
 ## Ownership and deployment
 
-- Chezmoi installs and enables the reviewed `seigi.worktree-setup` package from
-  GitHub, while retaining the repository-keyed policy file here.
+- Chezmoi pins the reviewed `seigi.worktree-setup` package as an external at
+  `~/.local/lib/herdr-worktree-setup`; the TUI plugin copy stays installed until
+  #617/#618, while the repository-keyed policy file remains here.
 - The one-time migration removes the formerly managed local implementation only
   after the standalone package is installed and enabled. Failed installation or
   enablement retains the local plugin for the next apply.

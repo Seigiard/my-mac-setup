@@ -1,6 +1,6 @@
 ---
 title: Replace Agent Intercom with herdr-peer
-status: accepted
+status: superseded
 date: 2026-10-12
 supersedes:
   - 0018-use-a-shared-intercom-for-location-independent-agent-communication
@@ -9,6 +9,8 @@ supersedes:
 ---
 
 # ADR-0024: Replace Agent Intercom with herdr-peer
+
+Superseded by [ADR-0025](0025-use-herdr-core-as-the-agent-communication-substrate.md).
 
 ## Context
 
