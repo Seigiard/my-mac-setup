@@ -32,6 +32,20 @@ compose_project_name() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -c 'abcdefghijklmnopqrstuvwxyz0123456789_-' '-'
 }
 
+compose_hc_name() {
+  local label="$1" name checksum lower_label
+
+  name="$(compose_project_name "$label")"
+  lower_label="$(printf '%s' "$label" | tr '[:upper:]' '[:lower:]')"
+  if [ "$name" != "$label" ] && [ "$label" = "$lower_label" ]; then
+    checksum="$(printf '%s' "$label" | cksum | awk '{printf "%06x", $1 % 16777216}')"
+    name="$(printf '%s' "$name" | cut -c 1-25)-$checksum"
+  else
+    name="$(printf '%s' "$name" | cut -c 1-32)"
+  fi
+  printf '%s' "$name"
+}
+
 write_meta() {
   local cwd="$1" meta_file="$2" head=none dirty=0 start
 
@@ -414,7 +428,7 @@ run_workload() {
   }
 
   if [ -n "${HC_TERMINAL_ID:-}" ]; then
-    hc_name="$(compose_project_name "$label" | cut -c 1-32)"
+    hc_name="$(compose_hc_name "$label")"
     hc_command=(hc run --bg --name "$hc_name" --cwd "$cwd")
     [ "$wait" -eq 1 ] && hc_command+=(--no-notify)
     hc_command+=(-- bash "$script_file")
