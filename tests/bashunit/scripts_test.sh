@@ -3238,6 +3238,7 @@ function test_scripts_1086_ask_in_hc_reports_a_failed_launcher_as_undelivered() 
 
 function test_scripts_1094_ask_in_hc_keeps_the_undelivered_child_address_from_hc_run() {
   _bats_test_init 1094 'ask-in-hc prints an hc-run undelivered child close hint'
+  local task_line task_file
   # #given
   ask_hc_stub
 
@@ -3252,6 +3253,28 @@ function test_scripts_1094_ask_in_hc_keeps_the_undelivered_child_address_from_hc
   assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=undelivered'
   assert_stderr --partial 'ask.sh: consult is in hc terminal t9 (amber-fox) (left open; close with: hc kill t9; hc rm t9)'
   assert_file_not_exists "$CHILD_STUB/hc.argv"
+  task_line="$(printf '%s\n' "$stderr" | sed -n 's/^\(ask\.sh: task kept at \/.*; resend it after readiness\)$/\1/p')"
+  assert_matches '^ask\.sh: task kept at /.*; resend it after readiness$' "$task_line"
+  task_file="${task_line#ask.sh: task kept at }"
+  task_file="${task_file%; resend it after readiness}"
+  assert_file_exists "$task_file"
+}
+
+function test_scripts_1097_ask_in_hc_keeps_the_undelivered_report_transport_from_hc_run() {
+  _bats_test_init 1097 'ask-in-hc keeps the undelivered report transport from hc-run'
+  local report_dir
+  # #given
+  ask_hc_stub
+
+  # #when
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
+    STUB_HC_RUN_STATUS=3 STUB_HC_RUN_OUTPUT='t9 amber-fox' \
+    STUB_HC_RUN_ERROR='hc-run: task not sent: hc read t9' \
+    bash "$ASK_HC_SCRIPT" claude question
+  # #then
+  assert_failure 1
+  report_dir="$(dirname "$(cat "$CHILD_STUB/report-path")")"
+  assert_dir_exists "$report_dir"
 }
 
 function test_scripts_1095_ask_in_hc_handles_a_failed_hc_wait_without_losing_transport() {
