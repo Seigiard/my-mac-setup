@@ -6,17 +6,8 @@ usage() {
   printf '%s\n' 'usage: hc-run [--cwd DIR] [--tab] <template> <task>' >&2
 }
 
-cwd="${PWD}"
+cwd="$PWD"
 open_tab=0
-
-# bash collapses repeated separators while entering the bashunit fixture; keep
-# that fixture's logical spelling when it is available.
-if [ -n "${BATS_TEST_TMPDIR:-}" ] && [ -d "$BATS_TEST_TMPDIR/cwd" ]; then
-  fixture_cwd="$(CDPATH='' cd -- "$BATS_TEST_TMPDIR/cwd" && pwd)"
-  if [ "$cwd" = "$fixture_cwd" ]; then
-    cwd="$BATS_TEST_TMPDIR/cwd"
-  fi
-fi
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -78,7 +69,8 @@ candidates="$(herdr_alias_candidates "$seed")" || candidate_status=$?
 
 run_stdout_file="$(mktemp "${TMPDIR:-/tmp}/hc-run.XXXXXX")"
 run_stderr_file="$(mktemp "${TMPDIR:-/tmp}/hc-run.XXXXXX")"
-trap 'rm -f "$run_stdout_file" "$run_stderr_file"' EXIT
+tab_stderr_file="$(mktemp "${TMPDIR:-/tmp}/hc-run.XXXXXX")"
+trap 'rm -f "$run_stdout_file" "$run_stderr_file" "$tab_stderr_file"' EXIT
 
 child_address=""
 selected_alias=""
@@ -143,10 +135,9 @@ done <<< "$candidates"
 
 if [ "$open_tab" -eq 1 ]; then
   tab_request="$(printf '{"name":"%s","argv":["hc","attach","%s"]}' "$selected_alias" "$child_address")"
-  herdr_app_command='herdr-app'
-  herdr_app_status=0
-  "$herdr_app_command" 'do' tab.new "$tab_request" >/dev/null || herdr_app_status=$?
-  : "$herdr_app_status"
+  if ! herdr-app 'do' tab.new "$tab_request" >/dev/null 2>"$tab_stderr_file"; then
+    printf 'hc-run: could not open a tab: %s\n' "$(cat "$tab_stderr_file")" >&2
+  fi
 fi
 
 printf '%s %s\n' "$child_address" "$selected_alias"
