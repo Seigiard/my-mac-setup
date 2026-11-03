@@ -1,9 +1,11 @@
 // Worktree dialog: { space, action: "new" | "open" | "remove" } or
 // { folder, machine } for a repo without a space; optional { branch, tab, argv }.
+// No space or folder (a keybinding): the focused terminal's space and folder.
+// No action (a keybinding): create a generated branch at once, without asking.
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, Scrollbar } from "gpui-base";
-import { run, props, closeOverlay, theme, spaces, panes, exec, home } from "herdr";
+import { run, props, closeOverlay, theme, spaces, panes, focused, exec, home } from "herdr";
 
 // Where a space is now: its first terminal's live folder, else where it was made.
 function place(s) {
@@ -24,6 +26,16 @@ const tilde = (path, userHome) => {
 };
 
 const slug = (branch) => branch.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+
+// Generated branches look like Herdr's own: worktree/<adjective>-<noun>-<4 hex>.
+// herdr-worktree-identity renames them after the first agent prompt.
+const ADJECTIVES = ["amber", "bold", "brisk", "calm", "clear", "crisp", "eager", "gentle", "golden", "keen", "lucky", "mellow", "nimble", "quiet", "rapid", "silver", "steady", "sunny", "swift", "warm"];
+
+const NOUNS = ["brook", "canyon", "cedar", "cliff", "cloud", "coast", "dune", "field", "forest", "grove", "harbor", "meadow", "mesa", "peak", "pine", "river", "ridge", "stone", "valley", "willow"];
+
+const pick = (list) => list[Math.floor(Math.random() * list.length)];
+
+const generated = () => `worktree/${pick(ADJECTIVES)}-${pick(NOUNS)}-${Math.floor(Math.random() * 0x10000).toString(16).padStart(4, "0")}`;
 
 const ago = (s) => {
   const d = Date.now() / 1000 - s;
@@ -132,6 +144,8 @@ async function repoOf(folder, on) {
 
 export default class Worktree extends View {
   init(_props, cx) {
+    this.origin = props()?.space || props()?.folder ? null : focused();
+    this.auto = !props()?.action;
     this.on = this.space()?.machine;
     this.userHome = this.on ? null : home();
     this.opening = props()?.action === "open";
@@ -171,7 +185,7 @@ export default class Worktree extends View {
           this.userHome = result.stdout.trim().replace(/\\/g, "/");
         }
 
-        this.folder = props()?.folder || place(this.space()) || this.userHome;
+        this.folder = props()?.folder || this.origin?.cwd || place(this.space()) || this.userHome;
         // The repo is set last: Enter does nothing until the warnings it consents to are known.
         const repo = await repoOf(this.folder, this.on);
 
@@ -184,15 +198,16 @@ export default class Worktree extends View {
         this.repo = repo;
         cx.notify();
 
-        if (props().branch) await this.work(cx);
+        if (props().branch || this.auto) await this.work(cx);
       } catch (error) { this.repo = null; this.error = String(error); cx.notify(); }
     });
   }
 
   space() {
     const p = props() ?? {};
+    const id = p.space ?? this.origin?.space;
 
-    return spaces().find((s) => s.id === p.space) ?? (p.folder ? { folder: p.folder, machine: p.machine ?? null, name: "" } : undefined);
+    return spaces().find((s) => s.id === id) ?? (p.folder ? { folder: p.folder, machine: p.machine ?? null, name: "" } : undefined);
   }
 
   close() {
@@ -220,7 +235,7 @@ export default class Worktree extends View {
   }
 
   async create() {
-    const branch = this.text.trim();
+    const branch = this.text.trim() || (this.auto ? await this.unused() : "");
 
     if (!branch) return "Type a branch name.";
     const path = `${ROOT(this.userHome)}/${this.repo.name}/${slug(branch)}`;
@@ -238,6 +253,17 @@ export default class Worktree extends View {
     });
 
     return "";
+  }
+
+  // A generated branch name no local branch has yet.
+  async unused() {
+    for (let i = 0; i < 5; i++) {
+      const branch = generated();
+
+      if (!(await git(this.repo.main, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], this.on)).ok) return branch;
+    }
+
+    throw new Error("Couldn't find a free worktree/* branch name.");
   }
 
   shown() {
@@ -380,7 +406,9 @@ export default class Worktree extends View {
             ? !r.linked
               ? "This is the repository's main checkout, not a worktree."
               : `Closes the space and deletes ${tilde(r.top, this.userHome)}. The branch stays.`
-            : `A new space on a checkout in ${tilde(ROOT(this.userHome), this.userHome)}/${r.name}/. A branch that exists is checked out; a new one starts from here.`;
+            : this.auto
+              ? `Creating a worktree/… branch from here in ${tilde(ROOT(this.userHome), this.userHome)}/${r.name}/.`
+              : `A new space on a checkout in ${tilde(ROOT(this.userHome), this.userHome)}/${r.name}/. A branch that exists is checked out; a new one starts from here.`;
 
     const blocked = !r || (remove && !r.linked);
 
@@ -397,7 +425,7 @@ export default class Worktree extends View {
       .child(div().text_color(t.muted).child(detail))
       .when(remove && this.dirty, (el) => el.child(div().text_color(t.blocked).child("It has uncommitted changes: they will be lost.")))
       .when(remove && this.unpushed.length > 0, (el) => el.child(div().text_color(t.blocked).child(`Submodule ${this.unpushed.join(", ")} has commits that aren't pushed anywhere: they will be lost.`)))
-      .when(!remove && !blocked, (el) =>
+      .when(!remove && !blocked && !this.auto, (el) =>
         el.child(
           Input.new(this.input)
             .h(32)
