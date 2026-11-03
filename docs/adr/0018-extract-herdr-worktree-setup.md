@@ -41,6 +41,13 @@ Keep the repository-keyed `copy`, `steps`, and `fresh-base` policy in
 the old local plugin with the package and retains the old files when
 installation or enablement fails. `herdr-auto-update` owns later updates; uninstalling the package does not remove the policy file.
 
+## Status
+
+The Herdr app's `my-worktree` mod runs the setup package by fixed path after
+`git worktree add`. The package is pinned as a chezmoi external, no longer
+installed as a TUI plugin, and no longer updated by `herdr-auto-update`; the
+policy file stays managed here, and the package still writes the marker.
+
 The package writes `herdr-generated-worktree` atomically in the Git per-worktree
 administrative directory, with the generated branch on line one. It observes
 `worktree.created` and does not create resources or maintain a provenance
