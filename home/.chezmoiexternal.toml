@@ -73,3 +73,10 @@
     url = "https://github.com/dmtrKovalenko/fff/releases/download/v0.11.0/fff-mcp-{{ $fffMcpTarget }}"
     checksum.sha256 = "{{ $fffMcpSha256 }}"
 
+# Worktree setup package pinned to a reviewed commit; update this ref by hand.
+[".local/lib/herdr-worktree-setup"]
+    type = "archive"
+    url = "https://github.com/Seigiard/herdr-worktree-setup/archive/60b2b897789fbbadc187e1697e724bf3df252d5c.tar.gz"
+    exact = true
+    stripComponents = 1
+    include = ["setup.ts", "vendor/**", "LICENSE", "README.md", "herdr-plugin.toml"]
