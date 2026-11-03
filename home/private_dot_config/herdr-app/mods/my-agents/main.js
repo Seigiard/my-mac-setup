@@ -3,7 +3,7 @@
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { agents, terminals, panes, focused, spaces, exec, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout } from "herdr";
+import { agents, terminals, panes, focused, spaces, machines, exec, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout } from "herdr";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -93,6 +93,30 @@ function title(tab, l) {
 
 const RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
 
+const TAB_NAMES_KEY = "my-agents.tabNames";
+
+function decodeTabName(value) {
+  const encoded = JSON.stringify(value);
+
+  if (encoded?.startsWith('"')) return { space: null, machine: null, name: JSON.parse(encoded), migrated: true };
+
+  if (!encoded?.startsWith("{") || Array.isArray(value)) return null;
+
+  const name = JSON.stringify(value.name);
+  const space = JSON.stringify(value.space);
+  const hasMachine = Object.prototype.hasOwnProperty.call(value, "machine");
+  const machine = hasMachine ? JSON.stringify(value.machine) : "null";
+
+  if (!name?.startsWith('"') || !(space === "null" || space?.startsWith('"')) || !(machine === "null" || machine?.startsWith('"'))) return null;
+
+  return {
+    space: space === "null" ? null : JSON.parse(space),
+    machine: machine === "null" ? null : JSON.parse(machine),
+    name: JSON.parse(name),
+    migrated: !hasMachine,
+  };
+}
+
 // A sub-agent without a pane isn't in agents(): its raw word, error counting as
 // blocked. It's never done: it reports to its parent, and the parent's done is the news.
 const kidStatus = (k, listed) => {
@@ -146,6 +170,26 @@ export default class Agents extends View {
     this.migratingPins = new Set();
     this.alias = new Map();
     this.aliases = new Map();
+    const storedTabNames = JSON.parse(JSON.stringify(shared(TAB_NAMES_KEY) ?? {}));
+    this.tabNames = {};
+    const storedTabEntries = JSON.stringify(storedTabNames).startsWith("{") ? Object.entries(storedTabNames) : [];
+    this.tabNamesChanged = storedTabEntries.length !== Object.keys(storedTabNames).length;
+
+    for (const [id, value] of storedTabEntries) {
+      const decoded = decodeTabName(value);
+
+      if (!decoded) this.tabNamesChanged = true;
+      else {
+        this.tabNames[id] = { space: decoded.space, machine: decoded.machine, name: decoded.name };
+
+        if (decoded.migrated) this.tabNamesChanged = true;
+      }
+    }
+
+    this.pendingTabRenames = new Map();
+    this.sentTabRenames = new Map();
+    this.blockedTabRenames = new Map();
+    this.tabRenameFlushQueued = false;
     this.origin = new Map();
     this.originFolders = new Map();
     this.originPending = new Set();
@@ -231,6 +275,148 @@ export default class Agents extends View {
     }
 
     this.aliases = aliases;
+  }
+
+  syncTabNames(spaceList, paneList, agentList, cx) {
+    const tabs = spaceList.flatMap((space) => space.tabs);
+    const liveTabs = new Set(tabs.map((tab) => tab.id));
+    const tabSpaces = new Map(spaceList.flatMap((space) => space.tabs.map((tab) => [tab.id, space])));
+    const readyMachines = new Set(machines().filter((machine) => machine.layout === "ready").map((machine) => machine.name ?? null));
+    const machineReady = (entry) => readyMachines.has(entry.machine ?? null);
+
+    const agentsByPane = new Map(agentList.map((agent) => [agent.pane, agent]));
+
+    for (const id of Object.keys(this.tabNames)) {
+      const space = tabSpaces.get(id);
+
+      if (space) {
+        const machine = space.machine ?? null;
+
+        if (this.tabNames[id].space !== space.id || this.tabNames[id].machine !== machine) {
+          this.tabNames[id].space = space.id;
+          this.tabNames[id].machine = machine;
+          this.tabNamesChanged = true;
+        }
+      } else if (machineReady(this.tabNames[id])) {
+        delete this.tabNames[id];
+        this.tabNamesChanged = true;
+      }
+    }
+
+    for (const [id, pending] of this.pendingTabRenames) {
+      if (!liveTabs.has(id) && machineReady(pending)) this.pendingTabRenames.delete(id);
+    }
+
+    for (const [id, sent] of this.sentTabRenames) {
+      const tab = tabs.find((candidate) => candidate.id === id);
+
+      if (!tab) {
+        if (machineReady(sent)) this.sentTabRenames.delete(id);
+        continue;
+      }
+
+      const space = tabSpaces.get(id);
+      const machine = space.machine ?? null;
+      const ownedName = this.tabNames[id]?.name;
+      const owned = ownedName === tab.name;
+
+      if (sent.name === "" && (!tab.named || tab.name !== ownedName)) {
+        delete this.tabNames[id];
+        this.tabNamesChanged = true;
+        this.sentTabRenames.delete(id);
+        this.blockedTabRenames.delete(id);
+      } else if (tab.name === sent.name) {
+        this.tabNames[id] = { space: space.id, machine, name: sent.name };
+        this.tabNamesChanged = true;
+        this.sentTabRenames.delete(id);
+        this.blockedTabRenames.delete(id);
+      } else if (tab.named && !owned) this.sentTabRenames.delete(id);
+      else {
+        sent.renders += 1;
+
+        if (sent.renders >= 20) {
+          this.sentTabRenames.delete(id);
+          this.blockedTabRenames.set(id, { space: space.id, machine, name: sent.name });
+        }
+      }
+    }
+
+    for (const [id, blocked] of this.blockedTabRenames) {
+      const tab = tabs.find((candidate) => candidate.id === id);
+
+      if (!tab) {
+        if (machineReady(blocked)) this.blockedTabRenames.delete(id);
+        continue;
+      }
+
+      const space = tabSpaces.get(id);
+
+      if (tab.name === blocked.name) {
+        this.tabNames[id] = { space: space.id, machine: space.machine ?? null, name: blocked.name };
+        this.tabNamesChanged = true;
+        this.blockedTabRenames.delete(id);
+      } else if (tab.named && this.tabNames[id]?.name !== tab.name) this.blockedTabRenames.delete(id);
+    }
+
+    for (const tab of tabs) {
+      const panesInTab = paneList.filter((pane) => pane.tab === tab.id && pane.terminal);
+      const agentPanes = panesInTab.filter((pane) => agentsByPane.has(pane.pane));
+
+      const space = tabSpaces.get(tab.id);
+      const machine = space.machine ?? null;
+      const owned = this.tabNames[tab.id]?.name === tab.name;
+      const sent = this.sentTabRenames.get(tab.id);
+      const blocked = this.blockedTabRenames.get(tab.id);
+
+      if (!agentPanes.length) {
+        if (blocked && blocked.name !== "") this.blockedTabRenames.delete(tab.id);
+
+        if (owned && !sent && (!blocked || blocked.name !== "") && machineReady({ machine })) {
+          this.pendingTabRenames.set(tab.id, { space: space.id, machine, name: "" });
+        }
+
+        continue;
+      }
+
+      const intended = panesInTab.map((pane) => {
+        const agent = agentsByPane.get(pane.pane);
+
+        return agent ? this.aliases.get(agent.address) ?? "~" : "~";
+      }).join(" · ");
+
+      if (blocked && blocked.name !== intended) this.blockedTabRenames.delete(tab.id);
+
+      if ((!tab.named || owned) && tab.name !== intended && !sent && (!blocked || blocked.name !== intended) && machineReady({ machine })) {
+        this.pendingTabRenames.set(tab.id, { space: space.id, machine, name: intended });
+      }
+    }
+
+    this.flushTabRenames(cx);
+  }
+
+  flushTabRenames(cx) {
+    if (this.tabRenameFlushQueued || (!this.pendingTabRenames.size && !this.tabNamesChanged)) return;
+
+    this.tabRenameFlushQueued = true;
+    cx.spawn(async () => {
+      const renames = [...this.pendingTabRenames.entries()];
+      this.pendingTabRenames.clear();
+      let changed = this.tabNamesChanged;
+      this.tabNamesChanged = false;
+
+      try {
+        for (const [id, pending] of renames) {
+          const { name, space, machine } = pending;
+
+          run("tab.rename", { id, name });
+          this.sentTabRenames.set(id, { space, machine, name, renders: 0 });
+        }
+
+        if (changed) setShared(TAB_NAMES_KEY, this.tabNames);
+      } finally {
+        this.tabRenameFlushQueued = false;
+      }
+    });
   }
 
   refreshOrigins(spaceList, cx) {
@@ -488,9 +674,13 @@ export default class Agents extends View {
     const spaceList = spaces();
     this.refreshOrigins(spaceList, cx);
     const tabs = spaceList.flatMap(s => s.tabs);
+    this.assignAliases([...list, ...list.flatMap((a) => this.tree(all, a.address).map((s) => s.t))], spaceList);
+    this.syncTabNames(spaceList, panes(), list, cx);
 
     const label = (a) => {
       const tab = tabs.find(tab => tab.id === a.tab);
+
+      if (tab && this.tabNames[tab.id]?.name === tab.name) return "";
 
       return tab ? title(tab, lead(tab)) : a.title || a.program?.name || "";
     };
@@ -503,8 +693,6 @@ export default class Agents extends View {
     for (const a of list) {
       if (detail.get(a.address) == null && seen[`${a.space_name}\u0000`] > 1) detail.set(a.address, label(a));
     }
-
-    this.assignAliases([...list, ...list.flatMap((a) => this.tree(all, a.address).map((s) => s.t))], spaceList);
 
     const row = (a, i, subs = []) => {
       const more = detail.get(a.address);
@@ -648,6 +836,8 @@ export default class Agents extends View {
     const rows = collapsed
       ? list.flatMap(withKids)
       : groups.flatMap((g) => [header(g), ...(this.folded.has(g.id) ? [] : g.members.flatMap(withKids))]);
+
+    this.flushTabRenames(cx);
 
     return v_flex()
       .size_full()
