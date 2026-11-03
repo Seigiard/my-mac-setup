@@ -5,7 +5,7 @@
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, Scrollbar } from "gpui-base";
-import { run, props, closeOverlay, theme, spaces, panes, focused, exec, home } from "herdr";
+import { run, props, closeOverlay, theme, spaces, panes, focused, exec, home, notify } from "herdr";
 
 // Where a space is now: its first terminal's live folder, else where it was made.
 function place(s) {
@@ -28,7 +28,7 @@ const tilde = (path, userHome) => {
 const slug = (branch) => branch.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
 
 // Generated branches look like Herdr's own: worktree/<adjective>-<noun>-<4 hex>.
-// herdr-worktree-identity renames them after the first agent prompt.
+// The folder-derived branch name stays unchanged after creation.
 const ADJECTIVES = ["amber", "bold", "brisk", "calm", "clear", "crisp", "eager", "gentle", "golden", "keen", "lucky", "mellow", "nimble", "quiet", "rapid", "silver", "steady", "sunny", "swift", "warm"];
 
 const NOUNS = ["brook", "canyon", "cedar", "cliff", "cloud", "coast", "dune", "field", "forest", "grove", "harbor", "meadow", "mesa", "peak", "pine", "river", "ridge", "stone", "valley", "willow"];
@@ -250,7 +250,11 @@ export default class Worktree extends View {
     const space = spaces().find((s) => s.folder === path && (s.machine ?? null) === (this.on ?? null));
 
     if (this.on && !space) {
-      // A remote setup tab needs a target space that Herdr could not place.
+      notify({
+        title: "Worktree setup skipped",
+        body: `Created ${path}, but Herdr could not place its setup tab on ${this.on}.`,
+        level: "warning",
+      });
     } else {
       run("tab.new", {
         space: space?.id,
