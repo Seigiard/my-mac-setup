@@ -104,14 +104,16 @@ registrations stay untouched.
 After Git creates the checkout, the hook invokes `setup.ts` from
 `CLAUDE_WORKTREE_SETUP_PLUGIN_DIR`, exported in `~/.zshenv` and defaulting to
 `~/.local/lib/herdr-worktree-setup`. It no longer needs `herdr plugin list`.
-The hook passes the checkout path and an empty branch field. The empty field tells the plugin to skip fresh-base and the
-`herdr-generated-worktree` marker, so the new branch keeps the parent checkout's
-unpushed commits and `herdr-worktree-identity` leaves it alone. Setup is best
-effort: the hook still returns the created path when a setup prerequisite is
-missing (`jq`, `bun`, or `setup.ts`) or when setup fails, and prints the reason
-on stderr. Untracked files reach the checkout only through the plugin's `copy`
-list in `config.toml`: the hook replaces Claude
-Code's default creation, including its `.worktreeinclude` handling.
+The hook passes the checkout path and an empty branch field. The empty field
+tells the plugin to skip fresh-base and the `herdr-generated-worktree` marker,
+so the new branch keeps the parent checkout's unpushed commits and
+`herdr-worktree-identity` leaves it alone. Setup is best effort: the hook still
+returns the created path when a setup
+prerequisite is missing (`setup.ts` or `bun`) or when setup fails, and prints
+the reason on stderr. Untracked files
+reach the checkout only through the plugin's `copy` list in `config.toml`: the
+hook replaces Claude Code's default creation, including its `.worktreeinclude`
+handling.
 
 Claude Code's matching `WorktreeRemove` hook refuses a path that contains
 another registered worktree. Otherwise it force-removes the linked checkout. It
