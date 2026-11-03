@@ -8307,6 +8307,129 @@ function test_scripts_253_claude_code_daltonized_theme_extends_light_ansi() {
 }
 
 # ===========================================
+# Herdr app settings modifier
+# ===========================================
+
+function test_scripts_592_herdr_app_settings_modifier_preserves_unmanaged_settings() {
+  _bats_test_init 592 'Herdr app settings modifier preserves unmanaged settings and replaces managed values'
+  local modifier="$SOURCE_ROOT/private_dot_config/herdr-app/modify_settings.json"
+  local input='{"zoom":0.8,"sounds":{"enabled":false,"volume":0.4},"minimum_contrast":0.2,"font_size":13,"font":"Other Font","theme":"dark","telemetry":{"enabled":false}}'
+
+  # #given
+  # #when
+  run bash "$modifier" <<< "$input"
+
+  # #then
+  assert_success
+  run jq -e '
+    . == {
+      "zoom": 1.1,
+      "sounds": {"enabled": true, "volume": 0.4},
+      "minimum_contrast": 1,
+      "font_size": 16,
+      "font": "IosevkaTerm Nerd Font Mono",
+      "theme": "flexoki-light",
+      "telemetry": {"enabled": false}
+    }
+  ' <<< "$output"
+  assert_success
+}
+
+function test_scripts_593_herdr_app_settings_modifier_creates_the_managed_object_for_empty_input() {
+  _bats_test_init 593 'Herdr app settings modifier creates the managed object for empty input'
+  local modifier="$SOURCE_ROOT/private_dot_config/herdr-app/modify_settings.json"
+
+  # #given
+  # #when
+  run bash "$modifier" <<< ''
+
+  # #then
+  assert_success
+  run jq -e '
+    . == {
+      "zoom": 1.1,
+      "sounds": {"enabled": true},
+      "minimum_contrast": 1,
+      "font_size": 16,
+      "font": "IosevkaTerm Nerd Font Mono",
+      "theme": "flexoki-light"
+    }
+  ' <<< "$output"
+  assert_success
+}
+
+function test_scripts_594_herdr_app_settings_modifier_round_trips_current_settings() {
+  _bats_test_init 594 'Herdr app settings modifier round-trips current settings without changes'
+  local modifier="$SOURCE_ROOT/private_dot_config/herdr-app/modify_settings.json"
+  local input='{
+  "zoom": 1.1,
+  "sounds": {
+    "enabled": true
+  },
+  "minimum_contrast": 1,
+  "font_size": 16,
+  "font": "IosevkaTerm Nerd Font Mono",
+  "theme": "flexoki-light"
+}'
+  local once
+
+  # #given
+  # #when
+  run bash "$modifier" <<< "$input"
+
+  # #then
+  assert_success
+  assert_output "$input"
+  once="$output"
+
+  run bash "$modifier" <<< "$once"
+
+  assert_success
+  assert_output "$once"
+}
+
+function test_scripts_595_herdr_app_settings_modifier_refuses_invalid_input_without_stdout() {
+  _bats_test_init 595 'Herdr app settings modifier refuses invalid JSON without stdout'
+  local modifier="$SOURCE_ROOT/private_dot_config/herdr-app/modify_settings.json"
+
+  # #given
+  # #when
+  run bash "$modifier" <<< '{}'
+
+  # #then
+  assert_success
+
+  # #when
+  run --separate-stderr bash "$modifier" <<< '{"zoom":'
+
+  # #then
+  assert_failure
+  assert_output ''
+}
+
+function test_scripts_596_herdr_app_settings_modifier_refuses_a_missing_runtime_without_stdout() {
+  _bats_test_init 596 'Herdr app settings modifier refuses a missing runtime without stdout'
+  local modifier="$SOURCE_ROOT/private_dot_config/herdr-app/modify_settings.json"
+  local stub_bin="$BATS_TEST_TMPDIR/herdr-app-modifier-no-runtime-bin"
+  mkdir -p "$stub_bin"
+  ln -s "$(command -v bash)" "$stub_bin/bash"
+
+  # #given
+  # #when
+  run bash "$modifier" <<< '{}'
+
+  # #then
+  assert_success
+
+  # #when
+  run --separate-stderr env PATH="$stub_bin" bash "$modifier" <<< '{}'
+
+  # #then
+  assert_failure
+  assert_output ''
+}
+
+# ===========================================
 # morning-cleanup script
 # ===========================================
 
