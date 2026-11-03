@@ -25,7 +25,7 @@ Start children with the launcher. It runs in the background by default:
 hc-run <template> "<task>"
 ```
 
-If `hc-run` exits 3 because the task was not delivered, it still prints the child address. Run `hc read <address>`, resolve readiness (for example, `hc keys <address> down enter`), then resend the template body shown by `hc templates` together with the task. If readiness cannot be resolved, run `hc kill <address>` and `hc rm <address>`, then restart with `hc-run`.
+If `hc-run` exits 3 because the task was not delivered, it still prints the child address. Run `hc read <address>`, resolve readiness (for a trust dialog, `hc keys <address> down enter`), then send the template body from `~/.config/herdr-core/templates/<name>.md` after its frontmatter, followed by the task. For `ask-in-hc`, use the task file whose path `ask.sh` prints as `task kept at`. If readiness cannot be resolved, run `hc kill <address>` and `hc rm <address>`, then restart with `hc-run`.
 
 Use `--tab` only when the person asks to see the child. Templates live in
 `~/.config/herdr-core/templates/`; list them with `hc templates`. Use `ask-in-hc` for a
