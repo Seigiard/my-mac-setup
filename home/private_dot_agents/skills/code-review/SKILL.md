@@ -6,7 +6,7 @@ argument-hint: "[scope | PR URL/number | base:<ref>] [plan:<path>] [--profile <n
 
 # Code review loop
 
-Settle the route in step 1 before loading the `revmux` or `herdr` skill. On the revmux
+Settle the route in step 1 before loading the `revmux`, `herdr` or `hc` skill. On the revmux
 route, use the `revmux` skill for scope resolution and the first round; use the preparation
 and collection procedure in step 2 for follow-up rounds and report summaries. This skill owns
 the apply and repeat policy below; it replaces revmux's interactive fix choice and its stock
