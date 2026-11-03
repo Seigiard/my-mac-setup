@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if ! command -v python3 >/dev/null 2>&1; then
+  printf '%s\n' 'Herdr app settings modifier requires python3' >&2
+  exit 1
+fi
+
+exec python3 -I -c '
+import json
+import sys
+
+
+managed = {
+    "zoom": 1.1,
+    "sounds": {
+        "enabled": True,
+    },
+    "minimum_contrast": 1,
+    "font_size": 16,
+    "font": "IosevkaTerm Nerd Font Mono",
+    "theme": "flexoki-light",
+}
+
+
+def merge(existing, managed_values):
+    for key, value in managed_values.items():
+        if (
+            key in existing
+            and isinstance(existing[key], dict)
+            and isinstance(value, dict)
+        ):
+            merge(existing[key], value)
+        else:
+            existing[key] = value
+
+
+input_text = sys.stdin.read()
+settings = {} if input_text.strip() == "" else json.loads(input_text)
+if not isinstance(settings, dict):
+    raise TypeError("settings must be a JSON object")
+
+merge(settings, managed)
+sys.stdout.write(json.dumps(settings, ensure_ascii=False, indent=2) + "\n")
+'
