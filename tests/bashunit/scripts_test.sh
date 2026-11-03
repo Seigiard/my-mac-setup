@@ -2989,6 +2989,349 @@ function test_scripts_1075_ask_sh_retains_transport_when_a_started_child_termina
 
 # ===========================================
 
+# ask-in-hc skill script
+# ===========================================
+
+ASK_HC_DIR="$SOURCE_ROOT/private_dot_agents/skills/ask-in-hc/scripts"
+ASK_HC_SCRIPT="$ASK_HC_DIR/executable_ask.sh"
+ASK_HC_FOLLOW_UP="$ASK_HC_DIR/executable_follow-up.sh"
+
+ask_hc_stub() {
+  child_new_stub
+  cat > "$CHILD_STUB/hc-run" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$CHILD_STUB/hc-run.argv"
+task="${!#}"
+printf '%s' "$task" > "$CHILD_STUB/task.txt"
+if [[ "$task" =~ (/[^[:space:]]*/answer\.report) ]]; then
+  printf '%s' "${BASH_REMATCH[1]}" > "$CHILD_STUB/report-path"
+  case "${STUB_REPORT:-write}" in
+    write) printf '%s\n' "${STUB_REPORT_BODY:-ANSWER from hc}" > "${BASH_REMATCH[1]}" ;;
+    empty) : > "${BASH_REMATCH[1]}" ;;
+    bad) ln -s /etc/hosts "${BASH_REMATCH[1]}" ;;
+    none) : ;;
+  esac
+fi
+[ "${STUB_HC_RUN_STATUS:-0}" -eq 0 ] || {
+  printf '%s\n' "${STUB_HC_RUN_ERROR:-hc-run failed}" >&2
+  exit "$STUB_HC_RUN_STATUS"
+}
+printf 't11 blue-fox\n'
+SH
+  cat > "$CHILD_STUB/hc" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$CHILD_STUB/hc.argv"
+case "${1:-}" in
+  wait)
+    printf '%s\n' "${STUB_WAIT_JSON:-{\"ended\":true,\"reason\":\"status\",\"status\":\"idle\"}}"
+    exit "${STUB_WAIT_STATUS:-0}"
+    ;;
+  send)
+    count="$(cat "$CHILD_STUB/send-count" 2>/dev/null || printf 0)"
+    count=$((count + 1))
+    printf '%s' "$count" > "$CHILD_STUB/send-count"
+    if [ "${STUB_RECOVER:-0}" = 1 ] && [ -f "$CHILD_STUB/report-path" ]; then
+      report_path="$(cat "$CHILD_STUB/report-path")"
+      printf '%s\n' "${STUB_REPORT_BODY:-RECOVERED answer}" > "$report_path"
+    fi
+    if [ "${STUB_SEND_STATUS:-0}" -ne 0 ]; then
+      printf '%s\n' "${STUB_SEND_JSON:-{\"started\":true,\"status\":\"idle\"}}" >&2
+    else
+      printf '%s\n' "${STUB_SEND_JSON:-{\"started\":true,\"status\":\"idle\"}}"
+    fi
+    exit "${STUB_SEND_STATUS:-0}"
+    ;;
+  read)
+    printf '%s\n' "${STUB_READ_TEXT:-blocked screen text}"
+    ;;
+  kill|rm)
+    printf '%s\n' "${1} ${2:-}" >> "$CHILD_STUB/cleanup.log"
+    ;;
+  *) exit 2 ;;
+esac
+SH
+  chmod +x "$CHILD_STUB/hc-run" "$CHILD_STUB/hc"
+}
+
+function test_scripts_1081_ask_in_hc_refuses_before_launch_without_its_environment_gate() {
+  _bats_test_init 1081 'ask-in-hc refuses before launch without its environment gate'
+  # #given
+  ask_hc_stub
+  # #when
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID= \
+    bash "$ASK_HC_SCRIPT" claude question
+  # #then
+  assert_failure 2
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=refused'
+  assert_file_not_exists "$CHILD_STUB/hc-run.argv"
+
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID= \
+    bash "$ASK_HC_FOLLOW_UP" t11 question
+  assert_failure 2
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'follow-up.sh: status=refused'
+  assert_file_not_exists "$CHILD_STUB/hc.argv"
+}
+
+function test_scripts_1082_ask_in_hc_refuses_when_hc_or_hc_run_is_missing() {
+  _bats_test_init 1082 'ask-in-hc refuses when hc or hc-run is missing'
+  local no_run="$BATS_TEST_TMPDIR/no-hc-run" no_hc="$BATS_TEST_TMPDIR/no-hc"
+  # #given
+  ask_hc_stub
+  mkdir -p "$no_run" "$no_hc"
+  cp "$CHILD_STUB/hc" "$no_run/hc"
+  cp "$CHILD_STUB/hc-run" "$no_hc/hc-run"
+  # #when
+  run --separate-stderr env PATH="$no_run:/usr/bin:/bin" HC_TERMINAL_ID=t3 \
+    bash "$ASK_HC_SCRIPT" claude question
+  # #then
+  assert_failure 2
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=refused'
+
+  run --separate-stderr env PATH="$no_hc:/usr/bin:/bin" HC_TERMINAL_ID=t3 \
+    bash "$ASK_HC_SCRIPT" claude question
+  assert_failure 2
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=refused'
+}
+
+function test_scripts_1083_ask_in_hc_starts_the_selected_template_and_returns_the_report() {
+  _bats_test_init 1083 'ask-in-hc starts the selected template and returns the report'
+  local cwd="$BATS_TEST_TMPDIR/job"
+  # #given
+  ask_hc_stub
+  mkdir -p "$cwd"
+  # #when
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
+    bash "$ASK_HC_SCRIPT" claude 'where is the report' --cwd "$cwd"
+  # #then
+  assert_success
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=answered'
+  assert_output 'ANSWER from hc'
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 2 ))]}" 'ask.sh: consult is in hc terminal t11 (blue-fox) (left open; close with: hc kill t11; hc rm t11)'
+  assert_equal "$(head -3 "$CHILD_STUB/hc-run.argv")" "$(printf '%s\n' --cwd "$cwd" reviewer)"
+  assert_file_contains "$CHILD_STUB/task.txt" '^where is the report$'
+  assert_file_contains "$CHILD_STUB/task.txt" '\[report-transport\]'
+  assert_file_contains "$CHILD_STUB/task.txt" 'answer\.report'
+  assert_file_contains "$CHILD_STUB/hc.argv" '^wait --json --timeout 1800 t11$'
+  assert_dir_not_exists "$(dirname "$(cat "$CHILD_STUB/report-path")")"
+}
+
+function test_scripts_1084_ask_in_hc_maps_agents_and_template_overrides_to_hc_run_templates() {
+  _bats_test_init 1084 'ask-in-hc maps agents and template overrides to hc-run templates'
+  # #given
+  ask_hc_stub
+  # #when
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
+    bash "$ASK_HC_SCRIPT" opencode question --rw
+  # #then
+  assert_success
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=answered'
+  assert_equal "$(sed -n '3p' "$CHILD_STUB/hc-run.argv")" 'implementer-medium'
+
+  ask_hc_stub
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
+    bash "$ASK_HC_SCRIPT" pi question --rw
+  assert_success
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=answered'
+  assert_equal "$(sed -n '3p' "$CHILD_STUB/hc-run.argv")" 'consult-pi'
+
+  ask_hc_stub
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
+    bash "$ASK_HC_SCRIPT" claude question --template review-fast
+  assert_success
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=answered'
+  assert_equal "$(sed -n '3p' "$CHILD_STUB/hc-run.argv")" 'review-fast'
+}
+
+function test_scripts_1085_ask_in_hc_maps_blocked_and_timed_out_waits_without_cleanup() {
+  _bats_test_init 1085 'ask-in-hc maps blocked and timed-out waits without cleanup'
+  # #given
+  ask_hc_stub
+  # #when
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
+    STUB_WAIT_JSON='{"ended":true,"reason":"status","status":"blocked"}' \
+    STUB_READ_TEXT='the child needs input' bash "$ASK_HC_SCRIPT" claude question --close
+  # #then
+  assert_failure 1
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=blocked'
+  assert_output 'the child needs input'
+  assert_file_not_exists "$CHILD_STUB/cleanup.log"
+  assert_dir_exists "$(dirname "$(cat "$CHILD_STUB/report-path")")"
+
+  ask_hc_stub
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
+    STUB_WAIT_JSON='{"ended":false,"reason":"timeout"}' \
+    bash "$ASK_HC_SCRIPT" claude question
+  assert_failure 124
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=working'
+  assert_file_not_exists "$CHILD_STUB/cleanup.log"
+  assert_dir_exists "$(dirname "$(cat "$CHILD_STUB/report-path")")"
+}
+
+function test_scripts_1086_ask_in_hc_reports_a_failed_launcher_as_undelivered() {
+  _bats_test_init 1086 'ask-in-hc reports a failed launcher as undelivered'
+  # #given
+  ask_hc_stub
+  # #when
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 STUB_HC_RUN_STATUS=1 \
+    STUB_HC_RUN_ERROR='hc-run could not start' bash "$ASK_HC_SCRIPT" claude question
+  # #then
+  assert_failure 1
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=undelivered'
+  assert_stderr --partial 'hc-run could not start'
+  assert_file_not_exists "$CHILD_STUB/hc.argv"
+
+  ask_hc_stub
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 STUB_REPORT=none \
+    STUB_WAIT_JSON='{"ended":true,"reason":"exit","exit_code":0,"signal":null,"status":null}' \
+    bash "$ASK_HC_SCRIPT" claude question
+  assert_failure 1
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=undelivered'
+  assert_dir_exists "$(dirname "$(cat "$CHILD_STUB/report-path")")"
+}
+
+function test_scripts_1087_ask_in_hc_recovers_once_then_classifies_bad_reports() {
+  _bats_test_init 1087 'ask-in-hc recovers once then classifies bad reports'
+  # #given
+  ask_hc_stub
+  # #when
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 STUB_REPORT=none \
+    bash "$ASK_HC_SCRIPT" claude question
+  # #then
+  assert_failure 3
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=no-report'
+  assert_equal "$(cat "$CHILD_STUB/send-count")" 1
+  assert_file_contains "$CHILD_STUB/hc.argv" '^send --wait --timeout 120 t11 '
+
+  ask_hc_stub
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 STUB_REPORT=none STUB_RECOVER=1 \
+    bash "$ASK_HC_SCRIPT" claude question
+  assert_success
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=answered'
+  assert_output --partial 'RECOVERED answer'
+
+  ask_hc_stub
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 STUB_REPORT=empty \
+    bash "$ASK_HC_SCRIPT" claude question
+  assert_failure 4
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=empty-report'
+
+  ask_hc_stub
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 STUB_REPORT=bad \
+    bash "$ASK_HC_SCRIPT" claude question
+  assert_failure 5
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=bad-report'
+}
+
+function test_scripts_1088_ask_in_hc_closes_an_answered_terminal_in_hc_order() {
+  _bats_test_init 1088 'ask-in-hc closes an answered terminal in hc order'
+  # #given
+  ask_hc_stub
+  # #when
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
+    bash "$ASK_HC_SCRIPT" claude question --close
+  # #then
+  assert_success
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=answered'
+  assert_equal "$(cat "$CHILD_STUB/cleanup.log")" $'kill t11\nrm t11'
+}
+
+function test_scripts_1089_ask_in_hc_refuses_fixed_command_flags_and_invalid_agents() {
+  _bats_test_init 1089 'ask-in-hc refuses fixed-command flags and invalid agents'
+  # #given
+  ask_hc_stub
+  # #when
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
+    bash "$ASK_HC_SCRIPT" claude question --model other
+  # #then
+  assert_failure 2
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=refused'
+  assert_file_not_exists "$CHILD_STUB/hc-run.argv"
+
+  ask_hc_stub
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
+    bash "$ASK_HC_SCRIPT" claude question --effort high
+  assert_failure 2
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=refused'
+  assert_file_not_exists "$CHILD_STUB/hc-run.argv"
+
+  ask_hc_stub
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
+    bash "$ASK_HC_SCRIPT" claude question --skills reviewer
+  assert_failure 2
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=refused'
+  assert_file_not_exists "$CHILD_STUB/hc-run.argv"
+
+  ask_hc_stub
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
+    bash "$ASK_HC_SCRIPT" claude question --agent other
+  assert_failure 2
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=refused'
+  assert_file_not_exists "$CHILD_STUB/hc-run.argv"
+
+  ask_hc_stub
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
+    bash "$ASK_HC_SCRIPT" unknown question
+  assert_failure 2
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=refused'
+  assert_file_not_exists "$CHILD_STUB/hc-run.argv"
+
+  ask_hc_stub
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
+    bash "$ASK_HC_SCRIPT" claude
+  assert_failure 2
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=refused'
+  assert_file_not_exists "$CHILD_STUB/hc-run.argv"
+
+  ask_hc_stub
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
+    bash "$ASK_HC_SCRIPT" claude question --rw
+  assert_failure 2
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=refused'
+  assert_file_not_exists "$CHILD_STUB/hc-run.argv"
+}
+
+function test_scripts_1229_ask_in_hc_follow_up_maps_delivery_outcomes() {
+  _bats_test_init 1229 'ask-in-hc follow-up maps delivery outcomes'
+  # #given
+  ask_hc_stub
+  # #when
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
+    STUB_SEND_JSON='{"started":true,"status":"idle","wait":{"ended":true,"reason":"status","status":"idle"}}' \
+    bash "$ASK_HC_FOLLOW_UP" t11 'continue work' --wait --force
+  # #then
+  assert_success
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'follow-up.sh: status=delivered'
+  assert_file_contains "$CHILD_STUB/hc.argv" '^send --wait --timeout 1800 --force t11 continue work$'
+
+  ask_hc_stub
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 STUB_SEND_STATUS=9 \
+    STUB_SEND_JSON='{"error":{"kind":"blocked"}}' \
+    bash "$ASK_HC_FOLLOW_UP" t11 'continue work'
+  assert_failure 1
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'follow-up.sh: status=blocked'
+
+  ask_hc_stub
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
+    STUB_SEND_JSON='{"started":true,"status":"working","wait":{"ended":false,"reason":"timeout"}}' \
+    bash "$ASK_HC_FOLLOW_UP" t11 'continue work' --wait
+  assert_failure 124
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'follow-up.sh: status=working'
+
+  ask_hc_stub
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 STUB_SEND_STATUS=1 \
+    bash "$ASK_HC_FOLLOW_UP" t11 'continue work'
+  assert_failure 1
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'follow-up.sh: status=delivery-unknown'
+
+  ask_hc_stub
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
+    bash "$ASK_HC_FOLLOW_UP" t11
+  assert_failure 2
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'follow-up.sh: status=refused'
+}
+
+# ===========================================
+
 # ===========================================
 # herdr-peer prompt contract
 # ===========================================
