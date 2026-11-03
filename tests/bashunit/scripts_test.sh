@@ -2338,9 +2338,9 @@ function test_scripts_08528_worktree_setup_runner_rejects_a_missing_path() {
     WORKTREE_SETUP_BUN_RECORD="$record" \
     PATH="$bin:$PATH" \
     "$runner"
-  assert_failure
+  assert_failure 2
   assert_output ''
-  assert_equal "${#stderr_lines[@]}" 1
+  assert_stderr 'usage: herdr-worktree-setup-run <worktree-path> [branch]'
 
   # #then
   run cat "$record"
@@ -3012,18 +3012,18 @@ if [[ "$task" =~ (/[^[:space:]]*/answer\.report) ]]; then
     none) : ;;
   esac
 fi
+printf '%s\n' "${STUB_HC_RUN_OUTPUT:-t11 blue-fox}"
 [ "${STUB_HC_RUN_STATUS:-0}" -eq 0 ] || {
   printf '%s\n' "${STUB_HC_RUN_ERROR:-hc-run failed}" >&2
   exit "$STUB_HC_RUN_STATUS"
 }
-printf 't11 blue-fox\n'
 SH
   cat > "$CHILD_STUB/hc" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$CHILD_STUB/hc.argv"
 case "${1:-}" in
   wait)
-    default_wait_json='{"ended":true,"reason":"status","status":"idle"}'
+    default_wait_json='{"children":[],"ended":true,"exit_code":null,"reason":"status","signal":null,"status":"idle","terminal":"t11","turn":0}'
     wait_count="$(cat "$CHILD_STUB/wait-count" 2>/dev/null || printf 0)"
     wait_count=$((wait_count + 1))
     printf '%s' "$wait_count" > "$CHILD_STUB/wait-count"
@@ -3033,6 +3033,9 @@ case "${1:-}" in
       wait_json="${STUB_WAIT_JSON:-$default_wait_json}"
     fi
     printf '%s\n' "$wait_json"
+    if [ "${STUB_WAIT_STATUS:-0}" -ne 0 ]; then
+      printf '%s\n' "${STUB_WAIT_ERROR:-hc wait failed}" >&2
+    fi
     exit "${STUB_WAIT_STATUS:-0}"
     ;;
   send)
@@ -3054,6 +3057,9 @@ case "${1:-}" in
     ;;
   read)
     printf '%s\n' "${STUB_READ_TEXT:-blocked screen text}"
+    ;;
+  get)
+    printf '%s\n' "{\"address\":\"t11\",\"argv\":[],\"cols\":200,\"created_ms\":0,\"cwd\":\"/tmp\",\"die_with_parent\":false,\"exit_code\":null,\"finished_ms\":null,\"foreground\":null,\"identity\":\"ghostty\",\"keep\":false,\"labels\":{},\"name\":\"blue-fox\",\"notify\":true,\"parent\":null,\"pid\":1,\"reason\":null,\"reported\":true,\"rm\":false,\"rows\":120,\"screen\":\"exact\",\"signal\":null,\"state\":\"live\",\"status\":{\"state\":\"${STUB_GET_STATE:-idle}\"},\"status_ms\":0,\"template\":\"reviewer\",\"title\":\"\",\"turn\":0}"
     ;;
   kill|rm)
     printf '%s\n' "${1} ${2:-}" >> "$CHILD_STUB/cleanup.log"
@@ -3133,7 +3139,7 @@ function test_scripts_1090_ask_in_hc_returns_a_report_when_a_message_ends_the_wa
 
   # #when
   run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
-    STUB_WAIT_JSON='{"ended":true,"reason":"message","status":"working"}' \
+    STUB_WAIT_JSON='{"children":[],"ended":false,"exit_code":null,"from":"t9","reason":"message","signal":null,"status":"working","terminal":"t11","turn":0}' \
     bash "$ASK_HC_SCRIPT" claude question
   # #then
   assert_success
@@ -3146,7 +3152,7 @@ function test_scripts_1091_ask_in_hc_waits_again_when_a_message_arrives_before_t
   # #given
   ask_hc_stub
   local wait_sequence
-  wait_sequence=$'{"ended":true,"reason":"message","status":"working"}\n{"ended":false,"reason":"timeout","status":"working"}'
+  wait_sequence=$'{"children":[],"ended":false,"exit_code":null,"from":"t9","reason":"message","signal":null,"status":"working","terminal":"t11","turn":0}\n{"children":[],"ended":false,"exit_code":null,"reason":"timeout","signal":null,"status":"working","terminal":"t11","turn":0}'
 
   # #when
   run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 STUB_REPORT=none \
@@ -3230,6 +3236,42 @@ function test_scripts_1086_ask_in_hc_reports_a_failed_launcher_as_undelivered() 
   assert_dir_exists "$(dirname "$(cat "$CHILD_STUB/report-path")")"
 }
 
+function test_scripts_1094_ask_in_hc_keeps_the_undelivered_child_address_from_hc_run() {
+  _bats_test_init 1094 'ask-in-hc prints an hc-run undelivered child close hint'
+  # #given
+  ask_hc_stub
+
+  # #when
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
+    STUB_HC_RUN_STATUS=3 STUB_HC_RUN_OUTPUT='t9 amber-fox' \
+    STUB_HC_RUN_ERROR='hc-run: task not sent: hc read t9' \
+    bash "$ASK_HC_SCRIPT" claude question
+  # #then
+  assert_failure 1
+  assert_output ''
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=undelivered'
+  assert_stderr --partial 'ask.sh: consult is in hc terminal t9 (amber-fox) (left open; close with: hc kill t9; hc rm t9)'
+  assert_file_not_exists "$CHILD_STUB/hc.argv"
+}
+
+function test_scripts_1095_ask_in_hc_handles_a_failed_hc_wait_without_losing_transport() {
+  _bats_test_init 1095 'ask-in-hc retains its transport after hc wait fails'
+  # #given
+  ask_hc_stub
+
+  # #when
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 STUB_REPORT=none \
+    STUB_WAIT_STATUS=7 STUB_WAIT_ERROR='hc: connection lost' \
+    bash "$ASK_HC_SCRIPT" claude question
+  # #then
+  assert_failure 1
+  assert_output ''
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=undelivered'
+  assert_stderr --partial 'hc: connection lost'
+  assert_stderr --partial 'ask.sh: consult is in hc terminal t11 (blue-fox) (left open; close with: hc kill t11; hc rm t11)'
+  assert_dir_exists "$(dirname "$(cat "$CHILD_STUB/report-path")")"
+}
+
 function test_scripts_1087_ask_in_hc_recovers_once_then_classifies_bad_reports() {
   _bats_test_init 1087 'ask-in-hc recovers once then classifies bad reports'
   # #given
@@ -3310,6 +3352,23 @@ function test_scripts_1088_ask_in_hc_closes_an_answered_terminal_in_hc_order() {
   assert_success
   assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=answered'
   assert_equal "$(cat "$CHILD_STUB/cleanup.log")" $'kill t11\nrm t11'
+  assert_file_contains "$CHILD_STUB/hc.argv" '^get t11 --json$'
+}
+
+function test_scripts_1096_ask_in_hc_does_not_close_a_working_answered_terminal() {
+  _bats_test_init 1096 'ask-in-hc leaves a working terminal open after its answer arrives'
+  # #given
+  ask_hc_stub
+
+  # #when
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 STUB_GET_STATE=working \
+    bash "$ASK_HC_SCRIPT" claude question --close
+  # #then
+  assert_success
+  assert_output 'ANSWER from hc'
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=answered'
+  assert_stderr --partial 'ask.sh: consult is in hc terminal t11 (blue-fox) (left open; close with: hc kill t11; hc rm t11)'
+  assert_file_not_exists "$CHILD_STUB/cleanup.log"
 }
 
 function test_scripts_1089_ask_in_hc_refuses_fixed_command_flags_and_invalid_agents() {
@@ -3414,7 +3473,7 @@ function test_scripts_1230_ask_in_hc_follow_up_delivers_when_a_message_ends_an_i
 
   # #when
   run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
-    STUB_SEND_JSON='{"started":false,"status":"idle","wait":{"ended":true,"reason":"message","status":"idle"}}' \
+    STUB_SEND_JSON='{"started":false,"status":"idle","turn":0,"wait":{"children":[],"ended":false,"exit_code":null,"from":"t9","reason":"message","signal":null,"status":"idle","terminal":"t11","turn":0}}' \
     bash "$ASK_HC_FOLLOW_UP" t11 'continue work' --wait
   # #then
   assert_success
@@ -3428,8 +3487,8 @@ function test_scripts_1231_ask_in_hc_follow_up_waits_again_when_a_message_leaves
 
   # #when
   run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
-    STUB_SEND_JSON='{"started":false,"status":"working","wait":{"ended":true,"reason":"message","status":"working"}}' \
-    STUB_WAIT_JSON='{"ended":false,"reason":"timeout","status":"working"}' \
+    STUB_SEND_JSON='{"started":false,"status":"working","turn":0,"wait":{"children":[],"ended":false,"exit_code":null,"from":"t9","reason":"message","signal":null,"status":"working","terminal":"t11","turn":0}}' \
+    STUB_WAIT_JSON='{"children":[],"ended":false,"exit_code":null,"reason":"timeout","signal":null,"status":"working","terminal":"t11","turn":0}' \
     bash "$ASK_HC_FOLLOW_UP" t11 'continue work' --wait
   # #then
   assert_failure 124

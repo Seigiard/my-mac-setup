@@ -291,7 +291,7 @@ herdr-app do tab.new $tab_request"
 function test_hc_run_4708_reports_an_undelivered_first_message_after_starting_the_child() {
   _bats_test_init 4708 'reports an undelivered first message after starting the child'
   # #given
-  local launch='{"address":"t11","first_message":{"sent":false,"started":false,"turn":0}}'
+  local launch='{"address":"t11","agent":"planner","cwd":"/tmp","first_message":{"reason":"not ready","sent":false,"started":null,"turn":null},"name":"red-wolf","state":"live","turn":0}'
 
   # #when
   run --separate-stderr env HC_STUB_RUN_JSON="$launch" PATH="$HC_STUB:$HERDR_APP_STUB:$PATH" \

@@ -631,6 +631,25 @@ terminal=t11"
   assert_equal "$(cat "$HERDR_RUN_DIR/My.Label.exit")" 3
 }
 
+function test_herdr_run_4635_hc_names_labels_that_normalize_to_the_same_value_distinctly() {
+  _bats_test_init 4635 'hc uses distinct names for colliding normalized workload labels'
+  # #given
+  write_hc_stub
+
+  # #when
+  run herdr_run_hc build.api --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" -- sh -c 'exit 0'
+  assert_success
+  run herdr_run_hc build-api --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" -- sh -c 'exit 0'
+  assert_success
+
+  # #then
+  local first_name second_name
+  first_name="$(awk '$1 == "run" { for (field = 1; field <= NF; field++) if ($field == "--name") print $(field + 1) }' "$HC_STUB_CALLS" | sed -n '1p')"
+  second_name="$(awk '$1 == "run" { for (field = 1; field <= NF; field++) if ($field == "--name") print $(field + 1) }' "$HC_STUB_CALLS" | sed -n '2p')"
+  assert_equal "$second_name" build-api
+  [ "$first_name" != "$second_name" ] || fail 'normalized labels must receive distinct hc names'
+}
+
 function test_herdr_run_4629_hc_wins_over_the_tui_branch() {
   _bats_test_init 4629 'hc wins over the TUI branch'
   # #given
