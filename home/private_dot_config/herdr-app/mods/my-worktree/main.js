@@ -30,8 +30,11 @@ const slug = (branch) => branch.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-
 // Generated branches look like Herdr's own: worktree/<adjective>-<noun>-<4 hex>.
 // herdr-worktree-identity renames them after the first agent prompt.
 const ADJECTIVES = ["amber", "bold", "brisk", "calm", "clear", "crisp", "eager", "gentle", "golden", "keen", "lucky", "mellow", "nimble", "quiet", "rapid", "silver", "steady", "sunny", "swift", "warm"];
+
 const NOUNS = ["brook", "canyon", "cedar", "cliff", "cloud", "coast", "dune", "field", "forest", "grove", "harbor", "meadow", "mesa", "peak", "pine", "river", "ridge", "stone", "valley", "willow"];
+
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
+
 const generated = () => `worktree/${pick(ADJECTIVES)}-${pick(NOUNS)}-${Math.floor(Math.random() * 0x10000).toString(16).padStart(4, "0")}`;
 
 const ago = (s) => {
