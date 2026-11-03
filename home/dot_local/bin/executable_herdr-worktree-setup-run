@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+
+set -u
+
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+  printf '%s\n' 'usage: herdr-worktree-setup-run <worktree-path> [branch]' >&2
+  exit 2
+fi
+
+worktree_path="$1"
+branch="${2:-}"
+plugin_dir="${CLAUDE_WORKTREE_SETUP_PLUGIN_DIR:-${HOME:-}/.local/lib/herdr-worktree-setup}"
+config_dir="${CLAUDE_WORKTREE_SETUP_CONFIG_DIR:-${HOME:-}/.config/herdr/plugins/config/seigi.worktree-setup}"
+
+if [ ! -f "$plugin_dir/setup.ts" ]; then
+  printf '%s\n' "herdr-worktree-setup-run: setup.ts not found in $plugin_dir" >&2
+  exit 1
+fi
+
+if ! command -v bun >/dev/null 2>&1; then
+  printf '%s\n' 'herdr-worktree-setup-run: bun not found' >&2
+  exit 127
+fi
+
+escape_json_string() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+escaped_path="$(escape_json_string "$worktree_path")"
+escaped_branch="$(escape_json_string "$branch")"
+event="{\"data\":{\"worktree\":{\"path\":\"$escaped_path\",\"branch\":\"$escaped_branch\"}}}"
+
+if ! cd -- "$plugin_dir"; then
+  printf '%s\n' "herdr-worktree-setup-run: cannot enter $plugin_dir" >&2
+  exit 1
+fi
+
+HERDR_PLUGIN_EVENT_JSON="$event" \
+  HERDR_PLUGIN_CONFIG_DIR="$config_dir" \
+  PWD="$plugin_dir" \
+  bun setup.ts
+status=$?
+exit "$status"
