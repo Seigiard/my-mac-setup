@@ -2278,7 +2278,7 @@ function test_scripts_08526_worktree_setup_runner_uses_default_paths_with_empty_
   install_worktree_setup_fake_bun "$bin"
 
   # #when
-  run --separate-stderr env \
+  run --separate-stderr env -u CLAUDE_WORKTREE_SETUP_PLUGIN_DIR \
     HOME="$home" \
     WORKTREE_SETUP_BUN_RECORD="$record" \
     PATH="$bin:$PATH" \
@@ -3023,7 +3023,16 @@ SH
 printf '%s\n' "$*" >> "$CHILD_STUB/hc.argv"
 case "${1:-}" in
   wait)
-    printf '%s\n' "${STUB_WAIT_JSON:-{\"ended\":true,\"reason\":\"status\",\"status\":\"idle\"}}"
+    default_wait_json='{"ended":true,"reason":"status","status":"idle"}'
+    wait_count="$(cat "$CHILD_STUB/wait-count" 2>/dev/null || printf 0)"
+    wait_count=$((wait_count + 1))
+    printf '%s' "$wait_count" > "$CHILD_STUB/wait-count"
+    if [ -n "${STUB_WAIT_SEQUENCE:-}" ]; then
+      wait_json="$(printf '%s\n' "$STUB_WAIT_SEQUENCE" | sed -n "${wait_count}p")"
+    else
+      wait_json="${STUB_WAIT_JSON:-$default_wait_json}"
+    fi
+    printf '%s\n' "$wait_json"
     exit "${STUB_WAIT_STATUS:-0}"
     ;;
   send)
@@ -3035,9 +3044,11 @@ case "${1:-}" in
       printf '%s\n' "${STUB_REPORT_BODY:-RECOVERED answer}" > "$report_path"
     fi
     if [ "${STUB_SEND_STATUS:-0}" -ne 0 ]; then
-      printf '%s\n' "${STUB_SEND_JSON:-{\"started\":true,\"status\":\"idle\"}}" >&2
+      default_send_json='{"started":true,"status":"idle"}'
+      printf '%s\n' "${STUB_SEND_JSON:-$default_send_json}" >&2
     else
-      printf '%s\n' "${STUB_SEND_JSON:-{\"started\":true,\"status\":\"idle\"}}"
+      default_send_json='{"started":true,"status":"idle"}'
+      printf '%s\n' "${STUB_SEND_JSON:-$default_send_json}"
     fi
     exit "${STUB_SEND_STATUS:-0}"
     ;;
@@ -3113,6 +3124,36 @@ function test_scripts_1083_ask_in_hc_starts_the_selected_template_and_returns_th
   assert_file_contains "$CHILD_STUB/task.txt" 'answer\.report'
   assert_file_contains "$CHILD_STUB/hc.argv" '^wait --json --timeout 1800 t11$'
   assert_dir_not_exists "$(dirname "$(cat "$CHILD_STUB/report-path")")"
+}
+
+function test_scripts_1090_ask_in_hc_returns_a_report_when_a_message_ends_the_wait() {
+  _bats_test_init 1090 'ask-in-hc returns a report when a message ends the wait'
+  # #given
+  ask_hc_stub
+
+  # #when
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
+    STUB_WAIT_JSON='{"ended":true,"reason":"message","status":"working"}' \
+    bash "$ASK_HC_SCRIPT" claude question
+  # #then
+  assert_success
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=answered'
+  assert_output 'ANSWER from hc'
+}
+
+function test_scripts_1091_ask_in_hc_waits_again_when_a_message_arrives_before_the_report() {
+  _bats_test_init 1091 'ask-in-hc waits again when a message arrives before the report'
+  # #given
+  ask_hc_stub
+  local wait_sequence
+  wait_sequence=$'{"ended":true,"reason":"message","status":"working"}\n{"ended":false,"reason":"timeout","status":"working"}'
+
+  # #when
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 STUB_REPORT=none \
+    STUB_WAIT_SEQUENCE="$wait_sequence" bash "$ASK_HC_SCRIPT" claude question
+  # #then
+  assert_failure 124
+  assert_equal "$(cat "$CHILD_STUB/wait-count")" 2
 }
 
 function test_scripts_1084_ask_in_hc_maps_agents_and_template_overrides_to_hc_run_templates() {
@@ -3222,6 +3263,42 @@ function test_scripts_1087_ask_in_hc_recovers_once_then_classifies_bad_reports()
   assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=bad-report'
 }
 
+run_ask_in_hc_recovery_without_a_report() {
+  local recovery_wait="$1"
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 STUB_REPORT=none \
+    STUB_SEND_JSON="$recovery_wait" bash "$ASK_HC_SCRIPT" claude question --close
+}
+
+function test_scripts_1092_ask_in_hc_retains_transport_when_the_recovery_wait_times_out() {
+  _bats_test_init 1092 'ask-in-hc retains transport when the recovery wait times out'
+  # #given
+  ask_hc_stub
+  local recovery_wait='{"started":true,"status":"working","wait":{"ended":false,"reason":"timeout","status":"working"}}'
+
+  # #when
+  run_ask_in_hc_recovery_without_a_report "$recovery_wait"
+  # #then
+  assert_failure 124
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=working'
+  assert_file_not_exists "$CHILD_STUB/cleanup.log"
+  assert_dir_exists "$(dirname "$(cat "$CHILD_STUB/report-path")")"
+}
+
+function test_scripts_1093_ask_in_hc_retains_transport_when_the_recovery_wait_ends_by_message() {
+  _bats_test_init 1093 'ask-in-hc retains transport when the recovery wait ends by message'
+  # #given
+  ask_hc_stub
+  local recovery_wait='{"started":false,"status":"working","wait":{"ended":true,"reason":"message","status":"working"}}'
+
+  # #when
+  run_ask_in_hc_recovery_without_a_report "$recovery_wait"
+  # #then
+  assert_failure 124
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'ask.sh: status=working'
+  assert_file_not_exists "$CHILD_STUB/cleanup.log"
+  assert_dir_exists "$(dirname "$(cat "$CHILD_STUB/report-path")")"
+}
+
 function test_scripts_1088_ask_in_hc_closes_an_answered_terminal_in_hc_order() {
   _bats_test_init 1088 'ask-in-hc closes an answered terminal in hc order'
   # #given
@@ -3328,6 +3405,35 @@ function test_scripts_1229_ask_in_hc_follow_up_maps_delivery_outcomes() {
     bash "$ASK_HC_FOLLOW_UP" t11
   assert_failure 2
   assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'follow-up.sh: status=refused'
+}
+
+function test_scripts_1230_ask_in_hc_follow_up_delivers_when_a_message_ends_an_idle_turn() {
+  _bats_test_init 1230 'ask-in-hc follow-up delivers when a message ends an idle turn'
+  # #given
+  ask_hc_stub
+
+  # #when
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
+    STUB_SEND_JSON='{"started":false,"status":"idle","wait":{"ended":true,"reason":"message","status":"idle"}}' \
+    bash "$ASK_HC_FOLLOW_UP" t11 'continue work' --wait
+  # #then
+  assert_success
+  assert_equal "${stderr_lines[$(( ${#stderr_lines[@]} - 1 ))]}" 'follow-up.sh: status=delivered'
+}
+
+function test_scripts_1231_ask_in_hc_follow_up_waits_again_when_a_message_leaves_the_turn_working() {
+  _bats_test_init 1231 'ask-in-hc follow-up waits again when a message leaves the turn working'
+  # #given
+  ask_hc_stub
+
+  # #when
+  run --separate-stderr env PATH="$CHILD_STUB:$PATH" HC_TERMINAL_ID=t3 \
+    STUB_SEND_JSON='{"started":false,"status":"working","wait":{"ended":true,"reason":"message","status":"working"}}' \
+    STUB_WAIT_JSON='{"ended":false,"reason":"timeout","status":"working"}' \
+    bash "$ASK_HC_FOLLOW_UP" t11 'continue work' --wait
+  # #then
+  assert_failure 124
+  assert_equal "$(cat "$CHILD_STUB/wait-count" 2>/dev/null || printf 0)" 1
 }
 
 # ===========================================

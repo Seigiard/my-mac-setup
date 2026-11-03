@@ -26,12 +26,10 @@ write_hc_stub() {
   cat > "$HC_STUB/hc" <<'SH'
 #!/usr/bin/env bash
 command="$1"
-printf '%s' "$1" >> "$HC_STUB_CALLS"
-shift
 for argument in "$@"; do
-  printf ' %s' "$argument" >> "$HC_STUB_CALLS"
+  printf '%s\n' "$argument" >> "$HC_STUB_CALLS"
 done
-printf '\n' >> "$HC_STUB_CALLS"
+shift
 printf 'hc %s' "$command" >> "$HC_RUN_EVENT_LOG"
 for argument in "$@"; do
   printf ' %s' "$argument" >> "$HC_RUN_EVENT_LOG"
@@ -64,7 +62,7 @@ case "$command" in
       fi
       shift
     done
-    printf '{"address":"t11","agent":"sleep","cwd":"/tmp","name":"%s","state":"live","turn":0}\n' "$alias"
+    printf '%s\n' "${HC_STUB_RUN_JSON:-{\"address\":\"t11\",\"agent\":\"sleep\",\"cwd\":\"/tmp\",\"name\":\"$alias\",\"state\":\"live\",\"turn\":0}}"
     ;;
 esac
 SH
@@ -134,8 +132,16 @@ function test_hc_run_4701_skips_live_names_and_starts_the_first_free_alias_from_
   assert_success
   assert_output 't11 blue-fox'
   assert_stderr ''
-  assert_equal "$(cat "$HC_STUB_CALLS")" "ls --json
-run --bg --name blue-fox --cwd $HC_RUN_CWD planner write report"
+  assert_equal "$(cat "$HC_STUB_CALLS")" "ls
+--json
+run
+--bg
+--name
+blue-fox
+--cwd
+$HC_RUN_CWD
+planner
+write report"
   assert_equal "$(cat "$HERDR_APP_STUB_CALLS")" ''
 }
 
@@ -151,8 +157,16 @@ function test_hc_run_4702_uses_the_requested_directory_in_the_hc_run_argv() {
   assert_success
   assert_output 't11 red-wolf'
   assert_stderr ''
-  assert_equal "$(cat "$HC_STUB_CALLS")" "ls --json
-run --bg --name red-wolf --cwd $requested_cwd planner write report"
+  assert_equal "$(cat "$HC_STUB_CALLS")" "ls
+--json
+run
+--bg
+--name
+red-wolf
+--cwd
+$requested_cwd
+planner
+write report"
 }
 
 function test_hc_run_4703_retries_the_next_free_alias_after_hc_reports_name_taken() {
@@ -167,9 +181,24 @@ function test_hc_run_4703_retries_the_next_free_alias_after_hc_reports_name_take
   assert_success
   assert_output 't11 blue-fox'
   assert_stderr ''
-  assert_equal "$(cat "$HC_STUB_CALLS")" "ls --json
-run --bg --name red-wolf --cwd $HC_RUN_CWD planner write report
-run --bg --name blue-fox --cwd $HC_RUN_CWD planner write report"
+  assert_equal "$(cat "$HC_STUB_CALLS")" "ls
+--json
+run
+--bg
+--name
+red-wolf
+--cwd
+$HC_RUN_CWD
+planner
+write report
+run
+--bg
+--name
+blue-fox
+--cwd
+$HC_RUN_CWD
+planner
+write report"
 }
 
 function test_hc_run_4704_rejects_missing_template_or_task_without_calling_hc() {
@@ -205,8 +234,16 @@ function test_hc_run_4705_passes_through_a_non_name_taken_hc_failure() {
   assert_failure 6
   assert_output ''
   assert_stderr "$error"
-  assert_equal "$(cat "$HC_STUB_CALLS")" "ls --json
-run --bg --name red-wolf --cwd $HC_RUN_CWD planner write report"
+  assert_equal "$(cat "$HC_STUB_CALLS")" "ls
+--json
+run
+--bg
+--name
+red-wolf
+--cwd
+$HC_RUN_CWD
+planner
+write report"
 }
 
 function test_hc_run_4706_rejects_a_missing_aliases_library_without_starting_a_child() {
@@ -221,7 +258,7 @@ function test_hc_run_4706_rejects_a_missing_aliases_library_without_starting_a_c
   assert_failure 1
   assert_output ''
   assert_stderr "hc-run: aliases library not found: $missing_lib"
-  assert_equal "$(sed -n '/^run /p' "$HC_STUB_CALLS")" ''
+  assert_equal "$(grep -Fx 'run' "$HC_STUB_CALLS")" ''
 }
 
 function test_hc_run_4707_opens_an_attach_tab_after_starting_the_named_child() {
@@ -235,10 +272,32 @@ function test_hc_run_4707_opens_an_attach_tab_after_starting_the_named_child() {
   assert_success
   assert_output 't11 red-wolf'
   assert_stderr ''
-  assert_equal "$(cat "$HC_STUB_CALLS")" "ls --json
-run --bg --name red-wolf --cwd $HC_RUN_CWD planner write report"
+  assert_equal "$(cat "$HC_STUB_CALLS")" "ls
+--json
+run
+--bg
+--name
+red-wolf
+--cwd
+$HC_RUN_CWD
+planner
+write report"
   assert_equal "$(cat "$HERDR_APP_STUB_CALLS")" "do tab.new $tab_request"
   assert_equal "$(cat "$HC_RUN_EVENT_LOG")" "hc ls --json
 hc run --bg --name red-wolf --cwd $HC_RUN_CWD planner write report
 herdr-app do tab.new $tab_request"
+}
+
+function test_hc_run_4708_reports_an_undelivered_first_message_after_starting_the_child() {
+  _bats_test_init 4708 'reports an undelivered first message after starting the child'
+  # #given
+  local launch='{"address":"t11","first_message":{"sent":false,"started":false,"turn":0}}'
+
+  # #when
+  run --separate-stderr env HC_STUB_RUN_JSON="$launch" PATH="$HC_STUB:$HERDR_APP_STUB:$PATH" \
+    HC_RUN_ALIASES_LIB="$HC_RUN_ALIASES_LIB" "$HC_RUN" --cwd "$HC_RUN_CWD" planner 'write report'
+  # #then
+  assert_failure 3
+  assert_output 't11 red-wolf'
+  assert_stderr 'hc-run: task not sent: hc read t11'
 }
