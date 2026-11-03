@@ -133,6 +133,7 @@ _smoke_critical_paths() {
     .config/herdr/config.toml
     .config/herdr/plugins/config/seigi.worktree-setup/config.toml
     .config/herdr/command-palette/commands.toml
+    .local/lib/herdr-worktree-setup/setup.ts
     .local/lib/herdr-process.sh
     .local/lib/herdr-child-runtime.sh
     .local/lib/herdr-child-supervision.sh
