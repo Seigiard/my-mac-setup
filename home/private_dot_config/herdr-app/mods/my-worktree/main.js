@@ -1,9 +1,10 @@
 // Worktree dialog: { space, action: "new" | "open" | "remove" } or
 // { folder, machine } for a repo without a space; optional { branch, tab, argv }.
+// No space or folder (a keybinding): the focused terminal's space and folder.
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, Scrollbar } from "gpui-base";
-import { run, props, closeOverlay, theme, spaces, panes, exec, home } from "herdr";
+import { run, props, closeOverlay, theme, spaces, panes, focused, exec, home } from "herdr";
 
 // Where a space is now: its first terminal's live folder, else where it was made.
 function place(s) {
@@ -132,6 +133,7 @@ async function repoOf(folder, on) {
 
 export default class Worktree extends View {
   init(_props, cx) {
+    this.origin = props()?.space || props()?.folder ? null : focused();
     this.on = this.space()?.machine;
     this.userHome = this.on ? null : home();
     this.opening = props()?.action === "open";
@@ -171,7 +173,7 @@ export default class Worktree extends View {
           this.userHome = result.stdout.trim().replace(/\\/g, "/");
         }
 
-        this.folder = props()?.folder || place(this.space()) || this.userHome;
+        this.folder = props()?.folder || this.origin?.cwd || place(this.space()) || this.userHome;
         // The repo is set last: Enter does nothing until the warnings it consents to are known.
         const repo = await repoOf(this.folder, this.on);
 
@@ -191,8 +193,9 @@ export default class Worktree extends View {
 
   space() {
     const p = props() ?? {};
+    const id = p.space ?? this.origin?.space;
 
-    return spaces().find((s) => s.id === p.space) ?? (p.folder ? { folder: p.folder, machine: p.machine ?? null, name: "" } : undefined);
+    return spaces().find((s) => s.id === id) ?? (p.folder ? { folder: p.folder, machine: p.machine ?? null, name: "" } : undefined);
   }
 
   close() {

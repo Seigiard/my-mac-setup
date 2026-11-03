@@ -83,8 +83,9 @@ appear before reset. Only an untouched new branch is reset to fetched
 
 ## Herdr app
 
-The `my-worktree` mod handles `Cmd+Shift+N`: after `git worktree add`, it opens
-the new space and a terminal running
+The `my-worktree` mod handles `Cmd+Shift+N`. The keybinding passes no space,
+so the dialog uses the focused terminal's space and folder. After
+`git worktree add`, it opens the new space and a terminal running
 `herdr-worktree-setup-run <path> <branch>`. The setup log is visible and has no
 time cap. The app passes the real branch, so fresh-base and the
 `herdr-generated-worktree` marker apply. Space names remain folder-derived;
