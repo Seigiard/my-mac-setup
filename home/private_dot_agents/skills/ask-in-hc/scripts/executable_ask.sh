@@ -95,7 +95,7 @@ recovery_err="$(mktemp)"
 cleanup_err="$(mktemp)"
 cleanup_out="$(mktemp)"
 retain_transport=0
-trap 'rm -f "$question_file" "$start_out" "$start_err" "$wait_out" "$wait_err" "$read_out" "$read_err" "$recovery_out" "$recovery_err" "$cleanup_err" "$cleanup_out"; if [ "$retain_transport" -eq 0 ]; then rm -f "$report_path" "$report_path.tmp"; rmdir "$report_dir" 2>/dev/null || true; fi' EXIT
+trap 'if [ "$retain_transport" -eq 0 ]; then rm -f "$question_file"; fi; rm -f "$start_out" "$start_err" "$wait_out" "$wait_err" "$read_out" "$read_err" "$recovery_out" "$recovery_err" "$cleanup_err" "$cleanup_out"; if [ "$retain_transport" -eq 0 ]; then rm -f "$report_path" "$report_path.tmp"; rmdir "$report_dir" 2>/dev/null || true; fi' EXIT
 
 {
   printf '%s\n\n' "$question"
@@ -122,6 +122,8 @@ alias=''
 read -r address alias _ <<< "$start_result"
 if [ "$start_status" -eq 3 ]; then
   cat "$start_err" >&2
+  retain_transport=1
+  printf 'ask.sh: task kept at %s; resend it after readiness\n' "$question_file" >&2
   if [ -n "$address" ] && [ -n "$alias" ]; then
     close_hint
   fi
