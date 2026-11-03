@@ -304,11 +304,17 @@ omc() {
 # ever tell you an update exists. It syncs the chezmoi source and publishes any
 # pending commits, then offers pin bumps. Accepted bumps are committed and
 # pushed immediately; `chezmoi apply` deploys them afterwards.
+# It also checks herdr-core and Herdr app updates without restarting the window.
 update-all() {
   brew update &&
     brew upgrade --no-ask &&
     skills update &&
     mise upgrade
+  # herdr-core swaps its binary and restarts the core; terminals keep running.
+  command -v hc >/dev/null 2>&1 && hc update
+  # The app downloads its own updates; this makes it look now. It offers
+  # Restart in the window when one is waiting (or: herdr-app do app.update).
+  command -v herdr-app >/dev/null 2>&1 && herdr-app do app.check_updates >/dev/null
   # Run even if an earlier updater failed. Dependency lookups can report unknown;
   # a source sync failure stops before offers, and a publish failure returns nonzero.
   update-pins
