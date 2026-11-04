@@ -35,7 +35,9 @@ Herdr provenance; branch text never grants authority.
 The Herdr app's `my-worktree` mod now runs the setup package by fixed path after
 `git worktree add`. The package is pinned as a chezmoi external and is no longer
 installed as a TUI plugin; the policy file remains managed here. The package
-still writes the marker, so app-created worktrees carry it.
+still writes the marker, so app-created worktrees carry it. The identity
+component that renamed generated branches was retired (#617); the marker stays
+as the provenance record and no component performs automated branch renames.
 
 ## Consequences
 

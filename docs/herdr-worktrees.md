@@ -1,10 +1,9 @@
 # Native Herdr worktrees
 
 Herdr is the single owner of interactive Git worktree creation, opening,
-closing, and removal. Linked checkouts are native child workspaces;
-`herdr-worktree-identity` owns task-derived Git metadata, the one-time rename
-of a newly generated branch, and its workspace title. The alias system remains
-the sole owner of pane, tab, and agent identity.
+closing, and removal. Linked checkouts are native child workspaces; space names
+and branch names stay as typed or generated; no component renames them. The
+alias system remains the sole owner of pane, tab, and agent identity.
 
 - `Cmd+Shift+N` sends the existing `prefix+shift+g` transport sequence from
   Ghostty or kitty and opens Herdr's native new-worktree dialog.
@@ -27,9 +26,8 @@ keys. A repository with no table receives no setup or fresh-base mutation.
 
 On every `worktree.created` event, the plugin also records
 `herdr-generated-worktree` in that checkout's Git administrative directory.
-`herdr-worktree-identity` requires this lifecycle-owned marker before renaming a
-`worktree/*` branch, so a manually created branch cannot be renamed from its
-prefix alone. Git removes the marker with the linked worktree metadata.
+The marker records Herdr provenance; no component renames generated branches.
+Git removes the marker with the linked worktree metadata.
 
 ## Repository policies
 
@@ -90,8 +88,8 @@ Herdr's native worktrees used, and creates it from the focused checkout's `HEAD`
 After `git worktree add`, it opens the new space and a terminal running
 `herdr-worktree-setup-run <path> <branch>`. The setup log is visible and has no
 time cap. The app passes the real branch, so fresh-base and the
-`herdr-generated-worktree` marker apply. Space names remain folder-derived;
-`herdr-worktree-identity` is not ported.
+`herdr-generated-worktree` marker apply. Space names and branch names stay as
+typed or generated; no component renames them.
 
 ## Claude Code nested worktrees
 
@@ -110,7 +108,8 @@ After Git creates the checkout, the hook invokes `setup.ts` from
 The hook passes the checkout path and an empty branch field. The empty field
 tells the plugin to skip fresh-base and the `herdr-generated-worktree` marker,
 so the new branch keeps the parent checkout's unpushed commits and
-`herdr-worktree-identity` leaves it alone. Setup is best effort: the hook still
+stays as generated; no component renames generated branches. Setup is best
+effort: the hook still
 returns the created path when a setup
 prerequisite is missing (`setup.ts` or `bun`) or when setup fails, and prints
 the reason on stderr. Untracked files

@@ -123,8 +123,8 @@ package. This repository retains its repository-keyed copy, setup-step, and
 fresh-base policy in
 `~/.config/herdr/plugins/config/seigi.worktree-setup/config.toml`; the package
 owns the event handler, manifest, implementation tests, documentation, CI, and
-releases. The generated-worktree marker written by the package is the
-authorization boundary consumed by `herdr-worktree-identity`.
+releases. The generated-worktree marker written by the package records Herdr
+provenance for the worktree.
 
 Pane and tab labels, agent aliases, workspace origin, and Git location/status
 metadata are provided by the standalone

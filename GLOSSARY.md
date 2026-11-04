@@ -42,14 +42,8 @@ An optional outer container or VM that hosts a development workspace, toolchain,
 ### Trusted control plane
 The nearest layer outside an agent-controlled boundary that may own communication credentials, socket bridges, network egress, and optional safety policy. It may run on the physical host or inside a trusted development container or VM. The first communication slice does not require every message to be durably owned by this layer.
 
-### herdr-worktree-identity
-The component that derives one multi-word branch name from a generated worktree session's prompt, renames the authorized branch once with attribution, and gives the workspace the same final name. The alias system exclusively owns pane, tab, and agent identity. A contended claim writes a diagnostic but has no terminal outcome, so the next naming event retries it.
-
 ### Generated-worktree marker
-The marker file the worktree-setup plugin writes into a worktree's git per-worktree admin dir on `worktree.created`. It is the sole authorization boundary for automated ref mutation in that worktree: a component may rename the generated branch only when the marker is present and matches — branch name text alone never authorizes. Later lines appended to the marker carry attribution for mutations already made.
-
-### Workspace-only outcome
-A terminal worktree-identity outcome in which the Herdr workspace receives the derived normalized branch name but the Git branch is left untouched, because the branch is no longer eligible for renaming (upstream set, moved by an agent, or a prior rename was reverted). Workspace labeling is decoupled from branch eligibility by design; the outcome is final, not a retry state.
+The marker file the worktree-setup plugin writes into a worktree's git per-worktree admin dir on `worktree.created`. It records Herdr provenance for the worktree; no component performs automated branch renames. The setup package still writes it, and Git removes it with the linked worktree metadata.
 
 ### Detached worker
 A background process a component forks so its caller can return immediately. Detachment has two halves and both are load-bearing: the worker takes its own session, and it closes every file descriptor it inherited above standard error.
