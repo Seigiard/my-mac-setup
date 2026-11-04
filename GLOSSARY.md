@@ -7,17 +7,6 @@ Shared domain vocabulary for this project — entities, named processes, and sta
 ### Agent session
 A particular agent conversation, whose identity continues through context compaction and resume. A new conversation in the same pane is a different agent session and does not automatically inherit the previous session's resource responsibilities.
 
-### Resource creator
-The agent session that opened a resource and remains responsible for it. Asking another agent to work in that resource does not transfer responsibility; creator attribution is distinct from the resource's current location or occupant.
-
-### Resource tree
-The context available to an agent about currently open workspaces, tabs, panes, agent sessions, and who opened them, including indirect descendants. Closed ancestors remain only as links to open descendants, rather than a full history; existing labels identify resources without a separate purpose field. The tree does not track task progress, result collection, or cleanup acknowledgements, which agents determine by inspecting their resources.
-
-The same resources have two views: the creator branch shows an agent's descendants with their current locations, while the overall view groups resources by workspace, tab, and pane with creator attribution. Moving a resource changes its location, not its creator relationship.
-
-### Agent resource context
-An agent's own resource branch, including its descendants, plus its parent agent's name when it has a parent. It does not include the parent's panes or tabs; resources with an unknown creator belong in the overall resource tree without being attributed to an agent's branch.
-
 ### Parent agent
 A `Terminal.parent` relation recorded by herdr-core for the terminal that ran `hc run`. It is `null` when a person opened the terminal, for example through `herdr-app do tab.new`.
 

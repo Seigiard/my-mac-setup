@@ -27,9 +27,7 @@ re-implement. Agents, the Command Palette, `herdr-child`, and the user's own
 shell all call `herdr` directly, and any boundary that only some of them pass
 through produces a registry that is silently incomplete rather than empty.
 
-[`docs/herdr-resource-tree.md`](../herdr-resource-tree.md) holds the resulting
-contract — what the registry stores, what stays Herdr's to answer, and how each
-failure mode is kept distinguishable from an empty branch.
+The resource-tree implementation described here was retired by #617.
 
 ## Considered options
 
