@@ -2908,6 +2908,33 @@ function test_scripts_256_morning_cleanup_is_a_no_op_on_its_second_run_of() {
 # which pairs it with the stale-removal leg and a completion stamp; a second
 # copy here would be a duplicate owner.
 
+# Guards the local patch in the pinned runner itself ('Local patch vs upstream
+# 0.50.1' in tests/lib/bashunit): result parsing takes the last
+# ##TEST_EXIT_CODE=-marked line, not the blind last line. A re-pin of bashunit
+# that drops the patch turns this test red
+# (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md).
+function test_scripts_260_pinned_bashunit_survives_late_child_output_aft() {
+  _bats_test_init 260 'pinned bashunit survives late child output after the result payload'
+  local probe_file="$BATS_TEST_DIRNAME/bashunit/bashunit_late_output_probe_test.sh"
+  assert_file_exists "$probe_file"
+
+  # Parallel leg: aggregate_parallel_results parses the .result file.
+  run env NO_COLOR=1 TMPDIR="$BATS_TEST_TMPDIR" \
+    "$BATS_TEST_DIRNAME/lib/bashunit" -j 2 "$probe_file"
+  assert_success
+  # The title is terminal-width dependent; the single-test count proves the probe ran.
+  assert_output --partial "Tests:      1 passed, 1 total"
+  assert_output --partial "Assertions: 1 passed, 1 total"
+
+  # Sequential leg: extract_result_counts parses the captured execution
+  # result. Unpatched it stays exit 0 but reports 0 assertions, so the
+  # assertion-count line is the discriminator here, not the status.
+  run env NO_COLOR=1 TMPDIR="$BATS_TEST_TMPDIR" \
+    "$BATS_TEST_DIRNAME/lib/bashunit" "$probe_file"
+  assert_success
+  assert_output --partial "Assertions: 1 passed, 1 total"
+}
+
 function test_scripts_259_test_dsl_isolates_parallel_tests_with_the_same_historical_number() {
   _bats_test_init 259 'test DSL isolates parallel tests with the same historical number'
   local probe_file="$BATS_TEST_DIRNAME/bashunit/test_dsl_parallel_isolation_probe_test.sh"
@@ -4386,6 +4413,7 @@ function tear_down_after_script() {
   _bats_file_cleanup
 }
 
+function tear_down() { _bats_run_teardown; }
 
 # ===========================================
 # herdr-worktree-identity client adapters (U6)
