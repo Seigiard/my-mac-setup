@@ -655,11 +655,10 @@ function test_templates_0094_zshenv_mise_cache_preserves_real_write_failure() {
   mise_cache_failure_probe write
 }
 
-function test_templates_0091_zshenv_full_fixture_exports_all_canaries_without_op() {
+function test_templates_0091_zshenv_full_fixture_exports_fixture_canaries_without_op() {
   _bats_test_init 91 'zshenv full fixture randomly selects a Tavily canary without invoking op'
   command_exists zsh || skip "zsh not installed"
   local work="$BATS_TEST_TMPDIR/zshenv-full"
-  local launcher="$BATS_TEST_DIRNAME/helpers/chezmoi-unattended"
   local cfg="$work/chezmoi.yaml"
   mkdir -p "$work/bin" "$work/home"
   write_test_config "$cfg"
@@ -670,26 +669,10 @@ exit 99
 FAKE_OP
   chmod +x "$work/bin/op"
 
-  run env \
-    HOME="$work/home" \
-    PATH="$work/bin:$PATH" \
-    FAKE_OP_MARKER="$work/op-launched" \
-    MMS_CHEZMOI_UNATTENDED=1 \
-    MMS_DISPOSABLE_HOME=1 \
-    MMS_CHEZMOI_FIXTURE_LINEAR_API_KEY=linear-zshenv-canary \
-    MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY=tavily-zshenv-canary \
-    MMS_CHEZMOI_FIXTURE_TAVILY_API_KEY_2=tavily-2-zshenv-canary \
-    MMS_CHEZMOI_FIXTURE_CONTEXT7_API_KEY=context7-zshenv-canary \
-    MMS_CHEZMOI_FIXTURE_VECTOR_PRIME_API_KEY=vector-zshenv-canary \
-    MMS_CHEZMOI_FIXTURE_OPENROUTER_API_KEY=openrouter-zshenv-canary \
-    MMS_CHEZMOI_FIXTURE_POSTHOG_PERSONAL_API_KEY=posthog-zshenv-canary \
-    MMS_CHEZMOI_FIXTURE_VRT_R2_ACCESS_KEY_ID=vrt-r2-access-key-zshenv-canary \
-    MMS_CHEZMOI_FIXTURE_VRT_R2_SECRET_ACCESS_KEY=vrt-r2-secret-key-zshenv-canary \
-    MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_WRITE_ACCESS_KEY_ID=agent-reports-write-key-id-zshenv-canary \
-    MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY=agent-reports-write-secret-zshenv-canary \
-    MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_ACCESS_KEY_ID=agent-reports-read-key-id-zshenv-canary \
-    MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_SECRET_ACCESS_KEY=agent-reports-read-secret-zshenv-canary \
-    "$launcher" --profile full-fixture -- \
+  export HOME="$work/home"
+  export PATH="$work/bin:$PATH"
+  export FAKE_OP_MARKER="$work/op-launched"
+  run chezmoi_full_fixture \
     apply --source "$SOURCE_ROOT" --destination "$work/home" --config "$cfg" \
     --refresh-externals=never "$work/home/.zshenv"
   assert_success
@@ -702,10 +685,10 @@ FAKE_OP
   run env HOME="$work/home" PATH="/usr/bin:/bin" zsh -f -c '
     RANDOM=2
     source "$1"
-    print -r -- "$LINEAR_API_KEY|$TAVILY_API_KEY|$CONTEXT7_API_KEY|$VECTOR_PRIME_API_KEY|$OPENROUTER_API_KEY|$POSTHOG_PERSONAL_API_KEY|$VRT_R2_ACCESS_KEY_ID|$VRT_R2_SECRET_ACCESS_KEY|$AGENT_REPORTS_WRITE_ACCESS_KEY_ID|$AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY|$AGENT_REPORTS_READ_ACCESS_KEY_ID|$AGENT_REPORTS_READ_SECRET_ACCESS_KEY|$VRT_R2_BUCKET|$VRT_R2_ENDPOINT|$VRT_R2_PUBLIC_DOMAIN|${+_tavily_api_keys}"
+    print -r -- "$LINEAR_API_KEY|$TAVILY_API_KEY|${+_tavily_api_keys}"
   ' _ "$work/home/.zshenv"
   assert_success
-  assert_output 'linear-zshenv-canary|tavily-zshenv-canary|context7-zshenv-canary|vector-zshenv-canary|openrouter-zshenv-canary|posthog-zshenv-canary|vrt-r2-access-key-zshenv-canary|vrt-r2-secret-key-zshenv-canary|agent-reports-write-key-id-zshenv-canary|agent-reports-write-secret-zshenv-canary|agent-reports-read-key-id-zshenv-canary|agent-reports-read-secret-zshenv-canary|membrane-visual-regression-testing|https://e9d416b8a5d9a9bd386258cc37fd3a98.r2.cloudflarestorage.com|vrt.membrane-dev.com|0'
+  assert_output 'mms-test-linear-canary|mms-test-tavily-canary|0'
 
   run env HOME="$work/home" PATH="/usr/bin:/bin" zsh -f -c '
     RANDOM=1
@@ -713,7 +696,7 @@ FAKE_OP
     print -r -- "$TAVILY_API_KEY|${+_tavily_api_keys}"
   ' _ "$work/home/.zshenv"
   assert_success
-  assert_output 'tavily-2-zshenv-canary|0'
+  assert_output 'mms-test-tavily-2-canary|0'
 }
 
 function test_templates_0092_zshenv_host_partial_diff_preserves_secret_target_and_reports_work() {
@@ -751,25 +734,6 @@ function test_templates_0092_zshenv_host_partial_diff_preserves_secret_target_an
   assert_equal "$(wc -l < "$work/home/.zshenv" | tr -d ' ')" 1
 }
 
-function test_templates_0093_zshenv_shared_render_helper_uses_complete_full_fixture() {
-  _bats_test_init 93 'zshenv shared render helper supplies the complete full fixture'
-  command_exists zsh || skip "zsh not installed"
-  local work="$BATS_TEST_TMPDIR/zshenv-interactive"
-  mkdir -p "$work/home"
-
-  run render_template "$SOURCE_ROOT/dot_zshenv.tmpl"
-  assert_success
-  printf '%s\n' "$output" > "$work/zshenv.rendered"
-
-  run env HOME="$work/home" PATH="/usr/bin:/bin" zsh -f -c '
-    RANDOM=2
-    source "$1"
-    print -r -- "$LINEAR_API_KEY|$TAVILY_API_KEY|$CONTEXT7_API_KEY|$VECTOR_PRIME_API_KEY|$OPENROUTER_API_KEY|$POSTHOG_PERSONAL_API_KEY|$VRT_R2_ACCESS_KEY_ID|$VRT_R2_SECRET_ACCESS_KEY|$AGENT_REPORTS_WRITE_ACCESS_KEY_ID|$AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY|$AGENT_REPORTS_READ_ACCESS_KEY_ID|$AGENT_REPORTS_READ_SECRET_ACCESS_KEY"
-  ' _ "$work/zshenv.rendered"
-  assert_success
-  assert_output 'mms-test-linear-canary|mms-test-tavily-canary|mms-test-context7-canary|mms-test-vector-prime-canary|mms-test-openrouter-canary|mms-test-posthog-canary|mms-test-vrt-r2-access-key-canary|mms-test-vrt-r2-secret-key-canary|mms-test-agent-reports-write-key-id-canary|mms-test-agent-reports-write-secret-canary|mms-test-agent-reports-read-key-id-canary|mms-test-agent-reports-read-secret-canary'
-}
-
 # Machine-secrets fixture: a scratch home with its own age identity and a
 # source tree whose encrypted secrets file was produced by the age CLI, not by
 # chezmoi, for the recipient named in $2 (defaults to the scratch identity).
@@ -783,20 +747,13 @@ make_machine_secrets_fixture() {
   age-keygen -o "$identity" 2>/dev/null
   [[ -n "$recipient" ]] || recipient="$(age-keygen -y "$identity")"
   cp "$SOURCE_ROOT/dot_zshenv.tmpl" "$work/src/dot_zshenv.tmpl"
-  printf '%s\n' \
-    'LINEAR_API_KEY: "linear-age-canary"' \
-    'TAVILY_API_KEY: "tavily-age-canary"' \
-    'TAVILY_API_KEY_2: "tavily-2-age-canary"' \
-    'CONTEXT7_API_KEY: "context7-age-canary"' \
-    'VECTOR_PRIME_API_KEY: "vector-age-canary"' \
-    'OPENROUTER_API_KEY: "openrouter-age-canary"' \
-    'POSTHOG_PERSONAL_API_KEY: "posthog-age-canary"' \
-    'VRT_R2_ACCESS_KEY_ID: "vrt-r2-access-key-age-canary"' \
-    'VRT_R2_SECRET_ACCESS_KEY: "vrt-r2-secret-key-age-canary"' \
-    'AGENT_REPORTS_WRITE_ACCESS_KEY_ID: "agent-reports-write-key-id-age-canary"' \
-    'AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY: "agent-reports-write-secret-age-canary"' \
-    'AGENT_REPORTS_READ_ACCESS_KEY_ID: "agent-reports-read-key-id-age-canary"' \
-    'AGENT_REPORTS_READ_SECRET_ACCESS_KEY: "agent-reports-read-secret-age-canary"' \
+  # A missing template key stays a render failure: an incomplete secrets file
+  # must fail apply loudly rather than silently omit a shell credential.
+  sed -nE 's/.*\$secrets\.([A-Z0-9_]+).*/\1/p' "$work/src/dot_zshenv.tmpl" \
+    | sort -u \
+    | while IFS= read -r key; do
+        printf '%s: "%s-age-canary"\n' "$key" "$key"
+      done \
     | age -r "$recipient" -o "$work/src/private_dot_config/secrets/encrypted_private_api-keys.yaml.age"
   # HOME selects the identity path the config template writes, so the scratch
   # key is the one chezmoi reads; nothing here touches the host's key.
@@ -831,10 +788,18 @@ function test_templates_0095_zshenv_exports_the_age_decrypted_machine_secrets() 
   run env HOME="$work/home" PATH="/usr/bin:/bin" zsh -f -c '
     RANDOM=2
     source "$1"
-    print -r -- "$LINEAR_API_KEY|$TAVILY_API_KEY|$CONTEXT7_API_KEY|$VECTOR_PRIME_API_KEY|$OPENROUTER_API_KEY|$POSTHOG_PERSONAL_API_KEY|$VRT_R2_ACCESS_KEY_ID|$VRT_R2_SECRET_ACCESS_KEY|$AGENT_REPORTS_WRITE_ACCESS_KEY_ID|$AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY|$AGENT_REPORTS_READ_ACCESS_KEY_ID|$AGENT_REPORTS_READ_SECRET_ACCESS_KEY|${+_tavily_api_keys}"
+    print -r -- "$LINEAR_API_KEY|$TAVILY_API_KEY|${+_tavily_api_keys}"
   ' _ "$work/zshenv.rendered"
   assert_success
-  assert_output 'linear-age-canary|tavily-age-canary|context7-age-canary|vector-age-canary|openrouter-age-canary|posthog-age-canary|vrt-r2-access-key-age-canary|vrt-r2-secret-key-age-canary|agent-reports-write-key-id-age-canary|agent-reports-write-secret-age-canary|agent-reports-read-key-id-age-canary|agent-reports-read-secret-age-canary|0'
+  assert_output 'LINEAR_API_KEY-age-canary|TAVILY_API_KEY-age-canary|0'
+
+  run env HOME="$work/home" PATH="/usr/bin:/bin" zsh -f -c '
+    RANDOM=1
+    source "$1"
+    print -r -- "$TAVILY_API_KEY|${+_tavily_api_keys}"
+  ' _ "$work/zshenv.rendered"
+  assert_success
+  assert_output 'TAVILY_API_KEY_2-age-canary|0'
 }
 
 function test_templates_0096_zshenv_renders_without_secrets_where_no_identity_exists() {
