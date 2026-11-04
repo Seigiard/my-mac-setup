@@ -84,6 +84,14 @@ SH
   chmod +x "$FAKE_BIN/herdr"
 }
 
+install_fake_jq() {
+  cat > "$FAKE_BIN/jq" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' '{}'
+SH
+  chmod +x "$FAKE_BIN/jq"
+}
+
 write_create_input() {
   local name="$1" cwd="$2"
   CREATE_INPUT="$BATS_TEST_TMPDIR/create-input.json"
@@ -384,10 +392,11 @@ function test_claude_worktree_hooks_015_create_skips_setup_without_calling_herdr
   local expected_path="$MAIN/.claude/worktrees/no-plugin"
   mkdir -p "$home"
   install_recording_herdr
+  install_fake_jq
 
   # #given
-  # Neither override nor fixed plugin directory exists, but a herdr executable
-  # would record a fallback call if the hook still attempted discovery.
+  # Neither override nor fixed plugin directory exists; the executable fakes
+  # make the retired Herdr fallback reachable if the hook still attempts it.
   write_create_input 'no-plugin' "$MAIN/nested/cwd"
   # #when
   run --separate-stderr env -u CLAUDE_WORKTREE_SETUP_PLUGIN_DIR -u CLAUDE_WORKTREE_SETUP_CONFIG_DIR \
@@ -398,8 +407,7 @@ function test_claude_worktree_hooks_015_create_skips_setup_without_calling_herdr
   # #then
   assert_success
   assert_output "$expected_path"
-  assert_equal "${#stderr_lines[@]}" 1
-  assert_stderr --partial 'claude worktree create: setup skipped'
+  assert_stderr 'claude worktree create: setup skipped (worktree setup package not found)'
   assert_record_equals "$HERDR_CALLS" ''
   assert_setup_did_not_run
 }
