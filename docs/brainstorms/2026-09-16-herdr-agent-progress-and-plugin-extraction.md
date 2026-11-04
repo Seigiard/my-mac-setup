@@ -33,7 +33,7 @@ plugin manifest → ensure.sh
              ~/.local/bin/herdr-pane-labels
                     ↓ относительные source
              ~/.local/lib/herdr-aliases.sh
-             ~/.local/lib/herdr-process.sh
+             a shared process helper
 ```
 
 Источники: [manifest](../../home/private_dot_config/herdr/plugins/herdr-pane-labels/herdr-plugin.toml), [ensure.sh](../../home/private_dot_config/herdr/plugins/herdr-pane-labels/ensure.sh#L1-L14), [imports](../../home/dot_local/bin/executable_herdr-pane-labels#L18-L24).

@@ -4,10 +4,9 @@ Cross-platform dotfiles managed with [chezmoi](https://www.chezmoi.io/).
 
 ## Requirements
 
-Check that `python3` is on your `PATH` and reports at least **3.9**. It is the
-interpreter of the herdr command palette, and `chezmoi apply` shells out to it
-while it runs — this repo does not install it, so a machine without one is
-broken rather than merely missing a convenience.
+Check that `python3` is on your `PATH` and reports at least **3.9**. Chezmoi
+uses it while applying this repository. This repo does not install it, so a
+machine without one is broken rather than merely missing a convenience.
 
 - **macOS** — `/usr/bin/python3` ships behind the Xcode Command Line Tools that
   Homebrew already requires. It is 3.9.6, the oldest interpreter any supported
@@ -109,47 +108,24 @@ After running chezmoi, configure these manually:
 
 ### Herdr
 
-Chezmoi installs and enables the Command Palette from
-[`Seigiard/herdr-command-palette`](https://github.com/Seigiard/herdr-command-palette)
-at a reviewed commit. Personal commands stay in the managed
-`~/.config/herdr/command-palette/commands.toml`; project-specific entries use a
-`repositories` field in that same file. Updating the plugin means reviewing a
-new package release and changing the commit pin in
-`run_onchange_after_7-install-herdr-github-plugins.sh.tmpl`.
+The Herdr app mods provide the supported workspace, sidebar, pull-request,
+tab-name, and agent-limit behavior. The former TUI server and its plugins are
+not installed by this repository.
 
 Worktree preparation is provided by the standalone
 [`Seigiard/herdr-worktree-setup`](https://github.com/Seigiard/herdr-worktree-setup)
-package. This repository retains its repository-keyed copy, setup-step, and
-fresh-base policy in
-`~/.config/herdr/plugins/config/seigi.worktree-setup/config.toml`; the package
-owns the event handler, manifest, implementation tests, documentation, CI, and
-releases. The generated-worktree marker written by the package records Herdr
-provenance for the worktree.
+package. The package is pinned as a chezmoi external at
+`~/.local/lib/herdr-worktree-setup`; this repository retains its
+repository-keyed policy in `~/.config/herdr-worktree-setup/config.toml`.
+
+The alias library used by `hc-run` is pinned as a chezmoi external at
+`~/.local/lib/herdr-pane-labels/herdr-aliases.sh`. The reusable pane-label
+implementation is maintained in its own repository.
 
 Pane and tab labels, agent aliases, workspace origin, and Git location/status
-metadata are provided by the standalone
+metadata are maintained by the standalone
 [`Seigiard/herdr-pane-labels`](https://github.com/Seigiard/herdr-pane-labels)
-package. It owns the reconciler, alias policy, sweep daemon, manifest,
-diagnostics, lifecycle, implementation tests, documentation, CI, and releases.
-This repository retains only the sidebar rows and personal presentation
-settings in `~/.config/herdr/config.toml`; `hc-run` sources the package's
-`herdr-aliases.sh` library (`herdr_alias_candidates`).
-
-On macOS, chezmoi also installs
-[`usrivastava92/herdr-wakeup`](https://github.com/usrivastava92/herdr-wakeup)
-at a reviewed commit. Its managed policy keeps the Mac and display awake while
-an agent works, then retains the assertion for 20 minutes after the final agent
-goes quiet. Updating it uses the same reviewed-pin policy; implementation and
-behavioral tests stay upstream.
-
-Chezmoi also installs
-[`jmarbutt/herdr-spaces-pr-status`](https://github.com/jmarbutt/herdr-spaces-pr-status)
-at a reviewed commit. It shows pull request state, check counts, and review
-state on each space through the `$pr`, `$pr_checks`, and `$pr_review` tokens
-in `~/.config/herdr/config.toml`. It needs `gh` and Node 20 or newer. Its owner
-is outside the `herdr-auto-update` allowlist, so updating it means reviewing a
-new commit and changing the pin in
-`run_onchange_after_7-install-herdr-github-plugins.sh.tmpl`.
+package.
 
 ### Role-based SSH access
 
@@ -179,8 +155,6 @@ manage `known_hosts`.
 home/
 ├── .chezmoiscripts/          # Install scripts (run by chezmoi)
 │   ├── run_onchange_after_1-install-packages.sh.tmpl
-│   ├── run_onchange_after_3-setup-herdr-integrations.sh.tmpl
-│   ├── run_onchange_after_7-install-herdr-github-plugins.sh.tmpl
 │   └── darwin/
 │       └── run_once_after_macos-tunes.sh
 ├── private_dot_config/
@@ -188,7 +162,7 @@ home/
 │   │   ├── Brewfile          # Cross-platform CLI tools
 │   │   └── Brewfile.macos    # macOS apps and casks
 │   ├── ghostty/
-│   ├── kitty/                # kitty.conf + herdr.conf (herdr integration)
+│   ├── kitty/                # kitty.conf + herdr.conf
 │   ├── karabiner/
 │   └── yazi/
 ├── dot_zshenv.tmpl           # Exports API keys from the age-encrypted machine secrets

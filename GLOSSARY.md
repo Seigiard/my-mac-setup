@@ -4,6 +4,21 @@ Shared domain vocabulary for this project — entities, named processes, and sta
 
 ## herdr
 
+### Herdr app
+The supported desktop workspace application. It owns workspaces, panes,
+sidebar presentation, pull-request status, tab names, and agent limits through
+repository-managed mods.
+
+### Herdr-core
+The communication substrate used by `hc`. It starts and observes agent
+terminals and carries the parent-child message contract without the retired TUI
+server.
+
+### Retired TUI server
+The launchd-managed Herdr server and its plugin lifecycle. It was retired in
+#618 because the app and herdr-core now cover the required behavior; its former
+jobs are replaced by #594, #593, #602, #595, #616, #617, and #632.
+
 ### Agent session
 A particular agent conversation, whose identity continues through context compaction and resume. A new conversation in the same pane is a different agent session and does not automatically inherit the previous session's resource responsibilities.
 
