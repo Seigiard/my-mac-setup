@@ -1,12 +1,15 @@
 # Native Herdr worktrees
 
 Herdr is the single owner of interactive Git worktree creation, opening,
-closing, and removal. Linked checkouts are native child workspaces; space names
-and branch names stay as typed or generated; no component renames them. The
-alias system remains the sole owner of pane, tab, and agent identity.
+closing, and removal. The `Cmd+Shift+N` keybinding invokes the `my-worktree`
+app mod (`home/private_dot_config/herdr-app/mods/my-worktree`, #623). Linked
+checkouts are native child workspaces; space names and branch names stay as
+typed or generated; no component renames them.
 
-- `Cmd+Shift+N` sends the existing `prefix+shift+g` transport sequence from
-  Ghostty or kitty and opens Herdr's native new-worktree dialog.
+- `Cmd+Shift+N` creates and opens a checkout through the `my-worktree` mod,
+  then runs `herdr-worktree-setup-run` for setup.
+- The setup package runs from `~/.local/lib/herdr-worktree-setup`. Claude Code
+  invokes the same package through its `WorktreeCreate` hook.
 - The workspace context menu provides `New worktree`, `Open worktree...`, and,
   on linked child workspaces, `Delete worktree checkout...`.
 - Native removal asks Git to remove safely, offers a forced retry for dirty
@@ -23,11 +26,6 @@ run it by fixed path. Its sole policy file is
 `~/.config/herdr-worktree-setup/config.toml`. Tables are keyed by the canonical
 `origin` remote, matching the former Worktrunk project keys. A repository with
 no table receives no setup or fresh-base mutation.
-
-On every `worktree.created` event, the plugin also records
-`herdr-generated-worktree` in that checkout's Git administrative directory.
-The marker records Herdr provenance; no component renames generated branches.
-Git removes the marker with the linked worktree metadata.
 
 ## Repository policies
 
@@ -135,11 +133,11 @@ hooks, so those checkouts get no setup.
 
 ## Provenance boundary
 
-Worktree creation is native Herdr behavior. The setup plugin observes the
-`worktree.created` event after creation and does not create or claim tabs, panes,
-workspaces, or worktrees. The managed `herdr` PATH wrapper owns provenance only
-for the creation commands it intercepts; plugin-triggered or otherwise
-unsupported creation paths remain unknown-provenance paths.
+Worktree creation is native Herdr behavior. The `my-worktree` app mod creates
+the checkout and starts `herdr-worktree-setup-run`; Claude Code creates nested
+worktrees through its `WorktreeCreate` hook and invokes the setup package at
+`~/.local/lib/herdr-worktree-setup`. Neither path uses the retired TUI dialog,
+a plugin event, or a `herdr` PATH wrapper for provenance.
 
 ## Ownership and deployment
 

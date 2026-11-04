@@ -119,13 +119,7 @@ package. The package is pinned as a chezmoi external at
 repository-keyed policy in `~/.config/herdr-worktree-setup/config.toml`.
 
 The alias library used by `hc-run` is pinned as a chezmoi external at
-`~/.local/lib/herdr-pane-labels/herdr-aliases.sh`. The reusable pane-label
-implementation is maintained in its own repository.
-
-Pane and tab labels, agent aliases, workspace origin, and Git location/status
-metadata are maintained by the standalone
-[`Seigiard/herdr-pane-labels`](https://github.com/Seigiard/herdr-pane-labels)
-package.
+`~/.local/lib/herdr-pane-labels/herdr-aliases.sh`.
 
 ### Role-based SSH access
 
