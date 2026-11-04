@@ -41,11 +41,14 @@ For pi, run it directly without a template:
 
 ```bash
 hc run --bg --json --name <name> --cwd <dir> -- pi --model openai-codex/gpt-5.5 --thinking medium --exclude-tools ask_user
+hc wait <address>
 hc send --json <address> "<task>"
 ```
 
 Check `sent` in the send result. Prepend the contract pointer when the consult
-must report back.
+must report back. If `sent` is false, run `hc read <address>` first and resolve
+readiness. A trust dialog may need `hc keys <address> down enter`. Do not
+blindly resend after a failed send: the message may still have arrived.
 
 Clean up idle, exited, or done terminals with `hc kill <address>` and then
 `hc rm <address>`. Keep working or blocked terminals running.
