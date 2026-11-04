@@ -41,62 +41,6 @@ host-safe Run only the files that do not execute real chezmoi apply commands.
 USAGE
 }
 
-# Covers the suite-end orphan guard (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md). The
-# near-miss controls are load-bearing: a dead launcher with a surviving run
-# dir is a concurrent run's legitimately held watcher, not an orphan.
-# MMS_BASHUNIT_BIN=/usr/bin/true stubs the per-file runs so only the guard
-# executes.
-function test_smoke_076_post_apply_orphan_guard_reaps_only_abandoned_wat() {
-  _bats_test_init 76 'post-apply orphan guard reaps only abandoned watchers'
-  local repository_root
-  repository_root="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
-  [[ -x "$repository_root/tests/run-post-apply.sh" ]] || skip "repository checkout is not mounted"
-  local watcher_argv="$repository_root/home/dot_local/bin/executable_herdr-child __watcher"
-
-  local dead_pid
-  true & dead_pid=$!
-  wait "$dead_pid" || true
-
-  local live_run_dir="$BATS_TEST_TMPDIR/guard-live-run"
-  local stop_fakes="$BATS_TEST_TMPDIR/stop-fakes"
-  mkdir -p "$live_run_dir"
-  # Fakes poll a stop file rather than sleep for a fixed lifetime, which
-  # would flake under load. The 300 x 0.2s cap keeps a failed assertion
-  # (which skips the stop-file write) a bounded red test instead of a hang;
-  # stdio is detached so no child holds the runner's output pipe open.
-  bash -c 'n=0; until [ -e "$1" ] || [ "$n" -ge 300 ]; do n=$((n + 1)); sleep 0.2; done' \
-    "guard-fake-live-launcher $watcher_argv --run-dir $BATS_TEST_TMPDIR/gone --launcher-pid $$" \
-    "$stop_fakes" </dev/null >/dev/null 2>&1 &
-  local live_launcher_fake=$!
-  bash -c 'n=0; until [ -e "$1" ] || [ "$n" -ge 300 ]; do n=$((n + 1)); sleep 0.2; done' \
-    "guard-fake-live-rundir $watcher_argv --run-dir $live_run_dir --launcher-pid $dead_pid" \
-    "$stop_fakes" </dev/null >/dev/null 2>&1 &
-  local live_rundir_fake=$!
-
-  run env MMS_BASHUNIT_BIN=/usr/bin/true "$repository_root/tests/run-post-apply.sh" host-safe
-  assert_success
-  kill -0 "$live_launcher_fake"
-  kill -0 "$live_rundir_fake"
-
-  bash -c 'n=0; until [ -e "$1" ] || [ "$n" -ge 300 ]; do n=$((n + 1)); sleep 0.2; done' \
-    "guard-fake-orphan $watcher_argv --run-dir $BATS_TEST_TMPDIR/gone --launcher-pid $dead_pid" \
-    "$stop_fakes" </dev/null >/dev/null 2>&1 &
-  local orphan_fake=$!
-  run env MMS_BASHUNIT_BIN=/usr/bin/true "$repository_root/tests/run-post-apply.sh" host-safe
-  [ "$status" -eq 1 ]
-  assert_output --partial "ORPHANED herdr-child watcher survived the suite"
-  local attempt=0
-  while kill -0 "$orphan_fake" 2>/dev/null && [ "$attempt" -lt 300 ]; do
-    attempt=$((attempt + 1))
-    sleep 0.01
-  done
-  run kill -0 "$orphan_fake"
-  assert_failure
-
-  : > "$stop_fakes"
-  wait "$live_launcher_fake" "$live_rundir_fake" 2>/dev/null || true
-}
-
 # ===========================================
 # Chezmoi-managed files exist
 # ===========================================
@@ -135,12 +79,6 @@ _smoke_critical_paths() {
     .config/herdr/command-palette/commands.toml
     .local/lib/herdr-worktree-setup/setup.ts
     .local/lib/herdr-process.sh
-    .local/lib/herdr-child-runtime.sh
-    .local/lib/herdr-child-supervision.sh
-    .local/lib/herdr-child-watcher.sh
-    .local/lib/herdr-child-launch.sh
-    .local/lib/herdr-child-continuation.sh
-    .local/lib/herdr-child-reap.sh
   )
   if is_macos; then
     paths+=(
@@ -504,17 +442,13 @@ function test_smoke_030_lazygit_config_keeps_russian_layout_keybindings() {
 # herdr alias presentation (engine, native integrations, sidebar)
 # ===========================================
 
-function test_smoke_1051_herdr_alias_pane_label_and_child_files_are_deployed() {
-  _bats_test_init 1051 'herdr support files are deployed'
+function test_smoke_1051_herdr_alias_pane_label_and_resource_tree_files_are_deployed() {
+  _bats_test_init 1051 'herdr resource-tree support files are deployed'
   assert_file_exists "$HOME/.local/lib/herdr-resource-tree.py"
-  assert_file_exists "$HOME/.local/bin/herdr-child"
-  assert_file_executable "$HOME/.local/bin/herdr-child"
   assert_file_exists "$HOME/.local/bin/herdr-resource-tree"
   assert_file_executable "$HOME/.local/bin/herdr-resource-tree"
   assert_file_exists "$HOME/.local/bin/herdr"
   assert_file_executable "$HOME/.local/bin/herdr"
-  assert_file_exists "$HOME/.agents/skills/ask-in-herdr/scripts/follow-up.sh"
-  assert_file_executable "$HOME/.agents/skills/ask-in-herdr/scripts/follow-up.sh"
 }
 
 require_working_herdr() {
@@ -577,40 +511,6 @@ STUB
   for state in blocked done working idle unknown; do
     assert_file_contains "$work/report.log" "--state-label $state="
   done
-}
-
-function test_smoke_1052_herdr_child_and_consult_contracts_use_allocator_owned_p() {
-  _bats_test_init 1052 'the deployed reap contract and herdr-child agree on pair addressing'
-  # The reap/verify/reply flow itself is owned by scripts_test.sh, which runs
-  # ask.sh and herdr-child against fakes. What remains here is the command line
-  # agents copy verbatim out of the deployed contract document -- and a grep
-  # for that literal protects the document's wording, not the agreement it
-  # describes. A flag rename in herdr-child would leave the old text matching.
-  #
-  # So both sides are read: the document, and the deployed tool's own usage
-  # banner, which prints the same line. Either one drifting turns this red.
-  local doc="$HOME/.claude/shared/child-agent-contract.md"
-  local tool="$HOME/.local/bin/herdr-child"
-  assert_file_exists "$doc"
-  assert_file_executable "$tool"
-
-  local extract='herdr-child reap( --[a-z-]+ <[a-z-]+>)+'
-  # pipefail plus grep's own exit status: an empty extraction fails here
-  # instead of comparing two empty strings.
-  run bash -c 'set -o pipefail; grep -ohE "$1" "$2" | sort -u' _ "$extract" "$doc"
-  assert_success
-  local documented="$output"
-
-  # No arguments: herdr-child prints its usage and exits 2 before any
-  # environment check, so this needs neither HERDR_ENV nor a live pane. The
-  # documented exit status comes first, so a tool that died for another reason
-  # cannot reach the comparison on whatever it managed to print.
-  run "$tool"
-  assert_failure 2
-  run bash -c 'set -o pipefail; printf "%s\n" "$1" | grep -ohE "$2" | sort -u' \
-    _ "$output" "$extract"
-  assert_success
-  assert_equal "$output" "$documented"
 }
 
 # Single deployed owner for Claude's Herdr session/context chain. The managed
