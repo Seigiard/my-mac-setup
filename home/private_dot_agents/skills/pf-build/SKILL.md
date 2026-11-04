@@ -109,7 +109,7 @@ Every finding on a sub-task — the orchestrator's own contract-delta check or a
 
 ## Watch + heartbeat
 
-Wake and stuck checks follow the launch mode `tdd` → Dispatch chose. In headless mode, the background process exit wakes you, and a JSONL log under the run directory unchanged for ≥ 20 min while the process lives marks a stuck child. A child confirmed stuck is stopped and counted as a failed attempt in that chain (`tdd` → Responding to a failure). A bash watcher on PR-state changes also wakes you. A 30-minute loop catches what both miss.
+Wake and stuck checks follow the launch mode `tdd` → Dispatch chose. In headless mode, the background process exit wakes you, and a JSONL log under the run directory unchanged for ≥ 20 min while the process lives marks a stuck child. In headless mode, a child confirmed stuck is stopped and counted as a failed attempt in that chain (`tdd` → Responding to a failure). A bash watcher on PR-state changes also wakes you. A 30-minute loop catches what both miss.
 In hc mode, the core's `<hc>` note and the child's `hc send` wake you. Progress is `hc get <address>` status: `working` is live, `idle` or `done` is settled, and `blocked` needs the parent. A child with status `working` and an unchanged `hc read` screen for ≥ 20 min is stuck; run `hc read <address>`, send a nudge with `hc send <address> '<nudge>'`, then report it to the person. Never kill a working child; run `hc kill <address>` only for `idle`, `exited`, or `done`, then run `hc rm <address>`.
 
 1. **First pass:** run one full pass (below) immediately.

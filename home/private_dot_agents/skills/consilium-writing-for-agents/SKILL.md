@@ -20,10 +20,10 @@ Both get the same prompt and run at the same time: two tool calls in one message
 
 | Reviewer | Inside the Herdr app (`HC_TERMINAL_ID` set) | Outside Herdr |
 |---|---|---|
-| Fable | `hc run --bg --json --name <alias> --cwd "$PWD" -- claude --model fable "<prompt>"`; then `hc wait --json <address>` and `hc read <address>`. | Agent tool with `model: fable`, `effort: medium`, and the prompt. |
-| Astra | `hc run --bg --json --name <alias> --cwd "$PWD" -- opencode run --model openai/gpt-6-astra#medium "<prompt>"`; then `hc wait --json <address>` and `hc read <address>`. | `env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ID opencode run --model openai/gpt-6-astra#medium "<prompt>"` |
+| Fable | `hc run --bg --json --name <alias> --cwd "$PWD" -- claude --model fable --effort medium --disallowed-tools Edit Write NotebookEdit AskUserQuestion "<prompt>"`; then `hc wait --json --timeout 1800 <address>` and `hc read --lines 400 <address>`. | Agent tool with `model: fable`, `effort: medium`, and the prompt. |
+| Astra | `hc run --bg --json --name <alias> --cwd "$PWD" -- env OPENCODE_CONFIG_CONTENT='{"model":"openai/gpt-6-astra","permission":{"question":"deny","edit":"deny"},"agent":{"build":{"model":"openai/gpt-6-astra","variant":"medium","permission":{"question":"deny","edit":"deny"}}}}' opencode --standalone`; then `hc wait <address>`, `hc send --json <address> "<prompt>"` and check `sent` (on false: `hc read` first, resolve readiness, never blind-resend), then `hc wait --json --timeout 1800 <address>` and `hc read --lines 400 <address>`. | `env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ID opencode run --model openai/gpt-6-astra#medium "<prompt>"` |
 
-Inside the Herdr app, `hc` owns launch outcomes, follow-ups, and cleanup. A reviewer still without an answer after that handling is absent: name it in the final report and reconcile the reports you have. The terminals serve no follow-up once both reports are read: clean each with `hc kill <address>` and `hc rm <address>`.
+A reviewer whose terminal shows no report after the bounded wait is absent: name it in the final report and reconcile the reports you have. The terminals serve no follow-up once both reports are read: clean each with `hc kill <address>` and `hc rm <address>`.
 
 ## Prompt
 
