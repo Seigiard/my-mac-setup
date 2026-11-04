@@ -44,8 +44,10 @@ and retires the TUI afterwards.
 - A parent may answer a child's question dialog with `hc send --force`; a
   permission decision still goes to the person.
 - Keep `notes` on.
-- Make copies, not renames, while both systems coexist: `hc`/`herdr` and
-  `ask-in-hc`/`ask-in-herdr`.
+- The `ask-in-hc` copy was built and then withdrawn by the owner's decision on
+  2026-11-04 in favour of hc's native flow: `hc-run` + `hc wait`, with the
+  answer as an `<hc from>` message. A pi consult runs `pi` directly with
+  `hc run -- …` + `hc send`, without a template.
 - Ghostty no longer starts the TUI.
 - Worktree setup runs without the server and is isolated by code.
 
@@ -54,10 +56,11 @@ and retires the TUI afterwards.
 - #609 established `~/.claude/shared/hc-agent-contract.md` and a
   `HC_TERMINAL_ID`-gated pointer to it in `~/.claude/CLAUDE.md`.
 - #610 established templates in `~/.config/herdr-core/templates/` for the
-  reviewer, implementer tiers, and pi consultant.
+  reviewer and implementer tiers.
 - #611 established `hc-run` and `my-agents` showing pool-alias names; #612
-  established `ask-in-hc`; #613 established the `hc` skill and hc branches in
-  tdd dispatch, pf-build, and pf-issue.
+  built the `ask-in-hc` copy, which the owner withdrew on 2026-11-04 in favour
+  of hc's native flow; #613 established the `hc` skill and hc branches in tdd
+  dispatch, pf-build, and pf-issue.
 - #614 established the hc branch of `herdr-run`; #615 stopped Ghostty from
   starting the TUI; #616 established the `my-worktree` mod,
   `herdr-worktree-setup-run`, and the pinned external.
