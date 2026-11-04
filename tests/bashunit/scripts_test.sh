@@ -809,11 +809,12 @@ function test_scripts_592_herdr_app_settings_modifier_preserves_unmanaged_settin
   assert_success
   run jq -e '
     . == {
-      "zoom": 1.1,
+      "zoom": 1.2,
       "sounds": {"enabled": true, "volume": 0.4},
       "minimum_contrast": 1,
       "font_size": 16,
       "font": "IosevkaTerm Nerd Font Mono",
+      "font_ligatures": false,
       "theme": "flexoki-light",
       "telemetry": {"enabled": false}
     }
@@ -833,11 +834,12 @@ function test_scripts_593_herdr_app_settings_modifier_creates_the_managed_object
   assert_success
   run jq -e '
     . == {
-      "zoom": 1.1,
+      "zoom": 1.2,
       "sounds": {"enabled": true},
       "minimum_contrast": 1,
       "font_size": 16,
       "font": "IosevkaTerm Nerd Font Mono",
+      "font_ligatures": false,
       "theme": "flexoki-light"
     }
   ' <<< "$output"
@@ -848,13 +850,14 @@ function test_scripts_594_herdr_app_settings_modifier_round_trips_current_settin
   _bats_test_init 594 'Herdr app settings modifier round-trips current settings without changes'
   local modifier="$SOURCE_ROOT/private_dot_config/herdr-app/modify_settings.json"
   local input='{
-  "zoom": 1.1,
+  "zoom": 1.2,
   "sounds": {
     "enabled": true
   },
-  "minimum_contrast": 1,
-  "font_size": 16,
   "font": "IosevkaTerm Nerd Font Mono",
+  "font_size": 16,
+  "font_ligatures": false,
+  "minimum_contrast": 1,
   "theme": "flexoki-light"
 }'
   local once

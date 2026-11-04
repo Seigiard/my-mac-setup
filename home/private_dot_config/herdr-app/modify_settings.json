@@ -13,13 +13,14 @@ import sys
 
 
 managed = {
-    "zoom": 1.1,
+    "zoom": 1.2,
     "sounds": {
         "enabled": True,
     },
     "minimum_contrast": 1,
     "font_size": 16,
     "font": "IosevkaTerm Nerd Font Mono",
+    "font_ligatures": False,
     "theme": "flexoki-light",
 }
 
