@@ -6,6 +6,7 @@ _bats_file_init "${BASH_SOURCE[0]}"
 load 'helpers/common'
 
 setup() {
+  unset HC_TERMINAL_ID
   unset HERDR_ENV
   unset HERDR_WORKSPACE_ID
   unset HERDR_PANE_ID
@@ -243,6 +244,63 @@ fi
 SH
   chmod +x "$HERDR_STUB/herdr"
   export HERDR_STUB_CALLS
+}
+
+write_hc_stub() {
+  HC_STUB="$BATS_TEST_TMPDIR/hc-bin"
+  HC_STUB_CALLS="$BATS_TEST_TMPDIR/hc.calls"
+  mkdir -p "$HC_STUB"
+  : > "$HC_STUB_CALLS"
+  cat > "$HC_STUB/hc" <<'SH'
+#!/usr/bin/env bash
+command="$1"
+printf '%s' "$1" >> "$HC_STUB_CALLS"
+shift
+for argument in "$@"; do
+  printf ' %s' "$argument" >> "$HC_STUB_CALLS"
+done
+printf '\n' >> "$HC_STUB_CALLS"
+
+case "$command" in
+  run)
+    if [ "${HC_STUB_RUN_STATUS:-0}" -ne 0 ]; then
+      printf '%s\n' '{"error":{"kind":"name_taken"}}' >&2
+      exit "$HC_STUB_RUN_STATUS"
+    fi
+    while [ "$#" -gt 0 ] && [ "$1" != -- ]; do
+      shift
+    done
+    if [ "$#" -eq 0 ]; then
+      printf '%s\n' '{"error":{"kind":"invalid_params"}}' >&2
+      exit 6
+    fi
+    shift
+    ( "$@" > /dev/null 2>&1 & )
+    printf '%s\n' '{"address":"t11","agent":"sh","cwd":"/tmp","name":"probe614","state":"live","turn":0}'
+    ;;
+  get)
+    case "${HC_STUB_GET_STATE:-live}" in
+      live)
+        printf '%s\n' '{"address":"t11","state":"live","exit_code":null,"reason":null}'
+        ;;
+      finished)
+        printf '%s\n' '{"address":"t11","state":"finished","exit_code":0,"reason":"exit"}'
+        ;;
+      not_found)
+        printf '%s\n' '{"error":{"kind":"not_found"}}' >&2
+        exit 3
+        ;;
+    esac
+    ;;
+esac
+SH
+  chmod +x "$HC_STUB/hc"
+  export HC_STUB_CALLS
+}
+
+herdr_run_hc() {
+  env HC_TERMINAL_ID=t1 HOME="$HERDR_RUN_HOME" HERDR_RUN_DIR="$HERDR_RUN_DIR" PATH="$HC_STUB:$PATH" \
+    "$HERDR_RUN" "$@"
 }
 
 function test_herdr_run_4609_herdr_mode_launches_the_saved_script_in_a_new_tab() {
@@ -553,4 +611,177 @@ failed=0"
   assert_stderr 'herdr-run: starting is still running (pid=starting); wait for it or choose another label'
   assert_equal "$(cat "$HERDR_RUN_DIR/starting.pid")" ''
   assert [ ! -e "$HERDR_RUN_DIR/starting.sh" ]
+}
+
+function test_herdr_run_4628_hc_launches_the_saved_script_with_a_normalized_name() {
+  _bats_test_init 4628 'hc launches the saved script with a normalized name'
+  # #given
+  write_hc_stub
+
+  # #when
+  run herdr_run_hc My.Label --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" --wait --timeout 5 -- sh -c 'exit 3'
+  # #then
+  assert_failure 3
+  assert_output "dir=$HERDR_RUN_DIR
+label=My.Label
+terminal=t11"
+  assert_equal "$(cat "$HERDR_RUN_DIR/My.Label.terminal")" t11
+  assert_equal "$(cat "$HC_STUB_CALLS")" \
+    "run --bg --name my-label --cwd $HERDR_RUN_CWD --no-notify -- bash $HERDR_RUN_DIR/My.Label.sh"
+  assert_equal "$(cat "$HERDR_RUN_DIR/My.Label.exit")" 3
+}
+
+function test_herdr_run_4635_hc_names_labels_that_normalize_to_the_same_value_distinctly() {
+  _bats_test_init 4635 'hc uses distinct names for colliding normalized workload labels'
+  # #given
+  write_hc_stub
+
+  # #when
+  run herdr_run_hc build.api --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" -- sh -c 'exit 0'
+  assert_success
+  run herdr_run_hc build-api --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" -- sh -c 'exit 0'
+  assert_success
+
+  # #then
+  local first_name second_name
+  first_name="$(awk '$1 == "run" { for (field = 1; field <= NF; field++) if ($field == "--name") print $(field + 1) }' "$HC_STUB_CALLS" | sed -n '1p')"
+  second_name="$(awk '$1 == "run" { for (field = 1; field <= NF; field++) if ($field == "--name") print $(field + 1) }' "$HC_STUB_CALLS" | sed -n '2p')"
+  assert_equal "$second_name" build-api
+  [ "$first_name" != "$second_name" ] || fail 'normalized labels must receive distinct hc names'
+}
+
+function test_herdr_run_4629_hc_wins_over_the_tui_branch() {
+  _bats_test_init 4629 'hc wins over the TUI branch'
+  # #given
+  write_hc_stub
+  write_herdr_stub
+
+  # #when
+  run env HERDR_ENV=1 HERDR_WORKSPACE_ID=w1 HC_TERMINAL_ID=t1 HOME="$HERDR_RUN_HOME" \
+    PATH="$HC_STUB:$HERDR_STUB:$PATH" "$HERDR_RUN" app-terminal --dir "$HERDR_RUN_DIR" \
+    --cwd "$HERDR_RUN_CWD" -- sh -c 'exit 0'
+  # #then
+  assert_success
+  assert_output "dir=$HERDR_RUN_DIR
+label=app-terminal
+terminal=t11"
+  assert_equal "$(cat "$HC_STUB_CALLS")" \
+    "run --bg --name app-terminal --cwd $HERDR_RUN_CWD -- bash $HERDR_RUN_DIR/app-terminal.sh"
+  assert_equal "$(cat "$HERDR_STUB_CALLS")" ''
+}
+
+function test_herdr_run_4630_hc_live_terminal_makes_verdict_running_before_the_pid_exists() {
+  _bats_test_init 4630 'hc live terminal makes verdict running before the pid exists'
+  # #given
+  write_hc_stub
+  mkdir -p "$HERDR_RUN_DIR"
+  printf '%s\n' 'start=2026-11-03T00:00:00Z' 'head=abc123' 'dirty=0' "cwd=$HERDR_RUN_CWD" > "$HERDR_RUN_DIR/starting.meta"
+  printf '%s\n' t11 > "$HERDR_RUN_DIR/starting.terminal"
+
+  # #when
+  run herdr_run_hc verdict starting --dir "$HERDR_RUN_DIR"
+  # #then
+  assert_failure 3
+  assert_output "state=running
+exit=none
+head=abc123
+dirty=0
+cwd=$HERDR_RUN_CWD
+failed=0"
+  assert_equal "$(cat "$HC_STUB_CALLS")" 'get t11 --json'
+}
+
+function test_herdr_run_4631_hc_live_terminal_refuses_to_replace_a_starting_label() {
+  _bats_test_init 4631 'hc live terminal refuses to replace a starting label'
+  # #given
+  write_hc_stub
+  mkdir -p "$HERDR_RUN_DIR"
+  printf '%s\n' 'start=2026-11-03T00:00:00Z' 'head=abc123' 'dirty=0' "cwd=$HERDR_RUN_CWD" > "$HERDR_RUN_DIR/starting.meta"
+  printf '%s\n' t11 > "$HERDR_RUN_DIR/starting.terminal"
+
+  # #when
+  run --separate-stderr herdr_run_hc starting --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" --wait --timeout 5 -- true
+  # #then
+  assert_failure 2
+  assert_stderr 'herdr-run: starting is still running (terminal=t11); wait for it or choose another label'
+  assert_equal "$(cat "$HC_STUB_CALLS")" 'get t11 --json'
+  assert [ ! -e "$HERDR_RUN_DIR/starting.sh" ]
+}
+
+function test_herdr_run_4632_hc_finished_and_missing_terminals_make_verdict_dead() {
+  _bats_test_init 4632 'hc finished and missing terminals make verdict dead'
+  # #given
+  write_hc_stub
+  mkdir -p "$HERDR_RUN_DIR"
+  printf '%s\n' 'start=2026-11-03T00:00:00Z' 'head=abc123' 'dirty=0' "cwd=$HERDR_RUN_CWD" > "$HERDR_RUN_DIR/gone.meta"
+  printf '%s\n' t11 > "$HERDR_RUN_DIR/gone.terminal"
+
+  # #when
+  run env HC_STUB_GET_STATE=finished HC_TERMINAL_ID=t1 HOME="$HERDR_RUN_HOME" HERDR_RUN_DIR="$HERDR_RUN_DIR" \
+    PATH="$HC_STUB:$PATH" "$HERDR_RUN" verdict gone --dir "$HERDR_RUN_DIR"
+  # #then
+  assert_failure 4
+  assert_output "state=dead
+exit=none
+head=abc123
+dirty=0
+cwd=$HERDR_RUN_CWD
+failed=0"
+  assert_equal "$(cat "$HC_STUB_CALLS")" 'get t11 --json'
+
+  : > "$HC_STUB_CALLS"
+  run env HC_STUB_GET_STATE=not_found HC_TERMINAL_ID=t1 HOME="$HERDR_RUN_HOME" HERDR_RUN_DIR="$HERDR_RUN_DIR" \
+    PATH="$HC_STUB:$PATH" "$HERDR_RUN" verdict gone --dir "$HERDR_RUN_DIR"
+  assert_failure 4
+  assert_output "state=dead
+exit=none
+head=abc123
+dirty=0
+cwd=$HERDR_RUN_CWD
+failed=0"
+  assert_equal "$(cat "$HC_STUB_CALLS")" 'get t11 --json'
+}
+
+function test_herdr_run_4633_hc_run_failure_cleans_up_launch_state() {
+  _bats_test_init 4633 'hc run failure cleans up launch state'
+  # #given
+  write_hc_stub
+
+  # #when
+  run --separate-stderr env HC_STUB_RUN_STATUS=1 HC_TERMINAL_ID=t1 HOME="$HERDR_RUN_HOME" \
+    HERDR_RUN_DIR="$HERDR_RUN_DIR" PATH="$HC_STUB:$PATH" "$HERDR_RUN" unavailable --dir "$HERDR_RUN_DIR" \
+    --cwd "$HERDR_RUN_CWD" -- sh -c 'exit 0'
+  # #then
+  assert_failure 1
+  assert_stderr --partial 'herdr-run: failed to create workload terminal'
+  assert_equal "$(cat "$HC_STUB_CALLS")" \
+    "run --bg --name unavailable --cwd $HERDR_RUN_CWD -- bash $HERDR_RUN_DIR/unavailable.sh"
+  assert [ ! -e "$HERDR_RUN_DIR/unavailable.sh" ]
+  assert [ ! -e "$HERDR_RUN_DIR/unavailable.meta" ]
+  assert [ ! -e "$HERDR_RUN_DIR/unavailable.terminal" ]
+}
+
+function test_herdr_run_4634_hc_liveness_keeps_a_recorded_pid_as_the_authority() {
+  _bats_test_init 4634 'hc liveness keeps a recorded pid as the authority'
+  # #given
+  write_hc_stub
+  run herdr_run pid-first --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" -- sh -c 'sleep 5'
+  assert_success
+  wait_for_run_pid "$HERDR_RUN_DIR/pid-first.pid"
+  local dead_pid
+  dead_pid="$(cat "$HERDR_RUN_DIR/pid-first.pid")"
+  printf '%s\n' t11 > "$HERDR_RUN_DIR/pid-first.terminal"
+  kill -KILL "$dead_pid"
+
+  # #when
+  run herdr_run_hc verdict pid-first --dir "$HERDR_RUN_DIR"
+  # #then
+  assert_failure 4
+  assert_output "state=dead
+exit=none
+head=none
+dirty=0
+cwd=$HERDR_RUN_CWD
+failed=0"
+  assert_equal "$(cat "$HC_STUB_CALLS")" ''
 }

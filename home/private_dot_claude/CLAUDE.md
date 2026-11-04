@@ -85,6 +85,12 @@ Read `~/.claude/shared/peer-message-contract.md`. It defines peer addresses, mes
 
 </important>
 
+<important if="HC_TERMINAL_ID is set in the environment, so you are running inside the Herdr app">
+
+Read `~/.claude/shared/hc-agent-contract.md`. It defines hc addresses, the `<hc from>` marker, question handling, child and parent duties, and cleanup.
+
+</important>
+
 <important if="you are reporting work done to a person who did not do it, or a problem to the person who owns it: an update, a weekly, a Linear comment, an issue for an area's owner, a brief, an explanation of a change">
 
 Read `~/.claude/shared/reporting-voice.md` and apply its sentence-level rules: achievements, was → now with the artifact, the evidence bound, a problem goes to its owner, facts once, zero context, plain words, the summary last.

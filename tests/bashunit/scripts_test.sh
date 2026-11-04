@@ -1916,9 +1916,9 @@ SH
   run grep -Fx "plugin enable seigi.command-palette" "$calls"
   assert_success
   run grep -Fx "plugin install Seigiard/herdr-worktree-setup -y" "$calls"
-  assert_success
+  assert_failure
   run grep -Fx "plugin enable seigi.worktree-setup" "$calls"
-  assert_success
+  assert_failure
   run grep -Ex "plugin install usrivastava92/herdr-wakeup/plugin --ref [0-9a-f]{40} -y" "$calls"
   assert_success
   run grep -Ex "plugin install jmarbutt/herdr-spaces-pr-status --ref [0-9a-f]{40} -y" "$calls"
@@ -1974,7 +1974,7 @@ SH
   run grep -Fx "plugin install Seigiard/herdr-command-palette -y" "$calls"
   assert_success
   run grep -Fx "plugin install Seigiard/herdr-worktree-setup -y" "$calls"
-  assert_success
+  assert_failure
   # Absent from the registry, so the retired-plugin uninstall in 0851 must not run.
   run grep -F "herdr-focus-notify" "$calls"
   assert_failure
@@ -2185,8 +2185,8 @@ TOML
   assert_output 'server_not_running'
 }
 
-function test_scripts_08524_worktree_setup_is_installed_enabled_and_unpinned() {
-  _bats_test_init 8524 'standalone Worktree Setup is installed enabled and follows its default branch'
+function test_scripts_08524_pane_labels_is_installed_enabled_and_unpinned() {
+  _bats_test_init 8524 'standalone Pane Labels is installed enabled and follows its default branch'
   command_exists herdr && herdr --version >/dev/null 2>&1 \
     || skip "a working upstream herdr is not installed"
   [[ "${MMS_DISPOSABLE_HOME:-}" == 1 ]] || skip "requires the disposable post-apply registry"
@@ -2194,7 +2194,7 @@ function test_scripts_08524_worktree_setup_is_installed_enabled_and_unpinned() {
   # owned package follows its default branch and herdr-auto-update moves it.
   local plugin_json
   run env -i HOME="$HOME" PATH="$PATH" \
-    HERDR_SOCKET_PATH="/tmp/mms-herdr-worktree-setup-$$.sock" herdr plugin list --json
+    HERDR_SOCKET_PATH="/tmp/mms-herdr-pane-labels-$$.sock" herdr plugin list --json
   assert_success
   plugin_json="$output"
 
@@ -2205,17 +2205,198 @@ import os
 plugins = json.loads(os.environ["PLUGIN_JSON"])["result"]["plugins"]
 matches = [
     plugin for plugin in plugins
-    if plugin.get("plugin_id") == "seigi.worktree-setup"
+    if plugin.get("plugin_id") == "seigi.pane-labels"
 ]
 assert len(matches) == 1, matches
 plugin = matches[0]
 source = plugin["source"]
 assert plugin["enabled"] is True, plugin
 assert source["kind"] == "github", source
-assert source["owner"] == "Seigiard" and source["repo"] == "herdr-worktree-setup", source
+assert source["owner"] == "Seigiard" and source["repo"] == "herdr-pane-labels", source
 assert "requested_ref" not in source, source
 PY
   assert_success
+}
+
+install_worktree_setup_fake_bun() {
+  local bin="$1"
+  cat > "$bin/bun" <<'SH'
+#!/usr/bin/env bash
+printf 'cwd=%s\nargv=%s\nevent=%s\nconfig=%s\n' \
+  "$PWD" "$*" "$HERDR_PLUGIN_EVENT_JSON" "$HERDR_PLUGIN_CONFIG_DIR" \
+  > "$WORKTREE_SETUP_BUN_RECORD"
+exit "${WORKTREE_SETUP_BUN_STATUS:-0}"
+SH
+  chmod +x "$bin/bun"
+}
+
+function test_scripts_08525_worktree_setup_runner_passes_escaped_event_to_plugin() {
+  _bats_test_init 8525 'worktree setup runner passes the escaped event to the configured plugin'
+  # #given
+  local runner="$SOURCE_ROOT/dot_local/bin/executable_herdr-worktree-setup-run"
+  local bin="$BATS_TEST_TMPDIR/worktree-setup-bin"
+  local plugin_dir="$BATS_TEST_TMPDIR/plugin dir"
+  local config_dir="$BATS_TEST_TMPDIR/policy dir"
+  local record="$BATS_TEST_TMPDIR/bun.record"
+  local worktree="$BATS_TEST_TMPDIR/worktree \"quoted\""
+  local branch='feature/bright-otter'
+  mkdir -p "$bin" "$plugin_dir" "$config_dir"
+  : > "$plugin_dir/setup.ts"
+  install_worktree_setup_fake_bun "$bin"
+
+  # #when
+  run --separate-stderr env \
+    CLAUDE_WORKTREE_SETUP_PLUGIN_DIR="$plugin_dir" \
+    CLAUDE_WORKTREE_SETUP_CONFIG_DIR="$config_dir" \
+    WORKTREE_SETUP_BUN_RECORD="$record" \
+    PATH="$bin:$PATH" \
+    "$runner" "$worktree" "$branch"
+  assert_success
+  assert_stderr ''
+
+  # #then
+  run cat "$record"
+  assert_success
+  assert_output "cwd=$plugin_dir
+argv=setup.ts
+event={\"data\":{\"worktree\":{\"path\":\"$BATS_TEST_TMPDIR/worktree \\\"quoted\\\"\",\"branch\":\"feature/bright-otter\"}}}
+config=$config_dir"
+}
+
+function test_scripts_08526_worktree_setup_runner_uses_default_paths_with_empty_branch() {
+  _bats_test_init 8526 'worktree setup runner uses default paths and an empty optional branch'
+  # #given
+  local runner="$SOURCE_ROOT/dot_local/bin/executable_herdr-worktree-setup-run"
+  local home="$BATS_TEST_TMPDIR/worktree-setup-home"
+  local bin="$BATS_TEST_TMPDIR/default-worktree-setup-bin"
+  local plugin_dir="$home/.local/lib/herdr-worktree-setup"
+  local config_dir="$home/.config/herdr/plugins/config/seigi.worktree-setup"
+  local record="$BATS_TEST_TMPDIR/default-bun.record"
+  local worktree="$BATS_TEST_TMPDIR/default-worktree"
+  mkdir -p "$bin" "$plugin_dir" "$config_dir"
+  : > "$plugin_dir/setup.ts"
+  install_worktree_setup_fake_bun "$bin"
+
+  # #when
+  run --separate-stderr env -u CLAUDE_WORKTREE_SETUP_PLUGIN_DIR \
+    HOME="$home" \
+    WORKTREE_SETUP_BUN_RECORD="$record" \
+    PATH="$bin:$PATH" \
+    "$runner" "$worktree"
+  assert_success
+  assert_stderr ''
+
+  # #then
+  run cat "$record"
+  assert_success
+  assert_output "cwd=$plugin_dir
+argv=setup.ts
+event={\"data\":{\"worktree\":{\"path\":\"$worktree\",\"branch\":\"\"}}}
+config=$config_dir"
+}
+
+function test_scripts_08527_worktree_setup_runner_returns_bun_status() {
+  _bats_test_init 8527 'worktree setup runner returns the plugin process status'
+  # #given
+  local runner="$SOURCE_ROOT/dot_local/bin/executable_herdr-worktree-setup-run"
+  local bin="$BATS_TEST_TMPDIR/status-worktree-setup-bin"
+  local plugin_dir="$BATS_TEST_TMPDIR/status-plugin"
+  local record="$BATS_TEST_TMPDIR/status-bun.record"
+  mkdir -p "$bin" "$plugin_dir"
+  : > "$plugin_dir/setup.ts"
+  install_worktree_setup_fake_bun "$bin"
+
+  # #when
+  run env \
+    CLAUDE_WORKTREE_SETUP_PLUGIN_DIR="$plugin_dir" \
+    WORKTREE_SETUP_BUN_RECORD="$record" \
+    WORKTREE_SETUP_BUN_STATUS=23 \
+    PATH="$bin:$PATH" \
+    "$runner" "$BATS_TEST_TMPDIR/status-worktree" status-branch
+
+  # #then
+  assert_failure 23
+}
+
+function test_scripts_08528_worktree_setup_runner_rejects_a_missing_path() {
+  _bats_test_init 8528 'worktree setup runner rejects a missing worktree path before setup'
+  # #given
+  local runner="$SOURCE_ROOT/dot_local/bin/executable_herdr-worktree-setup-run"
+  local bin="$BATS_TEST_TMPDIR/missing-path-bin"
+  local plugin_dir="$BATS_TEST_TMPDIR/missing-path-plugin"
+  local record="$BATS_TEST_TMPDIR/missing-path-bun.record"
+  mkdir -p "$bin" "$plugin_dir"
+  : > "$plugin_dir/setup.ts"
+  : > "$record"
+  install_worktree_setup_fake_bun "$bin"
+  run test -x "$runner"
+  assert_success
+
+  # #when
+  run --separate-stderr env \
+    CLAUDE_WORKTREE_SETUP_PLUGIN_DIR="$plugin_dir" \
+    WORKTREE_SETUP_BUN_RECORD="$record" \
+    PATH="$bin:$PATH" \
+    "$runner"
+  assert_failure 2
+  assert_output ''
+  assert_stderr 'usage: herdr-worktree-setup-run <worktree-path> [branch]'
+
+  # #then
+  run cat "$record"
+  assert_success
+  assert_output ''
+}
+
+function test_scripts_08529_worktree_setup_runner_rejects_missing_bun() {
+  _bats_test_init 8529 'worktree setup runner rejects a missing bun executable'
+  # #given
+  local runner="$SOURCE_ROOT/dot_local/bin/executable_herdr-worktree-setup-run"
+  local plugin_dir="$BATS_TEST_TMPDIR/missing-bun-plugin"
+  mkdir -p "$plugin_dir"
+  : > "$plugin_dir/setup.ts"
+  run test -x "$runner"
+  assert_success
+
+  # #when
+  run --separate-stderr env \
+    CLAUDE_WORKTREE_SETUP_PLUGIN_DIR="$plugin_dir" \
+    PATH='/usr/bin:/bin' \
+    "$runner" "$BATS_TEST_TMPDIR/missing-bun-worktree"
+  assert_failure
+  assert_output ''
+
+  # #then
+  assert_equal "${#stderr_lines[@]}" 1
+}
+
+function test_scripts_08530_worktree_setup_runner_rejects_missing_setup_file() {
+  _bats_test_init 8530 'worktree setup runner rejects a plugin without setup.ts'
+  # #given
+  local runner="$SOURCE_ROOT/dot_local/bin/executable_herdr-worktree-setup-run"
+  local bin="$BATS_TEST_TMPDIR/missing-setup-bin"
+  local plugin_dir="$BATS_TEST_TMPDIR/missing-setup-plugin"
+  local record="$BATS_TEST_TMPDIR/missing-setup-bun.record"
+  mkdir -p "$bin" "$plugin_dir"
+  : > "$record"
+  install_worktree_setup_fake_bun "$bin"
+  run test -x "$runner"
+  assert_success
+
+  # #when
+  run --separate-stderr env \
+    CLAUDE_WORKTREE_SETUP_PLUGIN_DIR="$plugin_dir" \
+    WORKTREE_SETUP_BUN_RECORD="$record" \
+    PATH="$bin:$PATH" \
+    "$runner" "$BATS_TEST_TMPDIR/missing-setup-worktree"
+  assert_failure
+  assert_output ''
+  assert_equal "${#stderr_lines[@]}" 1
+
+  # #then
+  run cat "$record"
+  assert_success
+  assert_output ''
 }
 
 # ask-in-herdr skill script
@@ -2805,8 +2986,6 @@ function test_scripts_1075_ask_sh_retains_transport_when_a_started_child_termina
   rm -f "$report_line" "$report_line.tmp"
   rmdir "$transport_dir"
 }
-
-# ===========================================
 
 # ===========================================
 # herdr-peer prompt contract

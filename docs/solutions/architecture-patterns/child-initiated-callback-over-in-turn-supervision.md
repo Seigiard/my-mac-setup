@@ -32,6 +32,8 @@ tags:
 
 # In-turn supervision of child agents is a dead end — callback in, stalls designed out
 
+> **Status (2026-11-03).** The principle stands: the child calls back; nothing waits inside the parent's turn. In the Herdr app, the mechanism is herdr-core's `blocked|error|exited` notes and `hc send`, not `herdr-child ask` and the TUI watcher. See [ADR-0025](../../adr/0025-use-herdr-core-as-the-agent-communication-substrate.md) and `~/.claude/shared/hc-agent-contract.md`.
+
 ## Context
 
 A parent agent running in a herdr pane needed to start child agents in sibling panes and stay responsive to them. The repo had three supervision mechanisms — `herdr agent wait`, `herdr pane wait-output`, and the `herdr-pair` driver loop — and all three share one fatal property: they block inside the parent's turn. "A parent agent's turn ends when it stops issuing tool calls" — when the turn ends, the supervision ends with it, and "the child keeps running in a pane nobody is reading" (`docs/plans/2026-08-17-1630-feat-child-agent-launch-contract-plan.md:36`).

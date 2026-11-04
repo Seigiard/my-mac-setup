@@ -30,6 +30,13 @@ worktrees. The repository plugin performs post-create setup and writes a
 directory. Automated branch renaming is allowed only when that marker proves
 Herdr provenance; branch text never grants authority.
 
+## Status
+
+The Herdr app's `my-worktree` mod now runs the setup package by fixed path after
+`git worktree add`. The package is pinned as a chezmoi external and is no longer
+installed as a TUI plugin; the policy file remains managed here. The package
+still writes the marker, so app-created worktrees carry it.
+
 ## Consequences
 
 Lifecycle and repository setup have distinct owners, and a generated checkout

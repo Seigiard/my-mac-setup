@@ -32,6 +32,20 @@ compose_project_name() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -c 'abcdefghijklmnopqrstuvwxyz0123456789_-' '-'
 }
 
+compose_hc_name() {
+  local label="$1" name checksum lower_label
+
+  name="$(compose_project_name "$label")"
+  lower_label="$(printf '%s' "$label" | tr '[:upper:]' '[:lower:]')"
+  if [ "$name" != "$label" ] && [ "$label" = "$lower_label" ]; then
+    checksum="$(printf '%s' "$label" | cksum | awk '{printf "%06x", $1 % 16777216}')"
+    name="$(printf '%s' "$name" | cut -c 1-25)-$checksum"
+  else
+    name="$(printf '%s' "$name" | cut -c 1-32)"
+  fi
+  printf '%s' "$name"
+}
+
 write_meta() {
   local cwd="$1" meta_file="$2" head=none dirty=0 start
 
@@ -109,11 +123,12 @@ report_process_tree() {
 }
 
 workload_alive() {
-  local state_dir="$1" label="$2" pid_file pane_file pid pane
+  local state_dir="$1" label="$2" pid_file pane_file terminal_file pid pane terminal terminal_result terminal_state
 
   WORKLOAD_LIVENESS_TARGET=''
   pid_file="$state_dir/$label.pid"
   pane_file="$state_dir/$label.pane"
+  terminal_file="$state_dir/$label.terminal"
   if [ -e "$pid_file" ]; then
     pid="$(<"$pid_file")"
     if [ -z "$pid" ]; then
@@ -123,6 +138,16 @@ workload_alive() {
     WORKLOAD_LIVENESS_TARGET="pid=$pid"
     kill -0 "$pid" 2>/dev/null
     return
+  fi
+  if [ -n "${HC_TERMINAL_ID:-}" ] && [ -s "$terminal_file" ]; then
+    terminal="$(<"$terminal_file")"
+    WORKLOAD_LIVENESS_TARGET="terminal=$terminal"
+    if terminal_result="$(hc get "$terminal" --json 2>/dev/null)"; then
+      terminal_state="$(printf '%s\n' "$terminal_result" | sed -n 's/.*"state":"\([^"]*\)".*/\1/p')"
+      [ "$terminal_state" = live ]
+      return $?
+    fi
+    return 1
   fi
   if [ "${HERDR_ENV:-}" = 1 ] && [ -s "$pane_file" ]; then
     pane="$(<"$pane_file")"
@@ -134,8 +159,8 @@ workload_alive() {
 }
 
 wait_for_exit() {
-  local state_dir="$1" label="$2" log_file="$3" exit_file="$4" pid_file="$5" pane_file="$6" timeout="$7" stall_seconds="$8"
-  local start now last_growth last_size size idle_seconds stall_reported=0 pid pane exit_code last_pane_check=0 process_tree liveness
+  local state_dir="$1" label="$2" log_file="$3" exit_file="$4" pid_file="$5" pane_file="$6" terminal_file="$7" timeout="$8" stall_seconds="$9"
+  local start now last_growth last_size size idle_seconds stall_reported=0 pid pane terminal exit_code last_pane_check=0 process_tree liveness
 
   start="$(date +%s)"
   last_growth="$start"
@@ -160,6 +185,9 @@ wait_for_exit() {
         pid="$(<"$pid_file")"
         process_tree="$(report_process_tree "$pid")"
         printf 'herdr-run: %s stall: log idle %ss pid=%s\n%s\n' "$label" "$idle_seconds" "$pid" "$process_tree" >&2
+      elif [ -s "$terminal_file" ]; then
+        terminal="$(<"$terminal_file")"
+        printf 'herdr-run: %s stall: log idle %ss terminal=%s\n' "$label" "$idle_seconds" "$terminal" >&2
       else
         pane="$(<"$pane_file")"
         printf 'herdr-run: %s stall: log idle %ss pane=%s\n' "$label" "$idle_seconds" "$pane" >&2
@@ -175,7 +203,9 @@ wait_for_exit() {
         printf 'herdr-run: %s workload gone without a status (%s)\n' "$label" "$WORKLOAD_LIVENESS_TARGET" >&2
         return 125
       fi
-    elif [ "${HERDR_ENV:-}" = 1 ] && [ -s "$pane_file" ] && [ $((now - last_pane_check)) -ge 5 ]; then
+    elif { [ -n "${HC_TERMINAL_ID:-}" ] && [ -s "$terminal_file" ]; } ||
+      { [ "${HERDR_ENV:-}" = 1 ] && [ -s "$pane_file" ]; } &&
+      [ $((now - last_pane_check)) -ge 5 ]; then
       last_pane_check="$now"
       workload_alive "$state_dir" "$label"
       liveness=$?
@@ -276,7 +306,8 @@ run_verdict() {
 
 run_workload() {
   local label="$1" cwd="$PWD" state_dir="${HERDR_RUN_DIR:-$HOME/.cache/herdr-run}" wait=0 timeout='' stall_minutes=5 stall_seconds
-  local script_file log_file exit_file meta_file pid_file pane_file compose_project tab_result pane pane_command liveness
+  local script_file log_file exit_file meta_file pid_file pane_file terminal_file compose_project tab_result pane pane_command terminal_result terminal hc_name liveness
+  local -a hc_command
 
   shift
   valid_label "$label" || {
@@ -370,6 +401,7 @@ run_workload() {
   meta_file="$state_dir/$label.meta"
   pid_file="$state_dir/$label.pid"
   pane_file="$state_dir/$label.pane"
+  terminal_file="$state_dir/$label.terminal"
 
   if [ ! -s "$exit_file" ]; then
     workload_alive "$state_dir" "$label"
@@ -381,7 +413,7 @@ run_workload() {
     fi
   fi
 
-  rm -f "$log_file" "$exit_file" "$pid_file" "$pane_file"
+  rm -f "$log_file" "$exit_file" "$pid_file" "$pane_file" "$terminal_file"
 
   compose_project="herdr-run-$(compose_project_name "$label")"
   write_meta "$cwd" "$meta_file" || {
@@ -395,7 +427,29 @@ run_workload() {
     return 2
   }
 
-  if [ "${HERDR_ENV:-}" = 1 ]; then
+  if [ -n "${HC_TERMINAL_ID:-}" ]; then
+    hc_name="$(compose_hc_name "$label")"
+    hc_command=(hc run --bg --name "$hc_name" --cwd "$cwd")
+    [ "$wait" -eq 1 ] && hc_command+=(--no-notify)
+    hc_command+=(-- bash "$script_file")
+    terminal_result="$("${hc_command[@]}")" || {
+      rm -f "$script_file" "$meta_file" "$terminal_file"
+      printf 'herdr-run: failed to create workload terminal\n' >&2
+      return 1
+    }
+    terminal="$(printf '%s\n' "$terminal_result" | sed -n 's/.*"address":"\([^"]*\)".*/\1/p' | sed -n '1p')"
+    [ -n "$terminal" ] || {
+      rm -f "$script_file" "$meta_file" "$terminal_file"
+      printf 'herdr-run: failed to determine workload terminal\n' >&2
+      return 1
+    }
+    printf '%s\n' "$terminal" > "$terminal_file" || {
+      rm -f "$script_file" "$meta_file" "$terminal_file"
+      printf 'herdr-run: cannot record workload terminal\n' >&2
+      return 2
+    }
+    printf 'dir=%s\nlabel=%s\nterminal=%s\n' "$state_dir" "$label" "$terminal"
+  elif [ "${HERDR_ENV:-}" = 1 ]; then
     tab_result="$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$cwd" --label "$label" --no-focus)" || {
       rm -f "$script_file" "$meta_file"
       printf 'herdr-run: failed to create workload tab\n' >&2
@@ -431,7 +485,7 @@ run_workload() {
   fi
 
   if [ "$wait" -eq 1 ]; then
-    wait_for_exit "$state_dir" "$label" "$log_file" "$exit_file" "$pid_file" "$pane_file" "$timeout" "$stall_seconds"
+    wait_for_exit "$state_dir" "$label" "$log_file" "$exit_file" "$pid_file" "$pane_file" "$terminal_file" "$timeout" "$stall_seconds"
     return $?
   fi
   return 0

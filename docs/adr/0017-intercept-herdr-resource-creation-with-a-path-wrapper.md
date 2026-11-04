@@ -1,11 +1,13 @@
 ---
 title: Intercept Herdr resource creation with a PATH wrapper
-status: accepted
+status: superseded
 date: 2026-09-18
 supersedes: []
 ---
 
 # ADR-0017: Intercept Herdr resource creation with a PATH wrapper
+
+Superseded by [ADR-0025](0025-use-herdr-core-as-the-agent-communication-substrate.md).
 
 ## Context
 

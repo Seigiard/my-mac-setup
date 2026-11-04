@@ -155,7 +155,10 @@ fi
 plugin_dir="${CLAUDE_WORKTREE_SETUP_PLUGIN_DIR:-}"
 setup_skip_reason=''
 if [ -z "$plugin_dir" ]; then
-  if ! command -v herdr >/dev/null 2>&1; then
+  fixed_plugin_dir="$HOME/.local/lib/herdr-worktree-setup"
+  if [ -d "$fixed_plugin_dir" ]; then
+    plugin_dir="$fixed_plugin_dir"
+  elif ! command -v herdr >/dev/null 2>&1; then
     setup_skip_reason='claude worktree create: setup skipped (herdr not found)'
   elif ! command -v jq >/dev/null 2>&1; then
     setup_skip_reason='claude worktree create: setup skipped (jq not found)'

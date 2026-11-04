@@ -1,0 +1,163 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+  printf '%s\n' 'usage: hc-run [--cwd DIR] [--tab] <template> <task>' >&2
+}
+
+cwd="$PWD"
+open_tab=0
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --cwd)
+      [ "$#" -ge 2 ] || { usage; exit 2; }
+      cwd="$2"
+      shift 2
+      ;;
+    --tab)
+      open_tab=1
+      shift
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      usage
+      exit 2
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+[ "$#" -eq 2 ] || { usage; exit 2; }
+
+template="$1"
+task="$2"
+aliases_lib="${HC_RUN_ALIASES_LIB:-$HOME/.local/lib/herdr-pane-labels/herdr-aliases.sh}"
+
+if [ ! -f "$aliases_lib" ]; then
+  printf 'hc-run: aliases library not found: %s\n' "$aliases_lib" >&2
+  exit 1
+fi
+
+# shellcheck disable=SC1090
+if ! source "$aliases_lib"; then
+  printf 'hc-run: could not load aliases library: %s\n' "$aliases_lib" >&2
+  exit 1
+fi
+
+list_status=0
+live_terminals="$(hc ls --json)" || list_status=$?
+[ "$list_status" -eq 0 ] || exit "$list_status"
+
+live_names="$({
+  printf '%s\n' "$live_terminals" |
+    sed 's/"name":"/\
+"name":"/g' |
+    sed -n 's/.*"name":"\([^"]*\)".*/\1/p'
+})"
+
+seed="$cwd|$task|$$|$(date +%s)"
+candidate_status=0
+candidates="$(herdr_alias_candidates "$seed")" || candidate_status=$?
+[ "$candidate_status" -eq 0 ] || exit "$candidate_status"
+
+run_stdout_file="$(mktemp "${TMPDIR:-/tmp}/hc-run.XXXXXX")"
+run_stderr_file="$(mktemp "${TMPDIR:-/tmp}/hc-run.XXXXXX")"
+tab_stderr_file="$(mktemp "${TMPDIR:-/tmp}/hc-run.XXXXXX")"
+trap 'rm -f "$run_stdout_file" "$run_stderr_file" "$tab_stderr_file"' EXIT
+
+child_address=""
+selected_alias=""
+first_message_sent=""
+name_taken=0
+
+start_child() {
+  local alias="$1" run_status run_result error_kind
+
+  : > "$run_stdout_file"
+  : > "$run_stderr_file"
+  name_taken=0
+
+  run_status=0
+  hc run --bg --name "$alias" --cwd "$cwd" "$template" "$task" \
+    >"$run_stdout_file" 2>"$run_stderr_file" || run_status=$?
+
+  if [ "$run_status" -ne 0 ]; then
+    error_kind="$(sed -n 's/.*"kind":"\([^"]*\)".*/\1/p' "$run_stderr_file" | sed -n '1p')"
+
+    if [ "$error_kind" = name_taken ]; then
+      name_taken=1
+      return 1
+    fi
+
+    cat "$run_stderr_file" >&2
+    return "$run_status"
+  fi
+
+  run_result="$(cat "$run_stdout_file")"
+  child_address="$(printf '%s\n' "$run_result" | sed -n 's/.*"address":"\([^"]*\)".*/\1/p' | sed -n '1p')"
+  if [ -z "$child_address" ]; then
+    printf '%s\n' 'hc-run: failed to determine child address' >&2
+    return 1
+  fi
+
+  if first_message_sent="$({
+    python3 -c '
+import json
+import sys
+
+raw = sys.stdin.read().lstrip()
+message = json.JSONDecoder().raw_decode(raw)[0].get("first_message")
+print("false" if isinstance(message, dict) and message.get("sent") is False else "")
+' <<< "$run_result"
+  })"; then
+    :
+  else
+    first_message_sent=""
+  fi
+
+  selected_alias="$alias"
+  return 0
+}
+
+while IFS= read -r candidate; do
+  [ -n "$candidate" ] || continue
+
+  if printf '%s\n' "$live_names" | grep -Fqx "$candidate"; then
+    continue
+  fi
+
+  start_status=0
+  start_child "$candidate" || start_status=$?
+  if [ "$start_status" -eq 0 ]; then
+    break
+  fi
+  if [ "$name_taken" -eq 1 ]; then
+    continue
+  fi
+  exit "$start_status"
+done <<< "$candidates"
+
+[ -n "$child_address" ] || {
+  printf '%s\n' 'hc-run: alias pool is exhausted' >&2
+  exit 1
+}
+
+if [ "$open_tab" -eq 1 ]; then
+  tab_request="$(printf '{"name":"%s","argv":["hc","attach","%s"]}' "$selected_alias" "$child_address")"
+  if ! herdr-app 'do' tab.new "$tab_request" >/dev/null 2>"$tab_stderr_file"; then
+    printf 'hc-run: could not open a tab: %s\n' "$(cat "$tab_stderr_file")" >&2
+  fi
+fi
+
+printf '%s %s\n' "$child_address" "$selected_alias"
+if [ "$first_message_sent" = false ]; then
+  printf 'hc-run: task not sent: hc read %s\n' "$child_address" >&2
+  exit 3
+fi

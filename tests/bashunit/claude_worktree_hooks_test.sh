@@ -124,7 +124,7 @@ run_create_without_bun() {
 run_create_via_herdr() {
   local name="$1" cwd="$2" response="$3"
   write_create_input "$name" "$cwd"
-  run --separate-stderr env \
+  run --separate-stderr env -u CLAUDE_WORKTREE_SETUP_PLUGIN_DIR \
     HOME="$BATS_TEST_TMPDIR/discovery-home" \
     CLAUDE_WORKTREE_SETUP_CONFIG_DIR="$PLUGIN_CONFIG_DIR" \
     WORKTREE_HOOK_TEST_BUN_CWD="$BUN_CWD" \
@@ -143,7 +143,7 @@ run_create_via_herdr() {
 run_create_without_herdr() {
   local name="$1" cwd="$2"
   write_create_input "$name" "$cwd"
-  run --separate-stderr env \
+  run --separate-stderr env -u CLAUDE_WORKTREE_SETUP_PLUGIN_DIR \
     HOME="$BATS_TEST_TMPDIR/discovery-home" \
     CLAUDE_WORKTREE_SETUP_CONFIG_DIR="$PLUGIN_CONFIG_DIR" \
     WORKTREE_HOOK_TEST_BUN_CWD="$BUN_CWD" \
@@ -433,6 +433,34 @@ function test_claude_worktree_hooks_015_create_keeps_creation_when_herdr_is_unav
   assert_output "$expected_path"
   assert_stderr 'claude worktree create: setup skipped (herdr not found)'
   assert_setup_did_not_run
+}
+
+function test_claude_worktree_hooks_028_create_uses_the_fixed_path_when_the_plugin_override_is_unset() {
+  _bats_test_init 54028 'create hook uses the fixed path when the plugin override is unset'
+  # #given
+  local home="$BATS_TEST_TMPDIR/fixed-path-home"
+  local plugin_dir="$home/.local/lib/herdr-worktree-setup"
+  local expected_path="$MAIN/.claude/worktrees/fixed-path-plugin"
+  mkdir -p "$plugin_dir"
+  : > "$plugin_dir/setup.ts"
+  write_create_input 'fixed-path-plugin' "$MAIN/nested/cwd"
+
+  # #when
+  run --separate-stderr env -u CLAUDE_WORKTREE_SETUP_PLUGIN_DIR \
+    HOME="$home" \
+    CLAUDE_WORKTREE_SETUP_CONFIG_DIR="$PLUGIN_CONFIG_DIR" \
+    WORKTREE_HOOK_TEST_BUN_CWD="$BUN_CWD" \
+    WORKTREE_HOOK_TEST_BUN_EVENT="$BUN_EVENT" \
+    WORKTREE_HOOK_TEST_BUN_CONFIG="$BUN_CONFIG" \
+    WORKTREE_HOOK_TEST_BUN_ARGS="$BUN_ARGS" \
+    WORKTREE_HOOK_TEST_BUN_CALLS="$BUN_CALLS" \
+    PATH="$BUN_ONLY_BIN:/usr/bin:/bin" \
+    bash -c 'bash "$1" < "$2"' _ "$CREATE_HOOK" "$CREATE_INPUT"
+  # #then
+  assert_success
+  assert_output "$expected_path"
+  assert_stderr 'plugin setup output'
+  assert_record_equals "$BUN_CWD" "$plugin_dir"
 }
 
 function test_claude_worktree_hooks_016_create_keeps_creation_when_herdr_plugin_list_is_not_json() {

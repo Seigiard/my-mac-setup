@@ -57,7 +57,7 @@
     "ctrl-7": "space.select:7",
     "ctrl-8": "space.select:8",
     "ctrl-9": "space.select:9",
-    "cmd-shift-n": "mod.open:worktree",
+    "cmd-shift-n": "mod.open:my-worktree",
     "cmd-shift-o": "mod.open:worktree-open",
     "cmd-shift-k": "mod.open:worktree-remove",
     "alt-t": "tab.new",
