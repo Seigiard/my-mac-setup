@@ -88,4 +88,4 @@
     url = "https://github.com/Seigiard/herdr-pane-labels/archive/72e257b7b25d12969ea14042fcbe068f9c088dc7.tar.gz"
     exact = true
     stripComponents = 2
-    include = ["*/lib/herdr-aliases.sh", "*/LICENSE"]
+    include = ["*/lib/herdr-aliases.sh"]
