@@ -41,7 +41,7 @@ For pi, run it directly without a template:
 
 ```bash
 hc run --bg --json --name <name> --cwd <dir> -- pi --model openai-codex/gpt-5.5 --thinking medium --exclude-tools ask_user
-hc send <address> "<task>"
+hc send --json <address> "<task>"
 ```
 
 Check `sent` in the send result. Prepend the contract pointer when the consult
