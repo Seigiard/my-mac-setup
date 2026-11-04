@@ -583,6 +583,8 @@ export default class Agents extends View {
     const st = kidStatus(k, this.listed);
     const pic = icon(k.program, 14, t.foreground);
     const alias = this.aliases.get(k.address);
+    // hc-run names a child with its alias; skip a name the alias column already shows.
+    const name = [k.name, k.template, k.program?.name, k.address].find((s) => s && s !== alias);
     const on = k.address === shown;
 
     return h_flex()
@@ -603,7 +605,7 @@ export default class Agents extends View {
         .when(l === "└" || l === "├", el => el.border_b(1.5).rounded_bl(6))))
        .when(Boolean(pic), el => el.child(div().mr(8).child(pic)))
        .child(div().mr(8).flex_none().text_color(t.muted).child(alias ?? ""))
-       .child(div().flex_1().truncate().text_color(on ? t.foreground : t.muted).child(k.name || k.template || k.program?.name || k.address))
+       .child(div().flex_1().truncate().text_color(on ? t.foreground : t.muted).child(name ?? ""))
        .child(this.status(t, { status: st }, compact));
   }
 
