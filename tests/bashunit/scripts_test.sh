@@ -2995,12 +2995,6 @@ function tear_down_after_script() {
 
 function tear_down() { _bats_run_teardown; }
 
-# ===========================================
-# herdr-resource-context client adapters (U6)
-# ===========================================
-
-}
-
 # --- context-usage library (U2) -------------------------------------------
 #
 # Coverage owner for the context load the statusline renders. The oracle is
