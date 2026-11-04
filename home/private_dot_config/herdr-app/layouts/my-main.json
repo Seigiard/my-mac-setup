@@ -165,6 +165,16 @@
           "size": {
             "px": 28
           }
+        },
+        {
+          "id": "keep-awake",
+          "type": "block",
+          "content": {
+            "mod": "my-keep-awake"
+          },
+          "size": {
+            "px": 0
+          }
         }
       ],
       "resizable": false
