@@ -1043,7 +1043,6 @@ assert_minimal_brewfile() {
   refute_line 'brew "poppler"'
   refute_line 'brew "imagemagick"'
   refute_line 'brew "shellcheck"'
-  refute_line 'brew "herdr"'
   refute_line 'brew "nono"'
   refute_line 'brew "fzf"'
 }

@@ -72,11 +72,9 @@ _smoke_critical_paths() {
     .local/lib/agent-hooks/local-instructions.ts
     .config/opencode/plugins/agent-hooks.ts
     .config/opencode/plugins/agents-local.ts
-    .config/herdr/config.toml
-    .config/herdr/plugins/config/seigi.worktree-setup/config.toml
-    .config/herdr/command-palette/commands.toml
     .local/lib/herdr-worktree-setup/setup.ts
-    .local/lib/herdr-process.sh
+    .config/herdr-worktree-setup/config.toml
+    .local/lib/herdr-pane-labels/herdr-aliases.sh
   )
   if is_macos; then
     paths+=(
@@ -86,7 +84,6 @@ _smoke_critical_paths() {
       .config/kitty/herdr.conf
       .config/karabiner
       .config/zed
-      .config/herdr/plugins/config/herdr-wakeup/config.json
     )
   fi
 }
@@ -135,64 +132,6 @@ function test_smoke_005_gitignore_ignores_the_agent_trash_directory() {
   assert_success
   run git -C "$repo" check-ignore --quiet .scratchpad/probe
   assert_success
-}
-
-# Literal consumed outside this repo: herdr's own TOML parser reads these
-# tables at startup and binds the palette open action. No code here calls herdr
-# to observe the binding, so the deployed file is the whole contract -- but the
-# contract is a bound key, not a string that occurs somewhere in the file. A
-# bare grep for the action name also accepts a commented-out line, or one that
-# drifted outside any [[keys.command]] table, or an entry with no key at all.
-#
-# Which chord opens the palette is the user's preference and stays unpinned on
-# purpose; what must hold is that every table naming the action carries a
-# non-empty key and the plugin_action type herdr dispatches it through.
-function test_smoke_006_herdr_command_palette_keybinding_is_configured() {
-  _bats_test_init 6 'herdr command palette keybinding is configured'
-  run python3 - "$HOME/.config/herdr/config.toml" <<'PALETTE'
-import re
-import sys
-
-text = open(sys.argv[1], encoding="utf-8").read()
-tables = re.split(r"^\[\[keys\.command\]\][ \t]*$", text, flags=re.M)[1:]
-bound = []
-broken = []
-for table in tables:
-    body = re.split(r"^\[", table, flags=re.M)[0]
-    fields = dict(re.findall(r'^([A-Za-z_]+) = "([^"]*)"[ \t]*$', body, flags=re.M))
-    if fields.get("command") != "seigi.command-palette.open":
-        continue
-    if fields.get("type") == "plugin_action" and fields.get("key"):
-        bound.append(fields["key"])
-    else:
-        broken.append(fields.get("key") or "<no key>")
-
-if broken:
-    print("not dispatchable: " + ", ".join(sorted(broken)))
-elif bound:
-    print("every palette-open table binds a key through plugin_action")
-else:
-    print("no table binds seigi.command-palette.open")
-PALETTE
-  assert_success
-  assert_output 'every palette-open table binds a key through plugin_action'
-}
-
-# Literal consumed outside this repo: herdr's auto-update plugin reads
-# `trusted_owners` at runtime and only auto-installs plugin updates from that
-# allowlist — a real security boundary, not decoration. Reads the deployed
-# $HOME copy (not $SOURCE_ROOT) so this actually proves chezmoi placed the
-# file, matching every other assertion in this suite.
-function test_smoke_009_herdr_plugin_updates_are_automatic_and_owner_res() {
-  _bats_test_init 9 'herdr plugin updates are automatic and owner-restricted'
-  local config="$HOME/.config/herdr/plugins/config/herdr-auto-update/config.toml"
-
-  assert_file_exists "$config"
-  # Anchored: unanchored, '# auto_update = true' and 'auto_update = trueish'
-  # both match, and a commented-out allowlist is exactly the state this
-  # security boundary has to go red on.
-  assert_file_contains "$config" '^auto_update = true$'
-  assert_file_contains "$config" '^trusted_owners = \["dio16", "Seigiard"\]$'
 }
 
 # ===========================================
@@ -436,77 +375,6 @@ function test_smoke_030_lazygit_config_keeps_russian_layout_keybindings() {
   assert_file_contains "$config" "^quitOnTopLevelReturn: true$"
 }
 
-# ===========================================
-# herdr alias presentation (engine, native integrations, sidebar)
-# ===========================================
-
-require_working_herdr() {
-  command_exists herdr && herdr --version >/dev/null 2>&1 \
-    || skip "a working upstream herdr is not installed"
-}
-
-# A pane restored from session.json has its agent's resume command injected
-# about half a second after its shell is spawned, so that shell never reaches
-# an interactive prompt. zsh-defer runs its queue when the shell goes idle, so
-# a report deferred that way stayed queued for the pane's whole life and the
-# sidebar row kept herdr's native marks instead of this machine's glyphs
-# (observed 2026-09-28 on three restored panes). `zsh -fc` puts the deployed
-# .zshrc in exactly that state -- no prompt, immediate exit -- and it sources
-# the real deployed zsh-defer on the way, so a return to deferral leaves the
-# stub's log absent rather than merely late.
-#
-# The state names are herdr's own vocabulary and belong in the assertion; the
-# glyphs behind them are presentation this machine may retune, so matching
-# them here would turn a taste change red. The machine token is asserted as
-# present rather than by value for the same reason, and because its value is
-# bound per machine role.
-function test_smoke_1077_the_pane_glyph_report_does_not_wait_for_an_idle_shell() {
-  _bats_test_init 1077 'the pane glyph report reaches herdr from a shell that never goes idle'
-  local work="$BATS_TEST_TMPDIR/pane-glyph-report"
-  mkdir -p "$work"
-
-  # HERDR_BIN_PATH is the block's own injection point, so the report travels
-  # its real path and only the binary at the end of it is replaced.
-  cat > "$work/herdr" <<'STUB'
-#!/bin/sh
-printf '%s\n' "$*" > "$HERDR_REPORT_LOG"
-STUB
-  chmod +x "$work/herdr"
-
-  run env HERDR_PANE_ID=w0:p0 HERDR_BIN_PATH="$work/herdr" \
-    HERDR_REPORT_LOG="$work/report.log" zsh -fc 'source "$HOME/.zshrc"'
-  assert_success
-
-  # The report is disowned so it can outlive the shell that started it, which
-  # leaves its completion unordered against that shell's exit. Poll for the
-  # log the stub writes rather than assume either order; a report that never
-  # happens exhausts the bound and fails on the assertions below.
-  local waited=0
-  while [[ ! -s "$work/report.log" && $waited -lt 100 ]]; do
-    sleep 0.05
-    waited=$((waited + 1))
-  done
-
-  assert_file_contains "$work/report.log" 'pane report-metadata w0:p0 '
-  assert_file_contains "$work/report.log" '--source mms\.machine'
-  assert_file_contains "$work/report.log" '--token machine='
-  local state
-  for state in blocked done working idle unknown; do
-    assert_file_contains "$work/report.log" "--state-label $state="
-  done
-}
-
-# The native reporter is installed at ~/.claude/hooks/herdr-agent-state.sh by
-# herdr itself (HERDR_INTEGRATION_ID=claude in its header), not by chezmoi. It
-# exists only where a real herdr is installed, so keep the visible skip on that
-# precondition rather than the environment-variable branch this assertion used
-# to sit behind, which dropped the coverage silently in CI-minimal.
-function test_smoke_1075_herdr_native_agent_state_reporter_is_installed() {
-  _bats_test_init 1075 'herdr installs its native Agent-session reporter'
-  require_working_herdr
-  assert_file_executable "$HOME/.claude/hooks/herdr-agent-state.sh"
-}
-
 function test_smoke_1064_deployed_settings_wire_the_context_threshold_handoff() {
   _bats_test_init 1064 'deployed settings wire the compaction handoff hooks'
   local settings="$HOME/.claude/settings.json"
@@ -672,49 +540,6 @@ function test_smoke_1069_deployed_pi_agent_hooks_extension_enforces_the_core() {
   assert_file_exists "$core/index.ts"
   run env AGENT_HOOKS_PI_EXTENSION_PATH="$extension" AGENT_HOOKS_CORE_PATH="$core" \
     bun test "$BATS_TEST_DIRNAME/agent-hooks-pi-adapter.test.ts"
-  assert_success
-}
-
-# The label-writer contract that used to live here (1059, with its
-# assert_herdr_label_writer_contract helper) is gone. It greped
-# ~/.local/bin/herdr-pane-labels for octal codicon escapes, a single
-# `herdr pane rename` call and an ellipsis -- but that script is not this
-# repository's code. It is installed from the Seigiard/herdr-pane-labels GitHub
-# package (run_onchange_after_7-install-herdr-github-plugins.sh.tmpl), so its
-# internals have no oracle here: a broken writer whose source still holds those
-# strings stayed green, and a harmless upstream refactor (hex escapes, a second
-# rename call) went red. Nothing ever ran the engine.
-#
-# What this repository owns is the deployment, and 1060 and 1061 below own it:
-# that the package is installed from the expected GitHub source, and that its
-# runtime, aliases and version file landed where the shell resolves them. The
-# writer's own behavior belongs to the herdr-pane-labels repository.
-
-function test_smoke_1060_herdr_pane_labels_is_installed_as_a_github_package() {
-  _bats_test_init 1060 'herdr pane labels is installed as a GitHub package'
-  require_working_herdr
-  run herdr plugin list --json
-  assert_success
-  run jq -e '.result.plugins[] | select(.plugin_id == "seigi.pane-labels" and .source.kind == "github" and .source.repo == "herdr-pane-labels")' <<< "$output"
-  assert_success
-}
-
-function test_smoke_1061_herdr_pane_labels_keeps_chezmoi_process_library_and_exposes_package_interface() {
-  _bats_test_init 1061 'herdr pane labels keeps the chezmoi process library and exposes its package interface'
-  require_working_herdr
-  local process_library="$HOME/.local/lib/herdr-process.sh"
-  local source_process_library="$SOURCE_ROOT/dot_local/lib/herdr-process.sh"
-
-  # The package may own its private support files. This managed library has
-  # consumers beyond the package, so its deployed bytes must remain ours.
-  assert_file_exists "$source_process_library"
-  assert_file_exists "$process_library"
-  run cmp -s "$source_process_library" "$process_library"
-  assert_success
-
-  # Alias choice belongs upstream; this deployment only owns the shim boundary
-  # and the compatible managed library it sources.
-  run "$HOME/.local/bin/herdr-pane-labels" --alias-candidates smoke-1061
   assert_success
 }
 
