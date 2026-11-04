@@ -104,3 +104,9 @@ it becomes quiet, after a second idle event, after work resumes, and after the
 1200-second deadline, then run the stop action and confirm no plugin-owned
 assertion or watcher remains. Do not report the Docker deployment gate as that
 macOS evidence.
+
+## Status
+
+The local wakeup integration was retired with the Herdr TUI server in #618.
+The replacement is tracked separately in #632; this ADR remains the historical
+record of why the former package was adopted.

@@ -1,18 +1,21 @@
 # Native Herdr worktrees
 
 Herdr is the single owner of interactive Git worktree creation, opening,
-closing, and removal. Linked checkouts are native child workspaces; space names
-and branch names stay as typed or generated; no component renames them. The
-alias system remains the sole owner of pane, tab, and agent identity.
+closing, and removal. The `Cmd+Shift+N` keybinding invokes the `my-worktree`
+app mod (`home/private_dot_config/herdr-app/mods/my-worktree`, #623). Linked
+checkouts are native child workspaces; space names and branch names stay as
+typed or generated; no component renames them.
 
-- `Cmd+Shift+N` sends the existing `prefix+shift+g` transport sequence from
-  Ghostty or kitty and opens Herdr's native new-worktree dialog.
+- `Cmd+Shift+N` creates and opens a checkout through the `my-worktree` mod,
+  then runs `herdr-worktree-setup-run` for setup.
+- The setup package runs from `~/.local/lib/herdr-worktree-setup`. Claude Code
+  invokes the same package through its `WorktreeCreate` hook.
 - The workspace context menu provides `New worktree`, `Open worktree...`, and,
   on linked child workspaces, `Delete worktree checkout...`.
 - Native removal asks Git to remove safely, offers a forced retry for dirty
   checkouts, closes the child workspace, and retains the branch.
 - New checkouts live under `~/.herdr/worktrees/<repo>/<branch-slug>`;
-  `~/.config/herdr/config.toml` has no `[worktrees]` section.
+  worktree setup policy is managed separately and has no `[worktrees]` section.
 
 The standalone [`seigi.worktree-setup`](https://github.com/Seigiard/herdr-worktree-setup)
 package is pinned as a chezmoi external at
@@ -20,14 +23,9 @@ package is pinned as a chezmoi external at
 Herdr's native lifecycle: preparing a newly created checkout. The Herdr app's
 `my-worktree` mod (`Cmd+Shift+N`) and the Claude Code `WorktreeCreate` hook both
 run it by fixed path. Its sole policy file is
-`~/.config/herdr/plugins/config/seigi.worktree-setup/config.toml`. Tables are
-keyed by the canonical `origin` remote, matching the former Worktrunk project
-keys. A repository with no table receives no setup or fresh-base mutation.
-
-On every `worktree.created` event, the plugin also records
-`herdr-generated-worktree` in that checkout's Git administrative directory.
-The marker records Herdr provenance; no component renames generated branches.
-Git removes the marker with the linked worktree metadata.
+`~/.config/herdr-worktree-setup/config.toml`. Tables are keyed by the canonical
+`origin` remote, matching the former Worktrunk project keys. A repository with
+no table receives no setup or fresh-base mutation.
 
 ## Repository policies
 
@@ -104,7 +102,7 @@ registrations stay untouched.
 
 After Git creates the checkout, the hook invokes `setup.ts` from
 `CLAUDE_WORKTREE_SETUP_PLUGIN_DIR`, exported in `~/.zshenv` and defaulting to
-`~/.local/lib/herdr-worktree-setup`. It no longer needs `herdr plugin list`.
+`~/.local/lib/herdr-worktree-setup`. It no longer queries a Herdr registry.
 The hook passes the checkout path and an empty branch field. The empty field
 tells the plugin to skip fresh-base and the `herdr-generated-worktree` marker,
 so the new branch keeps the parent checkout's unpushed commits and
@@ -135,30 +133,20 @@ hooks, so those checkouts get no setup.
 
 ## Provenance boundary
 
-Worktree creation is native Herdr behavior. The setup plugin observes the
-`worktree.created` event after creation and does not create or claim tabs, panes,
-workspaces, or worktrees. The managed `herdr` PATH wrapper owns provenance only
-for the creation commands it intercepts; plugin-triggered or otherwise
-unsupported creation paths remain unknown-provenance paths.
+Worktree creation is native Herdr behavior. The `my-worktree` app mod creates
+the checkout and starts `herdr-worktree-setup-run`; Claude Code creates nested
+worktrees through its `WorktreeCreate` hook and invokes the setup package at
+`~/.local/lib/herdr-worktree-setup`. Neither path uses the retired TUI dialog,
+a plugin event, or a `herdr` PATH wrapper for provenance.
 
 ## Ownership and deployment
 
 - Chezmoi pins the reviewed `seigi.worktree-setup` package as an external at
-  `~/.local/lib/herdr-worktree-setup`; the TUI plugin copy stays installed until
-  #617/#618, while the repository-keyed policy file remains here.
-- The one-time migration removes the formerly managed local implementation only
-  after the standalone package is installed and enabled. Failed installation or
-  enablement retains the local plugin for the next apply.
-- The GitHub-plugin installer removes a previously installed Worktrunk plugin.
-- A one-time migration removes only the obsolete local manifest and handler
-  after cutover; unrelated files left in that directory are preserved, as is
-  the separately managed policy directory.
-- To remove the standalone package from this machine, first remove its entry
-  from the `plugins` list in
-  `home/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl`,
-  apply the dotfiles, then run `herdr plugin uninstall seigi.worktree-setup`.
-  Uninstalling it without removing that managed entry is not durable: the next
-  apply restores the package by design.
+  `~/.local/lib/herdr-worktree-setup`; the repository-keyed policy file remains
+  here at `~/.config/herdr-worktree-setup/config.toml`.
+- The package is independent of the retired Herdr TUI components. Applying the
+  dotfiles installs the external and leaves the policy available to both
+  supported callers.
 - Chezmoi changes are not live from this checkout. They become active only
   after this repository is committed, synced into chezmoi's source clone, and
   applied by the user.

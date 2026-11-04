@@ -114,8 +114,8 @@ command_exists() {
 }
 
 # python3 is a declared system requirement of this repository, not an optional
-# tool: it is the herdr command palette's interpreter and `chezmoi apply` shells
-# out to it. So the files that depend on it assert instead of skipping -- a
+# tool: `chezmoi apply`, the Python contract checks, and post-apply verification
+# use it. So the files that depend on it assert instead of skipping -- a
 # deliberate exception to the skip-on-missing-tool convention.
 # The floor is what macOS ships at /usr/bin/python3, the oldest interpreter any
 # supported environment provides.
@@ -129,7 +129,7 @@ assert_python3_available() {
   local bin found major minor min_major min_minor
 
   if ! command_exists python3; then
-    fail "python3 is not on PATH. It is the herdr command palette's interpreter and a declared requirement of this repository -- see $readme. Every supported OS ships one, so this repository does not install it."
+    fail "python3 is not on PATH. It is required by chezmoi apply and this repository's Python checks -- see $readme. Every supported OS ships one, so this repository does not install it."
     return 1
   fi
 
@@ -151,7 +151,7 @@ assert_python3_available() {
   # 10# forces base 10: the pattern above admits a leading zero, which bash
   # would otherwise read as an invalid octal literal and error on.
   if (( 10#$major < 10#$min_major || (10#$major == 10#$min_major && 10#$minor < 10#$min_minor) )); then
-    fail "python3 at $bin is $found, older than the $PYTHON3_MIN_VERSION this repository requires -- see $readme. The palette's sources are kept compiling on $PYTHON3_MIN_VERSION because that is what macOS ships at /usr/bin/python3."
+    fail "python3 at $bin is $found, older than the $PYTHON3_MIN_VERSION this repository requires -- see $readme. The repository's Python sources and checks support $PYTHON3_MIN_VERSION because that is what macOS ships at /usr/bin/python3."
     return 1
   fi
 }

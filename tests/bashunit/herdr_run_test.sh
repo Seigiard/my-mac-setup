@@ -303,19 +303,22 @@ herdr_run_hc() {
     "$HERDR_RUN" "$@"
 }
 
-function test_herdr_run_4609_herdr_mode_launches_the_saved_script_in_a_new_tab() {
-  _bats_test_init 4609 'herdr mode launches the saved script in a new tab'
+function test_herdr_run_4609_herdr_env_without_hc_uses_the_plain_detached_branch() {
+  _bats_test_init 4609 'HERDR_ENV without HC uses the plain detached branch'
   # #given
   write_herdr_stub
+
   # #when
-  run env HERDR_ENV=1 HERDR_WORKSPACE_ID=w1 HOME="$HERDR_RUN_HOME" PATH="$HERDR_STUB:$PATH" \
-    "$HERDR_RUN" tabbed --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" -- sh -c 'exit 0'
+  run env HERDR_ENV=1 HOME="$HERDR_RUN_HOME" PATH="$HERDR_STUB:$PATH" \
+    "$HERDR_RUN" detached --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" -- sh -c 'exit 0'
+
   # #then
   assert_success
-  assert_equal "$(cat "$HERDR_RUN_DIR/tabbed.pane")" w1:p2
-  assert_file_exists "$HERDR_RUN_DIR/tabbed.sh"
-  assert_file_contains "$HERDR_STUB_CALLS" "^tab create .*--cwd $HERDR_RUN_CWD.*--no-focus$"
-  assert_equal "$(sed -n '2p' "$HERDR_STUB_CALLS")" "pane run w1:p2 bash $HERDR_RUN_DIR/tabbed.sh"
+  assert_equal "$(cat "$HERDR_STUB_CALLS")" ''
+  wait_for_run_exit "$HERDR_RUN_DIR/detached.exit"
+  assert_file_exists "$HERDR_RUN_DIR/detached.pid"
+  assert_file_not_exists "$HERDR_RUN_DIR/detached.pane"
+  assert_equal "$(cat "$HERDR_RUN_DIR/detached.exit")" 0
 }
 
 function test_herdr_run_4613_wait_and_verdict_report_a_workload_killed_without_a_status() {
@@ -368,20 +371,6 @@ function test_herdr_run_4614_resolves_relative_workload_and_state_paths_before_l
   assert_equal "$(cat "$absolute_state/relative.exit")" 3
 }
 
-function test_herdr_run_4615_quotes_a_space_containing_script_path_for_herdr() {
-  _bats_test_init 4615 'quotes a space containing script path for herdr'
-  # #given
-  write_herdr_stub
-  local state_dir="$BATS_TEST_TMPDIR/with space" expected_command
-  expected_command="$(printf 'bash %q' "$state_dir/quoted.sh")"
-
-  # #when
-  run env HERDR_ENV=1 HERDR_WORKSPACE_ID=w1 HOME="$HERDR_RUN_HOME" PATH="$HERDR_STUB:$PATH" \
-    "$HERDR_RUN" quoted --dir "$state_dir" --cwd "$HERDR_RUN_CWD" -- sh -c 'exit 0'
-  # #then
-  assert_success
-  assert_equal "$(sed -n '2p' "$HERDR_STUB_CALLS")" "pane run w1:p2 $expected_command"
-}
 
 function test_herdr_run_4616_rejects_unusable_state_and_workload_directories_without_launching() {
   _bats_test_init 4616 'rejects unusable state and workload directories without launching'
@@ -476,57 +465,7 @@ function test_herdr_run_4618_stall_report_includes_the_script_pid_and_its_descen
   assert_equal "$wait_status" 0
 }
 
-function test_herdr_run_4621_prefers_the_recorded_pid_over_a_live_tab_for_liveness() {
-  _bats_test_init 4621 'prefers the recorded pid over a live tab for liveness'
-  # #given
-  write_herdr_stub
-  run herdr_run tab-dead --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" -- sh -c 'sleep 5'
-  assert_success
-  wait_for_run_pid "$HERDR_RUN_DIR/tab-dead.pid"
-  local dead_pid
-  dead_pid="$(cat "$HERDR_RUN_DIR/tab-dead.pid")"
-  printf '%s\n' w1:p2 > "$HERDR_RUN_DIR/tab-dead.pane"
-  kill -KILL "$dead_pid"
-  printf '%s\n' stale > "$HERDR_RUN_DIR/tab-dead.sh"
 
-  # #when
-  run env HERDR_ENV=1 HERDR_WORKSPACE_ID=w1 HOME="$HERDR_RUN_HOME" PATH="$HERDR_STUB:$PATH" \
-    "$HERDR_RUN" verdict tab-dead --dir "$HERDR_RUN_DIR"
-  # #then
-  assert_failure 4
-  assert_output "state=dead
-exit=none
-head=none
-dirty=0
-cwd=$HERDR_RUN_CWD
-failed=0"
-
-  run env HERDR_ENV=1 HERDR_WORKSPACE_ID=w1 HOME="$HERDR_RUN_HOME" PATH="$HERDR_STUB:$PATH" \
-    "$HERDR_RUN" tab-dead --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" -- true
-  assert_success
-  run grep -Fx stale "$HERDR_RUN_DIR/tab-dead.sh"
-  assert_failure 1
-}
-
-function test_herdr_run_46211_refuses_to_replace_a_live_pid_even_when_its_tab_is_live() {
-  _bats_test_init 46211 'refuses to replace a live pid even when its tab is live'
-  # #given
-  write_herdr_stub
-  run herdr_run tab-alive --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" -- sh -c 'sleep 2'
-  assert_success
-  wait_for_run_pid "$HERDR_RUN_DIR/tab-alive.pid"
-  printf '%s\n' w1:p3 > "$HERDR_RUN_DIR/tab-alive.pane"
-  run kill -0 "$(cat "$HERDR_RUN_DIR/tab-alive.pid")"
-  assert_success
-
-  # #when
-  run --separate-stderr env HERDR_ENV=1 HERDR_WORKSPACE_ID=w1 HOME="$HERDR_RUN_HOME" PATH="$HERDR_STUB:$PATH" \
-    "$HERDR_RUN" tab-alive --dir "$HERDR_RUN_DIR" --cwd "$HERDR_RUN_CWD" -- true
-  # #then
-  assert_failure 2
-  assert_stderr --partial 'is still running'
-  wait_for_run_exit "$HERDR_RUN_DIR/tab-alive.exit"
-}
 
 function test_herdr_run_4622_stops_waiting_when_the_state_directory_disappears() {
   _bats_test_init 4622 'stops waiting when the state directory disappears'
@@ -650,15 +589,14 @@ function test_herdr_run_4635_hc_names_labels_that_normalize_to_the_same_value_di
   [ "$first_name" != "$second_name" ] || fail 'normalized labels must receive distinct hc names'
 }
 
-function test_herdr_run_4629_hc_wins_over_the_tui_branch() {
-  _bats_test_init 4629 'hc wins over the TUI branch'
+function test_herdr_run_4629_hc_runs_when_both_hc_and_herdr_env_are_set() {
+  _bats_test_init 4629 'hc runs when both HC_TERMINAL_ID and HERDR_ENV are set'
   # #given
   write_hc_stub
-  write_herdr_stub
 
   # #when
-  run env HERDR_ENV=1 HERDR_WORKSPACE_ID=w1 HC_TERMINAL_ID=t1 HOME="$HERDR_RUN_HOME" \
-    PATH="$HC_STUB:$HERDR_STUB:$PATH" "$HERDR_RUN" app-terminal --dir "$HERDR_RUN_DIR" \
+  run env HERDR_ENV=1 HC_TERMINAL_ID=t1 HOME="$HERDR_RUN_HOME" \
+    PATH="$HC_STUB:$PATH" "$HERDR_RUN" app-terminal --dir "$HERDR_RUN_DIR" \
     --cwd "$HERDR_RUN_CWD" -- sh -c 'exit 0'
   # #then
   assert_success
@@ -667,7 +605,6 @@ label=app-terminal
 terminal=t11"
   assert_equal "$(cat "$HC_STUB_CALLS")" \
     "run --bg --name app-terminal --cwd $HERDR_RUN_CWD -- bash $HERDR_RUN_DIR/app-terminal.sh"
-  assert_equal "$(cat "$HERDR_STUB_CALLS")" ''
 }
 
 function test_herdr_run_4630_hc_live_terminal_makes_verdict_running_before_the_pid_exists() {

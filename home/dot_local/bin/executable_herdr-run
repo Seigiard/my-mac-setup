@@ -2,9 +2,19 @@
 
 set -o pipefail
 
-SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=home/dot_local/lib/herdr-process.sh
-source "$SCRIPT_DIR/../lib/herdr-process.sh"
+# Agent and test harnesses can keep control pipes on descriptors above stderr.
+# Detached descendants must not keep those pipes alive after their caller exits.
+# Bash 3.2 reserves descriptor 255 for the running script.
+close_inherited_descriptors() {
+  local descriptor fd
+  for descriptor in /dev/fd/*; do
+    fd="${descriptor##*/}"
+    case "$fd" in
+      0 | 1 | 2 | 255 | *[!0-9]*) continue ;;
+    esac
+    eval "exec ${fd}>&-" 2>/dev/null || true
+  done
+}
 
 usage() {
   printf '%s\n' 'usage: herdr-run <label> [--cwd DIR] [--dir DIR] [--wait] [--timeout SEC] [--stall-minutes N] -- <command...>' >&2
@@ -123,11 +133,10 @@ report_process_tree() {
 }
 
 workload_alive() {
-  local state_dir="$1" label="$2" pid_file pane_file terminal_file pid pane terminal terminal_result terminal_state
+  local state_dir="$1" label="$2" pid_file terminal_file pid terminal terminal_result terminal_state
 
   WORKLOAD_LIVENESS_TARGET=''
   pid_file="$state_dir/$label.pid"
-  pane_file="$state_dir/$label.pane"
   terminal_file="$state_dir/$label.terminal"
   if [ -e "$pid_file" ]; then
     pid="$(<"$pid_file")"
@@ -149,18 +158,12 @@ workload_alive() {
     fi
     return 1
   fi
-  if [ "${HERDR_ENV:-}" = 1 ] && [ -s "$pane_file" ]; then
-    pane="$(<"$pane_file")"
-    WORKLOAD_LIVENESS_TARGET="pane=$pane"
-    herdr pane get "$pane" >/dev/null 2>&1
-    return
-  fi
   return 2
 }
 
 wait_for_exit() {
-  local state_dir="$1" label="$2" log_file="$3" exit_file="$4" pid_file="$5" pane_file="$6" terminal_file="$7" timeout="$8" stall_seconds="$9"
-  local start now last_growth last_size size idle_seconds stall_reported=0 pid pane terminal exit_code last_pane_check=0 process_tree liveness
+  local state_dir="$1" label="$2" log_file="$3" exit_file="$4" pid_file="$5" terminal_file="$6" timeout="$7" stall_seconds="$8"
+  local start now last_growth last_size size idle_seconds stall_reported=0 pid terminal exit_code last_terminal_check=0 process_tree liveness
 
   start="$(date +%s)"
   last_growth="$start"
@@ -188,9 +191,6 @@ wait_for_exit() {
       elif [ -s "$terminal_file" ]; then
         terminal="$(<"$terminal_file")"
         printf 'herdr-run: %s stall: log idle %ss terminal=%s\n' "$label" "$idle_seconds" "$terminal" >&2
-      else
-        pane="$(<"$pane_file")"
-        printf 'herdr-run: %s stall: log idle %ss pane=%s\n' "$label" "$idle_seconds" "$pane" >&2
       fi
       stall_reported=1
     fi
@@ -203,10 +203,9 @@ wait_for_exit() {
         printf 'herdr-run: %s workload gone without a status (%s)\n' "$label" "$WORKLOAD_LIVENESS_TARGET" >&2
         return 125
       fi
-    elif { [ -n "${HC_TERMINAL_ID:-}" ] && [ -s "$terminal_file" ]; } ||
-      { [ "${HERDR_ENV:-}" = 1 ] && [ -s "$pane_file" ]; } &&
-      [ $((now - last_pane_check)) -ge 5 ]; then
-      last_pane_check="$now"
+    elif [ -n "${HC_TERMINAL_ID:-}" ] && [ -s "$terminal_file" ] &&
+      [ $((now - last_terminal_check)) -ge 5 ]; then
+      last_terminal_check="$now"
       workload_alive "$state_dir" "$label"
       liveness=$?
       if [ "$liveness" -eq 1 ]; then
@@ -230,7 +229,7 @@ wait_for_exit() {
 }
 
 run_verdict() {
-  local label state_dir meta_file exit_file log_file pid_file pane_file head dirty cwd exit_code failed ansi_escape failure_pattern liveness
+  local label state_dir meta_file exit_file log_file pid_file head dirty cwd exit_code failed ansi_escape failure_pattern liveness
 
   [ $# -gt 0 ] || {
     usage
@@ -266,7 +265,6 @@ run_verdict() {
   exit_file="$state_dir/$label.exit"
   log_file="$state_dir/$label.log"
   pid_file="$state_dir/$label.pid"
-  pane_file="$state_dir/$label.pane"
   [ -f "$meta_file" ] || return 2
 
   head="$(sed -n 's/^head=//p' "$meta_file")"
@@ -306,7 +304,7 @@ run_verdict() {
 
 run_workload() {
   local label="$1" cwd="$PWD" state_dir="${HERDR_RUN_DIR:-$HOME/.cache/herdr-run}" wait=0 timeout='' stall_minutes=5 stall_seconds
-  local script_file log_file exit_file meta_file pid_file pane_file terminal_file compose_project tab_result pane pane_command terminal_result terminal hc_name liveness
+  local script_file log_file exit_file meta_file pid_file terminal_file compose_project terminal_result terminal hc_name liveness
   local -a hc_command
 
   shift
@@ -400,7 +398,6 @@ run_workload() {
   exit_file="$state_dir/$label.exit"
   meta_file="$state_dir/$label.meta"
   pid_file="$state_dir/$label.pid"
-  pane_file="$state_dir/$label.pane"
   terminal_file="$state_dir/$label.terminal"
 
   if [ ! -s "$exit_file" ]; then
@@ -413,7 +410,7 @@ run_workload() {
     fi
   fi
 
-  rm -f "$log_file" "$exit_file" "$pid_file" "$pane_file" "$terminal_file"
+  rm -f "$log_file" "$exit_file" "$pid_file" "$terminal_file"
 
   compose_project="herdr-run-$(compose_project_name "$label")"
   write_meta "$cwd" "$meta_file" || {
@@ -449,32 +446,6 @@ run_workload() {
       return 2
     }
     printf 'dir=%s\nlabel=%s\nterminal=%s\n' "$state_dir" "$label" "$terminal"
-  elif [ "${HERDR_ENV:-}" = 1 ]; then
-    tab_result="$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$cwd" --label "$label" --no-focus)" || {
-      rm -f "$script_file" "$meta_file"
-      printf 'herdr-run: failed to create workload tab\n' >&2
-      return 1
-    }
-    pane="$(printf '%s\n' "$tab_result" | sed -n 's/.*"pane_id":"\([^"]*\)".*/\1/p' | sed -n '1p')"
-    [ -n "$pane" ] || {
-      rm -f "$script_file" "$meta_file"
-      printf 'herdr-run: failed to determine workload pane\n' >&2
-      return 1
-    }
-    printf '%s\n' "$pane" > "$pane_file" || {
-      herdr pane close "$pane" >/dev/null 2>&1 || true
-      rm -f "$script_file" "$meta_file" "$pane_file"
-      printf 'herdr-run: cannot record workload pane\n' >&2
-      return 2
-    }
-    pane_command="$(printf 'bash %q' "$script_file")"
-    herdr pane run "$pane" "$pane_command" || {
-      herdr pane close "$pane" >/dev/null 2>&1 || true
-      rm -f "$script_file" "$meta_file" "$pane_file"
-      printf 'herdr-run: failed to start workload pane\n' >&2
-      return 1
-    }
-    printf 'dir=%s\nlabel=%s\npane=%s\n' "$state_dir" "$label" "$pane"
   else
     (
       close_inherited_descriptors
@@ -485,7 +456,7 @@ run_workload() {
   fi
 
   if [ "$wait" -eq 1 ]; then
-    wait_for_exit "$state_dir" "$label" "$log_file" "$exit_file" "$pid_file" "$pane_file" "$terminal_file" "$timeout" "$stall_seconds"
+    wait_for_exit "$state_dir" "$label" "$log_file" "$exit_file" "$pid_file" "$terminal_file" "$timeout" "$stall_seconds"
     return $?
   fi
   return 0

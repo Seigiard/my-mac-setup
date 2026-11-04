@@ -158,24 +158,11 @@ if [ -z "$plugin_dir" ]; then
   fixed_plugin_dir="$HOME/.local/lib/herdr-worktree-setup"
   if [ -d "$fixed_plugin_dir" ]; then
     plugin_dir="$fixed_plugin_dir"
-  elif ! command -v herdr >/dev/null 2>&1; then
-    setup_skip_reason='claude worktree create: setup skipped (herdr not found)'
-  elif ! command -v jq >/dev/null 2>&1; then
-    setup_skip_reason='claude worktree create: setup skipped (jq not found)'
-  elif ! plugin_json="$(herdr plugin list --json </dev/null 2>/dev/null)"; then
-    setup_skip_reason='claude worktree create: setup skipped (herdr plugin list failed)'
-  elif ! printf '%s\n' "$plugin_json" | jq empty >/dev/null 2>&1; then
-    setup_skip_reason='claude worktree create: setup skipped (plugin list is not valid JSON)'
   else
-    plugin_dir="$(printf '%s\n' "$plugin_json" |
-      jq -r '.result.plugins[]? | select((type == "object") and (.plugin_id == "seigi.worktree-setup") and (.enabled == true)) | .plugin_root // empty' |
-      sed -n '1p')"
-    if [ -z "$plugin_dir" ]; then
-      setup_skip_reason='claude worktree create: setup skipped (worktree setup plugin is not enabled)'
-    fi
+    setup_skip_reason='claude worktree create: setup skipped (worktree setup package not found)'
   fi
 fi
-config_dir="${CLAUDE_WORKTREE_SETUP_CONFIG_DIR:-$HOME/.config/herdr/plugins/config/seigi.worktree-setup}"
+config_dir="${CLAUDE_WORKTREE_SETUP_CONFIG_DIR:-$HOME/.config/herdr-worktree-setup}"
 
 if [ -n "$setup_skip_reason" ]; then
   printf '%s\n' "$setup_skip_reason" >&2

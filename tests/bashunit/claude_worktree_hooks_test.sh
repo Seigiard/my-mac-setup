@@ -26,8 +26,8 @@ setup() {
   mkdir -p "$GIT_HOME" "$PLUGIN_DIR" "$PLUGIN_CONFIG_DIR" "$FAKE_BIN" "$BUN_ONLY_BIN"
   : > "$PLUGIN_DIR/setup.ts"
   : > "$BUN_CALLS"
+  : > "$HERDR_CALLS"
   install_fake_bun
-  install_fake_herdr
   create_git_fixture
 }
 
@@ -76,17 +76,20 @@ SH
   cp "$FAKE_BIN/bun" "$BUN_ONLY_BIN/bun"
 }
 
-install_fake_herdr() {
+install_recording_herdr() {
   cat > "$FAKE_BIN/herdr" <<'SH'
 #!/usr/bin/env bash
-if [ "$*" = 'plugin list --json' ]; then
-  printf '%s\n' "$*" >> "$WORKTREE_HOOK_TEST_HERDR_CALLS"
-  printf '%s\n' "$WORKTREE_HOOK_TEST_HERDR_RESPONSE"
-  exit "${WORKTREE_HOOK_TEST_HERDR_STATUS:-0}"
-fi
-exit 64
+printf '%s\n' "$*" >> "$WORKTREE_HOOK_TEST_HERDR_CALLS"
 SH
   chmod +x "$FAKE_BIN/herdr"
+}
+
+install_fake_jq() {
+  cat > "$FAKE_BIN/jq" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' '{}'
+SH
+  chmod +x "$FAKE_BIN/jq"
 }
 
 write_create_input() {
@@ -121,36 +124,17 @@ run_create_without_bun() {
     bash -c 'bash "$1" < "$2"' _ "$CREATE_HOOK" "$CREATE_INPUT"
 }
 
-run_create_via_herdr() {
-  local name="$1" cwd="$2" response="$3"
+run_create_with_default_paths() {
+  local name="$1" cwd="$2" home="$3"
   write_create_input "$name" "$cwd"
-  run --separate-stderr env -u CLAUDE_WORKTREE_SETUP_PLUGIN_DIR \
-    HOME="$BATS_TEST_TMPDIR/discovery-home" \
-    CLAUDE_WORKTREE_SETUP_CONFIG_DIR="$PLUGIN_CONFIG_DIR" \
+  run --separate-stderr env -u CLAUDE_WORKTREE_SETUP_PLUGIN_DIR -u CLAUDE_WORKTREE_SETUP_CONFIG_DIR \
+    HOME="$home" \
     WORKTREE_HOOK_TEST_BUN_CWD="$BUN_CWD" \
     WORKTREE_HOOK_TEST_BUN_EVENT="$BUN_EVENT" \
     WORKTREE_HOOK_TEST_BUN_CONFIG="$BUN_CONFIG" \
     WORKTREE_HOOK_TEST_BUN_ARGS="$BUN_ARGS" \
     WORKTREE_HOOK_TEST_BUN_CALLS="$BUN_CALLS" \
     WORKTREE_HOOK_TEST_BUN_STATUS="${WORKTREE_HOOK_TEST_BUN_STATUS:-0}" \
-    WORKTREE_HOOK_TEST_HERDR_CALLS="$HERDR_CALLS" \
-    WORKTREE_HOOK_TEST_HERDR_RESPONSE="$response" \
-    WORKTREE_HOOK_TEST_HERDR_STATUS="${WORKTREE_HOOK_TEST_HERDR_STATUS:-0}" \
-    PATH="$FAKE_BIN:$PATH" \
-    bash -c 'bash "$1" < "$2"' _ "$CREATE_HOOK" "$CREATE_INPUT"
-}
-
-run_create_without_herdr() {
-  local name="$1" cwd="$2"
-  write_create_input "$name" "$cwd"
-  run --separate-stderr env -u CLAUDE_WORKTREE_SETUP_PLUGIN_DIR \
-    HOME="$BATS_TEST_TMPDIR/discovery-home" \
-    CLAUDE_WORKTREE_SETUP_CONFIG_DIR="$PLUGIN_CONFIG_DIR" \
-    WORKTREE_HOOK_TEST_BUN_CWD="$BUN_CWD" \
-    WORKTREE_HOOK_TEST_BUN_EVENT="$BUN_EVENT" \
-    WORKTREE_HOOK_TEST_BUN_CONFIG="$BUN_CONFIG" \
-    WORKTREE_HOOK_TEST_BUN_ARGS="$BUN_ARGS" \
-    WORKTREE_HOOK_TEST_BUN_CALLS="$BUN_CALLS" \
     PATH="$BUN_ONLY_BIN:/usr/bin:/bin" \
     bash -c 'bash "$1" < "$2"' _ "$CREATE_HOOK" "$CREATE_INPUT"
 }
@@ -402,112 +386,72 @@ function test_claude_worktree_hooks_013_remove_ignores_a_missing_path_and_reject
   assert_file_exists "$plain/keep.txt"
 }
 
-function test_claude_worktree_hooks_014_create_discovers_the_enabled_worktree_setup_plugin_from_herdr() {
-  _bats_test_init 54014 'create hook discovers the enabled plugin root from Herdr'
-  local expected_path="$MAIN/.claude/worktrees/discovered-plugin"
-  local response
-  response="{\"result\":{\"plugins\":[{\"plugin_id\":\"seigi.worktree-setup\",\"enabled\":true,\"plugin_root\":\"$PLUGIN_DIR\",\"config_dir\":null}]}}"
+function test_claude_worktree_hooks_015_create_skips_setup_without_calling_herdr_when_no_plugin_directory_exists() {
+  _bats_test_init 54015 'create hook skips setup without calling herdr when no plugin directory exists'
+  local home="$BATS_TEST_TMPDIR/no-plugin-home"
+  local expected_path="$MAIN/.claude/worktrees/no-plugin"
+  mkdir -p "$home"
+  install_recording_herdr
+  install_fake_jq
 
   # #given
-  # The plugin-directory override is absent; only Herdr's registry selects setup.ts.
+  # Neither override nor fixed plugin directory exists; the executable fakes
+  # make the retired Herdr fallback reachable if the hook still attempts it.
+  write_create_input 'no-plugin' "$MAIN/nested/cwd"
   # #when
-  run_create_via_herdr 'discovered-plugin' "$MAIN/nested/cwd" "$response"
+  run --separate-stderr env -u CLAUDE_WORKTREE_SETUP_PLUGIN_DIR -u CLAUDE_WORKTREE_SETUP_CONFIG_DIR \
+    HOME="$home" \
+    WORKTREE_HOOK_TEST_HERDR_CALLS="$HERDR_CALLS" \
+    PATH="$FAKE_BIN:/usr/bin:/bin" \
+    bash -c 'bash "$1" < "$2"' _ "$CREATE_HOOK" "$CREATE_INPUT"
   # #then
   assert_success
   assert_output "$expected_path"
-  assert_stderr 'plugin setup output'
-  assert_record_equals "$HERDR_CALLS" 'plugin list --json'
-  assert_record_equals "$BUN_CWD" "$PLUGIN_DIR"
-}
-
-function test_claude_worktree_hooks_015_create_keeps_creation_when_herdr_is_unavailable() {
-  _bats_test_init 54015 'create hook retains creation when Herdr is unavailable for plugin discovery'
-  local expected_path="$MAIN/.claude/worktrees/no-herdr"
-
-  # #given
-  # bun and setup.ts are available, but no herdr executable is on PATH.
-  # #when
-  run_create_without_herdr 'no-herdr' "$MAIN/nested/cwd"
-  # #then
-  assert_success
-  assert_output "$expected_path"
-  assert_stderr 'claude worktree create: setup skipped (herdr not found)'
+  assert_stderr 'claude worktree create: setup skipped (worktree setup package not found)'
+  assert_record_equals "$HERDR_CALLS" ''
   assert_setup_did_not_run
 }
 
-function test_claude_worktree_hooks_028_create_uses_the_fixed_path_when_the_plugin_override_is_unset() {
-  _bats_test_init 54028 'create hook uses the fixed path when the plugin override is unset'
+function test_claude_worktree_hooks_028_create_uses_the_new_policy_default_when_overrides_are_unset() {
+  _bats_test_init 54028 'create hook uses the new policy default when overrides are unset'
   # #given
   local home="$BATS_TEST_TMPDIR/fixed-path-home"
   local plugin_dir="$home/.local/lib/herdr-worktree-setup"
-  local expected_path="$MAIN/.claude/worktrees/fixed-path-plugin"
-  mkdir -p "$plugin_dir"
+  local config_dir="$home/.config/herdr-worktree-setup"
+  local expected_path="$MAIN/.claude/worktrees/default-policy"
+  mkdir -p "$plugin_dir" "$config_dir"
   : > "$plugin_dir/setup.ts"
-  write_create_input 'fixed-path-plugin' "$MAIN/nested/cwd"
+  printf '[repositories]\n' > "$config_dir/config.toml"
 
   # #when
-  run --separate-stderr env -u CLAUDE_WORKTREE_SETUP_PLUGIN_DIR \
-    HOME="$home" \
-    CLAUDE_WORKTREE_SETUP_CONFIG_DIR="$PLUGIN_CONFIG_DIR" \
-    WORKTREE_HOOK_TEST_BUN_CWD="$BUN_CWD" \
-    WORKTREE_HOOK_TEST_BUN_EVENT="$BUN_EVENT" \
-    WORKTREE_HOOK_TEST_BUN_CONFIG="$BUN_CONFIG" \
-    WORKTREE_HOOK_TEST_BUN_ARGS="$BUN_ARGS" \
-    WORKTREE_HOOK_TEST_BUN_CALLS="$BUN_CALLS" \
-    PATH="$BUN_ONLY_BIN:/usr/bin:/bin" \
-    bash -c 'bash "$1" < "$2"' _ "$CREATE_HOOK" "$CREATE_INPUT"
+  run_create_with_default_paths 'default-policy' "$MAIN/nested/cwd" "$home"
   # #then
   assert_success
   assert_output "$expected_path"
   assert_stderr 'plugin setup output'
   assert_record_equals "$BUN_CWD" "$plugin_dir"
+  assert_record_equals "$BUN_CONFIG" "$config_dir"
 }
 
-function test_claude_worktree_hooks_016_create_keeps_creation_when_herdr_plugin_list_is_not_json() {
-  _bats_test_init 54016 'create hook retains creation when Herdr returns malformed plugin JSON'
-  local expected_path="$MAIN/.claude/worktrees/malformed-registry"
-
+function test_claude_worktree_hooks_029_create_ignores_a_policy_that_exists_only_at_the_old_default() {
+  _bats_test_init 54029 'create hook ignores a policy that exists only at the old default'
   # #given
-  # The registry command succeeds but its reply cannot identify a plugin root.
+  local home="$BATS_TEST_TMPDIR/old-policy-home"
+  local plugin_dir="$home/.local/lib/herdr-worktree-setup"
+  local old_config_dir="$home/.config/herdr/plugins/config/seigi.worktree-setup"
+  local new_config_dir="$home/.config/herdr-worktree-setup"
+  local expected_path="$MAIN/.claude/worktrees/old-policy"
+  mkdir -p "$plugin_dir" "$old_config_dir"
+  : > "$plugin_dir/setup.ts"
+  printf '[repositories]\n' > "$old_config_dir/config.toml"
+
   # #when
-  run_create_via_herdr 'malformed-registry' "$MAIN/nested/cwd" 'this is not JSON'
+  run_create_with_default_paths 'old-policy' "$MAIN/nested/cwd" "$home"
   # #then
   assert_success
   assert_output "$expected_path"
-  assert_stderr 'claude worktree create: setup skipped (plugin list is not valid JSON)'
-  assert_setup_did_not_run
-}
-
-function test_claude_worktree_hooks_017_create_keeps_creation_when_herdr_does_not_list_worktree_setup() {
-  _bats_test_init 54017 'create hook retains creation when Herdr has no Worktree Setup entry'
-  local expected_path="$MAIN/.claude/worktrees/missing-registry-plugin"
-  local response='{"result":{"plugins":[]}}'
-
-  # #given
-  # The registry is valid but contains no selected setup plugin.
-  # #when
-  run_create_via_herdr 'missing-registry-plugin' "$MAIN/nested/cwd" "$response"
-  # #then
-  assert_success
-  assert_output "$expected_path"
-  assert_stderr 'claude worktree create: setup skipped (worktree setup plugin is not enabled)'
-  assert_setup_did_not_run
-}
-
-function test_claude_worktree_hooks_018_create_keeps_creation_when_herdr_lists_worktree_setup_disabled() {
-  _bats_test_init 54018 'create hook retains creation when Worktree Setup is disabled in Herdr'
-  local expected_path="$MAIN/.claude/worktrees/disabled-registry-plugin"
-  local response="{\"result\":{\"plugins\":[{\"plugin_id\":\"seigi.worktree-setup\",\"enabled\":false,\"plugin_root\":\"$PLUGIN_DIR\",\"config_dir\":null}]}}"
-
-  # #given
-  # A disabled entry must not supply a plugin root even when it names setup.ts.
-  # #when
-  run_create_via_herdr 'disabled-registry-plugin' "$MAIN/nested/cwd" "$response"
-  # #then
-  assert_success
-  assert_output "$expected_path"
-  assert_stderr 'claude worktree create: setup skipped (worktree setup plugin is not enabled)'
-  assert_setup_did_not_run
+  assert_stderr 'plugin setup output'
+  assert_record_equals "$BUN_CONFIG" "$new_config_dir"
 }
 
 function test_claude_worktree_hooks_019_remove_refuses_a_worktree_that_contains_another_registered_worktree() {

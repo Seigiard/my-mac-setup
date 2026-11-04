@@ -83,3 +83,8 @@ copy of the implementation.
 
 Implementation tests and package lifecycle tests live upstream. This
 repository retains deployment, pin, consumer-interface, and migration tests.
+
+## Status
+
+The TUI plugin was retired in #618. The alias library remains available as a
+pinned chezmoi external because `hc-run` still consumes that interface.

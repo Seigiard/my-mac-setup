@@ -20,90 +20,6 @@ teardown() {
   [[ -n "${BATS_TEST_TMPFILE:-}" ]] && rm -f "$BATS_TEST_TMPFILE" || true
 }
 
-# ===========================================
-# herdr-process library
-# ===========================================
-
-function test_scripts_1208_herdr_process_api_is_one() {
-  _bats_test_init 1208 'shared process library exposes API version one'
-  local process_library="$SOURCE_ROOT/dot_local/lib/herdr-process.sh"
-
-  # #given a fresh shell that can only receive the API from the sourced library
-  # #when it sources the shared process library
-  run env -i PATH="$PATH" bash -c 'source "$1"; printf "%s" "$HERDR_PROCESS_API"' _ "$process_library"
-
-  # #then it exposes the version the herdr-pane-labels shim requires
-  assert_success
-  assert_output '1'
-}
-
-function test_scripts_12081_herdr_process_api_does_not_leak_to_children() {
-  _bats_test_init 12081 'shared process API version stays local to the sourcing shell'
-  local process_library="$SOURCE_ROOT/dot_local/lib/herdr-process.sh"
-
-  # #given a fresh parent shell and its descendant
-  # #when the parent sources the shared process library
-  run env -i PATH="$PATH" bash -c '
-    source "$1"
-    printf "parent=%s\\n" "$HERDR_PROCESS_API"
-    bash -c '\''printf "child=%s" "${HERDR_PROCESS_API-unset}"'\''
-  ' _ "$process_library"
-
-  # #then only the sourcing shell exposes the version
-  assert_success
-  assert_output $'parent=1\nchild=unset'
-}
-
-function test_scripts_1209_shared_process_identity_is_stable_and_preserves_unknown_legacy_markers() {
-  _bats_test_init 1209 'shared process identity is stable and preserves unknown legacy markers'
-  local process_library="$SOURCE_ROOT/dot_local/lib/herdr-process.sh"
-  local stub="$BATS_TEST_TMPDIR/process-identity-bin" log="$BATS_TEST_TMPDIR/process-identity-locales.log"
-  mkdir -p "$stub"
-  cat > "$stub/ps" <<'SH'
-#!/usr/bin/env bash
-printf '%s %s\n' "${LC_ALL-<unset>}" "${TZ-<unset>}" >> "$PROCESS_IDENTITY_LOCALE_LOG"
-if [ "${LC_ALL-}" = C ] && [ "${TZ-}" = UTC ]; then
-  printf '  Thu Oct  1 06:18:05 2026    \n'
-else
-  printf 'sam 12 sep 2026 06:18:05 UTC\n'
-fi
-SH
-  chmod +x "$stub/ps"
-
-  run env -u LC_ALL -u LC_CTYPE -u LANG PATH="$stub:$PATH" \
-    PROCESS_IDENTITY_LOCALE_LOG="$log" bash -c '
-      set -e
-      source "$1"
-      process_start_marker 42
-      printf "\n"
-      process_start_matches 42 "Thu Oct 1 06:18:05 2026" ps-lstart-c-utc-v1
-    ' _ "$process_library"
-
-  assert_success
-  assert_output 'Thu Oct 1 06:18:05 2026'
-  assert_file_contains "$log" '^C UTC$'
-
-  run env PATH="$stub:$PATH" PROCESS_IDENTITY_LOCALE_LOG="$log" bash -c \
-    'source "$1"; process_start_matches 42 "sam 12 sep 2026 06:18:05 UTC"' _ "$process_library"
-  assert_failure 2
-  assert_output ''
-
-  # Each rejection needs its own exit status. `! cmd` under `set -e` is exempt
-  # from errexit, so a negative folded into the script above would report the
-  # status of the last line only and accept a wrong identity silently.
-  run env -u LC_ALL -u LC_CTYPE -u LANG PATH="$stub:$PATH" \
-    PROCESS_IDENTITY_LOCALE_LOG="$log" bash -c \
-    'source "$1"; process_start_matches 42 "wrong process start" ps-lstart-c-utc-v1' _ "$process_library"
-  assert_failure 1
-  assert_output ''
-
-  run env -u LC_ALL -u LC_CTYPE -u LANG PATH="$stub:$PATH" \
-    PROCESS_IDENTITY_LOCALE_LOG="$log" bash -c \
-    'source "$1"; process_start_marker invalid' _ "$process_library"
-  assert_failure 1
-  assert_output ''
-}
-
 # The context-usage cache keys must remain stable because the statusline and
 # handoff hooks read records written by separate invocations. These RFC 4648
 # section 5 vectors are independent values: they cover URL substitutions,
@@ -211,7 +127,7 @@ function test_scripts_9_lint_input_set_excludes_agent_worktrees() {
   assert_failure
   # Control: the same sweep still reaches ordinary repository source, so the
   # exclusion above cannot be satisfied by linting nothing at all.
-  assert_file_contains "$invocations" 'home/dot_local/lib/herdr-process\.sh'
+  assert_file_contains "$invocations" 'home/dot_local/bin/executable_herdr-run'
 }
 
 # ===========================================
@@ -300,365 +216,6 @@ function test_scripts_008_darwin_scripts_excluded_from_managed_list_on_lin() {
   refute_output --partial "run_once_after_macos-tunes"
 }
 
-function test_scripts_0851_github_plugin_install_accepts_formatted_plugin_json() {
-  _bats_test_init 851 'GitHub plugin installation accepts formatted plugin JSON'
-  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
-  local script="$BATS_TEST_TMPDIR/install-herdr-github-plugins.sh"
-  local fake_bin="$BATS_TEST_TMPDIR/bin"
-  local calls="$BATS_TEST_TMPDIR/herdr.calls"
-  local home="$BATS_TEST_TMPDIR/github-plugin-home"
-  local wakeup_config="$home/.config/herdr/plugins/config/herdr-wakeup"
-  mkdir -p "$fake_bin" "$wakeup_config"
-  printf '%s\n' '{"stop_grace_seconds":1200}' > "$wakeup_config/config.json"
-  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
-
-  cat > "$fake_bin/uname" <<'SH'
-#!/bin/sh
-printf 'Darwin\n'
-SH
-  cat > "$fake_bin/herdr" <<'SH'
-#!/bin/sh
-printf '%s\n' "$*" >> "$HERDR_CALLS"
-if [ "$*" = "plugin list --json" ]; then
-  cat <<'JSON'
-{
-  "result": {
-    "plugins": [
-      { "plugin_id": "herdr-wakeup", "source": { "kind": "github" } },
-      { "plugin_id": "seigi.command-palette", "source": { "kind": "local" } },
-      { "plugin_id": "herdr-focus-notify", "source": { "kind": "github" } }
-    ]
-  }
-}
-JSON
-elif [ "$*" = "plugin config-dir herdr-wakeup" ]; then
-  printf '%s\n' "$HOME/.config/herdr/plugins/config/herdr-wakeup"
-fi
-exit 0
-SH
-  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
-
-  run env HOME="$home" HERDR_CALLS="$calls" \
-    HERDR_SOCKET_PATH=/tmp/mms-herdr-wakeup-test.sock PATH="$fake_bin:$PATH" bash "$script"
-  assert_success
-  run grep -Fx "plugin uninstall seigi.command-palette" "$calls"
-  assert_failure
-  run grep -Fx "plugin install dio16/herdr-auto-update -y" "$calls"
-  assert_success
-  # Owned Seigiard packages follow their default branch, so they install
-  # without a ref. The third-party wakeup package stays on a pinned commit,
-  # matched by shape so a ref bump does not edit a test.
-  run grep -Fx "plugin install Seigiard/herdr-command-palette -y" "$calls"
-  assert_success
-  run grep -Fx "plugin install Seigiard/herdr-pane-labels -y" "$calls"
-  assert_success
-  run grep -Fx "plugin enable seigi.pane-labels" "$calls"
-  assert_success
-  run grep -Fx "plugin enable seigi.command-palette" "$calls"
-  assert_success
-  run grep -Fx "plugin install Seigiard/herdr-worktree-setup -y" "$calls"
-  assert_failure
-  run grep -Fx "plugin enable seigi.worktree-setup" "$calls"
-  assert_failure
-  run grep -Ex "plugin install usrivastava92/herdr-wakeup/plugin --ref [0-9a-f]{40} -y" "$calls"
-  assert_success
-  run grep -Ex "plugin install jmarbutt/herdr-spaces-pr-status --ref [0-9a-f]{40} -y" "$calls"
-  assert_success
-  run grep -Fx "plugin enable jmarbutt.spaces-pr-status" "$calls"
-  assert_success
-  # The retired focus-notify install is removed and never reinstalled; 08511
-  # is the control where it is absent and nothing touches it.
-  run grep -Fx "plugin uninstall herdr-focus-notify" "$calls"
-  assert_success
-  run grep -F "plugin install yankewei/herdr-focus-notify" "$calls"
-  assert_failure
-  run grep -Fx "plugin action invoke stop --plugin herdr-wakeup" "$calls"
-  assert_success
-  run grep -Fx "plugin enable herdr-wakeup" "$calls"
-  assert_success
-  local session_config="$wakeup_config/sessions/f60c672338465554/config.json"
-  run readlink "$session_config"
-  assert_success
-  assert_output "$wakeup_config/config.json"
-}
-
-function test_scripts_08511_github_command_palette_is_not_uninstalled_during_update() {
-  _bats_test_init 8511 'GitHub plugins are updated in place on Linux'
-  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
-  local script="$BATS_TEST_TMPDIR/install-herdr-github-plugins-linux.sh"
-  local fake_bin="$BATS_TEST_TMPDIR/bin-github-palette"
-  local calls="$BATS_TEST_TMPDIR/herdr-github-palette.calls"
-  mkdir -p "$fake_bin"
-  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
-
-  cat > "$fake_bin/uname" <<'SH'
-#!/bin/sh
-printf 'Linux\n'
-SH
-  cat > "$fake_bin/herdr" <<'SH'
-#!/bin/sh
-printf '%s\n' "$*" >> "$HERDR_CALLS"
-if [ "$*" = "plugin list --json" ]; then
-  printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","source":{"kind":"github","owner":"Seigiard","repo":"herdr-command-palette"}},{"plugin_id":"seigi.worktree-setup","source":{"kind":"github","owner":"Seigiard","repo":"herdr-worktree-setup"}}]}}'
-fi
-exit 0
-SH
-  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
-
-  run env HOME="$BATS_TEST_TMPDIR/github-palette-home" HERDR_CALLS="$calls" \
-    PATH="$fake_bin:$PATH" bash "$script"
-  assert_success
-  run grep -Fx "plugin uninstall seigi.command-palette" "$calls"
-  assert_failure
-  run grep -Fx "plugin uninstall seigi.worktree-setup" "$calls"
-  assert_failure
-  run grep -Fx "plugin install Seigiard/herdr-command-palette -y" "$calls"
-  assert_success
-  run grep -Fx "plugin install Seigiard/herdr-worktree-setup -y" "$calls"
-  assert_failure
-  # Absent from the registry, so the retired-plugin uninstall in 0851 must not run.
-  run grep -F "herdr-focus-notify" "$calls"
-  assert_failure
-  run grep -F "herdr-auto-update" "$calls"
-  assert_failure
-}
-
-function test_scripts_08513_github_plugin_install_accepts_an_enabled_offline_registry() {
-  _bats_test_init 8513 'GitHub plugin installation accepts an enabled local registry when Herdr is offline'
-  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
-  local script="$BATS_TEST_TMPDIR/install-herdr-offline.sh"
-  local fake_bin="$BATS_TEST_TMPDIR/bin-herdr-offline"
-  local calls="$BATS_TEST_TMPDIR/herdr-offline.calls"
-  local home="$BATS_TEST_TMPDIR/herdr-offline-home"
-  mkdir -p "$fake_bin" "$home"
-  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
-
-  cat > "$fake_bin/uname" <<'SH'
-#!/bin/sh
-printf 'Linux\n'
-SH
-  cat > "$fake_bin/herdr" <<'SH'
-#!/bin/sh
-printf '%s\n' "$*" >> "$HERDR_CALLS"
-case "$*" in
-  "plugin list --json")
-    printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","enabled":true,"source":{"kind":"github"}},{"plugin_id":"seigi.pane-labels","enabled":true,"source":{"kind":"github"}},{"plugin_id":"seigi.worktree-setup","enabled":true,"source":{"kind":"github"}},{"plugin_id":"jmarbutt.spaces-pr-status","enabled":true,"source":{"kind":"github"}}]}}'
-    ;;
-  "plugin enable "*)
-    printf '%s\n' '{"id":"cli:plugin","error":{"code":"server_not_running","message":"offline"}}'
-    exit 1
-    ;;
-esac
-exit 0
-SH
-  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
-
-  run env HOME="$home" HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
-  assert_success
-  local result="$output"
-  [[ "$result" == *'registered enabled for the next start'* ]] || fail 'offline registration was not accepted'
-  [[ "$result" != *'Warning: failed to configure Herdr plugin'* ]] || fail 'offline registration was reported as failed'
-}
-
-function test_scripts_08514_github_plugin_install_rejects_an_disabled_offline_registry() {
-  _bats_test_init 8514 'GitHub plugin installation rejects a disabled local registry when Herdr is offline'
-  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
-  local script="$BATS_TEST_TMPDIR/install-herdr-offline-disabled.sh"
-  local fake_bin="$BATS_TEST_TMPDIR/bin-herdr-offline-disabled"
-  local calls="$BATS_TEST_TMPDIR/herdr-offline-disabled.calls"
-  local home="$BATS_TEST_TMPDIR/herdr-offline-disabled-home"
-  mkdir -p "$fake_bin" "$home"
-  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
-
-  cat > "$fake_bin/uname" <<'SH'
-#!/bin/sh
-printf 'Linux\n'
-SH
-  cat > "$fake_bin/herdr" <<'SH'
-#!/bin/sh
-printf '%s\n' "$*" >> "$HERDR_CALLS"
-case "$*" in
-  "plugin list --json")
-    printf '%s\n' '{"result":{"plugins":[{"plugin_id":"seigi.command-palette","enabled":false,"source":{"kind":"github"}},{"plugin_id":"seigi.worktree-setup","enabled":false,"source":{"kind":"github"}}]}}'
-    ;;
-  "plugin enable "*)
-    printf '%s\n' '{"id":"cli:plugin","error":{"code":"server_not_running","message":"offline"}}'
-    exit 1
-    ;;
-esac
-exit 0
-SH
-  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
-
-  run env HOME="$home" HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
-  assert_success
-  assert_output --partial 'Warning: failed to configure Herdr plugin'
-}
-
-function test_scripts_08512_existing_herdr_wakeup_is_restored_when_managed_policy_linking_fails() {
-  _bats_test_init 8512 'existing Herdr Wakeup is restored when managed policy linking fails'
-  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
-  local script="$BATS_TEST_TMPDIR/install-herdr-wakeup-config-failure.sh"
-  local fake_bin="$BATS_TEST_TMPDIR/bin-wakeup-config-failure"
-  local calls="$BATS_TEST_TMPDIR/herdr-wakeup-config-failure.calls"
-  local home="$BATS_TEST_TMPDIR/herdr-wakeup-config-failure-home"
-  mkdir -p "$fake_bin" "$home"
-  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
-
-  cat > "$fake_bin/uname" <<'SH'
-#!/bin/sh
-printf 'Darwin\n'
-SH
-  cat > "$fake_bin/herdr" <<'SH'
-#!/bin/sh
-printf '%s\n' "$*" >> "$HERDR_CALLS"
-if [ "$*" = "plugin list --json" ]; then
-  printf '%s\n' '{"result":{"plugins":[{"plugin_id":"herdr-wakeup","source":{"kind":"github"}}]}}'
-elif [ "$*" = "plugin config-dir herdr-wakeup" ]; then
-  printf '%s\n' "$HOME/.config/herdr/plugins/config/herdr-wakeup"
-fi
-exit 0
-SH
-  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
-
-  run env HOME="$home" HERDR_CALLS="$calls" PATH="$fake_bin:$PATH" bash "$script"
-  assert_success
-  assert_output --partial "config: link the managed policy"
-  run grep -Fx "plugin action invoke stop --plugin herdr-wakeup" "$calls"
-  assert_success
-  run grep -Fx "plugin action invoke start --plugin herdr-wakeup" "$calls"
-  assert_success
-}
-
-function test_scripts_0852_github_plugin_install_reports_malformed_entries() {
-  _bats_test_init 852 'GitHub plugin installation reports malformed plugin entries'
-  local template="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_7-install-herdr-github-plugins.sh.tmpl"
-  local script="$BATS_TEST_TMPDIR/install-herdr-github-plugins-malformed.sh"
-  local fake_bin="$BATS_TEST_TMPDIR/bin-malformed"
-  mkdir -p "$fake_bin"
-  chezmoi_full_fixture execute-template -S "$SOURCE_ROOT" --file "$template" > "$script"
-
-  cat > "$fake_bin/uname" <<'SH'
-#!/bin/sh
-printf 'Darwin\n'
-SH
-  cat > "$fake_bin/herdr" <<'SH'
-#!/bin/sh
-if [ "$*" = "plugin list --json" ]; then
-  printf '{"result":{"plugins":[null,{"plugin_id":"herdr-wakeup"}]}}\n'
-fi
-exit 0
-SH
-  chmod +x "$fake_bin/uname" "$fake_bin/herdr"
-
-  run env HOME="$BATS_TEST_TMPDIR/malformed-plugin-home" PATH="$fake_bin:$PATH" bash "$script"
-  assert_success
-  assert_output --partial "inspect before update: herdr plugin list --json"
-}
-
-# The GitHub-plugin installer reads result.plugins[].plugin_id and .enabled.
-# Its registry fakes are calibrated against the real binary here. The
-# expected side is the installed binary's own payload; the depth stops here on
-# purpose, because anything deeper restates a shape herdr owns and would go red
-# on its next release for no local reason
-# (docs/solutions/design-patterns/fakes-need-the-real-binary-as-oracle.md).
-assert_herdr_plugin_field_contract() {
-  local payload="$1" plugin_id="$2"
-  run python3 - "$payload" "$plugin_id" <<'PY'
-import json
-import sys
-
-payload, wanted = sys.argv[1:]
-plugins = json.loads(open(payload, encoding="utf-8").read())["result"]["plugins"]
-matches = [plugin for plugin in plugins if plugin.get("plugin_id") == wanted]
-assert len(matches) == 1, matches
-plugin = matches[0]
-print(json.dumps({
-    "plugin_id": type(plugin["plugin_id"]).__name__,
-    "enabled": type(plugin["enabled"]).__name__,
-}, sort_keys=True))
-PY
-  assert_success
-  assert_output \
-    '{"enabled": "bool", "plugin_id": "str"}'
-}
-
-function test_scripts_08523_plugin_list_fake_fields_match_real_herdr() {
-  _bats_test_init 8523 'plugin-list fake fields match the installed Herdr contract'
-  # This live-oracle check needs a working herdr executable. CI runners do not
-  # install one, so skip when the command cannot answer.
-  command_exists herdr && herdr --version >/dev/null 2>&1 \
-    || skip "requires a working herdr executable (none is installed)"
-  local work="$BATS_TEST_TMPDIR/plugin-contract-local"
-  mkdir -p "$work/home/.config" "$work/plug"
-
-  # Register a throwaway plugin in an isolated config home so this check does
-  # not depend on which plugins the host happens to have installed.
-  cat > "$work/plug/herdr-plugin.toml" <<'TOML'
-id = "mms.plugin-contract-probe"
-name = "Plugin Contract Probe"
-version = "0.0.1"
-min_herdr_version = "0.7.0"
-description = "throwaway local registration used to read herdr's plugin-list contract"
-platforms = ["macos", "linux"]
-TOML
-  # An explicit short socket path: herdr derives one from the config home, and a
-  # path under BATS_TEST_TMPDIR overruns sun_path.
-  run env -i HOME="$work/home" PATH="$PATH" XDG_CONFIG_HOME="$work/home/.config" \
-    HERDR_SOCKET_PATH="/tmp/mms-herdr-plugin-contract-$$.sock" \
-    herdr plugin link "$work/plug" --enabled
-  assert_success
-  run env -i HOME="$work/home" PATH="$PATH" XDG_CONFIG_HOME="$work/home/.config" \
-    HERDR_SOCKET_PATH="/tmp/mms-herdr-plugin-contract-$$.sock" \
-    herdr plugin list --json
-  assert_success
-  printf '%s\n' "$output" > "$work/real.json"
-  assert_herdr_plugin_field_contract "$work/real.json" mms.plugin-contract-probe
-
-  # The offline `plugin enable` error payload the fakes at tests 08513 and 08514
-  # reproduce, read from the real binary against a socket no server answers.
-  run env -i HOME="$work/home" PATH="$PATH" \
-    HERDR_SOCKET_PATH="/tmp/mms-herdr-plugin-contract-$$.sock" \
-    herdr plugin enable missing.plugin
-  assert_failure
-  run python3 -c 'import json,sys; print(json.loads(sys.argv[1])["error"]["code"])' "$output"
-  assert_success
-  assert_output 'server_not_running'
-}
-
-function test_scripts_08524_pane_labels_is_installed_enabled_and_unpinned() {
-  _bats_test_init 8524 'standalone Pane Labels is installed enabled and follows its default branch'
-  command_exists herdr && herdr --version >/dev/null 2>&1 \
-    || skip "a working upstream herdr is not installed"
-  [[ "${MMS_DISPOSABLE_HOME:-}" == 1 ]] || skip "requires the disposable post-apply registry"
-  # The real herdr reports what it resolved: no requested ref, because the
-  # owned package follows its default branch and herdr-auto-update moves it.
-  local plugin_json
-  run env -i HOME="$HOME" PATH="$PATH" \
-    HERDR_SOCKET_PATH="/tmp/mms-herdr-pane-labels-$$.sock" herdr plugin list --json
-  assert_success
-  plugin_json="$output"
-
-  run env PLUGIN_JSON="$plugin_json" python3 - <<'PY'
-import json
-import os
-
-plugins = json.loads(os.environ["PLUGIN_JSON"])["result"]["plugins"]
-matches = [
-    plugin for plugin in plugins
-    if plugin.get("plugin_id") == "seigi.pane-labels"
-]
-assert len(matches) == 1, matches
-plugin = matches[0]
-source = plugin["source"]
-assert plugin["enabled"] is True, plugin
-assert source["kind"] == "github", source
-assert source["owner"] == "Seigiard" and source["repo"] == "herdr-pane-labels", source
-assert "requested_ref" not in source, source
-PY
-  assert_success
-}
-
 install_worktree_setup_fake_bun() {
   local bin="$1"
   cat > "$bin/bun" <<'SH'
@@ -711,7 +268,7 @@ function test_scripts_08526_worktree_setup_runner_uses_default_paths_with_empty_
   local home="$BATS_TEST_TMPDIR/worktree-setup-home"
   local bin="$BATS_TEST_TMPDIR/default-worktree-setup-bin"
   local plugin_dir="$home/.local/lib/herdr-worktree-setup"
-  local config_dir="$home/.config/herdr/plugins/config/seigi.worktree-setup"
+  local config_dir="$home/.config/herdr-worktree-setup"
   local record="$BATS_TEST_TMPDIR/default-bun.record"
   local worktree="$BATS_TEST_TMPDIR/default-worktree"
   mkdir -p "$bin" "$plugin_dir" "$config_dir"
@@ -719,7 +276,7 @@ function test_scripts_08526_worktree_setup_runner_uses_default_paths_with_empty_
   install_worktree_setup_fake_bun "$bin"
 
   # #when
-  run --separate-stderr env -u CLAUDE_WORKTREE_SETUP_PLUGIN_DIR \
+  run --separate-stderr env -u CLAUDE_WORKTREE_SETUP_PLUGIN_DIR -u CLAUDE_WORKTREE_SETUP_CONFIG_DIR \
     HOME="$home" \
     WORKTREE_SETUP_BUN_RECORD="$record" \
     PATH="$bin:$PATH" \
@@ -838,78 +395,6 @@ function test_scripts_08530_worktree_setup_runner_rejects_missing_setup_file() {
   run cat "$record"
   assert_success
   assert_output ''
-}
-
-# ===========================================
-# herdr-integrations run-script
-# ===========================================
-
-HERDR_INTEGRATIONS_TMPL="$SOURCE_ROOT/.chezmoiscripts/run_onchange_after_3-setup-herdr-integrations.sh.tmpl"
-
-function test_scripts_093_herdr_integrations_script_exits_0_and_skips_when() {
-  _bats_test_init 93 'herdr-integrations script exits 0 and skips when herdr is absent'
-  skip_if_no_chezmoi
-  [[ -f "$HERDR_INTEGRATIONS_TMPL" ]] || skip "herdr-integrations script not found"
-  BATS_TEST_TMPFILE="$BATS_TEST_TMPDIR/herdr-integrations.sh"
-  chezmoi_full_fixture_finite_stdin execute-template < "$HERDR_INTEGRATIONS_TMPL" > "$BATS_TEST_TMPFILE"
-  run env PATH="/usr/bin:/bin" bash "$BATS_TEST_TMPFILE"
-  assert_success
-  assert_output --partial "skipping agent-state integration refresh"
-}
-
-function test_scripts_0932_herdr_integrations_template_renders_when_only_a_broken_wrapper_is_on_path() {
-  _bats_test_init 932 'herdr-integrations template renders when only a broken wrapper is on PATH'
-  skip_if_no_chezmoi
-  [[ -f "$HERDR_INTEGRATIONS_TMPL" ]] || skip "herdr-integrations script not found"
-  local stub="$BATS_TEST_TMPDIR/wrapper-only" chezmoi_dir
-  chezmoi_dir="$(dirname "$(command -v chezmoi)")"
-  mkdir -p "$stub"
-  cat > "$stub/herdr" <<'SH'
-#!/bin/sh
-exit 127
-SH
-  chmod +x "$stub/herdr"
-
-  PATH="$stub:$chezmoi_dir:/usr/bin:/bin" run --separate-stderr \
-    chezmoi_full_fixture_finite_stdin execute-template < "$HERDR_INTEGRATIONS_TMPL"
-  assert_success
-  assert_output --partial '# herdr version:'
-  printf '%s\n' "$output" > "$BATS_TEST_TMPDIR/herdr-integrations-wrapper-only.sh"
-
-  run env PATH="$stub:/usr/bin:/bin" bash "$BATS_TEST_TMPDIR/herdr-integrations-wrapper-only.sh"
-  assert_success
-  assert_output --partial 'skipping agent-state integration refresh'
-}
-
-# Present leg of 093's pair: with herdr on PATH the refresh must actually issue
-# one `integration install <target>` per agent client. The stub records argv,
-# so the oracle is what herdr received at runtime, not the script's source.
-function test_scripts_0931_herdr_integrations_script_installs_each_target_() {
-  _bats_test_init 931 'herdr-integrations script installs each integration target when herdr is present'
-  skip_if_no_chezmoi
-  [[ -f "$HERDR_INTEGRATIONS_TMPL" ]] || skip "herdr-integrations script not found"
-  local rendered="$BATS_TEST_TMPDIR/herdr-integrations.sh"
-  # Render status first: a partial render written straight to the file could
-  # still emit the expected calls and mask a broken deployment template.
-  run --separate-stderr chezmoi_full_fixture_finite_stdin execute-template < "$HERDR_INTEGRATIONS_TMPL"
-  assert_success
-  printf '%s\n' "$output" > "$rendered"
-
-  local stub="$BATS_TEST_TMPDIR/stub" calls="$BATS_TEST_TMPDIR/herdr-calls.log"
-  mkdir -p "$stub"
-  cat > "$stub/herdr" <<STUB
-#!/bin/sh
-printf '%s\n' "\$*" >> "$calls"
-STUB
-  chmod +x "$stub/herdr"
-
-  run env PATH="$stub:/usr/bin:/bin" bash "$rendered"
-  assert_success
-  assert_output --partial "Refreshed herdr agent-state integrations"
-
-  assert_file_contains "$calls" '^integration install claude$'
-  assert_file_contains "$calls" '^integration install pi$'
-  assert_file_contains "$calls" '^integration install opencode$'
 }
 
 # ===========================================
@@ -4706,6 +4191,12 @@ pins_fixture() {
     type = "file"
     url = "https://github.com/example/unrelated/releases/download/v7.2.0/tool.zip"
     checksum.sha256 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+[".local/lib/herdr-pane-labels"]
+    type = "archive"
+    url = "https://github.com/Seigiard/herdr-pane-labels/archive/0123456789abcdef0123456789abcdef01234567.tar.gz"
+    exact = true
+    stripComponents = 2
+    include = ["*/lib/herdr-aliases.sh", "*/LICENSE"]
 EXTERNALS
   cat >"$PINS_MISE" <<'MISE'
 [tools]

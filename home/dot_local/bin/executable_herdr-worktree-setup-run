@@ -10,7 +10,7 @@ fi
 worktree_path="$1"
 branch="${2:-}"
 plugin_dir="${CLAUDE_WORKTREE_SETUP_PLUGIN_DIR:-${HOME:-}/.local/lib/herdr-worktree-setup}"
-config_dir="${CLAUDE_WORKTREE_SETUP_CONFIG_DIR:-${HOME:-}/.config/herdr/plugins/config/seigi.worktree-setup}"
+config_dir="${CLAUDE_WORKTREE_SETUP_CONFIG_DIR:-${HOME:-}/.config/herdr-worktree-setup}"
 
 if [ ! -f "$plugin_dir/setup.ts" ]; then
   printf '%s\n' "herdr-worktree-setup-run: setup.ts not found in $plugin_dir" >&2
