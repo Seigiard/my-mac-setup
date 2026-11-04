@@ -53,8 +53,6 @@ Library/**
 .config/herdr-app/**
 .chezmoiscripts/darwin
 .chezmoiscripts/darwin/**
-.config/herdr/plugins/config/herdr-wakeup
-.config/herdr/plugins/config/herdr-wakeup/**
 # Executor CLI: the symlink target lives inside /Applications/Executor.app,
 # which only exists on macOS.
 .local/bin/executor
