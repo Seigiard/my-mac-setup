@@ -1,4 +1,4 @@
-.PHONY: help test-python test-ubuntu test-ubuntu-herdr test-local edit-secrets reencrypt-secrets test-suite test-docker test-templates test-pi-agents-local test-agents-local-opencode test-herdr-resource-context-opencode test-herdr-resource-context-pi test-pi-brew-auto-update test-pi-herdr-worktree-identity test-agent-hooks-core test-agent-hooks-opencode test-agent-hooks-pi lint clean build-docker shell-ubuntu
+.PHONY: help test-python test-ubuntu test-ubuntu-herdr test-local edit-secrets reencrypt-secrets test-suite test-docker test-templates test-pi-agents-local test-agents-local-opencode test-pi-brew-auto-update test-pi-herdr-worktree-identity test-agent-hooks-core test-agent-hooks-opencode test-agent-hooks-pi lint clean build-docker shell-ubuntu
 
 .PHONY: lint-yaml lint-shell install-git-hooks
 
@@ -12,8 +12,6 @@ help:
 	@echo "  make test-templates   Run template tests in Docker (may rebuild images)"
 	@echo "  make test-pi-agents-local  Run focused Pi local-instructions extension tests"
 	@echo "  make test-agents-local-opencode  Run focused opencode local-instructions plugin tests"
-	@echo "  make test-herdr-resource-context-opencode  Run focused opencode Herdr resource-context tests"
-	@echo "  make test-herdr-resource-context-pi  Run focused Pi Herdr resource-context tests"
 	@echo "  make test-pi-brew-auto-update  Run focused Pi brew auto-update extension tests"
 	@echo "  make test-pi-herdr-worktree-identity  Run focused Pi worktree-identity extension tests"
 	@echo "  make test-agent-hooks-core  Run focused agent-hooks dispatch core tests"
@@ -54,12 +52,6 @@ test-pi-agents-local:
 
 test-agents-local-opencode:
 	bun test tests/agents-local-opencode-plugin.test.ts
-
-test-herdr-resource-context-opencode:
-	bun test tests/herdr-resource-context-opencode-plugin.test.ts
-
-test-herdr-resource-context-pi:
-	bun test tests/herdr-resource-context-pi-extension.test.ts
 
 # Checkout-side runner for the suite; smoke test 1056 owns the deployed run.
 test-pi-brew-auto-update:
