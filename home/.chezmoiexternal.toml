@@ -80,3 +80,12 @@
     exact = true
     stripComponents = 1
     include = ["*/setup.ts", "*/vendor/**", "*/LICENSE", "*/README.md", "*/herdr-plugin.toml"]
+
+# The hc launcher consumes this alias library after the Herdr pane-labels
+# plugin has been retired. Keep the archive pinned to the installed revision.
+[".local/lib/herdr-pane-labels"]
+    type = "archive"
+    url = "https://github.com/Seigiard/herdr-pane-labels/archive/72e257b7b25d12969ea14042fcbe068f9c088dc7.tar.gz"
+    exact = true
+    stripComponents = 2
+    include = ["*/lib/herdr-aliases.sh", "*/LICENSE"]
