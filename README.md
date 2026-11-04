@@ -132,8 +132,8 @@ metadata are provided by the standalone
 package. It owns the reconciler, alias policy, sweep daemon, manifest,
 diagnostics, lifecycle, implementation tests, documentation, CI, and releases.
 This repository retains only the sidebar rows and personal presentation
-settings in `~/.config/herdr/config.toml`; `herdr-child` and `herdr-peer-alias`
-consume the package's `herdr-pane-labels --alias-candidates` interface.
+settings in `~/.config/herdr/config.toml`; `hc-run` consumes the package's
+`herdr-pane-labels --alias-candidates` interface.
 
 On macOS, chezmoi also installs
 [`usrivastava92/herdr-wakeup`](https://github.com/usrivastava92/herdr-wakeup)

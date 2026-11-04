@@ -79,12 +79,6 @@ A report for me is an HTML page on the render kit. Every page built for me is pu
 
 </important>
 
-<important if="a peer message reaches you, or you need to reach an agent session you did not launch">
-
-Read `~/.claude/shared/peer-message-contract.md`. It defines peer addresses, message kinds, recipient duties, and when `herdr-child` owns the exchange instead.
-
-</important>
-
 <important if="HC_TERMINAL_ID is set in the environment, so you are running inside the Herdr app">
 
 Read `~/.claude/shared/hc-agent-contract.md`. It defines hc addresses, the `<hc from>` marker, question handling, child and parent duties, and cleanup.

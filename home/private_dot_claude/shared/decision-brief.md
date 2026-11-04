@@ -1,6 +1,6 @@
 # Decision brief
 
-The message an agent sends when it stops the work for a decision only the user can make. Reached from the door rule in `~/.claude/CLAUDE.md`, from the child duties in `child-agent-contract.md`, from `pf-build` (the blocked phase and the end condition), from `pf-research` (the open questions), and from `implement-spec` (a stopped chain).
+The message an agent sends when it stops the work for a decision only the user can make. Reached from the door rule in `~/.claude/CLAUDE.md`, from the child duties in `hc-agent-contract.md`, from `pf-build` (the blocked phase and the end condition), from `pf-research` (the open questions), and from `implement-spec` (a stopped chain).
 
 ## The reader
 

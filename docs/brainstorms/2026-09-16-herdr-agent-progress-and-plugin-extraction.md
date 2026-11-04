@@ -147,15 +147,15 @@ Upstream устанавливает launcher вне checkout и копирует
 
 ### Две реальные зависимости, которые мешают простому переносу папок
 
-**Alias contract.** `herdr-child` и `herdr-peer-alias` используют ту же `herdr-aliases.sh`, что и pane-labels. Launcher выбирает имя из этого пула, reconciler проверяет принадлежность пулу. Независимые копии библиотеки могут разойтись.
+**Alias contract.** `hc-run` использует тот же alias policy, что и pane-labels. Launcher выбирает имя из этого пула, reconciler проверяет принадлежность пулу. Независимые копии библиотеки могут разойтись.
 
-Предлагаю одного владельца alias policy в пакете pane-labels и маленький публичный CLI для его consumers. Сохранить совместимый launcher `herdr-peer-alias`; для child определить нужный interface получения candidates/выбора имени и семантику занятых/reserved names. Текущий CLI выбирает свободное имя, но не создаёт атомарную reservation — будущий contract не должен обещать обратное. `herdr-child` переводится на этот interface до удаления общей библиотеки. Общую process utility можно упаковать приватно с явной версией; не создавать отдельный runtime-framework ради нескольких helpers.
+Предлагаю одного владельца alias policy в пакете pane-labels и маленький публичный CLI для его consumers. `hc-run` использует interface получения candidates и выбора имени; текущий CLI выбирает свободное имя, но не создаёт атомарную reservation — contract не должен обещать обратное. Общую process utility можно упаковать приватно с явной версией; не создавать отдельный runtime-framework ради нескольких helpers.
 
-[Child imports](../../home/dot_local/bin/executable_herdr-child#L9-L24), [child allocation](../../home/dot_local/lib/herdr-child-launch.sh#L91-L121), [peer interface](../../home/dot_local/bin/executable_herdr-peer-alias#L1-L19).
+[hc launch path](../../home/private_dot_agents/skills/hc/SKILL.md), [alias interface](../../README.md#L134-L136).
 
 **Worktree marker contract.** Setup пишет `herdr-generated-worktree`, а worktree-identity использует marker как разрешение на переименование. Это межпакетный contract, который нужно документировать и проверять совместно. Agent adapters worktree-identity должны переезжать вместе со своим engine при его отдельном extraction. [Ownership](../../docs/herdr-worktrees.md#L18-L29).
 
-`herdr-child` — отдельный инструмент оркестрации, не просто sidebar plugin. Его репозиторий можно выделить позже с собственными CLI и supervision contracts, не приклеивая его lifecycle к labels.
+`hc` — основной инструмент оркестрации в Herdr app, а pane labels остаются отдельным пакетом. Их lifecycle не должен быть связан с персональными settings этого репозитория.
 
 ## 6. Кто чем владеет после выделения
 

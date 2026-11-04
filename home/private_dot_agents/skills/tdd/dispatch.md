@@ -22,8 +22,7 @@ When `HC_TERMINAL_ID` is set, use hc mode: run `hc-run --cwd <checkout> implemen
 
 If `hc-run` exits 3 because the task was not delivered, follow the exit-3 recovery rule in the `hc` skill.
 
-1. `HERDR_ENV=1` and `HERDR_CHILD_PARENT_PANE` is unset: start a visible tab with `herdr-child start --kind opencode --posture rw --model <model> --effort <effort of tier> --cwd <checkout> --prompt-file <prompt> --detach`. Tabs avoid the narrow-pane OpenCode hang. Follow the parent duties in `~/.claude/shared/child-agent-contract.md`; the supervision marker wakes you. Answer a child's `herdr-child ask` from `ticket.md`; pass it to the user only when it needs a product decision. A herdr child goes straight to mode 2 because `herdr-child start` refuses to run from a child pane.
-2. `opencode` is on `PATH`: run the following as a background process that re-invokes you on exit (in Claude Code, the Bash tool's `run_in_background`). The stdin redirect prevents `opencode run` from waiting for EOF. `~/.claude/shared/long-running-work.md` owns its supervision.
+1. `opencode` is on `PATH`: run the following as a background process that re-invokes you on exit (in Claude Code, the Bash tool's `run_in_background`). The stdin redirect prevents `opencode run` from waiting for EOF. `~/.claude/shared/long-running-work.md` owns its supervision.
 
    ```bash
    (
@@ -33,12 +32,12 @@ If `hc-run` exits 3 because the task was not delivered, follow the exit-3 recove
    ```
 
    Keep the process exit status and the JSONL events separate; an `error` event or a log without a final answer is incomplete work.
-3. Otherwise no child can start. Stop.
+2. Otherwise no child can start. Stop.
 
-**Resuming a child** for a handoff gap keeps its session, tier, and attempt number, and counts as one turn. In herdr mode: `herdr-child prompt --to <name> --pane <pane-id> --detach '<the missing items>'`. In headless mode: the same subshell command with `--session <id>` added and `'<the missing items>'` as the prompt, appending to `<run-dir>/<role>-<n>-resume.jsonl`, where the id is the `sessionID` in the attempt's JSONL log. Every resumed turn of the attempt appends to that file in order.
+**Resuming a child** for a handoff gap keeps its session, tier, and attempt number, and counts as one turn. In headless mode: the same subshell command with `--session <id>` added and `'<the missing items>'` as the prompt, appending to `<run-dir>/<role>-<n>-resume.jsonl`, where the id is the `sessionID` in the attempt's JSONL log. Every resumed turn of the attempt appends to that file in order.
 
 In hc mode, resume a child with `hc send <address> '<the missing items>'`; its session stays in its terminal. Wait with `hc wait --json --timeout S <address>`.
 
 In hc mode, reap a child only after `hc get <address>` shows that its status is not `working` or `blocked`: run `hc kill <address>` and then `hc rm <address>`.
 
-The child's answer is its report file; its tool output and logs are the evidence the report cites. In herdr mode, reap each child with `herdr-child reap` per the `herdr` skill's lifecycle rule. In headless mode, confirm the process has exited before the next phase starts.
+The child's answer is its report file; its tool output and logs are the evidence the report cites. In headless mode, confirm the process has exited before the next phase starts.

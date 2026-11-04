@@ -52,5 +52,3 @@ blindly resend after a failed send: the message may still have arrived.
 
 Clean up idle, exited, or done terminals with `hc kill <address>` and then
 `hc rm <address>`. Keep working or blocked terminals running.
-
-The `herdr` skill remains the TUI path. Both skills coexist.

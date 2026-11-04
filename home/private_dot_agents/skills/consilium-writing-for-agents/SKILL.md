@@ -18,12 +18,12 @@ Two reviewers read the same documents against `writing-for-agents`, independentl
 
 Both get the same prompt and run at the same time: two tool calls in one message.
 
-| Reviewer | Inside herdr (`HERDR_ENV=1`) | Outside herdr |
+| Reviewer | Inside the Herdr app (`HC_TERMINAL_ID` set) | Outside Herdr |
 |---|---|---|
-| Fable | `bash ~/.agents/skills/ask-in-herdr/scripts/ask.sh claude "<prompt>" --model fable --effort medium --cwd "$PWD"` | Agent tool with `model: fable`, `effort: medium`, and the prompt. |
-| Astra | `bash ~/.agents/skills/ask-in-herdr/scripts/ask.sh opencode "<prompt>" --model openai/gpt-6-astra --effort medium --cwd "$PWD"` | `env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ID opencode run --model openai/gpt-6-astra#medium "<prompt>"` |
+| Fable | `hc run --bg --json --name <alias> --cwd "$PWD" -- claude --model fable "<prompt>"`; then `hc wait --json <address>` and `hc read <address>`. | Agent tool with `model: fable`, `effort: medium`, and the prompt. |
+| Astra | `hc run --bg --json --name <alias> --cwd "$PWD" -- opencode run --model openai/gpt-6-astra#medium "<prompt>"`; then `hc wait --json <address>` and `hc read <address>`. | `env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ID opencode run --model openai/gpt-6-astra#medium "<prompt>"` |
 
-Inside herdr, the `ask-in-herdr` skill owns launch outcomes, follow-ups, and cleanup. A reviewer still without an answer after that handling is absent: name it in the final report and reconcile the reports you have. The tabs serve no follow-up once both reports are read: close each with the reap command its run printed.
+Inside the Herdr app, `hc` owns launch outcomes, follow-ups, and cleanup. A reviewer still without an answer after that handling is absent: name it in the final report and reconcile the reports you have. The terminals serve no follow-up once both reports are read: clean each with `hc kill <address>` and `hc rm <address>`.
 
 ## Prompt
 
