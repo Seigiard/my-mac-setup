@@ -115,11 +115,12 @@ looks it up has to encode that directory too. Deleting the helper is not an opti
 literal.
 
 What is available is to make the formula itself answer to a literal somewhere. `scripts_test.sh`
-test 1206 runs both shipped key encoders — `encode_key` in `herdr-worktree-state.sh` and
-`context_usage_encode_key` in `context-usage.sh` — against three hand-written vectors: a plain id, a
-string whose base64 carries `+`, `/` and padding at once, and a path long enough that GNU `base64`
-wraps it. Thirty-odd derived path lookups are then plumbing calibrated by one test, and a change to
-the encoding is a named failure rather than thirty opaque ones.
+test 1206 pins the single shipped key encoder, `context_usage_encode_key` in `context-usage.sh`,
+against three hand-written vectors: a plain id, a string whose base64 carries `+`, `/` and padding at
+once, and a path long enough that GNU `base64` wraps it. The former
+`herdr-worktree-state.sh` encoder was retired in #617. Thirty-odd derived path lookups are then
+plumbing calibrated by one test, and a change to the encoding is a named failure rather than thirty
+opaque ones.
 
 Two conditions make this honest: the helper must be a **single** definition (three spellings of one
 formula drift apart), and its comment must **name the test that owns the formula**, so the next
@@ -179,14 +180,14 @@ Fixed across #327–#337 and the #339 sweep:
   order, so neither can be mistaken for the contract (#335).
 - **Frozen fixture with provenance:** the pre-migration `operations` schema in
   `herdr_resource_tree_test.sh` 007 and 011 (#332).
-- **Plumbing plus a literal owner:** `hwi_encode_state_key` survives for `mktemp`-derived repository
-  paths; `hwi_session_state_path` and `handoff_store_path` became literal tables; `scripts_test.sh`
-  1206 pins the encoding for both shipped libraries (#339).
+- **Plumbing plus a literal owner:** `handoff_store_path` became a literal table; `scripts_test.sh`
+  1206 pins the `context_usage_encode_key` encoding. The former
+  `herdr-worktree-state.sh` encoder was retired in #617 (#339).
 
 The 2026-09-25 sweep over `tests/bashunit/*_test.sh`, `tests/helpers/`, `tests/test_*.py` and
 `tests/*.test.ts` found no remaining expectation computed by the code under test. The derivations
 that survive are on the input side, or are second sides of a two-sided comparison, or are plumbing
-whose formula test 1206 owns.
+whose `context_usage_encode_key` formula test 1206 owns.
 
 ## When to Apply
 

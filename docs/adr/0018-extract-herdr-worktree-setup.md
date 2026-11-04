@@ -16,9 +16,9 @@ installation to a temporary chezmoi checkout and mixed reusable behavior with
 repository-specific preparation policy.
 
 The generated-worktree marker is a cross-package contract: worktree setup
-writes it, while `herdr-worktree-identity` consumes it as authorization for a
-task-derived branch rename. Worktree creation itself remains native Herdr
-behavior and is not assumed to pass through the provenance PATH wrapper.
+writes it, and it remains the provenance record after the identity component
+was retired in #617. Worktree creation itself remains native Herdr behavior and
+is not assumed to pass through the provenance PATH wrapper.
 
 ## Considered options
 
