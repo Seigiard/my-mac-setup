@@ -2003,10 +2003,10 @@ PY
 
 function test_scripts_08523_plugin_list_fake_fields_match_real_herdr() {
   _bats_test_init 8523 'plugin-list fake fields match the installed Herdr contract'
-  # The PATH wrapper alone is not an oracle: on a CI runner it is deployed with
-  # no real herdr behind it and answers 127.
+  # This live-oracle check needs a working herdr executable. CI runners do not
+  # install one, so skip when the command cannot answer.
   command_exists herdr && herdr --version >/dev/null 2>&1 \
-    || skip "no working herdr executable is installed behind the PATH wrapper"
+    || skip "requires a working herdr executable (none is installed)"
   local work="$BATS_TEST_TMPDIR/plugin-contract-local"
   mkdir -p "$work/home/.config" "$work/plug"
 

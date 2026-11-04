@@ -496,13 +496,13 @@ STUB
   done
 }
 
-# The native reporter the managed hook above shells out to. herdr installs it
-# itself (HERDR_INTEGRATION_ID=claude in its header) rather than chezmoi, so it
-# exists only where a real herdr is installed -- hence a visible skip on that
+# The native reporter is installed at ~/.claude/hooks/herdr-agent-state.sh by
+# herdr itself (HERDR_INTEGRATION_ID=claude in its header), not by chezmoi. It
+# exists only where a real herdr is installed, so keep the visible skip on that
 # precondition rather than the environment-variable branch this assertion used
 # to sit behind, which dropped the coverage silently in CI-minimal.
 function test_smoke_1075_herdr_native_agent_state_reporter_is_installed() {
-  _bats_test_init 1075 'herdr native Agent-session reporter is installed beside the managed hook'
+  _bats_test_init 1075 'herdr installs its native Agent-session reporter'
   require_working_herdr
   assert_file_executable "$HOME/.claude/hooks/herdr-agent-state.sh"
 }
