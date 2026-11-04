@@ -19,13 +19,10 @@ The same resources have two views: the creator branch shows an agent's descendan
 An agent's own resource branch, including its descendants, plus its parent agent's name when it has a parent. It does not include the parent's panes or tabs; resources with an unknown creator belong in the overall resource tree without being attributed to an agent's branch.
 
 ### Parent agent
-The agent session that launched another agent session. A pane's creator is not automatically the parent of an agent later started in that pane; an unknown launch origin leaves the parent relationship unknown.
-
-### Child-agent contract
-The agreement between a parent agent and child agents launched into new tabs or explicitly requested panes. `herdr-child` allocates each child a registered `color-animal` alias and returns it with the pane ID. Tabs are the default because narrow panes can make OpenCode hang. Attached `--wait` keeps the result inside the current parent turn and arms no watcher. Managed `--detach` captures parent and child terminal/session identity, a fresh-state baseline, and a generation; an external per-child watcher then wakes the parent with generation-and-event markers for settlement, blockage, timeout, or unplanned disappearance. A child decision uses `ask`/`reply`; ordinary follow-ups use pair-addressed `prompt --wait|--detach`; reap requires the verified alias-plus-pane pair, invalidates supervision before pane closure, and preserves sibling panes in a child-owned tab. Lifecycle settlement is a wake signal, not a task verdict. Markers and metadata coordinate cooperative same-user clients and are not authorization credentials.
+A `Terminal.parent` relation recorded by herdr-core for the terminal that ran `hc run`. It is `null` when a person opened the terminal, for example through `herdr-app do tab.new`.
 
 ### Supervision interest
-The durable-supervisor design was cancelled as premature; the seven terms from Supervision interest through Supervision event describe the archived design, not deployed behavior or an active implementation commitment. The existing Child-agent contract above remains in effect.
+The durable-supervisor design was cancelled as premature; the seven terms from Supervision interest through Supervision event describe the archived design, not deployed behavior or an active implementation commitment. The deployed mechanism is the hc contract (`~/.claude/shared/hc-agent-contract.md`).
 
 A durable obligation for one managed child turn to deliver supervision signals to its identity-matched Parent agent. It identifies the exact server, parent and child Agent sessions, child resource, and generation. Registration does not grant resource ownership or prove that a task ran; uncertain identity or turn attribution requires recovery instead of retargeting the obligation.
 
@@ -46,12 +43,6 @@ The handling of an unresolved Supervision interest when delivery or observation 
 
 ### Supervision event
 A signal for one Supervision interest and generation: a verified lifecycle observation, deadline expiry, or request to inspect uncertain evidence. Retries preserve the signal's identity; distinct recovery occurrences have distinct identities. A confirmed delivery suppresses retries of that signal, while an uncertain delivery may repeat. No signal is a task-success verdict.
-
-### Peer address
-The Herdr-assigned agent alias by which a person or agent addresses another live agent pane.
-
-### Peer message
-A prompt delivered through `herdr-peer` to an already-running peer. Its marker names the sender address, sender pane, and kind: `send`, `ask`, or `reply`. It does not create lifecycle ownership or wait for a reply.
 
 ### Agent confinement backend
 The inner boundary that restricts one agent principal and its subprocesses, such as `nono` or SRT. It controls which host resources that principal can reach but does not define where the development workspace or operating system runs.

@@ -18,12 +18,12 @@ Two reviewers read the same documents against `writing-for-agents`, independentl
 
 Both get the same prompt and run at the same time: two tool calls in one message.
 
-| Reviewer | Inside herdr (`HERDR_ENV=1`) | Outside herdr |
+| Reviewer | Inside the Herdr app (`HC_TERMINAL_ID` set) | Outside Herdr |
 |---|---|---|
-| Fable | `bash ~/.agents/skills/ask-in-herdr/scripts/ask.sh claude "<prompt>" --model fable --effort medium --cwd "$PWD"` | Agent tool with `model: fable`, `effort: medium`, and the prompt. |
-| Astra | `bash ~/.agents/skills/ask-in-herdr/scripts/ask.sh opencode "<prompt>" --model openai/gpt-6-astra --effort medium --cwd "$PWD"` | `env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ID opencode run --model openai/gpt-6-astra#medium "<prompt>"` |
+| Fable | `hc run --bg --json --name <alias> --cwd "$PWD" -- claude --model fable --effort medium --disallowed-tools Edit Write NotebookEdit AskUserQuestion`; then `hc wait <address>`, `hc send --json <address> "<prompt>"` and check `sent` (on false: `hc read <address>` first, resolve readiness, never blind-resend); then collect as below. | Agent tool with `model: fable`, `effort: medium`, and the prompt. |
+| Astra | `hc run --bg --json --name <alias> --cwd "$PWD" -- env OPENCODE_CONFIG_CONTENT='{"model":"openai/gpt-6-astra","permission":{"question":"deny","edit":"deny"},"agent":{"build":{"model":"openai/gpt-6-astra","variant":"medium","permission":{"question":"deny","edit":"deny"}}}}' opencode --standalone`; then `hc wait <address>`, `hc send --json <address> "<prompt>"` and check `sent` the same way; then collect as below. | `env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ID opencode run --model openai/gpt-6-astra#medium "<prompt>"` |
 
-Inside herdr, the `ask-in-herdr` skill owns launch outcomes, follow-ups, and cleanup. A reviewer still without an answer after that handling is absent: name it in the final report and reconcile the reports you have. The tabs serve no follow-up once both reports are read: close each with the reap command its run printed.
+Collect each reviewer with `hc wait --json --timeout 1800 <address>`, then `hc get <address>` and branch on its status: `idle` or `done` means the report is in `hc read --lines 2000 <address>`; `blocked` means a dialog is open: `hc read <address>`, clear it (for example `hc keys <address> down enter`), wait again; `working` after the timeout gets one more wait, then the reviewer is absent: name it in the final report and reconcile the reports you have. Clean up only a terminal whose status is `idle`, `done` or `exited`: `hc kill <address>`, then `hc rm <address>`. A `working` or `blocked` terminal stays and is named in the report.
 
 ## Prompt
 

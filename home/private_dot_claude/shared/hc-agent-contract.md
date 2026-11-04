@@ -65,8 +65,3 @@ Only clean up terminals you started. Check the child with `hc get <t>` before
 acting. Never run `hc kill <t>` for a child whose status is `working` or
 `blocked`. Once the child is settled and no continuation is needed, use
 `hc kill <t>` and then `hc rm <t>`.
-
-## Coexistence
-
-The existing child and peer contracts remain unchanged for the old TUI. Use
-this contract in an app terminal. Both systems coexist until the TUI retires.

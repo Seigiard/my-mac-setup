@@ -245,22 +245,7 @@ class TestPostApplySuiteContract(unittest.TestCase):
         return suite_dir
 
     def runner_environment(self, root):
-        """An environment whose bashunit records its argv and whose `ps` is
-        inert.
-
-        The wrapper's suite-end orphan-watcher guard
-        (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md)
-        scans the live `ps` table and can independently force rc=1 when it
-        finds an abandoned herdr-child watcher rooted at this checkout -- a
-        real condition in this repo's own herdr-based dev environment. Left
-        unstubbed, a control run's failure cannot be told apart from that
-        environment artifact.
-        """
-        stub_dir = root / "stub-bin"
-        stub_dir.mkdir()
-        (stub_dir / "ps").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-        (stub_dir / "ps").chmod(0o755)
-
+        """An environment whose bashunit records its argv."""
         bashunit = root / "bashunit"
         bashunit.write_text(
             "#!/bin/sh\n"
@@ -272,7 +257,6 @@ class TestPostApplySuiteContract(unittest.TestCase):
         bashunit.chmod(0o755)
 
         env = os.environ.copy()
-        env["PATH"] = str(stub_dir) + os.pathsep + env["PATH"]
         env["MMS_BASHUNIT_BIN"] = str(bashunit)
         env["BASHUNIT_ARGV_FILE"] = str(root / "argv")
         env.pop("MMS_BASHUNIT_JOBS", None)

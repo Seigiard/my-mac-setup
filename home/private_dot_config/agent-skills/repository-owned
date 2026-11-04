@@ -2,12 +2,10 @@
 # sync with home/private_dot_agents/skills so wildcard installs cannot claim a
 # repository-owned canonical tree.
 agent-reports
-ask-in-herdr
 code-review
 consilium-writing-for-agents
 grill-design
 hc
-herdr
 implement
 implement-spec
 markdown-new

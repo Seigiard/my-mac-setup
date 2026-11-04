@@ -952,22 +952,6 @@ class TestDockerContract(unittest.TestCase):
                 "#!/usr/bin/env bash\n# post-apply: 10 host-safe\n"
             )
             env["MMS_BASHUNIT_SUITE_DIR"] = str(suite_dir)
-            # The wrapper's own suite-end orphan-watcher guard
-            # (docs/solutions/design-patterns/outliving-processes-hang-the-suite.md)
-            # scans the live `ps` table and can independently
-            # force rc=1 when it finds an unrelated abandoned herdr-child
-            # watcher rooted at this checkout -- a real condition in this
-            # repo's own herdr-based dev environment, not a suite-exit-code
-            # regression. Stub `ps` to report no processes so that guard is
-            # inert and this test isolates only the suite rc -> wrapper exit
-            # code contract, for both the failing run and its control.
-            ps_stub_dir = Path(tmp) / "ps-stub-bin"
-            ps_stub_dir.mkdir()
-            ps_stub = ps_stub_dir / "ps"
-            ps_stub.write_text("#!/bin/sh\nexit 0\n")
-            ps_stub.chmod(0o755)
-            env["PATH"] = str(ps_stub_dir) + os.pathsep + env["PATH"]
-
             failing = subprocess.run(
                 [str(RUNNER), "host-safe"],
                 cwd=REPOSITORY,
@@ -982,9 +966,8 @@ class TestDockerContract(unittest.TestCase):
                 % failing.stderr,
             )
 
-            # Control: same wrapper, env shape, and stubbed ps; stub now
-            # succeeds. Isolates the failure above as caused by the injected
-            # suite failure, not by host process-table state or setup noise.
+            # Control: the same wrapper and environment now succeed. This isolates
+            # the failure above as caused by the injected suite failure.
             stub.write_text("#!/bin/sh\nexit 0\n")
             stub.chmod(0o755)
             passing = subprocess.run(

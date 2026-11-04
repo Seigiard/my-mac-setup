@@ -9,7 +9,7 @@ Count the readers, and note when they read it.
 | Readers | Home | Examples |
 |---|---|---|
 | Every session, unconditionally | `~/.claude/CLAUDE.md` | global instructions, language and reply style |
-| Two or more skills, or one pointer from an always-loaded document | **here**, `~/.claude/shared/<name>.md` | `pf-cycle.md`, `child-agent-contract.md`, `long-running-work.md`, `testing.md`, `comments.md` |
+| Two or more skills, or one pointer from an always-loaded document | **here**, `~/.claude/shared/<name>.md` | `pf-cycle.md`, `hc-agent-contract.md`, `long-running-work.md`, `testing.md`, `comments.md` |
 | Exactly one skill | that skill's own `references/` | `pf-build/references/chain-ticket.md`, `pf-build/references/demo.md` |
 
 A document with no reader at all does not get created.
