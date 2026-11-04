@@ -917,10 +917,10 @@ function test_templates_012_opencode_keeps_the_external_dir_grant_and_stdio() {
 }
 
 # ===========================================
-# private_settings.json.tmpl retirement contract
+# private_settings.json.tmpl SessionStart hook
 # ===========================================
-function test_templates_0151_private_settings_registers_worktree_identity_prompt_hook() {
-  _bats_test_init 151 'private settings register the worktree identity and handoff hooks'
+function test_templates_0151_private_settings_registers_handoff_session_start_hook() {
+  _bats_test_init 151 'private settings register the handoff session-start hook'
   local hooks_dir="$HOME/.claude/hooks"
   BATS_TEST_TMPFILE="$(mktemp)"
   render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl" > "$BATS_TEST_TMPFILE"
@@ -930,38 +930,14 @@ function test_templates_0151_private_settings_registers_worktree_identity_prompt
   # The whole command line, not a substring of it: Claude runs this string, so
   # a commented-out entry or one carrying the wrong arguments is a dead hook
   # that a substring match still accepts.
-  run jq -r '.hooks.UserPromptSubmit[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
-  assert_success
-  assert_line "bash '$hooks_dir/herdr-worktree-identity-hook.sh'"
   run jq -r '.hooks.SessionStart[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
   assert_success
   assert_line "bash '$hooks_dir/handoff-session-start.sh'"
 
-  # Both registered paths, not just one: a registration pointing at a script
-  # chezmoi does not manage is the same dead hook by another route.
-  run chezmoi_host_partial source-path \
-    --source "$SOURCE_ROOT" "$hooks_dir/herdr-worktree-identity-hook.sh"
-  assert_success
-  assert_file_exists "$output"
+  # A registration pointing at a script chezmoi does not manage is a dead hook
+  # by another route.
   run chezmoi_host_partial source-path \
     --source "$SOURCE_ROOT" "$hooks_dir/handoff-session-start.sh"
-  assert_success
-  assert_file_exists "$output"
-
-  # WorktreeCreate replaces Claude Code's default creation. Both hook commands
-  # and their managed sources must exist or Claude cannot enter nested worktrees.
-  run jq -r '.hooks.WorktreeCreate[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
-  assert_success
-  assert_line "bash '$hooks_dir/claude-worktree-create.sh'"
-  run jq -r '.hooks.WorktreeRemove[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
-  assert_success
-  assert_line "bash '$hooks_dir/claude-worktree-remove.sh'"
-  run chezmoi_host_partial source-path \
-    --source "$SOURCE_ROOT" "$hooks_dir/claude-worktree-create.sh"
-  assert_success
-  assert_file_exists "$output"
-  run chezmoi_host_partial source-path \
-    --source "$SOURCE_ROOT" "$hooks_dir/claude-worktree-remove.sh"
   assert_success
   assert_file_exists "$output"
 }
