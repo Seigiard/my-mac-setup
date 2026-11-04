@@ -366,6 +366,6 @@ retry notice(G7, gap=A)             — повтор того же уведом�
 | [Итоговый пересмотренный контракт](https://github.com/Seigiard/my-mac-setup/issues/290#issuecomment-5735147920) | Единственный отправитель, deadline, неопределённость turn и occurrence IDs; заменяет первоначальное неполное решение |
 | [Recovery](https://github.com/Seigiard/my-mac-setup/issues/286#issuecomment-5734719191) · [уточнение](https://github.com/Seigiard/my-mac-setup/issues/286#issuecomment-5735158817) | Недоступный родитель, quarantine и независимость восстановления от доставки |
 | [Исходная задача](https://github.com/Seigiard/my-mac-setup/issues/214) | Resource tree завершён; оставшаяся реализация supervisor отменена как преждевременная |
-| [Resource tree](herdr-resource-tree.md) | Уже реализованная основа, которую используем |
+| Resource tree | Удалено в рамках #617 |
 | [ADR-0019](decisions/0019-use-one-delivery-owner-per-supervision-generation.md) | Отмена проекта и рассмотренный вариант с одним владельцем доставки на generation |
 | [Глоссарий](../GLOSSARY.md) | Общие термины |

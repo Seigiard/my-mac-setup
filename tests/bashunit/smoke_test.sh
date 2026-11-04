@@ -496,8 +496,6 @@ STUB
   done
 }
 
-}
-
 # The native reporter the managed hook above shells out to. herdr installs it
 # itself (HERDR_INTEGRATION_ID=claude in its header) rather than chezmoi, so it
 # exists only where a real herdr is installed -- hence a visible skip on that
