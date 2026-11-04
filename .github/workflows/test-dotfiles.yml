@@ -371,7 +371,7 @@ jobs:
       # waits in wall clock -- a claim gives up after ~200 ms, a git probe
       # after its budget, the fail-open guard after a scaled baseline -- and
       # under that oversubscription those bounds lose to the scheduler rather
-      # than to behavior, so the worktree-identity tests failed here on every
+      # than to behavior, so the task-sync timing tests failed here on every
       # run while Ubuntu passed. Raising the individual bounds does not fix it
       # and trades one failure for another: a claim ceiling large enough to
       # survive 8 workers makes the engine spin 8.4 s where the fail-open
