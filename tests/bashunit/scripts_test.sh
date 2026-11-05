@@ -796,6 +796,17 @@ function test_scripts_253_claude_code_daltonized_theme_extends_light_ansi() {
 # Herdr app settings modifier
 # ===========================================
 
+function test_scripts_632_keep_awake_mod_checkout_tests_pass() {
+  _bats_test_init 632 'keep-awake mod checkout tests pass through the source tree'
+
+  # #given the source tree rather than the Linux deployment, which omits Herdr app files
+  # #when the mod's checkout-side test suite runs with its explicit source root
+  run env SOURCE_ROOT="$SOURCE_ROOT" bun test "$BATS_TEST_DIRNAME/herdr-keep-awake-mod.test.ts"
+
+  # #then the keep-awake lease contract passes before the post-apply suite completes
+  assert_success
+}
+
 function test_scripts_592_herdr_app_settings_modifier_preserves_unmanaged_settings() {
   _bats_test_init 592 'Herdr app settings modifier preserves unmanaged settings and replaces managed values'
   local modifier="$SOURCE_ROOT/private_dot_config/herdr-app/modify_settings.json"
