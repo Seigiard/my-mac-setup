@@ -1,18 +1,7 @@
 import { View, div, image, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { spaces, agents, theme, run, window, keys, exec, home, knownAgents } from "herdr";
-
-const PROVIDERS = { "\uEC82": "claude", "\uEC81": "codex" };
-
-function parseLimits(output) {
-  return output.trim().split(" · ").map((segment) => {
-    const provider = PROVIDERS[segment[0]];
-
-    if (!provider) return null;
-
-    return { provider, text: segment.slice(1).trimStart().replace(/\uEABD/g, "⊘") };
-  }).filter(Boolean);
-}
+import { spaces, agents, theme, run, window, keys, exec, home, readTextFile, writeTextFile, knownAgents } from "herdr";
+import { loadLimits } from "./limits.js";
 
 function sameLimits(previous, next) {
   return previous?.length === next.length && previous.every((limit, i) => limit.provider === next[i].provider && limit.text === next[i].text);
@@ -40,13 +29,9 @@ export default class WorkspaceStatus extends View {
     this.refreshing = true;
     cx.spawn(async (cx) => {
       try {
-        const result = await exec(`${home()}/.local/bin/herdr-agent-limits`, []);
+        const limits = await loadLimits({ home, now: () => Date.now() / 1000, exec, readTextFile, writeTextFile });
 
-        if (result.code !== 0 || !result.stdout.trim()) return;
-
-        const limits = parseLimits(result.stdout);
-
-        if (!limits.length || sameLimits(this.limits, limits)) return;
+        if (sameLimits(this.limits, limits)) return;
 
         this.limits = limits;
         cx.notify();
@@ -89,7 +74,7 @@ export default class WorkspaceStatus extends View {
       .child(h_flex().gap(6).items_center().child(div().size(6).rounded(3).bg(t.dim)).child(`${list.length} agents`)
         .when(needs > 0, el => el.child(div().text_color(t.blocked).child(`· ${needs} needs you`))))
       .child(div().flex_1())
-      .when(Boolean(this.limits), el => el.child(h_flex().gap(10).items_center().children(this.limits.map(({ provider, text }) =>
+      .when(Boolean(this.limits?.length), el => el.child(h_flex().gap(10).items_center().children(this.limits.map(({ provider, text }) =>
         h_flex().gap(4).items_center()
           .child(providerIcon(provider))
           .child(div().text_color(text.includes("⊘") ? t.blocked : t.muted).child(text)),
