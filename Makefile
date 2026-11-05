@@ -1,4 +1,4 @@
-.PHONY: help test-python test-ubuntu test-ubuntu-herdr test-local edit-secrets reencrypt-secrets test-suite test-docker test-templates test-pi-agents-local test-agents-local-opencode test-pi-brew-auto-update test-agent-hooks-core test-agent-hooks-opencode test-agent-hooks-pi test-my-status-limits lint clean build-docker shell-ubuntu
+.PHONY: help test-python test-ubuntu test-ubuntu-herdr test-local edit-secrets reencrypt-secrets test-suite test-docker test-templates test-pi-agents-local test-agents-local-opencode test-pi-brew-auto-update test-agent-hooks-core test-agent-hooks-opencode test-agent-hooks-pi test-my-status-limits lint clean build-docker shell-ubuntu test-keep-awake-mod
 
 .PHONY: lint-yaml lint-shell install-git-hooks
 
@@ -17,6 +17,7 @@ help:
 	@echo "  make test-agent-hooks-opencode  Run focused agent-hooks opencode adapter tests"
 	@echo "  make test-agent-hooks-pi  Run focused agent-hooks Pi adapter tests"
 	@echo "  make test-my-status-limits  Run focused my-status account limits tests"
+	@echo "  make test-keep-awake-mod  Run focused Herdr app keep-awake mod tests"
 	@echo "  make test-local       Diff checkout source against current home (dry-run)"
 	@echo "  make edit-secrets     Edit the age-encrypted machine secrets in this checkout"
 	@echo "  make reencrypt-secrets  Re-encrypt the machine secrets for the current recipients"
@@ -68,6 +69,9 @@ test-agent-hooks-pi:
 
 test-my-status-limits:
 	bun test tests/herdr-my-status-limits.test.ts
+
+test-keep-awake-mod:
+	bun test tests/herdr-keep-awake-mod.test.ts
 
 shell-ubuntu: build-docker
 	docker compose -f docker/docker-compose.yml run --rm ubuntu /bin/zsh

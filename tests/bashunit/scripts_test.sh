@@ -796,6 +796,17 @@ function test_scripts_253_claude_code_daltonized_theme_extends_light_ansi() {
 # Herdr app settings modifier
 # ===========================================
 
+function test_scripts_632_keep_awake_mod_checkout_tests_pass() {
+  _bats_test_init 632 'keep-awake mod checkout tests pass through the source tree'
+
+  # #given the source tree rather than the Linux deployment, which omits Herdr app files
+  # #when the mod's checkout-side test suite runs with its explicit source root
+  run env SOURCE_ROOT="$SOURCE_ROOT" bun test "$BATS_TEST_DIRNAME/herdr-keep-awake-mod.test.ts"
+
+  # #then the keep-awake lease contract passes before the post-apply suite completes
+  assert_success
+}
+
 function test_scripts_592_herdr_app_settings_modifier_preserves_unmanaged_settings() {
   _bats_test_init 592 'Herdr app settings modifier preserves unmanaged settings and replaces managed values'
   local modifier="$SOURCE_ROOT/private_dot_config/herdr-app/modify_settings.json"
@@ -1014,6 +1025,39 @@ function test_scripts_259_test_dsl_isolates_parallel_tests_with_the_same_histori
     "$BATS_TEST_DIRNAME/lib/bashunit" -j 2 "$probe_file"
   assert_success
   assert_output --partial "Tests:      2 passed, 2 total"
+}
+
+function test_scripts_630_repository_owned_lists_every_skill_directory() {
+  _bats_test_init 630 'repository-owned lists every repository-owned skill directory'
+  local skills_dir="$SOURCE_ROOT/private_dot_agents/skills"
+  local repository_owned="$SOURCE_ROOT/private_dot_config/agent-skills/repository-owned"
+
+  # #given
+  # #when
+  run python3 - "$skills_dir" "$repository_owned" <<'PY'
+import pathlib
+import sys
+
+skills_dir = pathlib.Path(sys.argv[1])
+repository_owned = pathlib.Path(sys.argv[2])
+
+skill_directories = sorted(path.name for path in skills_dir.iterdir() if path.is_dir())
+listed_skills = sorted(
+    parsed_line
+    for line in repository_owned.read_bytes().decode("utf-8").split("\n")
+    if (parsed_line := line.split("#", 1)[0].strip(" \t"))
+)
+
+assert skill_directories, "repository-owned skill directory list is empty"
+assert listed_skills == skill_directories, (
+    "repository-owned differs from skill directories:\n"
+    f"listed={listed_skills}\n"
+    f"directories={skill_directories}"
+)
+PY
+
+  # #then
+  assert_success
 }
 
 SKILLS_WRAPPER="$SOURCE_ROOT/dot_local/bin/executable_skills"

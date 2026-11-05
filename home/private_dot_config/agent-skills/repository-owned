@@ -4,11 +4,16 @@
 agent-reports
 code-review
 consilium-writing-for-agents
+document-map
+explain-diff-html
+explain-for-manager
 grill-design
 hc
 implement
 implement-spec
+make-pr
 markdown-new
+pdf-to-markdown
 pf-build
 pf-issue
 pf-research
