@@ -1016,6 +1016,39 @@ function test_scripts_259_test_dsl_isolates_parallel_tests_with_the_same_histori
   assert_output --partial "Tests:      2 passed, 2 total"
 }
 
+function test_scripts_630_repository_owned_lists_every_skill_directory() {
+  _bats_test_init 630 'repository-owned lists every repository-owned skill directory'
+  local skills_dir="$SOURCE_ROOT/private_dot_agents/skills"
+  local repository_owned="$SOURCE_ROOT/private_dot_config/agent-skills/repository-owned"
+
+  # #given
+  # #when
+  run python3 - "$skills_dir" "$repository_owned" <<'PY'
+import pathlib
+import sys
+
+skills_dir = pathlib.Path(sys.argv[1])
+repository_owned = pathlib.Path(sys.argv[2])
+
+skill_directories = sorted(path.name for path in skills_dir.iterdir() if path.is_dir())
+listed_skills = sorted(
+    parsed_line
+    for line in repository_owned.read_bytes().decode("utf-8").split("\n")
+    if (parsed_line := line.split("#", 1)[0].strip(" \t"))
+)
+
+assert skill_directories, "repository-owned skill directory list is empty"
+assert listed_skills == skill_directories, (
+    "repository-owned differs from skill directories:\n"
+    f"listed={listed_skills}\n"
+    f"directories={skill_directories}"
+)
+PY
+
+  # #then
+  assert_success
+}
+
 SKILLS_WRAPPER="$SOURCE_ROOT/dot_local/bin/executable_skills"
 # Sampling granularity, not the bound. A stub npx exits in milliseconds, so
 # the shipped 0.2s default billed every wrapper call for a fifth of a second
