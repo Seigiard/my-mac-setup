@@ -13,7 +13,7 @@ the apply and repeat policy below; it replaces revmux's interactive fix choice a
 `references/loop.md` policy.
 
 When already acting as a reviewer inside revmux or another report-only review job, follow
-that job's supplied rubric and return findings directly. Do not launch a nested review.
+that job's supplied rubric and return findings directly.
 
 ## 1. Establish the review scope
 
@@ -24,9 +24,9 @@ git diff omits them. Every later round covers this same cumulative scope plus it
 against the same base; the base is not reset to the commit at which the loop started.
 
 Reuse the caller's run directory when one is supplied. Otherwise create
-`~/.claude/artifacts/review-<task-id>/` in the first round. Create the directory only;
-the clean-tree requirement belongs to step 4. Use this directory for every round's
-report and verdict files, and for the tdd chain when delegation starts.
+`~/.claude/artifacts/review-<task-id>/` in the first round. Create the directory only.
+Use this directory for every round's report and verdict files, and for the tdd chain when
+delegation starts.
 
 Resolve an explicit `base:<ref>` to a full commit SHA once and use it for every round.
 Treat `plan:<path>` as goal context, not a path filter on the reviewed changes.
@@ -70,11 +70,12 @@ When the user has not pinned a profile, choose each follow-up profile without an
 question. This replaces revmux's Step 7 profile-selection question:
 
 - Use `final` when all eligible findings have been addressed and the fixes stayed within
-  behavior, contracts, and structure already examined. New tests for those same cases do
-  not by themselves widen the review. This also covers contained documentation fixes.
-- Use the starting profile when fixes introduce behavior, dependencies, contracts, or
-  structure the review has not examined. Restore it even when the preceding round was
-  `final`. If the boundary is uncertain, retain the broader coverage.
+  the surface already examined. The surface is the set of public functions, options,
+  commands, file formats, dependencies, and modules the earlier rounds read. Handling
+  another input in an existing function, a new test for it, and a contained documentation
+  fix all stay within that surface.
+- Use the starting profile when a fix adds to the surface. Restore it even when the
+  preceding round was `final`.
 - A partial or failed review cannot justify narrowing; resolve its missing coverage first.
 
 Announce the selected profile and the reason, then launch. `final` checks fixes and blocking
@@ -168,22 +169,43 @@ styling then counts as unchecked.
 
 ## 4. Fix and verify
 
-Write `<run-dir>/review-<round>.md` with one verdict per finding and open question: `test`,
-`code`, `decision`, or `reject` with the reason, using the eligibility rules below.
+### Grade
+
+Grade each finding before writing its verdict. The reviewer's severity is a proposal; the
+grade is the caller's. A finding is **reachable** when it names a path the ticket owns, the
+ticket being the issue or request the caller named, `plan:<path>` included: an acceptance
+criterion, a flow the ticket's description names, an input this project's users produce, or,
+for agent-facing text, a run an agent following the text takes. A reachable finding keeps the
+reviewer's severity. Every other finding is **polish** and is graded `minor`. A **behavior
+gap** on a reachable path keeps that path's grade; a finding that asks only for a test, with
+the code correct, is `minor`.
+
+A **fix round** is a round whose routed findings produced fix commits; the budget is five per
+review loop. The loop is in **closeout** once the two latest rounds graded nothing above
+`minor`, or once five fix rounds have been verified. In closeout, route no fix: defer every
+remaining `minor`, and put a reachable critical or major to the user as a decision brief on
+raising the budget.
+
+Write `<run-dir>/review-<round>.md` with one grade, the path that establishes reachability,
+and one verdict per finding and open question: `test`, `code`, `decision`, `defer`, or
+`reject` with the reason, using the eligibility rules below.
 
 Confirm the in-scope tree still matches what was reviewed. If it changed during the
 round, review the new state before routing stale findings. Report the round's findings
 and the `good-css` results briefly, then act without another approval prompt:
 
-- Fix supported `critical` and `major` findings in the agreed scope through fresh `tdd` chain
-  children.
-- Fix a `minor` through a fresh child when its defect and remedy are clear, the edit is local and
-  reversible, and it needs no product decision, design choice, or taste judgment.
+- Fix a reachable `critical` or `major` in the agreed scope through fresh `tdd` chain children.
+- Fix a reachable `minor` through a fresh child when its defect and remedy are clear, the edit
+  is one local, reversible change, and it needs no product decision, design choice, or taste
+  judgment.
+- Defer every other `minor`, polish included: one line each in the review file, with the
+  reviewer's title and the reason. Deferred findings go into the final report under step 5;
+  the PR body's "Watch out for" section lists them as deliberate omissions, and the ticket's
+  closing comment names them, from there.
 - Use `confirmed` and `refined` findings as candidates, checking each against the current
   source. Establish an `unverified` finding yourself before acting on it.
-- Keep false positives, disputed fixes, decisions, and ambiguous minors out of the apply
-  batch and explain why. Keep `pre_existing` and `immaterial` separate. An unresolved
-  critical or major remains a blocker; skipping it does not make the review clean.
+- Keep false positives, disputed fixes, and decisions out of the apply batch and explain
+  why. Keep `pre_existing` and `immaterial` separate.
 
 Before the first delegation, run `tdd`'s "Before the chain" in the run directory when it has no
 `ticket.md`; this performs the clean-tree check and defines the review scope and goal.
@@ -191,13 +213,16 @@ Before the first delegation, run `tdd`'s "Before the chain" in the run directory
 Fix the mechanism, including matching in-scope occurrences, rather than only the quoted
 example. Each round's routed findings form one `tdd` batch: run `tdd` steps 1-2 for them in the
 existing run directory, reusing the fields an earlier batch recorded when they are unchanged,
-then enter through `tdd`'s "Entering mid-chain" section. A **behavior gap** or a **suspect
+then enter through `tdd`'s "Entering mid-chain" section. Copy every literal in a routed
+criterion, such as an expected string, escape, or number, from the finding's body or from a
+tool's output. When a later round shows a routed criterion wrong, correct it in `ticket.md`
+and note the correction in that round's review file; a second correction of the same
+criterion is a decision. A **behavior gap** or a **suspect
 test** gets a test writer; every other supported finding is **code-only** and goes to one
 implementer against the existing lock, or checks-only when there is none. `tdd` owns the child
 modes, tiers, calibration, turn budget, and the response to a failure.
 
-Children commit fixes on the reviewed branch. Before the first delegation, require a clean
-worktree; when in-scope work is uncommitted, report the dirty paths and stop. Pushes and PR
+Children commit fixes on the reviewed branch. Pushes and PR
 creation follow the two-way-door rule in the global `CLAUDE.md`. Editing a fetched PR or running under `mode:agent`
 follows the report-only rules in step 1.
 
@@ -215,14 +240,16 @@ Apply these rules in order:
 2. If this round produced fix commits and caller verification passed, return to step 2. This
    includes minor-only fixes and edits to docs, prompts, or skills: every fix gets a
    confirming round, even when another finding still needs a decision.
-3. Otherwise finish: this complete round needs no further eligible fixes. Unresolved
-   critical or major findings leave the review blocked. Report ambiguous minors and
-   open decisions as remaining work, not as an empty findings list.
+3. Otherwise finish: this complete round routed no fix. An unresolved reachable critical or
+   major, a closeout decision included, leaves the review blocked; skipping it does not make
+   the review clean. Report deferred findings and open decisions as remaining work, not as an
+   empty findings list.
 
 If the same defect returns after its attempted fix, diagnose the failed remedy before routing it
 again. Repeated fixes that make no progress need a decision and remain blocked; they are not a
 reason to silently lower the review bar.
 
 Report the task and rounds, actual profile and source coverage, applied fixes, check
-results, remaining findings and decisions, commit status, and why the loop stopped.
+results, deferred findings, remaining findings and decisions, commit status, and why the loop
+stopped.
 Use revmux's finding tags and report format, with a decision question only when one remains.
