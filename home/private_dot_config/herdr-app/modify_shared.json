@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if ! command -v python3 >/dev/null 2>&1; then
+  printf '%s\n' 'Herdr app shared-state modifier requires python3' >&2
+  exit 1
+fi
+
+exec python3 -I -c '
+import json
+import sys
+
+
+LAYOUT = "my-main"
+
+input_text = sys.stdin.read()
+shared = {} if input_text.strip() == "" else json.loads(input_text)
+if not isinstance(shared, dict):
+    raise TypeError("shared state must be a JSON object")
+
+# The app rewrites this file in the background. Its own bytes go back
+# untouched when the layout is already right, so an apply never fights it
+# over number or whitespace formatting.
+if shared.get("layout") == LAYOUT:
+    sys.stdout.write(input_text)
+else:
+    shared["layout"] = LAYOUT
+    # One line without a final newline is how the app itself writes the file.
+    sys.stdout.write(json.dumps(shared, ensure_ascii=False, separators=(",", ":")))
+'
