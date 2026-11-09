@@ -929,6 +929,112 @@ function test_scripts_596_herdr_app_settings_modifier_refuses_a_missing_runtime_
   assert_output ''
 }
 
+function test_scripts_597_herdr_app_shared_modifier_selects_the_layout_and_keeps_mod_state() {
+  _bats_test_init 597 'Herdr app shared-state modifier selects the managed layout and keeps mod state'
+  local modifier="$SOURCE_ROOT/private_dot_config/herdr-app/modify_shared.json"
+  # The app writes this file on one line; this is its own output with another layout shown.
+  local input='{"layout":"win98","workspace.panels":[],"frame.welcomed":"finished","space.colors":{"mbp2021/sp88be425af636f3dcbf1383e602d9fe2a":"ansi6","sp9670e8fdd76681bfe8dd113e77341761":"ansi1"},"my-agents.tabNames":{"tb97de1a949f1ca270ef1827c4af8cb63e":{"space":"sp9670e8fdd76681bfe8dd113e77341761","machine":null,"name":"olive-dogo"}},"win98.boot":1794224327887}'
+
+  # #given
+  # #when
+  run bash "$modifier" <<< "$input"
+
+  # #then
+  assert_success
+  assert_output '{"layout":"my-main","workspace.panels":[],"frame.welcomed":"finished","space.colors":{"mbp2021/sp88be425af636f3dcbf1383e602d9fe2a":"ansi6","sp9670e8fdd76681bfe8dd113e77341761":"ansi1"},"my-agents.tabNames":{"tb97de1a949f1ca270ef1827c4af8cb63e":{"space":"sp9670e8fdd76681bfe8dd113e77341761","machine":null,"name":"olive-dogo"}},"win98.boot":1794224327887}'
+}
+
+function test_scripts_598_herdr_app_shared_modifier_creates_the_layout_choice_for_empty_input() {
+  _bats_test_init 598 'Herdr app shared-state modifier creates the layout choice for empty input'
+  local modifier="$SOURCE_ROOT/private_dot_config/herdr-app/modify_shared.json"
+
+  # #given
+  # #when
+  run bash "$modifier" <<< ''
+
+  # #then
+  assert_success
+  assert_output '{"layout":"my-main"}'
+}
+
+function test_scripts_599_herdr_app_shared_modifier_returns_a_selected_file_byte_for_byte() {
+  _bats_test_init 599 'Herdr app shared-state modifier returns a file with the managed layout byte for byte'
+  local modifier="$SOURCE_ROOT/private_dot_config/herdr-app/modify_shared.json"
+  local existing="$BATS_TEST_TMPDIR/herdr-app-shared-existing.json"
+  local modified="$BATS_TEST_TMPDIR/herdr-app-shared-modified.json"
+
+  # #given a file no JSON writer here would reproduce: spacing, an exponent, a final newline
+  printf '%s\n' '{ "layout": "my-main",  "pane.ratio": 1e-7, "space.colors": {"sp1": "ansi6"} }' > "$existing"
+
+  # #when
+  run bash -c 'bash "$1" < "$2" > "$3"' _ "$modifier" "$existing" "$modified"
+
+  # #then
+  assert_success
+  run cmp "$existing" "$modified"
+  assert_success
+}
+
+function test_scripts_600_herdr_app_shared_modifier_refuses_invalid_input_without_stdout() {
+  _bats_test_init 600 'Herdr app shared-state modifier refuses invalid JSON without stdout'
+  local modifier="$SOURCE_ROOT/private_dot_config/herdr-app/modify_shared.json"
+
+  # #given
+  # #when
+  run bash "$modifier" <<< '{}'
+
+  # #then
+  assert_success
+
+  # #when
+  run --separate-stderr bash "$modifier" <<< '{"layout":'
+
+  # #then
+  assert_failure
+  assert_output ''
+}
+
+function test_scripts_601_herdr_app_shared_modifier_refuses_a_non_object_without_stdout() {
+  _bats_test_init 601 'Herdr app shared-state modifier refuses a JSON value that is not an object without stdout'
+  local modifier="$SOURCE_ROOT/private_dot_config/herdr-app/modify_shared.json"
+
+  # #given
+  # #when
+  run bash "$modifier" <<< '{}'
+
+  # #then
+  assert_success
+
+  # #when
+  run --separate-stderr bash "$modifier" <<< '["my-main"]'
+
+  # #then
+  assert_failure
+  assert_output ''
+}
+
+function test_scripts_602_herdr_app_shared_modifier_refuses_a_missing_runtime_without_stdout() {
+  _bats_test_init 602 'Herdr app shared-state modifier refuses a missing runtime without stdout'
+  local modifier="$SOURCE_ROOT/private_dot_config/herdr-app/modify_shared.json"
+  local stub_bin="$BATS_TEST_TMPDIR/herdr-app-shared-modifier-no-runtime-bin"
+  mkdir -p "$stub_bin"
+  ln -s "$(command -v bash)" "$stub_bin/bash"
+
+  # #given
+  # #when
+  run bash "$modifier" <<< '{}'
+
+  # #then
+  assert_success
+
+  # #when
+  run --separate-stderr env PATH="$stub_bin" bash "$modifier" <<< '{}'
+
+  # #then
+  assert_failure
+  assert_output ''
+}
+
 # ===========================================
 # morning-cleanup script
 # ===========================================
