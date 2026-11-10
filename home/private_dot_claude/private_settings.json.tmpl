@@ -102,8 +102,7 @@
     "plugin-dev@claude-plugins-official": false,
     "security-guidance@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true,
-    "where-am-i@claude-code-mods": true,
-    "image-view@claude-image-view": true{{ if eq $machineRole "mbp2026" }},
+    "where-am-i@claude-code-mods": true{{ if eq $machineRole "mbp2026" }},
     "membrane-operator@membrane.private": true,
     "summit@summit-ai-notes": true
 {{- end }}
@@ -113,12 +112,6 @@
       "source": {
         "source": "github",
         "repo": "hamzafer/claude-code-mods"
-      }
-    },
-    "claude-image-view": {
-      "source": {
-        "source": "github",
-        "repo": "jarrodwatts/claude-image-view"
       }
     }{{ if eq $machineRole "mbp2026" }},
     "membrane.private": {
