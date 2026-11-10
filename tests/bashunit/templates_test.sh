@@ -962,6 +962,24 @@ function test_templates_0151_private_settings_registers_handoff_and_worktree_hoo
   assert_file_exists "$output"
 }
 
+function test_templates_0153_private_settings_registers_the_worktree_identity_prompt_hook() {
+  _bats_test_init 153 'private settings register the first-prompt worktree identity hook'
+  local hook="$HOME/.claude/hooks/herdr-worktree-identity-hook.sh"
+  BATS_TEST_TMPFILE="$(mktemp)"
+
+  run render_template "$SOURCE_ROOT/private_dot_claude/private_settings.json.tmpl"
+  assert_success
+  printf '%s\n' "$output" > "$BATS_TEST_TMPFILE"
+
+  run jq -r '.hooks.UserPromptSubmit[]?.hooks[]?.command' "$BATS_TEST_TMPFILE"
+  assert_success
+  assert_line "bash '$hook'"
+
+  run chezmoi_host_partial source-path --source "$SOURCE_ROOT" "$hook"
+  assert_success
+  assert_file_exists "$output"
+}
+
 function test_templates_0152_private_settings_register_the_precompact_handoff_builder() {
   _bats_test_init 152 'private settings register the PreCompact handoff builder'
   BATS_TEST_TMPFILE="$(mktemp)"

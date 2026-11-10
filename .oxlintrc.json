@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "ignorePatterns": ["**/node_modules/**", "dist/**", "browsers/firefox/user.js", "home/private_dot_agents/skills/**", "home/private_dot_claude/skills/**", "home/private_dot_config/opencode/skills/**", "tools/oxlint/anti-slop/**", ".agent/**", ".agents/**", ".claude/**", ".codex/**", ".continue/**", ".cursor/**", ".gemini/**", ".opencode/**", ".pi/**", ".roo/**", ".windsurf/**"],
+  "ignorePatterns": ["**/node_modules/**", "dist/**", "browsers/firefox/user.js", "home/private_dot_config/herdr-app/mods/my-menu/**", "home/private_dot_config/herdr-app/mods/my-new-menu/**", "home/private_dot_config/herdr-app/mods/my-tabs/**", "home/private_dot_agents/skills/**", "home/private_dot_claude/skills/**", "home/private_dot_config/opencode/skills/**", "tools/oxlint/anti-slop/**", ".agent/**", ".agents/**", ".claude/**", ".codex/**", ".continue/**", ".cursor/**", ".gemini/**", ".opencode/**", ".pi/**", ".roo/**", ".windsurf/**"],
   "jsPlugins": [{"name": "anti-slop", "specifier": "./tools/oxlint/anti-slop/index.ts"}],
   "rules": {
     "oxc/no-accumulating-spread": "error",

@@ -117,6 +117,9 @@ Worktree preparation is provided by the standalone
 package. The package is pinned as a chezmoi external at
 `~/.local/lib/herdr-worktree-setup`; this repository retains its
 repository-keyed policy in `~/.config/herdr-worktree-setup/config.toml`.
+For a generated app worktree, the managed worktree-identity component uses the
+first root agent prompt to rename the branch once and labels the matching app
+space. The generated-worktree marker is its authorization record.
 
 The alias library used by `hc-run` is pinned as a chezmoi external at
 `~/.local/lib/herdr-pane-labels/herdr-aliases.sh`.
