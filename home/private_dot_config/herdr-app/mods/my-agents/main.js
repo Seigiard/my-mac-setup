@@ -88,18 +88,30 @@ function aliasCandidates(seed) {
 
 const base = (path) => path?.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "";
 
-function lead(tab, all = panes()) {
-  const mine = all.filter(p => p.tab === tab.id && p.terminal);
+const machineOf = (a) => (a.address.includes("/") ? a.address.split("/")[0] : null);
 
-  return mine.find(p => p.program?.agent) ?? mine.find(p => p.focused) ?? mine[0];
+// The agent's own name for its work. OpenCode prefixes its terminal title; its report doesn't.
+function agentTask(terminal) {
+  const task = clean(terminal?.report?.title ?? terminal?.title).replace(/^OC \| /, "");
+  const program = terminal?.program;
+  const telling = task && task !== program?.name && task.toLowerCase() !== program?.key && !/^[~/]|^[A-Za-z]:\\/.test(task) && !task.includes("@");
+
+  return telling ? task : null;
 }
 
-function title(tab, l) {
-  const prog = l?.program?.name;
-  const live = clean(l?.title);
-  const telling = live && live !== prog && !/^[~/]|^[A-Za-z]:\\/.test(live) && !live.includes("@") && live.toLowerCase() !== l?.program?.key;
+// This mod renames tabs to their agents' aliases; any other given name came from a person.
+function handName(tab, program) {
+  if (!tab?.named || tab.name === program || tab.name.split(" · ").every((part) => part === "~" || isPoolAlias(part))) return null;
 
-  return (tab.name === prog || !tab.named) && telling ? live : tab.name;
+  return tab.name;
+}
+
+// A generated worktree name says little beyond its middle words.
+function worktreeLabel(name, project) {
+  const short = name.replace(/^worktree-(.+)-[0-9a-f]{4}$/, "$1");
+  const prefix = `${project}-`;
+
+  return short.startsWith(prefix) ? short.slice(prefix.length) : short;
 }
 
 const RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
@@ -139,6 +151,7 @@ const kidStatus = (k, listed) => {
 const SORTS = [
   { id: "priority", label: "Priority", icon: "clock" },
   { id: "grouped", label: "Grouped by space", icon: "layers" },
+  { id: "project", label: "Grouped by project", icon: "git-branch" },
 ];
 
 const sortOf = () => SORTS.find((s) => s.id === shared("agents.sort")) ?? SORTS[0];
@@ -584,7 +597,7 @@ export default class Agents extends View {
     const pic = icon(k.program, 14, t.foreground);
     const alias = this.aliases.get(k.address);
     // hc-run names a child with its alias; skip a name the alias column already shows.
-    const name = [k.name, k.template, k.program?.name, k.address].find((s) => s && s !== alias);
+    const name = [agentTask(k), k.name, k.template, k.program?.name, k.address].find((s) => s && s !== alias);
     const on = k.address === shown;
 
     return h_flex()
@@ -648,10 +661,25 @@ export default class Agents extends View {
     this.track(list, now);
     this.hold(list);
     const byPriority = sort.id === "priority";
+    const byProject = sort.id === "project";
+    const spaceList = spaces();
+    this.refreshOrigins(spaceList, cx);
     const urgency = new Map(list.map((a) => [a.address, Math.max(this.rank(a), ...this.tree(all, a.address).map((s) => RANK[kidStatus(s.t, this.listed)] ?? 0))]));
     const rankOf = (a) => urgency.get(a.address);
+    const worktreeOf = (a) => this.originLabel(a, spaceList);
+    const projectOf = (a) => worktreeOf(a) ?? a.space_name ?? "";
+    const projectKey = (a) => `${machineOf(a) ?? ""}/${projectOf(a)}`;
 
     if (byPriority) list = [...list].sort((x, y) => rankOf(y) - rankOf(x) || this.since(y) - this.since(x) || y.seq - x.seq);
+
+    if (byProject) {
+      const projectOrder = new Map();
+
+      for (const a of list) if (!projectOrder.has(projectKey(a))) projectOrder.set(projectKey(a), projectOrder.size);
+      // Stable, so a space's agents stay neighbours; a main checkout comes before its worktrees.
+      list = [...list].sort((x, y) => projectOrder.get(projectKey(x)) - projectOrder.get(projectKey(y)) || Boolean(worktreeOf(x)) - Boolean(worktreeOf(y)));
+    }
+
     const pinned = list.filter((a) => a.pinned);
     const rest = list.filter((a) => !a.pinned);
     list = [...pinned, ...rest];
@@ -696,39 +724,37 @@ export default class Agents extends View {
         .when(!open, (el) => el.child(String(subs.length)));
     };
 
-    // A row reads "space \u00b7 detail": the detail is a tab someone named or the
-    // agent's own title, never an automatic tab number unless two rows would
-    // otherwise read the same.
-    const spaceList = spaces();
-    this.refreshOrigins(spaceList, cx);
     const tabs = spaceList.flatMap(s => s.tabs);
+    const terminalsByAddress = new Map(all.map((terminal) => [terminal.address, terminal]));
     this.assignAliases([...list, ...list.flatMap((a) => this.tree(all, a.address).map((s) => s.t))], spaceList, all);
     this.syncTabNames(spaceList, panes(), list, cx);
 
-    const label = (a) => {
-      const tab = tabs.find(tab => tab.id === a.tab);
+    const location = (a) => {
+      const project = worktreeOf(a);
 
-      if (tab && this.tabNames[tab.id]?.name === tab.name) return "";
-
-      return tab ? title(tab, lead(tab)) : a.title || a.program?.name || "";
+      return project ? `${project} / ${worktreeLabel(a.space_name, project)}` : a.space_name || "";
     };
 
-    const detail = new Map(list.map(a => [a.address, /^\d+$/.test(label(a)) ? null : label(a)]));
-    const seen = {};
+    // What the row is about: a person's tab name, the agent's task, else where it runs.
+    const taskOf = (a) => {
+      const project = worktreeOf(a);
 
-    for (const a of list) { const k = `${a.space_name}\u0000${detail.get(a.address) ?? ""}`; seen[k] = (seen[k] ?? 0) + 1; }
-
-    for (const a of list) {
-      if (detail.get(a.address) == null && seen[`${a.space_name}\u0000`] > 1) detail.set(a.address, label(a));
-    }
+      return handName(tabs.find((tab) => tab.id === a.tab), a.program?.name)
+        ?? agentTask({ ...a, ...terminalsByAddress.get(a.address) })
+        ?? (project ? worktreeLabel(a.space_name, project) : a.space_name)
+        ?? a.program?.name
+        ?? "";
+    };
 
     const row = (a, i, subs = []) => {
-      const more = detail.get(a.address);
-      const workspace = a.space_name || label(a);
-      const from = this.originLabel(a, spaceList);
+      const task = taskOf(a);
+      // Group headers already say where, except in Pinned.
+      const place = byProject && !a.pinned ? null : location(a);
+      const step = a.status === "working" ? terminalsByAddress.get(a.address)?.report?.msg : null;
+      const note = step || place;
       const pic = icon(a.program, 14, t.foreground);
       // An agent on another machine (`vps/t7`) says which.
-      const machine = a.address.includes("/") ? a.address.split("/")[0] : null;
+      const machine = machineOf(a);
       const machineIcon = svg(`mods/my-agents/${machineAsset(machine)}.svg`).size(14).flex_none().text_color(t.dim);
 
       if (collapsed) {
@@ -773,11 +799,8 @@ export default class Agents extends View {
         .items_center()
         .gap(6)
           .child(this.stateGlyph(t, a.status))
-          .child(machineIcon)
-          .when(Boolean(machine), el => el.child(div().text_size(10).text_color(t.dim).child(machine)))
-        .child(h_flex().flex_1().min_w(0).gap(5).items_center()
-          .child(div().min_w(0).truncate().font_semibold().text_color(idle ? t.muted : t.foreground).child(workspace))
-          .when(Boolean(more) && more !== workspace, el => el.child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(`· ${more}`))))
+          .child(div().id(`machine-${a.address}`).flex_none().tooltip(machine ?? "This computer").child(machineIcon))
+        .child(div().id(`task-${a.address}`).flex_1().min_w(0).truncate().font_semibold().text_color(idle ? t.muted : t.foreground).tooltip(task).child(task))
         .when(subs.length > 0, el => el.child(fold(a, subs)))
         .when(this.hovered === a.address, el => el.child(pin))
         .when(this.hovered !== a.address && Boolean(when), el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
@@ -799,7 +822,7 @@ export default class Agents extends View {
             cx.notify();
           })).child(pic)))
         .child(div().flex_none().text_color(t.muted).child(this.aliases.get(a.address) ?? ""))
-        .when(Boolean(from), el => el.child(div().ml(8).min_w(0).truncate().text_color(t.dim).child(`· from ${from}`)));
+        .when(Boolean(note), el => el.child(div().id(`note-${a.address}`).ml(8).min_w(0).truncate().text_color(t.dim).when(Boolean(step && place), (note) => note.tooltip(place)).child(`· ${note}`)));
 
       return v_flex()
         .id(`ag-${a.address}`)
@@ -822,13 +845,36 @@ export default class Agents extends View {
     // space are next to each other in agents(), so neighbours make a group.
     const groups = pinned.length ? [{ id: "pinned", label: "Pinned", status: null, members: pinned }] : [];
 
-    for (const a of rest) {
+    const groupOf = (a) => {
+      if (byProject) return { id: `pj-${projectKey(a)}`, label: [projectOf(a), machineOf(a)].filter(Boolean).join(" · "), status: null };
       const r = rankOf(a) || RANK.idle;
-      const id = byPriority ? `sec-${r}` : `sp-${a.space}`;
 
-      if (groups.at(-1)?.id === id) groups.at(-1).members.push(a);
-      else groups.push({ id, label: byPriority ? SECTION[r] : a.space_name || "", status: byPriority ? SECTION_STATUS[r] : null, members: [a] });
+      return byPriority ? { id: `sec-${r}`, label: SECTION[r], status: SECTION_STATUS[r] } : { id: `sp-${a.space}`, label: a.space_name || "", status: null };
+    };
+
+    for (const a of rest) {
+      const group = groupOf(a);
+
+      if (groups.at(-1)?.id === group.id) groups.at(-1).members.push(a);
+      else groups.push({ ...group, members: [a] });
     }
+
+    const worktreeHeader = (a) => h_flex()
+      .h(22)
+      .px(8)
+      .gap(5)
+      .flex_none()
+      .items_center()
+      .text_size(11)
+      .text_color(t.muted)
+      .child(svg("mods/workspace-chrome/git-branch.svg").size(11).flex_none().text_color(t.dim))
+      .child(div().min_w(0).truncate().child(worktreeLabel(a.space_name, worktreeOf(a))));
+
+    const groupRows = (g) => g.members.flatMap((a, i) => {
+      const startsWorktree = byProject && g.id !== "pinned" && worktreeOf(a) && g.members[i - 1]?.space !== a.space;
+
+      return startsWorktree ? [worktreeHeader(a), ...withKids(a, i)] : withKids(a, i);
+    });
 
     // A group's header; it folds the group. Folded, it says how many and the most urgent state.
     const header = (g) => {
@@ -863,7 +909,7 @@ export default class Agents extends View {
 
     const rows = collapsed
       ? list.flatMap(withKids)
-      : groups.flatMap((g) => [header(g), ...(this.folded.has(g.id) ? [] : g.members.flatMap(withKids))]);
+      : groups.flatMap((g) => [header(g), ...(this.folded.has(g.id) ? [] : groupRows(g))]);
 
     this.flushTabRenames(cx);
 
