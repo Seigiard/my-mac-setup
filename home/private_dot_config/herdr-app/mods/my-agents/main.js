@@ -613,10 +613,10 @@ export default class Agents extends View {
       .when(on, (el) => el.bg(t.raised))
       .hover((s) => s.bg(t.hover))
       .on_click(() => this.peek(k.address))
-      .children(s.lines.map(l => div().self_start().mt(-4).w(9).h(17).mr(4).flex_none()
+      .children(s.lines.map(l => div().self_start().mt(-4).w(9).h(17).mr(2).flex_none()
         .when(Boolean(l), el => el.border_l(1.5).border_color(t.input))
         .when(l === "└" || l === "├", el => el.border_b(1.5).rounded_bl(6))))
-       .when(Boolean(pic), el => el.child(div().mr(8).child(pic)))
+       .when(Boolean(pic), el => el.child(div().mr(3).child(pic)))
        .child(div().mr(8).flex_none().text_color(t.muted).child(alias ?? ""))
        .child(div().flex_1().truncate().text_color(on ? t.foreground : t.muted).child(name ?? ""))
        .child(this.status(t, { status: st }, compact));
