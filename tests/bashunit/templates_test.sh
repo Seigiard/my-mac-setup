@@ -411,15 +411,18 @@ function test_templates_042_authorized_keys_render_the_required_access_matrix() 
     case "$role" in
       mbp2026)
         assert_output --partial 'SHA256:EHMTK4CF46qEsk/z2atgPgQdsXThJX55V7J+/lPLUNY'
+        assert_output --partial 'SHA256:XzdmUVMW2ReuuXlbyOMlWG2LHbElPizP8PVAPnRSJC4'
         refute_output --partial 'SHA256:i1+gX+0ai2jgE0ovOq6lxX59NwDqoUrLS8KizkWpA2Y'
         ;;
       mbp2021)
         assert_output --partial 'SHA256:i1+gX+0ai2jgE0ovOq6lxX59NwDqoUrLS8KizkWpA2Y'
+        assert_output --partial 'SHA256:XzdmUVMW2ReuuXlbyOMlWG2LHbElPizP8PVAPnRSJC4'
         refute_output --partial 'SHA256:EHMTK4CF46qEsk/z2atgPgQdsXThJX55V7J+/lPLUNY'
         ;;
       server)
         assert_output --partial 'SHA256:i1+gX+0ai2jgE0ovOq6lxX59NwDqoUrLS8KizkWpA2Y'
         assert_output --partial 'SHA256:EHMTK4CF46qEsk/z2atgPgQdsXThJX55V7J+/lPLUNY'
+        refute_output --partial 'SHA256:XzdmUVMW2ReuuXlbyOMlWG2LHbElPizP8PVAPnRSJC4'
         ;;
     esac
   done

@@ -24,6 +24,7 @@ machines:
       age_recipient: age1fnnphxjnvdmc609np5v56v5jva9jpl8nclyv9hhwp454y94283uqxzk4qf
       authorized_keys:
         - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINUI/t06lbPQ/ieRE5sLlAVO6oUfdHwKvwNaH/irZ2w2 SSH mbp2021
+        - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOOJixPrRRF/FLwXqjFHninZpo1XC50IDkG4bXpsZaQb herdr-mobile
     mbp2021:
       os: darwin
       aliases:
@@ -35,6 +36,7 @@ machines:
       age_recipient: age1mm9lq9varrdzgrz6lu8acj2smljjnyap76agv4l59yhjnjdcyptq5kngrr
       authorized_keys:
         - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDW5HyTbWdDE/Be0hHX2XgGOvNuEZyOOQBWu2VDzdrsC SSH mbp2026
+        - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOOJixPrRRF/FLwXqjFHninZpo1XC50IDkG4bXpsZaQb herdr-mobile
     server:
       os: linux
       aliases:
