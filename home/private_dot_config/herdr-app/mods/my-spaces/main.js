@@ -615,7 +615,7 @@ export default class Spaces extends View {
           : pr.state === "checks_pending" ? t.working
             : t.ansi2;
 
-    return h_flex().h(16).flex_none().min_w(0).items_center().gap(5).pl(tree ? 30 : 0).text_size(11).text_color(t.dim)
+    return h_flex().h(16).flex_none().min_w(0).items_center().gap(5).pl(tree ? 22 : 0).text_size(11).text_color(t.dim)
       .child(div().flex_none().text_color(color).child(prGlyph(pr.state)))
       .child(div().flex_none().child(`#${pr.number}${prLabel(pr.state) ? ` ${prLabel(pr.state)}` : ""}`))
       .when(details.length > 0, (el) => el.child(div().flex_none().child("·")))
@@ -631,7 +631,7 @@ export default class Spaces extends View {
     const extra = (g ? 1 : 0) + (pr ? 1 : 0);
 
     const header = h_flex().h(16).flex_none().gap(9).items_center()
-      .when(Boolean(tree), el => el.pl(8).child(svg("mods/workspace-chrome/branch.svg").size(13).text_color(t.dim)))
+      .when(Boolean(tree), el => el.child(svg("mods/workspace-chrome/branch.svg").size(13).text_color(t.dim)))
       // Herdr's Geist ignores font weights; the system font has real ones.
       .child(div().flex_shrink(0).max_w(150).truncate().when(!tree, el => el.font_family(".SystemUIFont").font_semibold()).text_color(t.foreground).child(w.name))
       .when(Boolean(glyph(w.status)), el => el.child(div().flex_none().font_semibold().text_color(tone(t, w.status)).child(glyph(w.status))));
@@ -678,7 +678,7 @@ export default class Spaces extends View {
       .on_mouse_down("right", () => this.menu(w))
       .children([
         header,
-        g ? h_flex().h(16).flex_none().min_w(0).items_center().gap(6).pl(tree ? 30 : 0).text_size(11.5)
+        g ? h_flex().h(16).flex_none().min_w(0).items_center().gap(6).pl(tree ? 22 : 0).text_size(11.5)
           .child(div().flex_1().min_w(0).truncate().text_color(t.foreground).child(g.branch ?? "detached"))
           .child(this.gitCounts(g, t)) : null,
         pr ? this.prRow(pr, tree, t) : null,
