@@ -28,7 +28,7 @@ const tilde = (path, userHome) => {
 const slug = (branch) => branch.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
 
 // Generated branches look like Herdr's own: worktree/<adjective>-<noun>-<4 hex>.
-// The folder-derived branch name stays unchanged after creation.
+// Only generated names receive the marker that permits a later identity rename.
 const ADJECTIVES = ["amber", "bold", "brisk", "calm", "clear", "crisp", "eager", "gentle", "golden", "keen", "lucky", "mellow", "nimble", "quiet", "rapid", "silver", "steady", "sunny", "swift", "warm"];
 
 const NOUNS = ["brook", "canyon", "cedar", "cliff", "cloud", "coast", "dune", "field", "forest", "grove", "harbor", "meadow", "mesa", "peak", "pine", "river", "ridge", "stone", "valley", "willow"];
@@ -235,9 +235,9 @@ export default class Worktree extends View {
   }
 
   async create() {
-    const branch = this.text.trim() || (this.auto ? await this.unused() : "");
+    const generatedBranch = this.text.trim() === "";
+    const branch = generatedBranch ? await this.unused() : this.text.trim();
 
-    if (!branch) return "Type a branch name.";
     const path = `${ROOT(this.userHome)}/${this.repo.name}/${slug(branch)}`;
     const exists = (await git(this.repo.main, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], this.on)).ok;
     const add = exists ? ["worktree", "add", path, branch] : ["worktree", "add", "-b", branch, path, "HEAD"];
@@ -259,7 +259,7 @@ export default class Worktree extends View {
       run("tab.new", {
         space: space?.id,
         folder: path,
-        argv: [`${this.userHome}/.local/bin/herdr-worktree-setup-run`, path, branch],
+        argv: [`${this.userHome}/.local/bin/herdr-worktree-setup-run`, path, generatedBranch ? branch : ""],
       });
     }
 
@@ -399,7 +399,7 @@ export default class Worktree extends View {
       .child(h_flex().justify_end().text_size(11).text_color(t.dim).child("\u2191\u2193 choose \u00b7 \u21b5 open \u00b7 esc close"));
   }
 
-  render(cx) {
+  render(_cx) {
     const t = theme();
 
     if (this.opening) return this.renderOpen(t);
@@ -419,7 +419,7 @@ export default class Worktree extends View {
               : `Closes the space and deletes ${tilde(r.top, this.userHome)}. The branch stays.`
             : this.auto
               ? `Creating a worktree/… branch from here in ${tilde(ROOT(this.userHome), this.userHome)}/${r.name}/.`
-              : `A new space on a checkout in ${tilde(ROOT(this.userHome), this.userHome)}/${r.name}/. A branch that exists is checked out; a new one starts from here.`;
+              : `A new space on a checkout in ${tilde(ROOT(this.userHome), this.userHome)}/${r.name}/. A branch that exists is checked out; a new one starts from here. Leave the name empty to generate one.`;
 
     const blocked = !r || (remove && !r.linked);
 
