@@ -1,4 +1,4 @@
-// Workspace spaces: stable colored avatars, worktrees under their checkout,
+// Workspace spaces: heavier checkouts, worktrees under them,
 // grouped by machine when more than one is known. Each expanded space shows its
 // branch, Git counts, pull-request state and its most urgent agent state; the
 // agents themselves live in the agents list. Click to switch, right-click for
@@ -48,10 +48,6 @@ const CHECK_RUN_FAIL = new Set(["FAILURE", "TIMED_OUT", "STARTUP_FAILURE", "ACTI
 const CHECK_RUN_NEUTRAL = new Set(["SKIPPED", "CANCELLED", "NEUTRAL", "STALE"]);
 
 const STATUS_FAIL = new Set(["FAILURE", "ERROR"]);
-
-// What a stored color name looks like on an avatar (the same in every mod
-// that draws space avatars): one strong color per hue, light and dark alike.
-const MARK = { ansi6: "#22a99a", ansi3: "#e3814f", ansi4: "#5b8def", ansi5: "#8b7cf6", ansi2: "#3fae6a", ansi1: "#d9649a" };
 
 function normalizeCheck(check) {
   if (check?.__typename === "CheckRun") {
@@ -619,7 +615,7 @@ export default class Spaces extends View {
           : pr.state === "checks_pending" ? t.working
             : t.ansi2;
 
-    return h_flex().h(16).flex_none().min_w(0).items_center().gap(5).pl(tree ? 44 : 27).text_size(11).text_color(t.dim)
+    return h_flex().h(16).flex_none().min_w(0).items_center().gap(5).pl(tree ? 30 : 0).text_size(11).text_color(t.dim)
       .child(div().flex_none().text_color(color).child(prGlyph(pr.state)))
       .child(div().flex_none().child(`#${pr.number}${prLabel(pr.state) ? ` ${prLabel(pr.state)}` : ""}`))
       .when(details.length > 0, (el) => el.child(div().flex_none().child("·")))
@@ -632,15 +628,12 @@ export default class Spaces extends View {
   row({ w, i, g, tree, key }, t) {
     const on = w.active;
     const pr = this.pr[key] ?? null;
-    const colors = shared("space.colors") ?? {};
-    const color = colors[w.id] ?? "ansi6";
-    const fill = color.startsWith("#") ? color : (MARK[color] ?? t[color]);
     const extra = (g ? 1 : 0) + (pr ? 1 : 0);
 
     const header = h_flex().h(16).flex_none().gap(9).items_center()
-      .when(Boolean(tree), el => el.pl(22).child(svg("mods/workspace-chrome/branch.svg").size(13).text_color(t.dim)))
-      .when(!tree, el => el.child(h_flex().size(18).flex_none().rounded(5).bg(fill).items_center().justify_center().text_size(10.5).font_bold().text_color("#ffffff").child([...w.name][0]?.toUpperCase() ?? "?")))
-      .child(div().flex_shrink(0).max_w(150).truncate().text_color(t.foreground).child(w.name))
+      .when(Boolean(tree), el => el.pl(8).child(svg("mods/workspace-chrome/branch.svg").size(13).text_color(t.dim)))
+      // Herdr's Geist ignores font weights; the system font has real ones.
+      .child(div().flex_shrink(0).max_w(150).truncate().when(!tree, el => el.font_family(".SystemUIFont").font_semibold()).text_color(t.foreground).child(w.name))
       .when(Boolean(glyph(w.status)), el => el.child(div().flex_none().font_semibold().text_color(tone(t, w.status)).child(glyph(w.status))));
 
     return v_flex()
@@ -685,7 +678,7 @@ export default class Spaces extends View {
       .on_mouse_down("right", () => this.menu(w))
       .children([
         header,
-        g ? h_flex().h(16).flex_none().min_w(0).items_center().gap(6).pl(tree ? 44 : 27).text_size(11.5)
+        g ? h_flex().h(16).flex_none().min_w(0).items_center().gap(6).pl(tree ? 30 : 0).text_size(11.5)
           .child(div().flex_1().min_w(0).truncate().text_color(t.foreground).child(g.branch ?? "detached"))
           .child(this.gitCounts(g, t)) : null,
         pr ? this.prRow(pr, tree, t) : null,
