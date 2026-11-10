@@ -118,7 +118,9 @@ What is available is to make the formula itself answer to a literal somewhere. `
 test 1206 pins the single shipped key encoder, `context_usage_encode_key` in `context-usage.sh`,
 against three hand-written vectors: a plain id, a string whose base64 carries `+`, `/` and padding at
 once, and a path long enough that GNU `base64` wraps it. The former
-`herdr-worktree-state.sh` encoder was retired in #617. Thirty-odd derived path lookups are then
+`herdr-worktree-state.sh` encoder was retired in #617. The restored state
+library keeps its encoding internal; no test derives its expected state path
+from that code. Thirty-odd derived path lookups are then
 plumbing calibrated by one test, and a change to the encoding is a named failure rather than thirty
 opaque ones.
 
@@ -182,7 +184,8 @@ Fixed across #327–#337 and the #339 sweep:
   `herdr_resource_tree_test.sh` 007 and 011 (#332).
 - **Plumbing plus a literal owner:** `handoff_store_path` became a literal table; `scripts_test.sh`
   1206 pins the `context_usage_encode_key` encoding. The former
-  `herdr-worktree-state.sh` encoder was retired in #617 (#339).
+`herdr-worktree-state.sh` encoder was retired in #617 (#339); the restored
+worktree-identity state library is not a test expectation source.
 
 The 2026-09-25 sweep over `tests/bashunit/*_test.sh`, `tests/helpers/`, `tests/test_*.py` and
 `tests/*.test.ts` found no remaining expectation computed by the code under test. The derivations

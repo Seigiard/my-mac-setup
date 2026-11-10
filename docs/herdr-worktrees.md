@@ -3,15 +3,18 @@
 Herdr is the single owner of interactive Git worktree creation, opening,
 closing, and removal. The `Cmd+Shift+N` keybinding invokes the `my-worktree`
 app mod (`home/private_dot_config/herdr-app/mods/my-worktree`, #623). Linked
-checkouts are native child workspaces; space names and branch names stay as
-typed or generated; no component renames them.
+checkouts are native child spaces. The worktree-identity component renames an
+authorized generated branch from an agent session's first prompt, then labels
+the matching Herdr app space.
 
 - `Cmd+Shift+N` creates and opens a checkout through the `my-worktree` mod,
   then runs `herdr-worktree-setup-run` for setup.
 - The setup package runs from `~/.local/lib/herdr-worktree-setup`. Claude Code
   invokes the same package through its `WorktreeCreate` hook.
-- The workspace context menu provides `New worktree`, `Open worktree...`, and,
-  on linked child workspaces, `Delete worktree checkout...`.
+- The `my-spaces` sidebar opens `my-menu` for a space. Its `New worktree` item
+  opens `my-worktree`; `Open worktree` remains an open action.
+- The `my-tabs` `+` button opens `my-new-menu`, whose `New worktree…` item also
+  opens `my-worktree`. `layouts/my-main.json` uses `my-tabs`.
 - Native removal asks Git to remove safely, offers a forced retry for dirty
   checkouts, closes the child workspace, and retains the branch.
 - New checkouts live under `~/.herdr/worktrees/<repo>/<branch-slug>`;
@@ -85,9 +88,17 @@ asks nothing. It generates a `worktree/<adjective>-<noun>-<4 hex>` branch, the s
 Herdr's native worktrees used, and creates it from the focused checkout's `HEAD`.
 After `git worktree add`, it opens the new space and a terminal running
 `herdr-worktree-setup-run <path> <branch>`. The setup log is visible and has no
-time cap. The app passes the real branch, so fresh-base and the
-`herdr-generated-worktree` marker apply. Space names and branch names stay as
-typed or generated; no component renames them.
+time cap. A keybinding or an empty name field generates a
+`worktree/<adjective>-<noun>-<4 hex>` branch and passes that branch to setup, so
+fresh-base and the `herdr-generated-worktree` marker apply. A typed name,
+including an existing branch, passes an empty branch field and receives no
+marker. The worktree-identity component uses the marker only when its first
+line is the generated branch. On the first root agent prompt, it derives one
+task slug, renames that branch once, records the attribution in Git, and labels
+the app space whose `folder` exactly matches the checkout root. If no root
+space exists, it can use an exact `--cwd` folder match. A branch with an
+upstream is declined before model work and does not label a space. Missing or
+failed app commands are diagnostic-only and leave the Git result intact.
 
 ## Claude Code nested worktrees
 
@@ -106,7 +117,7 @@ After Git creates the checkout, the hook invokes `setup.ts` from
 The hook passes the checkout path and an empty branch field. The empty field
 tells the plugin to skip fresh-base and the `herdr-generated-worktree` marker,
 so the new branch keeps the parent checkout's unpushed commits and
-stays as generated; no component renames generated branches. Setup is best
+stays as generated; the identity hook only handles app-generated markers. Setup is best
 effort: the hook still
 returns the created path when a setup
 prerequisite is missing (`setup.ts` or `bun`) or when setup fails, and prints

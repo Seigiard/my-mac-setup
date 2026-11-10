@@ -58,7 +58,13 @@ An optional outer container or VM that hosts a development workspace, toolchain,
 The nearest layer outside an agent-controlled boundary that may own communication credentials, socket bridges, network egress, and optional safety policy. It may run on the physical host or inside a trusted development container or VM. The first communication slice does not require every message to be durably owned by this layer.
 
 ### Generated-worktree marker
-The marker file the worktree-setup plugin writes into a worktree's git per-worktree admin dir on `worktree.created`. It records Herdr provenance for the worktree; no component performs automated branch renames. The setup package still writes it, and Git removes it with the linked worktree metadata.
+The marker file the worktree-setup plugin writes into a worktree's git per-worktree admin dir on `worktree.created`. It records Herdr provenance for the worktree; the identity hook may rename its generated branch once. The setup package still writes it, and Git removes it with the linked worktree metadata.
+
+### Worktree-identity component
+The managed engine and client adapters that use a generated-worktree marker to
+rename an authorized generated branch from the first root agent prompt. After
+the Git outcome, it best-effort labels the Herdr app space with the same
+checkout folder. It does not use the retired TUI server.
 
 ### Detached worker
 A background process a component forks so its caller can return immediately. Detachment has two halves and both are load-bearing: the worker takes its own session, and it closes every file descriptor it inherited above standard error.
