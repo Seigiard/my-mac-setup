@@ -30,14 +30,9 @@ escaped_path="$(escape_json_string "$worktree_path")"
 escaped_branch="$(escape_json_string "$branch")"
 event="{\"data\":{\"worktree\":{\"path\":\"$escaped_path\",\"branch\":\"$escaped_branch\"}}}"
 
-if ! cd -- "$plugin_dir"; then
-  printf '%s\n' "herdr-worktree-setup-run: cannot enter $plugin_dir" >&2
-  exit 1
-fi
-
+# Stay in the caller's folder: the sidebar reads the terminal's cwd for its branch.
 HERDR_PLUGIN_EVENT_JSON="$event" \
   HERDR_PLUGIN_CONFIG_DIR="$config_dir" \
-  PWD="$plugin_dir" \
-  bun setup.ts
+  bun "$plugin_dir/setup.ts"
 status=$?
 exit "$status"

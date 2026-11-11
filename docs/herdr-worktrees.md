@@ -88,7 +88,9 @@ asks nothing. It generates a `worktree/<adjective>-<noun>-<4 hex>` branch, the s
 Herdr's native worktrees used, and creates it from the focused checkout's `HEAD`.
 After `git worktree add`, it opens the new space and a terminal running
 `herdr-worktree-setup-run <path> <branch>`. The setup log is visible and has no
-time cap. A keybinding or an empty name field generates a
+time cap. The runner stays in the checkout folder: the Spaces sidebar reads the
+terminal's folder, so the space keeps its branch row and its place under the
+repository while setup runs. A keybinding or an empty name field generates a
 `worktree/<adjective>-<noun>-<4 hex>` branch and passes that branch to setup, so
 fresh-base and the `herdr-generated-worktree` marker apply. A typed name,
 including an existing branch, passes an empty branch field and receives no
