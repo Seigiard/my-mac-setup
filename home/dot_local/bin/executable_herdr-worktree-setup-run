@@ -31,8 +31,9 @@ escaped_branch="$(escape_json_string "$branch")"
 event="{\"data\":{\"worktree\":{\"path\":\"$escaped_path\",\"branch\":\"$escaped_branch\"}}}"
 
 # Stay in the caller's folder: the sidebar reads the terminal's cwd for its branch.
+# That folder is the new checkout, so bun must not load its bunfig.toml or .env.
 HERDR_PLUGIN_EVENT_JSON="$event" \
   HERDR_PLUGIN_CONFIG_DIR="$config_dir" \
-  bun "$plugin_dir/setup.ts"
+  bun --config=/dev/null --no-env-file "$plugin_dir/setup.ts"
 status=$?
 exit "$status"

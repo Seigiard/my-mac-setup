@@ -259,7 +259,7 @@ function test_scripts_08525_worktree_setup_runner_passes_escaped_event_to_plugin
   run cat "$record"
   assert_success
   assert_output "cwd=$worktree_cwd
-argv=$plugin_dir/setup.ts
+argv=--config=/dev/null --no-env-file $plugin_dir/setup.ts
 event={\"data\":{\"worktree\":{\"path\":\"$BATS_TEST_TMPDIR/worktree \\\"quoted\\\"\",\"branch\":\"feature/bright-otter\"}}}
 config=$config_dir"
 }
@@ -294,7 +294,7 @@ function test_scripts_08526_worktree_setup_runner_uses_default_paths_with_empty_
   run cat "$record"
   assert_success
   assert_output "cwd=$worktree_cwd
-argv=$plugin_dir/setup.ts
+argv=--config=/dev/null --no-env-file $plugin_dir/setup.ts
 event={\"data\":{\"worktree\":{\"path\":\"$worktree\",\"branch\":\"\"}}}
 config=$config_dir"
 }
