@@ -238,12 +238,14 @@ function test_scripts_08525_worktree_setup_runner_passes_escaped_event_to_plugin
   local record="$BATS_TEST_TMPDIR/bun.record"
   local worktree="$BATS_TEST_TMPDIR/worktree \"quoted\""
   local branch='feature/bright-otter'
-  mkdir -p "$bin" "$plugin_dir" "$config_dir"
+  mkdir -p "$bin" "$plugin_dir" "$config_dir" "$worktree"
+  local worktree_cwd
+  worktree_cwd="$(cd -- "$worktree" && pwd)"
   : > "$plugin_dir/setup.ts"
   install_worktree_setup_fake_bun "$bin"
 
   # #when
-  run --separate-stderr env \
+  run --separate-stderr bash -c 'cd -- "$1" && shift && exec "$@"' _ "$worktree" env \
     CLAUDE_WORKTREE_SETUP_PLUGIN_DIR="$plugin_dir" \
     CLAUDE_WORKTREE_SETUP_CONFIG_DIR="$config_dir" \
     WORKTREE_SETUP_BUN_RECORD="$record" \
@@ -253,10 +255,11 @@ function test_scripts_08525_worktree_setup_runner_passes_escaped_event_to_plugin
   assert_stderr ''
 
   # #then
+  # The Spaces sidebar reads the setup terminal's cwd for the branch row.
   run cat "$record"
   assert_success
-  assert_output "cwd=$plugin_dir
-argv=setup.ts
+  assert_output "cwd=$worktree_cwd
+argv=--config=/dev/null --no-env-file $plugin_dir/setup.ts
 event={\"data\":{\"worktree\":{\"path\":\"$BATS_TEST_TMPDIR/worktree \\\"quoted\\\"\",\"branch\":\"feature/bright-otter\"}}}
 config=$config_dir"
 }
@@ -271,12 +274,15 @@ function test_scripts_08526_worktree_setup_runner_uses_default_paths_with_empty_
   local config_dir="$home/.config/herdr-worktree-setup"
   local record="$BATS_TEST_TMPDIR/default-bun.record"
   local worktree="$BATS_TEST_TMPDIR/default-worktree"
-  mkdir -p "$bin" "$plugin_dir" "$config_dir"
+  mkdir -p "$bin" "$plugin_dir" "$config_dir" "$worktree"
+  local worktree_cwd
+  worktree_cwd="$(cd -- "$worktree" && pwd)"
   : > "$plugin_dir/setup.ts"
   install_worktree_setup_fake_bun "$bin"
 
   # #when
-  run --separate-stderr env -u CLAUDE_WORKTREE_SETUP_PLUGIN_DIR -u CLAUDE_WORKTREE_SETUP_CONFIG_DIR \
+  run --separate-stderr bash -c 'cd -- "$1" && shift && exec "$@"' _ "$worktree" \
+    env -u CLAUDE_WORKTREE_SETUP_PLUGIN_DIR -u CLAUDE_WORKTREE_SETUP_CONFIG_DIR \
     HOME="$home" \
     WORKTREE_SETUP_BUN_RECORD="$record" \
     PATH="$bin:$PATH" \
@@ -287,8 +293,8 @@ function test_scripts_08526_worktree_setup_runner_uses_default_paths_with_empty_
   # #then
   run cat "$record"
   assert_success
-  assert_output "cwd=$plugin_dir
-argv=setup.ts
+  assert_output "cwd=$worktree_cwd
+argv=--config=/dev/null --no-env-file $plugin_dir/setup.ts
 event={\"data\":{\"worktree\":{\"path\":\"$worktree\",\"branch\":\"\"}}}
 config=$config_dir"
 }
