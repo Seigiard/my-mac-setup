@@ -845,7 +845,7 @@ export default class Agents extends View {
     const groups = pinned.length ? [{ id: "pinned", label: "Pinned", status: null, members: pinned }] : [];
 
     const groupOf = (a) => {
-      if (byProject) return { id: `pj-${projectKey(a)}`, label: [projectOf(a), machineOf(a)].filter(Boolean).join(" · "), status: null };
+      if (byProject) return { id: `pj-${projectKey(a)}`, label: [projectOf(a), machineOf(a)].filter(Boolean).join(" · "), status: null, strong: true };
       const r = rankOf(a) || RANK.idle;
 
       return { id: `sec-${r}`, label: SECTION[r], status: SECTION_STATUS[r] };
@@ -898,7 +898,7 @@ export default class Agents extends View {
           else this.folded.delete(g.id);
           cx.notify();
         })
-        .child(div().truncate().text_color(t[g.status] ?? t.dim).child(g.label))
+        .child(div().truncate().when(Boolean(g.strong), (el) => el.font_semibold()).text_color(t[g.status] ?? t.dim).child(g.label))
         .when(byPriority || !open, (el) => el.child(div().text_color(t.dim).child(String(g.members.length))))
         .child(div().flex_1())
         .when(!open, (el) => el
