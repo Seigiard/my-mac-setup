@@ -1,4 +1,4 @@
-// Agents in grouped or priority views; parents take their most urgent sub-agent's place.
+// Agents in project or priority views; parents take their most urgent sub-agent's place.
 // A viewed done agent stays in Done until left.
 
 import { View, div, image, svg } from "gpui-kit";
@@ -150,11 +150,11 @@ const kidStatus = (k, listed) => {
 
 const SORTS = [
   { id: "priority", label: "Priority", icon: "clock" },
-  { id: "grouped", label: "Grouped by space", icon: "layers" },
   { id: "project", label: "Grouped by project", icon: "git-branch" },
 ];
 
-const sortOf = () => SORTS.find((s) => s.id === shared("agents.sort")) ?? SORTS[0];
+// Projects by default; the retired "grouped" (by space) choice lands there too.
+const sortOf = () => SORTS.find((s) => s.id === shared("agents.sort")) ?? SORTS[1];
 
 const SECTION = { 4: "Needs you", 3: "Done", 2: "Working", 1: "Idle" };
 
@@ -840,15 +840,15 @@ export default class Agents extends View {
         .children([row1, row2]);
     };
 
-    // Groups in list order: spaces (grouped) or priority sections. Agents of a
-    // space are next to each other in agents(), so neighbours make a group.
+    // Groups in list order: projects or priority sections. Both sorts put a
+    // group's agents next to each other, so neighbours make a group.
     const groups = pinned.length ? [{ id: "pinned", label: "Pinned", status: null, members: pinned }] : [];
 
     const groupOf = (a) => {
       if (byProject) return { id: `pj-${projectKey(a)}`, label: [projectOf(a), machineOf(a)].filter(Boolean).join(" · "), status: null };
       const r = rankOf(a) || RANK.idle;
 
-      return byPriority ? { id: `sec-${r}`, label: SECTION[r], status: SECTION_STATUS[r] } : { id: `sp-${a.space}`, label: a.space_name || "", status: null };
+      return { id: `sec-${r}`, label: SECTION[r], status: SECTION_STATUS[r] };
     };
 
     for (const a of rest) {
