@@ -898,8 +898,7 @@ export default class Agents extends View {
           else this.folded.delete(g.id);
           cx.notify();
         })
-        // Herdr's Geist ignores font weights; the system font has real ones.
-        .child(div().truncate().when(Boolean(g.strong), (el) => el.font_family(".SystemUIFont").font_semibold()).text_color(t[g.status] ?? t.dim).child(g.label))
+        .child(div().truncate().text_color(t[g.status] ?? (g.strong ? t.foreground : t.dim)).child(g.label))
         .when(byPriority || !open, (el) => el.child(div().text_color(t.dim).child(String(g.members.length))))
         .child(div().flex_1())
         .when(!open, (el) => el
