@@ -28,11 +28,11 @@ Every SHA you record, `base_sha`, `batch_start_sha`, `lock_sha`, a Verdicts tip,
 - Record the checkout (`git rev-parse --show-toplevel`) and the branch: the ticket branch the caller gave, or the current branch.
 - The worktree must be clean (`git status --porcelain` is empty). When it is not, report the dirty paths to the caller and stop.
 - Use the caller's run directory, or create `~/.claude/artifacts/tdd-<YYYYMMDD-HHMMSS>/<ticket>/`, where `<ticket>` is the issue number or a short slug. Its files, their layouts, and the atomic-write rule are in [`run-directory.md`](run-directory.md).
-- Write `ticket.md` with the ticket text, verbatim, and its validation criteria. The ticket is the issue the caller named, or the caller's request when there is none. When the ticket states no criteria, write them from its text.
+- Write `ticket.md` with the ticket text, verbatim, and its validation criteria. The ticket is the issue the caller named, or the caller's request when there is none. When the ticket states no criteria, write them from its text. Each criterion carries its **evidence**: the ticket sentence it restates, or a report, log, incident, or reproduced failure the caller supplied. A scenario, limit, guard, or path with no evidence is a question for the caller when it would decide the fix, and otherwise stays out of `ticket.md`.
 - Copy only the ticket's explicit non-goals into `ticket.md`; an unnamed neighbor may be a necessary consequence of the change. Ask the caller only when an assumed non-goal would exclude a plausible solution or decide a product contract.
 - When the ticket reports a bug (the `bug` label, or its text describes current behavior as wrong), add the `Symptom` section from [`symptom.md`](symptom.md) to `ticket.md`.
 
-Done when the worktree is clean and `ticket.md` holds the ticket, its criteria, explicit non-goals, and its symptom when it reports a bug.
+Done when the worktree is clean and `ticket.md` holds the ticket, its criteria with their evidence, explicit non-goals, and its symptom when it reports a bug.
 
 ## The chain
 

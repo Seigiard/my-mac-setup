@@ -175,10 +175,12 @@ Grade each finding before writing its verdict. The reviewer's severity is a prop
 grade is the caller's. A finding is **reachable** when it names a path the ticket owns, the
 ticket being the issue or request the caller named, `plan:<path>` included: an acceptance
 criterion, a flow the ticket's description names, an input this project's users produce, or,
-for agent-facing text, a run an agent following the text takes. A reachable finding keeps the
-reviewer's severity. Every other finding is **polish** and is graded `minor`. A **behavior
-gap** on a reachable path keeps that path's grade; a finding that asks only for a test, with
-the code correct, is `minor`.
+for agent-facing text, a run an agent following the text takes. A criterion establishes
+reachability through the evidence `ticket.md` records for it (`tdd`, Before the chain); a
+scenario, limit, or guard that no evidence names is polish, however plausible it reads. A
+reachable finding keeps the reviewer's severity. Every other finding is **polish** and is
+graded `minor`. A **behavior gap** on a reachable path keeps that path's grade; a finding
+that asks only for a test, with the code correct, is `minor`.
 
 A **fix round** is a round whose routed findings produced fix commits; the budget is five per
 review loop. The loop is in **closeout** once the two latest rounds graded nothing above
