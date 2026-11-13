@@ -330,7 +330,7 @@ describe("tool_call deny and allow (R3)", () => {
   test("the known-bad bash fixture is denied with the policy's prefixed reason", async () => {
     // #given the shipped known-bad zsh command in pi's wire shape
     const fixture = policyFixture("zsh-reserved-name-guard", "zsh/flags the status capture idiom");
-    const host = await loadExtension(CORE_DIR);
+    const host = await loadExtension(CORE_DIR, "/bin/zsh");
 
     // #when the handler sees it
     const decision = await callToolCall(host, piRawFor(fixture));
@@ -349,7 +349,7 @@ describe("tool_call deny and allow (R3)", () => {
       "zsh/an ordinary name zsh accepts is not blocked",
     );
 
-    const host = await loadExtension(CORE_DIR);
+    const host = await loadExtension(CORE_DIR, "/bin/zsh");
 
     // #when the handler sees it
     const decision = await callToolCall(host, piRawFor(fixture));
