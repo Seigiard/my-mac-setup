@@ -22,6 +22,18 @@ printf 'arg=%s\n' "$@"
 [ "${1:-}" != fail ] || exit 7
 FAKE
   chmod +x "$FAKE_DIR/revmux"
+  # the probe target: records what reached it, answers as FAKE_CLAUDE says
+  PROBE_LOG="$BATS_TEST_TMPDIR/probe.log"
+  cat > "$FAKE_DIR/claude" <<'FAKE'
+#!/usr/bin/env bash
+printf 'key=%s claudecode=%s args=%s\n' "${ANTHROPIC_API_KEY-unset}" "${CLAUDECODE-unset}" "$*" >> "$PROBE_LOG"
+case "${FAKE_CLAUDE:-ok}" in
+  ok) printf '{"type":"result","subtype":"success","is_error":false,"result":"ok"}\n' ;;
+  credit) printf '{"type":"result","subtype":"error","is_error":true,"result":"Your credit balance is too low"}\n'; exit 1 ;;
+esac
+FAKE
+  chmod +x "$FAKE_DIR/claude"
+  export PROBE_LOG
   WITH_REAL="$WRAP_DIR:$FAKE_DIR:/usr/bin:/bin"
 }
 
@@ -47,6 +59,9 @@ wrapped_revmux() {
     perl -e "setpgrp(0, 0); exec @ARGV or exit 127" -- \
       sh -c "sleep 10; kill -- -$child" >/dev/null 2>&1 &
     watchdog=$!
+    # a disowned job is not reported when its kill below lands, so the
+    # "Terminated" notice cannot land in the captured output
+    disown "$watchdog" 2>/dev/null
     wait "$child"
     status=$?
     kill -- -"$watchdog" 2>/dev/null
@@ -57,14 +72,16 @@ function test_revmux_wrapper_7301_routes_the_key_and_the_preserve_flag_to_the_re
   _bats_test_init 7301 'routes the key and the preserve flag to the real binary'
   # #given
   local expected
-  expected="$(printf '%s\n' 'ANTHROPIC_API_KEY=key-canary' 'arg=--preserve-anthropic-api-key' \
-    'arg=--task' 'arg=t' 'arg=--run' 'arg=r' 'arg=--no-tui')"
+  expected="$(printf '%s\n' 'revmux: claude agents on the API credit' 'ANTHROPIC_API_KEY=key-canary' \
+    'arg=--preserve-anthropic-api-key' 'arg=--task' 'arg=t' 'arg=--run' 'arg=r' 'arg=--no-tui')"
   # #when
-  run wrapped_revmux PATH="$WITH_REAL" REVMUX_ANTHROPIC_API_KEY=key-canary \
+  run wrapped_revmux PATH="$WITH_REAL" REVMUX_ANTHROPIC_API_KEY=key-canary CLAUDECODE=1 \
     -- "$WRAP_DIR/revmux" --task t --run r --no-tui
   # #then
   assert_success
   assert_output "$expected"
+  assert_equal "$(cat "$PROBE_LOG")" \
+    "key=key-canary claudecode=unset args=--print --model haiku --output-format json --max-turns 1 reply with one word: ok"
 }
 
 function test_revmux_wrapper_7302_runs_the_real_binary_unchanged_without_the_key() {
@@ -80,6 +97,12 @@ function test_revmux_wrapper_7302_runs_the_real_binary_unchanged_without_the_key
   run wrapped_revmux PATH="$WITH_REAL" ANTHROPIC_API_KEY=outer -- "$WRAP_DIR/revmux" config
   assert_success
   assert_output "$(printf '%s\n' 'ANTHROPIC_API_KEY=outer' 'arg=config')"
+
+  # a subcommand spawns no agents: no probe, no key, even with the key set
+  run wrapped_revmux PATH="$WITH_REAL" REVMUX_ANTHROPIC_API_KEY=key-canary -- "$WRAP_DIR/revmux" config
+  assert_success
+  assert_output "$(printf '%s\n' 'ANTHROPIC_API_KEY=unset' 'arg=config')"
+  assert_file_not_exists "$PROBE_LOG"
 }
 
 function test_revmux_wrapper_7303_returns_the_real_binary_exit_status() {
@@ -121,8 +144,23 @@ function test_revmux_wrapper_7306_skips_a_front_end_before_it_that_delegates_bac
   printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$WRAP_DIR/revmux" > "$shim_dir/revmux"
   chmod +x "$shim_dir/revmux"
   # #when
-  run wrapped_revmux PATH="$shim_dir:$WITH_REAL" REVMUX_ANTHROPIC_API_KEY=key-canary -- "$shim_dir/revmux" config
+  run wrapped_revmux PATH="$shim_dir:$WITH_REAL" REVMUX_ANTHROPIC_API_KEY=key-canary -- "$shim_dir/revmux" --task t
   # #then the real binary behind the wrapper answers, not the shim again
   assert_success
-  assert_output "$(printf '%s\n' 'ANTHROPIC_API_KEY=key-canary' 'arg=--preserve-anthropic-api-key' 'arg=config')"
+  assert_output "$(printf '%s\n' 'revmux: claude agents on the API credit' 'ANTHROPIC_API_KEY=key-canary' \
+    'arg=--preserve-anthropic-api-key' 'arg=--task' 'arg=t')"
+}
+
+
+function test_revmux_wrapper_7307_falls_back_to_the_subscription_when_the_probe_fails() {
+  _bats_test_init 7307 'falls back to the subscription when the probe fails'
+  # #given a key whose API call fails, as an exhausted credit does
+  # #when
+  run wrapped_revmux PATH="$WITH_REAL" REVMUX_ANTHROPIC_API_KEY=key-canary FAKE_CLAUDE=credit \
+    -- "$WRAP_DIR/revmux" --task t --run r
+  # #then the round runs without the key and stderr names the cause
+  assert_success
+  assert_output "$(printf '%s\n' \
+    'revmux: claude agents on the subscription; API probe failed: exit 1: "result":"Your credit balance is too low"' \
+    'ANTHROPIC_API_KEY=unset' 'arg=--task' 'arg=t' 'arg=--run' 'arg=r')"
 }

@@ -9,6 +9,12 @@
 # in ~/.zshenv because a shell-wide ANTHROPIC_API_KEY also moves interactive
 # claude onto the API. Codex agents are not affected.
 #
+# The credit runs out before the month does, and a key with no credit behind
+# it fails every agent mid-round. So a review run first spends one small call
+# on the key: if it answers, the round runs on the credit; if it does not, the
+# round runs on the subscription and stderr says why. Subcommands (config,
+# new, stats, ...) spawn no agents and skip both the probe and the key.
+#
 # Without REVMUX_ANTHROPIC_API_KEY the real binary runs unchanged. The wrapper
 # sits earlier in PATH than the binary under the same name, so every caller
 # (the revmux skill, revmux-round.sh, a shell) goes through it. Keep this Bash
@@ -54,8 +60,36 @@ if [ -z "$real" ]; then
   exit 127
 fi
 
-if [ -n "${REVMUX_ANTHROPIC_API_KEY:-}" ]; then
-  export ANTHROPIC_API_KEY="$REVMUX_ANTHROPIC_API_KEY"
-  exec "$real" --preserve-anthropic-api-key "$@"
+is_review_run=0
+case " $* " in
+  *" --task "* | *" --task="*) is_review_run=1 ;;
+esac
+
+probe_reason=""
+api_answers() {
+  local probe status
+  # claude refuses to start inside a Claude Code session; revmux unsets
+  # CLAUDECODE for its children and the probe has to do the same.
+  probe=$(env -u CLAUDECODE ANTHROPIC_API_KEY="$REVMUX_ANTHROPIC_API_KEY" \
+    perl -e 'alarm 60; exec @ARGV or exit 127' -- \
+    claude --print --model haiku --output-format json --max-turns 1 'reply with one word: ok' 2>&1 </dev/null)
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    case "$probe" in *'"is_error":false'*) return 0 ;; esac
+  fi
+  # the JSON result carries the API's own message; fall back to the raw head
+  probe_reason=$(printf '%s' "$probe" | grep -oE '"(result|error|message)":("[^"]*"|\{[^}]*\})' | head -1)
+  [ -n "$probe_reason" ] || probe_reason=$(printf '%s' "$probe" | tr '\n' ' ' | cut -c1-200)
+  probe_reason="exit $status: $probe_reason"
+  return 1
+}
+
+if [ "$is_review_run" = 1 ] && [ -n "${REVMUX_ANTHROPIC_API_KEY:-}" ]; then
+  if api_answers; then
+    echo "revmux: claude agents on the API credit" >&2
+    export ANTHROPIC_API_KEY="$REVMUX_ANTHROPIC_API_KEY"
+    exec "$real" --preserve-anthropic-api-key "$@"
+  fi
+  echo "revmux: claude agents on the subscription; API probe failed: $probe_reason" >&2
 fi
 exec "$real" "$@"
