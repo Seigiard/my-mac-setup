@@ -75,7 +75,7 @@ Slicing rules:
    ```bash
    git -C <main-checkout> worktree add .claude/worktrees/oc-<TASK-ID> -b oc/<TASK-ID> origin/<epic-branch>
    ```
-   Seed what a fresh worktree needs per the repo's `AGENTS.md` (env files, dependency install) before dispatching — the chain starts cold.
+   Prepare it with `~/.local/bin/herdr-worktree-setup-run <worktree-path>` before dispatching — the chain starts cold. Wait for the runner to exit 0: it copies the env files and runs the dependency install that the repository's worktree setup policy names. When it logs `no configuration`, seed what the repo's `AGENTS.md` asks for instead.
 2. Call the Skill tool with `tdd` in that worktree, as the sub-task's orchestrator, with caller run directory `~/.claude/artifacts/<id>/runs/<TASK-ID>/` and the ticket built per `references/chain-ticket.md`.
 3. Children commit only on `oc/<TASK-ID>` inside that worktree and never push. Models and tiers come from `tdd`'s Dispatch and starting tiers.
 4. When the chain stops, set the task file's Status to `Blocked`; its dependents wait; independent tasks continue; report the blocker in the next status report at once, without pausing the loop.
