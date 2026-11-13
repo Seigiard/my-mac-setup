@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# revmux front end: spends the Claude plan's monthly API credit on review rounds.
+#
+# revmux strips ANTHROPIC_API_KEY from its claude children by default, so they
+# sign in with the Claude Code subscription and draw down its usage window. The
+# plan's API credit is reachable only through a key. This wrapper hands revmux
+# the key from REVMUX_ANTHROPIC_API_KEY under the name claude reads, with the
+# flag that stops revmux from stripping it. The key travels under its own name
+# in ~/.zshenv because a shell-wide ANTHROPIC_API_KEY also moves interactive
+# claude onto the API. Codex agents are not affected.
+#
+# Without REVMUX_ANTHROPIC_API_KEY the real binary runs unchanged. The wrapper
+# sits earlier in PATH than the binary under the same name, so every caller
+# (the revmux skill, revmux-round.sh, a shell) goes through it. Keep this Bash
+# 3.2 compatible.
+set -u
+
+self_dir=$(cd "$(dirname "$0")" && pwd -P)
+real=""
+old_ifs=$IFS
+IFS=:
+for dir in $PATH; do
+  [ -n "$dir" ] || dir=.
+  candidate="$dir/revmux"
+  [ -f "$candidate" ] && [ -x "$candidate" ] || continue
+  candidate_dir=$(cd "$dir" 2>/dev/null && pwd -P) || continue
+  [ "$candidate_dir" != "$self_dir" ] || continue
+  real=$candidate
+  break
+done
+IFS=$old_ifs
+
+if [ -z "$real" ]; then
+  echo "revmux: no revmux binary in PATH after this wrapper" >&2
+  exit 127
+fi
+
+if [ -n "${REVMUX_ANTHROPIC_API_KEY:-}" ]; then
+  export ANTHROPIC_API_KEY="$REVMUX_ANTHROPIC_API_KEY"
+  exec "$real" --preserve-anthropic-api-key "$@"
+fi
+exec "$real" "$@"
