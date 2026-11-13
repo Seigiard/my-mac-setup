@@ -429,15 +429,15 @@ function test_worktree_identity_024_teardown_reaps_recorded_tracked_and_lifecycl
   _bats_test_init 24 'fixture teardown bounds worker cleanup before it removes the work directory'
   local work="$HWI_WORK" recorded_pid tracked_pid lifecycle_pid released_pid recorded_alive tracked_alive lifecycle_alive released_alive lifecycle_status
   hwi_install_recording_setsid
-  "$HWI_BIN/setsid" sleep 60 &
+  hwi_start_signal_blocked_worker recorded "$HWI_BIN/setsid" || fail 'recorded worker did not reach its blocked state'
   run hwi_wait_for_setsid_calls 1
   assert_success
   recorded_pid="$(awk 'NR == 1 { print $1 }' "$HWI_SETSID_CALLS")"
-  sleep 60 &
-  tracked_pid=$!
+  hwi_start_signal_blocked_worker tracked || fail 'tracked worker did not reach its blocked state'
+  tracked_pid="$HWI_SIGNAL_BLOCKED_PID"
   hwi_track_process "$tracked_pid"
-  sleep 60 &
-  lifecycle_pid=$!
+  hwi_start_signal_blocked_worker lifecycle || fail 'lifecycle worker did not reach its blocked state'
+  lifecycle_pid="$HWI_SIGNAL_BLOCKED_PID"
   hwi_write_lifecycle_claim "$HERDR_WORKTREE_IDENTITY_STATE_DIR/live.lifecycle.claim" "$lifecycle_pid"
 
   hwi_teardown
@@ -448,8 +448,11 @@ function test_worktree_identity_024_teardown_reaps_recorded_tracked_and_lifecycl
   kill -0 "$tracked_pid" 2>/dev/null && tracked_alive=1
   lifecycle_alive=0
   kill -0 "$lifecycle_pid" 2>/dev/null && lifecycle_alive=1
+  [ "$lifecycle_alive" = 0 ] || kill -TERM "$lifecycle_pid" 2>/dev/null || true
   if wait "$lifecycle_pid"; then lifecycle_status=0; else lifecycle_status=$?; fi
-  kill -TERM "$recorded_pid" "$tracked_pid" "$lifecycle_pid" 2>/dev/null || true
+  kill -TERM "$recorded_pid" "$tracked_pid" 2>/dev/null || true
+  wait "$recorded_pid" 2>/dev/null || true
+  wait "$tracked_pid" 2>/dev/null || true
   assert_dir_not_exists "$work"
   assert_equal "$recorded_alive" 0
   assert_equal "$tracked_alive" 0
@@ -458,8 +461,8 @@ function test_worktree_identity_024_teardown_reaps_recorded_tracked_and_lifecycl
 
   hwi_setup
   work="$HWI_WORK"
-  sleep 60 &
-  released_pid=$!
+  hwi_start_signal_blocked_worker released || fail 'released worker did not reach its blocked state'
+  released_pid="$HWI_SIGNAL_BLOCKED_PID"
   hwi_write_lifecycle_claim "$HERDR_WORKTREE_IDENTITY_STATE_DIR/released.lifecycle.claim" "$released_pid"
   rm "$HERDR_WORKTREE_IDENTITY_STATE_DIR/released.lifecycle.claim"
 
