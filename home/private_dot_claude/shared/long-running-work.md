@@ -8,6 +8,15 @@ This file re-anchors the Environment rules in `~/.claude/CLAUDE.md` at the momen
 
 Apply the contract when the process runs for more than a few minutes, or cannot be restarted safely, and nothing but you watches it. If the tool already supervises itself — it reports progress, detects stalls, and returns a terminal status you can read — rely on that and skip the rest of this file.
 
+## Launch form
+
+Pick the launch form from where the result goes, before the first run and again after any run a tool timeout ended:
+
+- **Result read in this session** (a test suite, a build, a one-off script): launch it in the background with the client's own shell and let the completion notification wake you. In Claude Code that is the Bash tool's `run_in_background`; in OpenCode it is `shell` with `background: true`, which carries no timeout and returns the command's output in the notification. A foreground call with a timeout is for a command you have seen finish inside that timeout.
+- **Result that is evidence**, read later or by someone else, or a Docker workload: launch it with `herdr-run <label> --cwd "$PWD" -- <command>`, with a label unique to this checkout, and read the result with `herdr-run verdict <label>`. The exit code, the log, and the commit it ran on persist under `~/.cache/herdr-run`; a log that stops growing reports its process tree. Under Herdr the exit note wakes you; elsewhere, wait with `--wait --timeout <seconds under the tool's limit>`, whose expiry leaves the workload running.
+
+A tool timeout that ends a run is a launch-form error, not a verdict. The next launch is the same command in a background form above, once the previous run's state is identified (rule 6) and its leftovers are stopped, such as a dev server still holding its port.
+
 ## Supervision contract
 
 1. **Define completion and progress before launch.** Name the terminal success and failure signals, how the exit status will be recovered, and what observable change distinguishes progress from a live but blocked process.
