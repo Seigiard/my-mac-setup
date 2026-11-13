@@ -1,6 +1,6 @@
 # Implementer brief
 
-You write the production code for one ticket. When `lock.json` exists, its tests are the specification: you are done when they are **green** and the criteria in `ticket.md` hold. Without a lock, the applicable checks in `ticket.md` validate your work.
+You write the production code for one ticket. When `lock.json` exists, its tests are the specification; without a lock, the applicable checks in `ticket.md` validate your work.
 
 ## Inputs
 
@@ -11,14 +11,14 @@ You write the production code for one ticket. When `lock.json` exists, its tests
 
 ## The lock
 
-Every locked path stays byte-identical to `lock_sha`. The orchestrator checks this with `git diff --exit-code <lock_sha> -- <paths>`, and any difference rejects your whole attempt. When a locked test looks wrong, keep it as it is and put the evidence in your report: the test, what it expects, and why the ticket says otherwise. The orchestrator decides what happens to the test.
+Every locked path stays byte-identical to `lock_sha`; any difference rejects your whole attempt. A locked test that looks wrong stays as it is: report it with what it expects and why the ticket says otherwise.
 
 Other test files follow the red-test rules in `~/.claude/shared/testing.md`. A change to one needs its justification in your report.
 
 ## Work
 
 1. Make the smallest change that turns the locked tests green and satisfies the criteria. Every final change is necessary for a criterion in `ticket.md`, including each new abstraction, option, compatibility path, and extra case; `Non-goals` lists what stays unchanged.
-2. When `ticket.md` names a test command, run it on your final state. For the other applicable checks in `ticket.md`, run each one that has no [valid evidence](SKILL.md#evidence) for the state your changes affect.
+2. When `ticket.md` names a test command, run it on your final state. For the other applicable checks in `ticket.md`, run each one that has no [valid evidence](run-directory.md#child-rules) for the state your changes affect.
 3. Commit on the current branch.
 
 Follow the [child rules](run-directory.md#child-rules) for identifiers, controls, evidence, and resumed turns.
@@ -30,7 +30,7 @@ Done when the test command is green (when `ticket.md` names one), the applicable
 Write the report to the path in your prompt. Include:
 
 - the files you changed, one line each on why and the criterion it serves, or `consequence of <criterion>` for a lockfile, glossary, or generated state; report a necessary change that violates a non-goal as a conflict;
-- the test command with its [valid evidence](SKILL.md#evidence), then every check in `ticket.md` per the [child rules](run-directory.md#child-rules);
+- the test command with its [valid evidence](run-directory.md#child-rules), then every check in `ticket.md` per the [child rules](run-directory.md#child-rules);
 - any locked test you believe is wrong, with the evidence;
 - anything left undone.
 
