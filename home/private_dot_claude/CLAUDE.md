@@ -7,6 +7,8 @@ Always assume low context
 Talk to me in Russian by default. This covers only what is addressed to me: replies, questions, summaries, plans.
 Code, comments, commit messages, PR text, docs, and any other artifact keep their own conventional language.
 
+The shell tool runs bash in Claude Code, OpenCode, and Pi. Codex and Herdr panes (`hc send`, `hc run`) run zsh, where `$VAR` does not split, `status` and `path` are reserved, and unmatched globs fail.
+
 ## How to talk to user
 
 Write plainly in either language: short sentences, common words, one idea per sentence. Technical terms, identifiers and numbers stay exact.
