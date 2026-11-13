@@ -1207,22 +1207,21 @@ describe("zsh reserved names respect the observed shell", () => {
     expect(decisions.slice(1).map((decision) => decision.reason?.includes("zsh") === true)).toEqual([true, true]);
   });
 
-  test("bash still denies reserved assignments sent to Herdr panes", () => {
-    // #given commands whose quoted payload runs in a zsh Herdr pane rather than the bash tool shell
+  test("bash allows commands passed to Herdr tools", () => {
+    // #given commands whose arguments may contain names that only zsh reserves
     const commands = [
       'hc send t3 "make test; status=$?"',
-      'hc run --bg t3 "make test; status=$?"',
-      'hc exec t3 "make test; status=$?"',
-      'hc-run reviewer "make test; status=$?"',
-      'herdr-run t3 "make test; status=$?"',
+      'hc run t3 "make test; status=$?"',
+      'hc-run reviewer "read path handling in foo.ts"',
+      "herdr-run check -- bash -c 'make test; status=$?; exit $status'",
+      "cat > /tmp/x <<'EOF'\nhc exec t3 'status=0'\nEOF",
     ];
 
-    // #when bash dispatches each pane command
+    // #when bash dispatches them through the core
     const decisions = commands.map((command) => dispatchWithShell(command, "/bin/bash"));
 
-    // #then the inner zsh payload, not an ordinary bash assignment, causes every block
-    expect(decisions.map((decision) => decision.verdict)).toEqual(["block", "block", "block", "block", "block"]);
-    expect(decisions.map((decision) => decision.reason?.includes("zsh") === true)).toEqual([true, true, true, true, true]);
+    // #then the observed bash boundary allows every command
+    expect(decisions.map((decision) => decision.verdict)).toEqual(["allow", "allow", "allow", "allow", "allow"]);
   });
 
   test("zsh denies reserved loop and read variables but preserves its documented bypasses", () => {
@@ -1247,6 +1246,30 @@ describe("zsh reserved names respect the observed shell", () => {
     ]);
     expect(decisions.slice(0, 5).map((decision) => decision.reason?.includes("path") === true || decision.reason?.includes("status") === true))
       .toEqual([true, true, true, true, true]);
+  });
+
+  test("zsh blocks indented and prefixed loop and read variables", () => {
+    // #given reserved names behind whitespace and command prefixes, plus nearby safe controls
+    const commands = [
+      "  for path in a b; do :; done",
+      "\tread -r path",
+      "IFS= read -r path",
+      "{ for path in a b; do :; done; }",
+      "(for status in a b; do :; done)",
+      "if true; then for path in a; do :; done; fi",
+      "  for dir in a b; do :; done",
+      "IFS= read -r line",
+    ];
+
+    // #when the assumed zsh boundary receives each form
+    const decisions = commands.map((command) => dispatchWithShell(command, "/bin/zsh"));
+
+    // #then every reserved form is blocked while the one-name controls pass
+    expect(decisions.map((decision) => decision.verdict)).toEqual([
+      "block", "block", "block", "block", "block", "block", "allow", "allow",
+    ]);
+    expect(decisions.slice(0, 6).map((decision) => decision.reason?.includes("path") === true || decision.reason?.includes("status") === true))
+      .toEqual([true, true, true, true, true, true]);
   });
 });
 

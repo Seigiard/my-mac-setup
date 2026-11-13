@@ -45,7 +45,7 @@ afterEach(() => {
 // otherwise return the cached module and the second load would silently reuse
 // the first load's core.
 
-type Host = { hooks: Record<string, Function> };
+type Host = { hooks: Record<string, Function>; shell?: string };
 
 type V2Host = Host & { coreModule?: any };
 
@@ -59,6 +59,7 @@ async function loadV2Plugin(
   sessionDirectory?: string,
   getSession?: V2SessionGet,
   bashShellPlugin = false,
+  shell?: string,
 ): Promise<V2Host> {
   const home = temporaryDir("agent-hooks-opencode-v2-home-");
 
@@ -79,7 +80,7 @@ async function loadV2Plugin(
   const coreModule =
     coreDir === undefined ? undefined : await import(join(coreDir, "index.ts")).catch(() => undefined);
 
-  return { hooks: host.hooks, coreModule };
+  return { hooks: host.hooks, coreModule, shell };
 }
 
 async function withHome<T>(home: string, action: () => Promise<T>): Promise<T> {
@@ -105,6 +106,7 @@ async function setupV2Plugin(
   home: string,
   sessionDirectory = home,
   getSession?: V2SessionGet,
+  shell?: string,
 ): Promise<Host> {
   const hooks: Record<string, Function> = {};
 
@@ -123,11 +125,14 @@ async function setupV2Plugin(
     });
   });
 
-  return { hooks };
+  return { hooks, shell };
 }
 
 async function callBeforeV2(host: Host, raw: any): Promise<string | undefined> {
   expect(host.hooks["execute.before"]).toBeTypeOf("function");
+  const previousShell = process.env.SHELL;
+
+  if (host.shell !== undefined) process.env.SHELL = host.shell;
 
   try {
     await host.hooks["execute.before"](raw);
@@ -135,6 +140,11 @@ async function callBeforeV2(host: Host, raw: any): Promise<string | undefined> {
     return undefined;
   } catch (error: any) {
     return error?.message;
+  } finally {
+    if (host.shell !== undefined) {
+      if (previousShell === undefined) delete process.env.SHELL;
+      else process.env.SHELL = previousShell;
+    }
   }
 }
 
@@ -387,7 +397,7 @@ describe("OpenCode V2 execute.before translation", () => {
       .policyFixtures("zsh-reserved-name-guard")
       .find((candidate) => candidate.name === "zsh/an ordinary name zsh accepts is not blocked");
 
-    const host = await loadV2Plugin(CORE_DIR);
+    const host = await loadV2Plugin(CORE_DIR, PLUGIN_PATH, undefined, undefined, false, "/bin/zsh");
 
     // #when both commands reach the V2 callback
     const deniedMessage = await callBeforeV2(host, { tool: "shell", input: denied.payload });
@@ -448,7 +458,7 @@ describe("OpenCode V2 execute.before translation", () => {
       "export function dispatch() { throw new Error('policy exploded'); }\n",
     );
     const throwingHost = await loadV2Plugin(throwing);
-    const denyingHost = await loadV2Plugin(CORE_DIR);
+    const denyingHost = await loadV2Plugin(CORE_DIR, PLUGIN_PATH, undefined, undefined, false, "/bin/zsh");
 
     const denied = corpus
       .policyFixtures("zsh-reserved-name-guard")
@@ -544,7 +554,7 @@ describe("OpenCode V2 resident core identity (R1, KTD5)", () => {
 
     // #when deployed core B changes on disk and setup repeats in the same process
     const hashB = await replaceCoreWithB(runtime.coreDir);
-    const hooks = await setupV2Plugin(runtime.module, runtime.home);
+    const hooks = await setupV2Plugin(runtime.module, runtime.home, undefined, undefined, "/bin/zsh");
     const enforcement = await callBeforeV2(hooks, { tool: "shell", input: denied.payload });
     const identity = inspectResident(runtime.home, hashB);
 
@@ -564,7 +574,7 @@ describe("OpenCode V2 resident core identity (R1, KTD5)", () => {
     const hashB = await replaceCoreWithB(runtime.coreDir);
     const reloadedModule = await importV2Plugin(runtime.home);
     const reloadIdentity = inspectResident(runtime.home, hashB);
-    const hooks = await setupV2Plugin(reloadedModule, runtime.home);
+    const hooks = await setupV2Plugin(reloadedModule, runtime.home, undefined, undefined, "/bin/zsh");
     const enforcement = await callBeforeV2(hooks, { tool: "shell", input: denied.payload });
 
     // #then re-evaluation records cached A before setup, and setup still enforces A
@@ -593,7 +603,7 @@ describe("OpenCode V2 resident core identity (R1, KTD5)", () => {
 describe("opencode V2 input dialect reaches Claude's verdicts (R3, KTD8)", () => {
   test("every shared fixture decides identically through the plugin and through Claude", async () => {
     // #given each policy fixture opencode has a wire shape for
-    const host = await loadV2Plugin(CORE_DIR);
+    const host = await loadV2Plugin(CORE_DIR, PLUGIN_PATH, undefined, undefined, false, "/bin/zsh");
 
     const shared = corpus.POLICY_FIXTURES.filter(
       (fixture: any) => opencodeRawFor(fixture) !== undefined,
@@ -645,7 +655,7 @@ describe("opencode V2 input dialect reaches Claude's verdicts (R3, KTD8)", () =>
       .policyFixtures("zsh-reserved-name-guard")
       .find((candidate: any) => candidate.name === "zsh/blocks status");
 
-    const host = await loadV2Plugin(CORE_DIR);
+    const host = await loadV2Plugin(CORE_DIR, PLUGIN_PATH, undefined, undefined, false, "/bin/zsh");
 
     // #when it arrives under an unmapped and under the mapped spelling
     const unmapped = await callBeforeV2(host, { tool: "webfetch", input: fixture.payload });

@@ -327,6 +327,37 @@ describe("tool_call deny and allow (R3)", () => {
     }
   });
 
+  test("Pi exec_command honours input.shell before shellPath and SHELL", async () => {
+    // #given a bash setting and a zsh host, with each exec call naming its own shell
+    const command = "make lint; status=$?; exit $status";
+    const previousShell = process.env.SHELL;
+    process.env.SHELL = "/bin/zsh";
+
+    try {
+      const configuredBash = await loadExtension(CORE_DIR, "/bin/bash");
+      const hostZsh = await loadExtension(CORE_DIR);
+
+      // #when model-chosen zsh and bash shells reach the exec_command wire shape
+      const decisions = [
+        await callToolCall(configuredBash, {
+          toolName: "exec_command", input: { cmd: command, shell: "/bin/zsh" },
+        }),
+        await callToolCall(hostZsh, {
+          toolName: "exec_command", input: { cmd: command, shell: "/bin/bash" },
+        }),
+      ];
+
+      // #then the zsh call blocks despite shellPath, while bash clears despite the host shell
+      expect(decisions).toEqual([
+        { block: true, reason: expect.stringContaining("zsh") },
+        undefined,
+      ]);
+    } finally {
+      if (previousShell === undefined) delete process.env.SHELL;
+      else process.env.SHELL = previousShell;
+    }
+  });
+
   test("the known-bad bash fixture is denied with the policy's prefixed reason", async () => {
     // #given the shipped known-bad zsh command in pi's wire shape
     const fixture = policyFixture("zsh-reserved-name-guard", "zsh/flags the status capture idiom");
