@@ -844,6 +844,77 @@ function test_templates_0097_zshenv_fails_when_the_identity_cannot_decrypt_the_s
   assert_output --partial 'error calling decrypt'
 }
 
+prepare_zshenv_dialect_fixture() {
+  ZSHENV_DIALECT_DIR="$BATS_TEST_TMPDIR/zshenv-dialect"
+  mkdir -p "$ZSHENV_DIALECT_DIR/home"
+  render_template "$SOURCE_ROOT/dot_zshenv.tmpl" > "$ZSHENV_DIALECT_DIR/.zshenv"
+}
+
+# Runs a shell through the same $ZDOTDIR/.zshenv path that zsh uses in an
+# agent's non-interactive shell. A marker is optional so the same rendered
+# fixture controls the agent and ordinary-shell cases.
+zshenv_dialect_probe() {
+  local marker="$1"
+  shift
+
+  if [[ -n "$marker" ]]; then
+    env -i HOME="$ZSHENV_DIALECT_DIR/home" ZDOTDIR="$ZSHENV_DIALECT_DIR" PATH="/usr/bin:/bin" \
+      "$marker" /bin/zsh "$@"
+  else
+    env -i HOME="$ZSHENV_DIALECT_DIR/home" ZDOTDIR="$ZSHENV_DIALECT_DIR" PATH="/usr/bin:/bin" \
+      /bin/zsh "$@"
+  fi
+}
+
+function test_templates_098_agent_noninteractive_zsh_accepts_bash_dialect_words() {
+  _bats_test_init 98 'agent non-interactive zsh accepts bash dialect word splitting, globs, and equals words'
+  command_exists zsh || skip "zsh not installed"
+  prepare_zshenv_dialect_fixture
+
+  # AI_AGENT covers Claude Code, OpenCode, and Pi. CODEX_THREAD_ID is Codex's
+  # shell-tool marker, so both marker families must activate the same options.
+  local marker
+  for marker in "AI_AGENT=claude-code_test" "CODEX_THREAD_ID=codex-test"; do
+    run zshenv_dialect_probe "$marker" -c 'P="a b"; printf "[%s]" $P'
+    assert_success
+    assert_output '[a][b]'
+
+    run zshenv_dialect_probe "$marker" -c 'printf "%s" --include=*.ts'
+    assert_success
+    assert_output '--include=*.ts'
+
+    run zshenv_dialect_probe "$marker" -c 'echo ====='
+    assert_success
+    assert_output '====='
+  done
+}
+
+function test_templates_099_nonagent_and_interactive_zsh_keep_default_dialect() {
+  _bats_test_init 99 'non-agent and interactive zsh keep default bash dialect failures'
+  command_exists zsh || skip "zsh not installed"
+  prepare_zshenv_dialect_fixture
+
+  # No marker and an interactive shell with a marker are paired controls: only
+  # a marked, non-interactive shell may receive the compatibility options.
+  local marker interactive
+  for marker in "" "AI_AGENT=claude-code_test"; do
+    interactive=()
+    [[ -n "$marker" ]] && interactive=(-i)
+
+    run zshenv_dialect_probe "$marker" "${interactive[@]}" -c 'P="a b"; printf "[%s]" $P'
+    assert_success
+    assert_output '[a b]'
+
+    run zshenv_dialect_probe "$marker" "${interactive[@]}" -c 'printf "%s" --include=*.ts'
+    assert_failure 1
+    assert_output 'zsh:1: no matches found: --include=*.ts'
+
+    run zshenv_dialect_probe "$marker" "${interactive[@]}" -c 'echo ====='
+    assert_failure 1
+    assert_output 'zsh:1: ==== not found'
+  done
+}
+
 function test_templates_010_zshrc_cached_init_never_splices_two_concurrent_g() {
   _bats_test_init 10 'zshrc cached_init never splices two concurrent generators'
   command_exists zsh || skip "zsh not installed"
