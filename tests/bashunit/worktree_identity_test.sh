@@ -13,7 +13,7 @@ setup() {
 }
 
 teardown() {
-  hwi_teardown
+  hwi_fixture_teardown
 }
 
 function test_worktree_identity_001_first_prompt_renames_an_authorized_generated_worktree() {
@@ -472,6 +472,7 @@ function test_worktree_identity_024_teardown_reaps_recorded_tracked_and_lifecycl
   kill -0 "$released_pid" 2>/dev/null && released_alive=1
   kill -TERM "$released_pid" 2>/dev/null || true
   wait "$released_pid" 2>/dev/null || true
+  hwi_release_signal_blocked_worker "$released_pid"
   assert_dir_not_exists "$work"
   assert_equal "$released_alive" 1
 }
