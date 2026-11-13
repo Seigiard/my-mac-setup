@@ -19,6 +19,7 @@ hwi_setup() {
   HWI_MODEL_RELEASE=''
   HWI_APP_RELEASE=''
   HWI_LIFECYCLE_RELEASE=''
+  HWI_SIGNAL_BLOCKED_PIDS=''
   HERDR_WORKTREE_IDENTITY_STATE_DIR="$HWI_WORK/state"
   HWI_SYSTEM_PATH="$(dirname "$(command -v git)"):$(dirname "$(command -v jq)"):$(dirname "$(command -v python3)"):/usr/bin:/bin"
   mkdir -p "$HWI_BIN" "$HWI_NO_APP_BIN" "$HWI_MAIN"
@@ -252,16 +253,51 @@ hwi_start_signal_blocked_worker() {
   blocker="$HWI_WORK/$name.block"
   mkfifo "$blocker" || return 1
   if [ -n "$launcher" ]; then
-    "$launcher" bash -c ': > "$1"; while :; do read -r _ < "$2"; done' _ "$ready" "$blocker" &
+    "$launcher" bash -c ': > "$1"; while :; do read -r _ < "$2"; done' _ "$ready" "$blocker" \
+      < /dev/null > /dev/null 2>&1 &
   else
-    bash -c ': > "$1"; while :; do read -r _ < "$2"; done' _ "$ready" "$blocker" &
+    bash -c ': > "$1"; while :; do read -r _ < "$2"; done' _ "$ready" "$blocker" \
+      < /dev/null > /dev/null 2>&1 &
   fi
   HWI_SIGNAL_BLOCKED_PID=$!
+  HWI_SIGNAL_BLOCKED_PIDS="${HWI_SIGNAL_BLOCKED_PIDS:+$HWI_SIGNAL_BLOCKED_PIDS }$HWI_SIGNAL_BLOCKED_PID"
   if ! hwi_wait_for_file "$ready" || ! kill -0 "$HWI_SIGNAL_BLOCKED_PID" 2>/dev/null; then
     kill -TERM "$HWI_SIGNAL_BLOCKED_PID" 2>/dev/null || true
     wait "$HWI_SIGNAL_BLOCKED_PID" 2>/dev/null || true
     return 1
   fi
+}
+
+hwi_release_signal_blocked_worker() {
+  local released_pid="$1" pid retained_pids=''
+  for pid in $HWI_SIGNAL_BLOCKED_PIDS; do
+    [ "$pid" != "$released_pid" ] || continue
+    retained_pids="${retained_pids:+$retained_pids }$pid"
+  done
+  HWI_SIGNAL_BLOCKED_PIDS="$retained_pids"
+}
+
+hwi_reap_signal_blocked_workers() {
+  local pid result=0
+  for pid in $HWI_SIGNAL_BLOCKED_PIDS; do
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -TERM "$pid" 2>/dev/null || result=1
+      wait "$pid" 2>/dev/null || true
+      if kill -0 "$pid" 2>/dev/null; then
+        kill -KILL "$pid" 2>/dev/null || result=1
+        wait "$pid" 2>/dev/null || true
+      fi
+    fi
+  done
+  HWI_SIGNAL_BLOCKED_PIDS=''
+  return "$result"
+}
+
+hwi_fixture_teardown() {
+  local result=0
+  hwi_teardown || result=1
+  hwi_reap_signal_blocked_workers || result=1
+  return "$result"
 }
 
 hwi_wait_for_process_exit() {
@@ -379,12 +415,14 @@ hwi_release_lifecycle_when_torn_down() {
 }
 
 hwi_teardown() {
+  local result=0
   [ -z "${HWI_MODEL_RELEASE:-}" ] || : > "$HWI_MODEL_RELEASE"
   [ -z "${HWI_APP_RELEASE:-}" ] || : > "$HWI_APP_RELEASE"
   [ -z "${HWI_LIFECYCLE_RELEASE:-}" ] || : > "$HWI_LIFECYCLE_RELEASE"
-  [ -z "${HWI_SETSID_CALLS:-}" ] || hwi_reap_setsid_processes || return 1
-  [ -z "${HWI_BACKGROUND_PIDS:-}" ] || hwi_reap_tracked_processes || return 1
-  hwi_reap_lifecycle_claims || return 1
-  [[ -z "${HWI_WORK:-}" ]] || rm -rf "$HWI_WORK"
+  [ -z "${HWI_SETSID_CALLS:-}" ] || hwi_reap_setsid_processes || result=1
+  [ -z "${HWI_BACKGROUND_PIDS:-}" ] || hwi_reap_tracked_processes || result=1
+  hwi_reap_lifecycle_claims || result=1
+  [[ -z "${HWI_WORK:-}" ]] || rm -rf "$HWI_WORK" || result=1
   unset HWI_WORK HWI_MAIN HWI_CHECKOUT HWI_BRANCH HWI_BIN HWI_NO_APP_BIN HWI_SYSTEM_PATH HWI_MODEL_CALLS HWI_HERDR_CALLS HWI_APP_CALLS HWI_SETSID_CALLS HWI_BACKGROUND_PIDS HWI_MODEL_RELEASE HWI_APP_RELEASE HWI_LIFECYCLE_RELEASE HWI_PROCESS_EXIT_STATUS HWI_SIGNAL_BLOCKED_PID HERDR_WORKTREE_IDENTITY_STATE_DIR
+  return "$result"
 }
