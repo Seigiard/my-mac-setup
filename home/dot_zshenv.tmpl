@@ -162,3 +162,9 @@ export AGENT_REPORTS_READ_ACCESS_KEY_ID={{ $secrets.AGENT_REPORTS_READ_ACCESS_KE
 export AGENT_REPORTS_READ_SECRET_ACCESS_KEY={{ $secrets.AGENT_REPORTS_READ_SECRET_ACCESS_KEY | quote }}
 export REVMUX_ANTHROPIC_API_KEY={{ $secrets.REVMUX_ANTHROPIC_API_KEY | quote }}
 {{- end }}
+
+# Agent shell tools use zsh but send commands written in bash's dialect. Keep
+# this compatibility mode out of interactive and ordinary non-agent shells.
+if [[ ! -o interactive && ( -n "${AI_AGENT:-}" || -n "${CODEX_THREAD_ID:-}" || -n "${CODEX_TOOL_CALL_ID:-}" ) ]]; then
+  setopt sh_word_split no_nomatch no_equals
+fi
