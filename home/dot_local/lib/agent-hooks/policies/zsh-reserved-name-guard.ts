@@ -57,10 +57,6 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 const PANE_COMMAND = /(?:^|[;&|\n][ \t]*)(?:hc[ \t]+(?:send|run|exec)|hc-run|herdr-run)\b[^\n]*/g;
 
-// `print --` is a zsh builtin, so a command that carries it is still zsh text
-// even when an adapter reports bash for the surrounding tool.
-const ZSH_PRINT = /\bprint[ \t]+--(?:[ \t]|$)/;
-
 const CONTROL_PREFIX = /(?:^|[;&|][ \t]*|\b(?:while|until|do|then|else)[ \t]+)/;
 
 const LOOP_VARIABLE = new RegExp(
@@ -246,9 +242,7 @@ function evaluate(event: NormalizedEvent): Decision {
 
   const bashInnerCommands = paneCommands(command);
 
-  const commandToScan = isBash(event.shell)
-    ? [...bashInnerCommands, ...(ZSH_PRINT.test(command) ? [command] : [])].join("\n")
-    : command;
+  const commandToScan = isBash(event.shell) ? bashInnerCommands.join("\n") : command;
 
   const found = hits(commandToScan);
 
