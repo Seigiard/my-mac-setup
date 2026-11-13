@@ -138,6 +138,7 @@ run_full() {
     MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY=agent-reports-write-secret-canary \
     MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_ACCESS_KEY_ID=agent-reports-read-key-id-canary \
     MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_SECRET_ACCESS_KEY=agent-reports-read-secret-canary \
+    MMS_CHEZMOI_FIXTURE_REVMUX_ANTHROPIC_API_KEY=revmux-anthropic-api-key-canary \
     run "$LAUNCHER" --profile full-fixture -- "$@"
 }
 
@@ -269,6 +270,7 @@ function test_chezmoi_unattended_005_enforces_disposable_authority() {
     MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY=x \
     MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_ACCESS_KEY_ID=x \
     MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_SECRET_ACCESS_KEY=x \
+    MMS_CHEZMOI_FIXTURE_REVMUX_ANTHROPIC_API_KEY=x \
     run "$LAUNCHER" --profile full-fixture -- verify
   assert_failure 2
   # Exact line per gate. The two gates below print different messages; the
@@ -304,7 +306,8 @@ function test_chezmoi_unattended_006_requires_each_full_fixture() {
     MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_WRITE_ACCESS_KEY_ID \
     MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY \
     MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_ACCESS_KEY_ID \
-    MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_SECRET_ACCESS_KEY; do
+    MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_SECRET_ACCESS_KEY \
+    MMS_CHEZMOI_FIXTURE_REVMUX_ANTHROPIC_API_KEY; do
     PATH="$TEST_PATH" run env \
       MMS_CHEZMOI_UNATTENDED=1 \
       MMS_DISPOSABLE_HOME=1 \
@@ -321,6 +324,7 @@ function test_chezmoi_unattended_006_requires_each_full_fixture() {
       MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY=agent-reports-write-secret \
       MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_ACCESS_KEY_ID=agent-reports-read-key-id \
       MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_SECRET_ACCESS_KEY=agent-reports-read-secret \
+      MMS_CHEZMOI_FIXTURE_REVMUX_ANTHROPIC_API_KEY=revmux-anthropic-api-key \
       "$missing=" "$LAUNCHER" --profile full-fixture -- verify
     assert_failure 2
     assert_output "chezmoi-unattended: required fixture is empty or unset: $missing"
@@ -425,6 +429,7 @@ function test_chezmoi_unattended_010_diff_omits_exact_inventory_destinations() {
     MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY=DO_NOT_LEAK_AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY \
     MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_ACCESS_KEY_ID=DO_NOT_LEAK_AGENT_REPORTS_READ_ACCESS_KEY_ID \
     MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_SECRET_ACCESS_KEY=DO_NOT_LEAK_AGENT_REPORTS_READ_SECRET_ACCESS_KEY \
+    MMS_CHEZMOI_FIXTURE_REVMUX_ANTHROPIC_API_KEY=DO_NOT_LEAK_REVMUX_ANTHROPIC_API_KEY \
     run "$LAUNCHER" --profile host-partial -- diff --source '/tmp/source tree'
   assert_success
   # Exact, whole output: the inventory holds two rows, the fake writes nothing

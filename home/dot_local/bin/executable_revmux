@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# revmux front end: spends the Claude plan's monthly API credit on review rounds.
+#
+# revmux strips ANTHROPIC_API_KEY from its claude children by default, so they
+# sign in with the Claude Code subscription and draw down its usage window. The
+# plan's API credit is reachable only through a key. This wrapper hands revmux
+# the key from REVMUX_ANTHROPIC_API_KEY under the name claude reads, with the
+# flag that stops revmux from stripping it. The key travels under its own name
+# in ~/.zshenv because a shell-wide ANTHROPIC_API_KEY also moves interactive
+# claude onto the API. Codex agents are not affected.
+#
+# The credit runs out before the month does, and a key with no credit behind
+# it fails every agent mid-round. So a review run first spends one small call
+# on the key: if it answers, the round runs on the credit; if it does not, the
+# round runs on the subscription and stderr says why. Subcommands (config,
+# new, stats, ...) spawn no agents and skip both the probe and the key.
+#
+# Without REVMUX_ANTHROPIC_API_KEY the real binary runs unchanged. The wrapper
+# sits earlier in PATH than the binary under the same name, so every caller
+# (the revmux skill, revmux-round.sh, a shell) goes through it. Keep this Bash
+# 3.2 compatible.
+set -u
+
+self_dir=$(cd "$(dirname "$0")" && pwd -P)
+# Invoked through PATH, the wrapper fronts the first revmux after its own entry:
+# an entry before it may be another front end that delegates back here, and
+# choosing it would exec in a loop. Invoked by a path outside PATH, it fronts
+# the first revmux anywhere but its own directory.
+before=""
+after=""
+seen_self=0
+safe_path=""
+old_ifs=$IFS
+IFS=:
+for dir in $PATH; do
+  # An empty or relative entry means the working directory, which the key
+  # must never follow into a binary somebody planted there. The probe below
+  # resolves its binaries from the absolute entries only.
+  case "$dir" in /*) ;; *) continue ;; esac
+  candidate_dir=$(cd "$dir" 2>/dev/null && pwd -P) || continue
+  safe_path="${safe_path:+$safe_path:}$candidate_dir"
+  if [ "$candidate_dir" = "$self_dir" ]; then
+    seen_self=1
+    continue
+  fi
+  candidate="$candidate_dir/revmux"
+  [ -f "$candidate" ] && [ -x "$candidate" ] || continue
+  if [ "$seen_self" = 1 ]; then
+    [ -n "$after" ] || after=$candidate
+  else
+    [ -n "$before" ] || before=$candidate
+  fi
+done
+IFS=$old_ifs
+
+if [ "$seen_self" = 1 ]; then
+  real=$after
+else
+  real=$before
+fi
+if [ -z "$real" ]; then
+  echo "revmux: no revmux binary in PATH after this wrapper" >&2
+  exit 127
+fi
+
+# A review run is `revmux --task X --run Y ...`. A subcommand (new, cleanup,
+# config, stats, init) spawns no agents even when it names a task, and
+# go-flags lets global options precede it, so the word is looked for anywhere
+# in argv, except as the value of --task or --run, whose names are free text.
+is_review_run=0
+case " $* " in
+  *" --task "* | *" --task="*) is_review_run=1 ;;
+esac
+previous=""
+for arg in "$@"; do
+  case "$arg" in
+    new | cleanup | config | stats | init)
+      case "$previous" in --task | --run) ;; *) is_review_run=0 ;; esac
+      ;;
+  esac
+  previous=$arg
+done
+
+resolve_safe() {
+  local dir
+  old_ifs=$IFS
+  IFS=:
+  for dir in $safe_path; do
+    if [ -f "$dir/$1" ] && [ -x "$dir/$1" ]; then
+      IFS=$old_ifs
+      printf '%s\n' "$dir/$1"
+      return 0
+    fi
+  done
+  IFS=$old_ifs
+  return 1
+}
+
+probe_reason=""
+api_answers() {
+  local claude_bin perl_bin probe status
+  claude_bin=$(resolve_safe claude) || { probe_reason="no claude in PATH"; return 1; }
+  perl_bin=$(resolve_safe perl) || { probe_reason="no perl in PATH"; return 1; }
+  # claude refuses to start inside a Claude Code session; revmux unsets
+  # CLAUDECODE for its children and the probe has to do the same. The key
+  # reaches the probe through the subshell's environment, never through
+  # the argv of an `env` that any `ps` could read.
+  probe=$(
+    unset CLAUDECODE
+    export PATH="$safe_path" ANTHROPIC_API_KEY="$REVMUX_ANTHROPIC_API_KEY"
+    exec "$perl_bin" -e 'alarm 60; exec @ARGV or exit 127' -- \
+      "$claude_bin" --print --model haiku --output-format json --max-turns 1 'reply with one word: ok' 2>&1 </dev/null
+  )
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    case "$probe" in *'"is_error":false'*) return 0 ;; esac
+  fi
+  # the JSON result carries the API's own message; fall back to the raw head
+  probe_reason=$(printf '%s' "$probe" | grep -oE '"(result|error|message)":("[^"]*"|\{[^}]*\})' | head -1)
+  [ -n "$probe_reason" ] || probe_reason=$(printf '%s' "$probe" | tr '\n' ' ' | cut -c1-200)
+  probe_reason="exit $status: $probe_reason"
+  return 1
+}
+
+if [ "$is_review_run" = 1 ] && [ -n "${REVMUX_ANTHROPIC_API_KEY:-}" ]; then
+  if api_answers; then
+    echo "revmux: claude agents on the API credit" >&2
+    export ANTHROPIC_API_KEY="$REVMUX_ANTHROPIC_API_KEY"
+    exec "$real" --preserve-anthropic-api-key "$@"
+  fi
+  echo "revmux: claude agents on the subscription; API probe failed: $probe_reason" >&2
+fi
+exec "$real" "$@"

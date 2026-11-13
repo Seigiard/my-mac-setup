@@ -40,6 +40,7 @@ chezmoi_full_fixture() {
     MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY=mms-test-agent-reports-write-secret-canary \
     MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_ACCESS_KEY_ID=mms-test-agent-reports-read-key-id-canary \
     MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_SECRET_ACCESS_KEY=mms-test-agent-reports-read-secret-canary \
+    MMS_CHEZMOI_FIXTURE_REVMUX_ANTHROPIC_API_KEY=mms-test-revmux-anthropic-api-key-canary \
     chezmoi_unattended full-fixture "$@"
 }
 
@@ -58,6 +59,7 @@ chezmoi_full_fixture_finite_stdin() {
     MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY=mms-test-agent-reports-write-secret-canary \
     MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_ACCESS_KEY_ID=mms-test-agent-reports-read-key-id-canary \
     MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_SECRET_ACCESS_KEY=mms-test-agent-reports-read-secret-canary \
+    MMS_CHEZMOI_FIXTURE_REVMUX_ANTHROPIC_API_KEY=mms-test-revmux-anthropic-api-key-canary \
     chezmoi_unattended_finite_stdin full-fixture "$@"
 }
 
