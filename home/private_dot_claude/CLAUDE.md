@@ -7,7 +7,7 @@ Always assume low context
 Talk to me in Russian by default. This covers only what is addressed to me: replies, questions, summaries, plans.
 Code, comments, commit messages, PR text, docs, and any other artifact keep their own conventional language.
 
-The shell tool runs bash in Claude Code, OpenCode, and Pi. Codex and a plain shell pane that receives `hc send` text run zsh, where `$VAR` does not split, `status` and `path` are reserved, and unmatched globs fail.
+The shell tool runs zsh, except Pi's `bash` tool: keep a list of paths in `set -- …` or an array and expand it as `"$@"`, name variables other than `status`, `path` and `argv`, and quote globs.
 
 ## How to talk to user
 

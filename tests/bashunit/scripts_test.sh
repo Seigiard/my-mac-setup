@@ -707,7 +707,6 @@ function test_scripts_250_pi_settings_modifier_selects_the_terminal_theme() {
   # discarded, whatever it held, and only npm specs survive.
   run jq -e '
     .theme == "terminal" and
-    .shellPath == "/bin/bash" and
     .lastChangelogVersion == "0.84.2" and
     ((.packages | index("npm:obsolete-extension")) == null) and
     ((.packages | map(select(startswith("git:"))) | length) == 0) and
@@ -733,7 +732,6 @@ function test_scripts_251_pi_settings_modifier_is_idempotent() {
   # user settings survive the rewrite and the git: entry does not.
   run jq -e '
     (.theme == "terminal") and
-    (.shellPath == "/bin/bash") and
     (.lastChangelogVersion == "0.84.2") and
     (.model == "anthropic/claude-sonnet-4-5") and
     ((.packages | map(select(startswith("git:"))) | length) == 0) and

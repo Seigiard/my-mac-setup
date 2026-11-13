@@ -1,4 +1,4 @@
-.PHONY: help test-python test-ubuntu test-ubuntu-herdr test-local edit-secrets reencrypt-secrets test-suite test-docker test-templates test-pi-agents-local test-agents-local-opencode test-pi-brew-auto-update test-pi-herdr-worktree-identity test-agent-hooks-core test-agent-hooks-opencode test-agent-hooks-pi test-opencode-bash-shell test-my-status-limits lint clean build-docker shell-ubuntu test-keep-awake-mod
+.PHONY: help test-python test-ubuntu test-ubuntu-herdr test-local edit-secrets reencrypt-secrets test-suite test-docker test-templates test-pi-agents-local test-agents-local-opencode test-pi-brew-auto-update test-pi-herdr-worktree-identity test-agent-hooks-core test-agent-hooks-opencode test-agent-hooks-pi test-my-status-limits lint clean build-docker shell-ubuntu test-keep-awake-mod
 
 .PHONY: lint-yaml lint-shell install-git-hooks
 
@@ -17,7 +17,6 @@ help:
 	@echo "  make test-agent-hooks-core  Run focused agent-hooks dispatch core tests"
 	@echo "  make test-agent-hooks-opencode  Run focused agent-hooks opencode adapter tests"
 	@echo "  make test-agent-hooks-pi  Run focused agent-hooks Pi adapter tests"
-	@echo "  make test-opencode-bash-shell  Run focused OpenCode bash-shell plugin tests"
 	@echo "  make test-my-status-limits  Run focused my-status account limits tests"
 	@echo "  make test-keep-awake-mod  Run focused Herdr app keep-awake mod tests"
 	@echo "  make test-local       Diff checkout source against current home (dry-run)"
@@ -71,9 +70,6 @@ test-agent-hooks-opencode:
 
 test-agent-hooks-pi:
 	bun test tests/agent-hooks-pi-adapter.test.ts
-
-test-opencode-bash-shell:
-	bun test tests/opencode-bash-shell-plugin.test.ts
 
 test-my-status-limits:
 	bun test tests/herdr-my-status-limits.test.ts

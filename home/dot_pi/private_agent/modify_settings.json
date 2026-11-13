@@ -34,7 +34,6 @@ fi
     : [];
 
   settings.theme = "terminal";
-  settings.shellPath = "/bin/bash";
   settings.defaultProvider = "openai-codex";
   settings.defaultModel = "gpt-6.1-sol";
   settings.packages = extensions;
