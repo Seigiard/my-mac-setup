@@ -26,13 +26,9 @@ const CORE_DIR = join(HOME, ".local", "lib", "agent-hooks");
 
 function readShellPath(home: string): string | undefined {
   try {
-    const settings = JSON.parse(readFileSync(join(home, ".pi", "agent", "settings.json"), "utf8")) as {
-      shellPath?: unknown;
-    };
+    const shellPath = JSON.parse(readFileSync(join(home, ".pi", "agent", "settings.json"), "utf8"))?.shellPath;
 
-    return typeof settings.shellPath === "string" && settings.shellPath !== ""
-      ? settings.shellPath
-      : undefined;
+    return shellPath?.trim() || undefined;
   } catch {
     return undefined;
   }
@@ -42,8 +38,11 @@ const SHELL_PATH = readShellPath(HOME);
 
 function observedShell(toolName: string): string | undefined {
   if (SHELL_PATH !== undefined) return SHELL_PATH;
+
   if (toolName === "bash") return "/bin/bash";
+
   if (toolName === "exec_command") return process.env.SHELL;
+
   return undefined;
 }
 

@@ -93,6 +93,7 @@ export function main(): number {
     // SAFETY: Claude's hook contract supplies cwd as a string in the parsed event.
     const cwd = (raw as { cwd?: string }).cwd;
     const observation = setupTools?.readSetupObservation(cwd) ?? { state: { status: "absent" } };
+
     const decision = dispatchFn(CLIENT, raw, {
       setup: observation.state,
       shell: process.env.CLAUDE_CODE_SHELL ?? process.env.SHELL,

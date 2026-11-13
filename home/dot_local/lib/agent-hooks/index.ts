@@ -95,13 +95,11 @@ export function dispatchTraced(
 
     if (!normalized) return { invoked: [], decision: ALLOW };
 
-    const event: NormalizedEvent = options.setup === undefined && options.shell === undefined
-      ? normalized
-      : {
-        ...normalized,
-        ...(options.setup === undefined ? {} : { setup: options.setup }),
-        ...(options.shell === undefined ? {} : { shell: options.shell }),
-      };
+    const event: NormalizedEvent = { ...normalized };
+
+    if (options.setup !== undefined) event.setup = options.setup;
+
+    if (options.shell !== undefined) event.shell = options.shell;
 
     const disabled = disabledPolicyNames(env);
 

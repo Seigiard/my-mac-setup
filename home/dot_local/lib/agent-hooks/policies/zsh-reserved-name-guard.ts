@@ -128,6 +128,7 @@ function quotedArguments(command: string): string[] {
         quote = character;
         value = "";
       }
+
       continue;
     }
 
@@ -139,12 +140,14 @@ function quotedArguments(command: string): string[] {
 
     if (character === "\\" && quote === '"') {
       escaped = true;
+
       continue;
     }
 
     if (character === quote) {
       found.push(value);
       quote = "";
+
       continue;
     }
 
@@ -160,7 +163,9 @@ function paneCommands(command: string): string[] {
   for (const match of command.matchAll(PANE_COMMAND)) {
     const quoted = quotedArguments(match[0]);
 
-    if (quoted.length > 0) found.push(quoted[quoted.length - 1]);
+    if (quoted.length > 0) {
+      found.push(quoted[quoted.length - 1]);
+    }
   }
 
   return found;
@@ -177,6 +182,7 @@ function loopOrReadName(line: string): string {
 
   for (const token of read[1].trim().split(/[ \t]+/)) {
     if (token.startsWith("-")) continue;
+
     if (IDENTIFIER.test(token) && RESERVED.has(token)) return token;
   }
 
@@ -208,7 +214,9 @@ function hits(command: string): Hit[] {
 
     if (controlName !== "") {
       const shown = stripped.length > MAX_SHOWN ? `${stripped.slice(0, MAX_SHOWN - 3)}...` : stripped;
+
       found.push({ name: controlName, text: `  line ${index + 1}: ${shown}` });
+
       return;
     }
 
@@ -216,7 +224,9 @@ function hits(command: string): Hit[] {
       const name = reservedNameIn(segment);
 
       if (name === "") continue;
+
       const shown = stripped.length > MAX_SHOWN ? `${stripped.slice(0, MAX_SHOWN - 3)}...` : stripped;
+
       found.push({ name, text: `  line ${index + 1}: ${shown}` });
       break;
     }
@@ -235,9 +245,11 @@ function evaluate(event: NormalizedEvent): Decision {
   if (command === "" || command.includes(ESCAPE_HATCH)) return ALLOW;
 
   const bashInnerCommands = paneCommands(command);
+
   const commandToScan = isBash(event.shell)
     ? [...bashInnerCommands, ...(ZSH_PRINT.test(command) ? [command] : [])].join("\n")
     : command;
+
   const found = hits(commandToScan);
 
   if (found.length === 0) return ALLOW;
