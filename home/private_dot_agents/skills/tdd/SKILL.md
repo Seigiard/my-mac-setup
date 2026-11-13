@@ -63,11 +63,11 @@ Done when the worktree is clean and `ticket.md` holds the ticket, its criteria w
    - **Reconciliation:** every criterion is reconciled with the report: each zero-test criterion has either an accepted **no test** reason or a diagnosis that blocks it. A mixed result stays pending until every disposition and required observation is recorded.
 
    An accepted zero-test reason moves its criterion to **no test**; lock the remaining test changes only after reconciliation. On acceptance, write the lock: the branch tip becomes `lock_sha`, and the changed files become the locked paths. On rejection, record the diagnosis, [preserve the candidate](recovery.md#preserving-a-candidate), then reset the branch (`git reset --hard <base_sha>`, then `git clean -fd`) and take the diagnosis's route. Done when the work is locked, or the ticket is on the checks-only path.
-4. **Implementer.** Start an implementer (brief: `implementer.md`). It writes code until the locked tests pass and the criteria hold. Done when the child has settled and its report names its commit, the changed paths, the evidence for the test command and each check, and anything left undone.
+4. **Implementer.** Start an implementer (brief: `implementer.md`). It writes code until the locked tests pass and the criteria hold. Done when the child has settled and its report names its commit, the changed paths, the evidence for the test command and, for each check in `ticket.md`, its evidence or its `not covering` reason, and anything left undone.
 5. **Validation.** All of these must hold for the same state:
    - the lock diff exits 0 (skip on the checks-only path);
    - the test command has valid green evidence (skip when `ticket.md` names none);
-   - each planned [calibration](#calibration) is **calibrated** for the current protected code, tests, and fixtures;
+   - each planned [calibration](#calibration) holds a **calibrated** verdict whose evidence is still valid under Verdicts in [calibration.md](calibration.md);
    - every applicable check in `ticket.md` has valid passing evidence;
    - every finding of the batch is closed: its acceptance evidence is recorded in Verdicts;
    - **Scope:** inspect the cumulative diff from the batch's `batch_start_sha`, not `lock_sha`. Reject a changed file with no criterion, a hunk not needed for its named criterion, or a change inside `Non-goals`;
@@ -96,7 +96,7 @@ Every dispatched or resumed child is one **turn** of its batch. Before each disp
 
 ## Calibration
 
-Before assessing a lock with uncalibrated negative or aggregate assertions, a review that finds a masking helper or fixture, or a production change after a calibration, read [calibration.md](calibration.md).
+Before assessing a lock with uncalibrated negative or aggregate assertions, a review that finds a masking helper or fixture, or step 5 when any path outside the lock changed since `calibration_sha`, read [calibration.md](calibration.md).
 
 ## Responding to a failure
 

@@ -9,8 +9,8 @@ The `tdd` orchestrator's files for one ticket. The `<run-id>` is the run directo
 | `<role>-<n>.prompt.md`, `<role>-<n>.report.md` | one prompt and one report per child, numbered per role from 1 |
 | `<role>-<n>.jsonl`, `<role>-<n>-resume.jsonl` | the headless child's initial log and every resumed turn, appended in order, when launched with `opencode run` |
 | `controls/` | temporary control scripts and their output |
-| `calibration-<n>/` | the calibrate child's `<regression>.patch` and `<regression>.log`, one pair per plan row |
-| `replay-<m>/` | the orchestrator's replay logs, one per plan row |
+| `calibration-<n>/` | the calibrate child's `<regression>.patch` and `<regression>.log`, one pair per plan row; `<n>` is the child's attempt number |
+| `replay-<m>/` | the orchestrator's `<regression>.log`, one per plan row; `<m>` counts replays from 1 |
 
 ## ticket.md
 
@@ -54,7 +54,7 @@ Repeat this entry once per symptom criterion:
 - turns: <count so far> / <limit>
 
 ## Calibration
-- <criterion>; owner: <test>; assertion: <protected result>; regression: <smallest faithful change>; paths: <temporary production paths>; command: <owner test alone>; patch: <calibration-<n>/<regression>.patch, after the first calibration>
+- <criterion>; owner: <test>; assertion: <protected result>; regression: <smallest faithful change>; paths: <temporary production paths>; command: <owner test alone | full-suite command; reason: <why the owner cannot run alone>>; patch: <calibration-<n>/<regression>.patch, after the first calibration>
 - <none, with reason | named unavailable boundary and coverage limit>
 
 ## Verdicts
@@ -87,7 +87,7 @@ Every child, whichever brief it follows:
 
 - **Identifiers:** every commit, range, or repository it records follows the [identifiers rule](SKILL.md#identifiers).
 - **Controls:** temporary control scripts and their output go under `controls/` and are cited by path; they need no repository commit.
-- **Evidence:** every test, check, and control result carries its [valid evidence](SKILL.md#evidence): the tested commit and the log or tool output with its exit status.
-- **Commands:** a result the report cites comes from a command that finished inside your turn. A server or watcher started for a test is stopped before the report is published.
+- **Evidence:** every test, check, and control result carries its [valid evidence](SKILL.md#evidence): the tested commit and the log or tool output with its exit status, from a command that finished inside your turn or from a named earlier run on the same state. A server or watcher started for a test is stopped before the report is published.
+- **Checks:** the report lists every check in `ticket.md`, one line each: its valid evidence, or `not covering` with the changed paths and why the check does not reach them; a reused result names the run it comes from.
 - **Resumed turns:** when the orchestrator resumes a child for missing report items, the child keeps its candidate or commit and adds only what the orchestrator names.
 - **Push:** the child commits on the current branch; pushing belongs to the caller.

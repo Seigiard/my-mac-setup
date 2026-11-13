@@ -7,6 +7,7 @@ Write the child's prompt to `<role>-<n>.prompt.md`. It carries pointers only, ne
 ```text
 Role: <test writer | implementer>, attempt <n>.
 Mode: <prepare | calibrate>   <- test writer only
+Rows: <every plan row | the rows named after a failed replay, with their replay-<m>/ logs>   <- calibrate only
 Read your brief first and follow it: <absolute path to test-writer.md or implementer.md>.
 Ticket: <run-dir>/ticket.md (its Verdicts section lists earlier attempts and why they were rejected).
 Lock: <run-dir>/lock.json   <- when a lock exists: implementer, or a test writer that re-locks or extends it

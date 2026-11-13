@@ -30,7 +30,7 @@ Done when the test command is green (when `ticket.md` names one), the applicable
 Write the report to the path in your prompt. Include:
 
 - the files you changed, one line each on why and the criterion it serves, or `consequence of <criterion>` for a lockfile, glossary, or generated state; report a necessary change that violates a non-goal as a conflict;
-- the test command with its [valid evidence](SKILL.md#evidence), then every check listed in `ticket.md`, one line each: its valid evidence, or `not covering` with the changed paths and why the check does not reach them; for a reused result, the run it comes from;
+- the test command with its [valid evidence](SKILL.md#evidence), then every check in `ticket.md` per the [child rules](run-directory.md#child-rules);
 - any locked test you believe is wrong, with the evidence;
 - anything left undone.
 
