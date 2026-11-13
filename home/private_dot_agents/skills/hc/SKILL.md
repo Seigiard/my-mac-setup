@@ -25,7 +25,7 @@ Start children with the launcher. It runs in the background by default:
 hc-run <template> "<task>"
 ```
 
-If `hc-run` exits 3 because the task was not delivered, it still prints the child address. Run `hc read <address>`, resolve readiness (for a trust dialog, `hc keys <address> down enter`), then send the template body from `~/.config/herdr-core/templates/<name>.md` after its frontmatter, followed by the task. If readiness cannot be resolved, run `hc kill <address>` and `hc rm <address>`, then restart with `hc-run`.
+If `hc-run` exits 3, it prints the child address and a diagnostic. Treat exit 3 as unconfirmed delivery or start, not as permission to resend. Inspect `hc get --json <address>` and `hc read --json <address>` first. If the child is working, wait for it. Keep a blocked child running and defer trust, permission, or other human decisions to the person; do not accept a permission dialog with a blind key. For `hc-run: task not sent: hc read <address>`, resolve a visible readiness problem and send the template body from `~/.config/herdr-core/templates/<name>.md` after its frontmatter, followed by the task; check the send result and never resend without reading the screen again. For `hc-run: task sent but not started: hc read <address>`, do not send the task again. `hc-run` may have tried one `enter` after it observed a task draft without a blocking dialog; it does not claim that it tried `enter` when no draft was visible or a dialog blocked it. If an idle child has no pending human decision and readiness cannot be resolved, run `hc kill <address>` and `hc rm <address>`, then restart with `hc-run`.
 
 Use `--tab` only when the person asks to see the child. Templates live in
 `~/.config/herdr-core/templates/`; list them with `hc templates`.

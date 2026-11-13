@@ -19,7 +19,7 @@ Every child runs on OpenCode, its tier mapped through the OpenCode column of `~/
 
 When `HC_TERMINAL_ID` is set, use hc mode: run `hc-run --cwd <checkout> implementer-<tier> "$(cat <prompt>)"`, with `+` spelled `-plus`; the test writer uses the same read-write opencode role and its prompt carries the role. Record the printed `<address> <alias>`. Wait inside a turn with `hc wait --json --timeout S <address>`; parent duties and the cleanup guard are in `~/.claude/shared/hc-agent-contract.md`.
 
-If `hc-run` exits 3 because the task was not delivered, follow the exit-3 recovery rule in the `hc` skill.
+If `hc-run` exits 3, its address is only a recovery handle: use the printed `task not sent` or `task sent but not started` diagnostic, then follow the `hc` skill's exit-3 rule and inspect `hc get` and the consumed screen before any send. Do not treat the child as started, resend from an unexposed `first_message.sent` receipt, or claim that `enter` was tried unless the screen showed a draft without a blocking dialog. Preserve working and blocked children; defer permission decisions to the person.
 
 1. `opencode` is on `PATH`: run the following as a background process that re-invokes you on exit (in Claude Code, the Bash tool's `run_in_background`). The stdin redirect prevents `opencode run` from waiting for EOF. `~/.claude/shared/long-running-work.md` owns its supervision.
 
