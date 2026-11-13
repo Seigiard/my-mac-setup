@@ -38,7 +38,7 @@ The expensive part of a re-calibration is not the test run. It is the child: rea
 
 ## Solution
 
-The first calibrate child saves each mutation as a patch that `git apply` accepts, next to its command log, and the plan row in `ticket.md` records the patch path. When production code changes afterwards, the orchestrator replays: apply the patch, run the focused command, require red, restore, verify a clean tree at `calibration_sha`. A replay dispatches no child and spends no turn. Only a patch that no longer applies, or a run that stays green, goes to a fresh child, because the orchestrator cannot tell a moved line from a weakened test. Lock acceptance requires the command to run the owner test alone; a full-suite command needs a recorded reason.
+The first calibrate child saves each mutation as a `git apply`-able patch beside its log, and the plan row in `ticket.md` records the patch path. The orchestrator replays the patches itself and dispatches a child only for a patch that does not apply or a run that stays green, because it cannot tell a moved line from a weakened test. The procedure lives in the Replay section of `home/private_dot_agents/skills/tdd/calibration.md`.
 
 ## Why this holds in general
 
