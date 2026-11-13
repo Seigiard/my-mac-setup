@@ -109,6 +109,18 @@ function test_revmux_wrapper_7302_runs_the_real_binary_unchanged_without_the_key
   assert_success
   assert_output "$(printf '%s\n' 'ANTHROPIC_API_KEY=unset' 'arg=new' 'arg=--task' 'arg=t' 'arg=--run' 'arg=r')"
   assert_file_not_exists "$PROBE_LOG"
+
+  # go-flags accepts global options before the subcommand
+  run wrapped_revmux PATH="$WITH_REAL" REVMUX_ANTHROPIC_API_KEY=key-canary -- "$WRAP_DIR/revmux" --tasks-dir /t new --task t
+  assert_success
+  assert_output "$(printf '%s\n' 'ANTHROPIC_API_KEY=unset' 'arg=--tasks-dir' 'arg=/t' 'arg=new' 'arg=--task' 'arg=t')"
+  assert_file_not_exists "$PROBE_LOG"
+
+  # a task or run named like a subcommand is still a review run
+  run wrapped_revmux PATH="$WITH_REAL" REVMUX_ANTHROPIC_API_KEY=key-canary -- "$WRAP_DIR/revmux" --task stats --run new
+  assert_success
+  assert_output "$(printf '%s\n' 'revmux: claude agents on the API credit' 'ANTHROPIC_API_KEY=key-canary' \
+    'arg=--preserve-anthropic-api-key' 'arg=--task' 'arg=stats' 'arg=--run' 'arg=new')"
 }
 
 function test_revmux_wrapper_7303_returns_the_real_binary_exit_status() {

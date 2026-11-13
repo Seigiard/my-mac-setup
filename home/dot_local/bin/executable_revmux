@@ -63,17 +63,23 @@ if [ -z "$real" ]; then
   exit 127
 fi
 
-# A review run is `revmux --task X --run Y ...`: options from the first word.
-# A subcommand (new, cleanup, config, stats, init) comes first and spawns no
-# agents, even when it names a task.
+# A review run is `revmux --task X --run Y ...`. A subcommand (new, cleanup,
+# config, stats, init) spawns no agents even when it names a task, and
+# go-flags lets global options precede it, so the word is looked for anywhere
+# in argv, except as the value of --task or --run, whose names are free text.
 is_review_run=0
-case "${1:-}" in
-  -*)
-    case " $* " in
-      *" --task "* | *" --task="*) is_review_run=1 ;;
-    esac
-    ;;
+case " $* " in
+  *" --task "* | *" --task="*) is_review_run=1 ;;
 esac
+previous=""
+for arg in "$@"; do
+  case "$arg" in
+    new | cleanup | config | stats | init)
+      case "$previous" in --task | --run) ;; *) is_review_run=0 ;; esac
+      ;;
+  esac
+  previous=$arg
+done
 
 resolve_safe() {
   local dir
