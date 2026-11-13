@@ -147,12 +147,11 @@ hooks, so those checkouts get no setup.
 ## Skill-created worktrees
 
 The `implement-spec` and `pf-build` skills create ticket worktrees with plain
-`git worktree add`, which runs no hook. Before the first `tdd` child starts,
-each skill runs `herdr-worktree-setup-run <path>` with no branch argument. The
-checkout gets the repository's copy and setup steps, such as `npm ci` here, and
-fresh-base leaves the ticket branch on its base. Without this step, the first
-commit or test run in such a checkout fails because its dependencies are not
-installed.
+`git worktree add`, which runs no hook, and then run
+`herdr-worktree-setup-run <path>` themselves. The empty branch field skips
+fresh-base, as for the Claude Code hook, so the ticket branch stays on its
+base. The checkout gets the repository's copy and setup steps, such as
+`npm ci` here.
 
 ## Provenance boundary
 
