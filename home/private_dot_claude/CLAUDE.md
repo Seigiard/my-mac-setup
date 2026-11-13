@@ -37,9 +37,9 @@ For revmux archive housekeeping, the thresholds are 300MB and 200MB: stay silent
 
 </important>
 
-<important if="you are about to start, background, or wait on a long-running process that has no supervision of its own — build, test run, dev server, migration, remote job">
+<important if="you are about to start, background, or wait on a long-running process that has no supervision of its own — build, test run, dev server, migration, remote job — or on a command whose duration you cannot bound under the tool's timeout, or a command of yours just ended on a tool timeout">
 
-Read `~/.claude/shared/long-running-work.md` before launching. A tool that already reports its own progress, stalls, and exit status needs no extra supervision. It carries the supervision contract: completion and progress signals, launch-path verification, observation cadence and the mechanism behind it, stall diagnosis, chosen vs imposed deadlines, ownership of the wait, and escalation when the state cannot be determined.
+Read `~/.claude/shared/long-running-work.md` before launching. It carries the launch form for each client, the supervision contract from launch to terminal state, and timeout recovery.
 
 </important>
 
