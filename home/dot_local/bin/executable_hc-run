@@ -75,7 +75,11 @@ trap 'rm -f "$run_stdout_file" "$run_stderr_file" "$tab_stderr_file"' EXIT
 child_address=""
 selected_alias=""
 first_message_sent=""
+launch_turn=0
 name_taken=0
+
+start_confirmation_timeout="${HC_RUN_START_CONFIRM_TIMEOUT:-5}"
+start_confirmation_poll_interval="${HC_RUN_START_CONFIRM_POLL_INTERVAL:-0.1}"
 
 start_child() {
   local alias="$1" run_status run_result error_kind
@@ -122,8 +126,118 @@ print("false" if isinstance(message, dict) and message.get("sent") is False else
     first_message_sent=""
   fi
 
+  if launch_turn="$({
+    python3 -c '
+import json
+import sys
+
+raw = sys.stdin.read().lstrip()
+try:
+    value = json.JSONDecoder().raw_decode(raw)[0].get("turn", 0)
+except (ValueError, TypeError):
+    value = 0
+print(value if isinstance(value, int) and value >= 0 else 0)
+' <<< "$run_result"
+  })"; then
+    :
+  else
+    launch_turn=0
+  fi
+
   selected_alias="$alias"
   return 0
+}
+
+monotonic_seconds() {
+  python3 -c 'import time; print(time.monotonic())'
+}
+
+child_snapshot() {
+  python3 -c '
+import json
+import sys
+
+try:
+    payload = json.load(sys.stdin)
+except (ValueError, TypeError):
+    raise SystemExit(1)
+
+status = payload.get("status") or {}
+state = status.get("state") or payload.get("state") or ""
+turn = payload.get("turn", 0)
+if not isinstance(turn, int) or turn < 0:
+    turn = 0
+print("{} {}".format(state, turn))
+'
+}
+
+is_task_draft() {
+  HC_RUN_TASK="$task" python3 -c '
+import json
+import os
+import re
+import sys
+
+try:
+    payload = json.load(sys.stdin)
+except (ValueError, TypeError):
+    raise SystemExit(1)
+
+if payload.get("complete") is not True or payload.get("how") != "screen":
+    raise SystemExit(1)
+
+text = payload.get("text")
+task = os.environ.get("HC_RUN_TASK", "")
+if not isinstance(text, str):
+    raise SystemExit(1)
+
+has_pasted_draft = re.search(r"\[Pasted ~[0-9]+ lines?\]", text) is not None
+has_task_draft = bool(task) and task in text
+has_dialog = re.search(
+    r"(?im)^\s*(?:[┃│|]\s*)?(?:trust(?: this (?:folder|workspace))?|allow|permission|confirm|question)\b",
+    text,
+) is not None
+
+raise SystemExit(0 if (has_pasted_draft or has_task_draft) and not has_dialog else 1)
+'
+}
+
+confirm_child_started() {
+  local started_at deadline now snapshot state turn read_result
+  local enter_attempted=0
+
+  started_at="$(monotonic_seconds)"
+  deadline="$(python3 -c 'import sys; print(float(sys.argv[1]) + float(sys.argv[2]))' "$started_at" "$start_confirmation_timeout")"
+
+  while :; do
+    if read_result="$(hc get --json "$child_address" 2>/dev/null)" &&
+      snapshot="$(printf '%s\n' "$read_result" | child_snapshot 2>/dev/null)"; then
+      state="${snapshot%% *}"
+      turn="${snapshot#* }"
+
+      if [ "$state" = working ] || [ "$turn" -gt "$launch_turn" ]; then
+        return 0
+      fi
+
+      if [ "$state" = blocked ] || [ "$state" = error ] || [ "$state" = finished ]; then
+        return 1
+      fi
+
+      if [ "$state" = idle ] && [ "$turn" -eq "$launch_turn" ] && [ "$enter_attempted" -eq 0 ]; then
+        if read_result="$(hc read --json "$child_address" 2>/dev/null)" &&
+          printf '%s\n' "$read_result" | is_task_draft; then
+          enter_attempted=1
+          hc keys "$child_address" enter >/dev/null 2>&1 || :
+        fi
+      fi
+    fi
+
+    now="$(monotonic_seconds)"
+    if python3 -c 'import sys; raise SystemExit(0 if float(sys.argv[1]) >= float(sys.argv[2]) else 1)' "$now" "$deadline"; then
+      return 1
+    fi
+    sleep "$start_confirmation_poll_interval"
+  done
 }
 
 while IFS= read -r candidate; do
@@ -159,5 +273,10 @@ fi
 printf '%s %s\n' "$child_address" "$selected_alias"
 if [ "$first_message_sent" = false ]; then
   printf 'hc-run: task not sent: hc read %s\n' "$child_address" >&2
+  exit 3
+fi
+
+if ! confirm_child_started; then
+  printf 'hc-run: task sent but not started: hc read %s\n' "$child_address" >&2
   exit 3
 fi
