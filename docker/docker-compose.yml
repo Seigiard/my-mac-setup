@@ -18,6 +18,7 @@ services:
         MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY: mms-test-agent-reports-write-secret-canary
         MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_ACCESS_KEY_ID: mms-test-agent-reports-read-key-id-canary
         MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_SECRET_ACCESS_KEY: mms-test-agent-reports-read-secret-canary
+        MMS_CHEZMOI_FIXTURE_REVMUX_ANTHROPIC_API_KEY: mms-test-revmux-anthropic-api-key-canary
     volumes:
       - ../home:/home/testuser/dotfiles:ro
       - ../tests:/home/testuser/tests:ro
@@ -58,6 +59,7 @@ services:
       - MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY=mms-test-agent-reports-write-secret-canary
       - MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_ACCESS_KEY_ID=mms-test-agent-reports-read-key-id-canary
       - MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_SECRET_ACCESS_KEY=mms-test-agent-reports-read-secret-canary
+      - MMS_CHEZMOI_FIXTURE_REVMUX_ANTHROPIC_API_KEY=mms-test-revmux-anthropic-api-key-canary
     tty: true
 
   # Full test with package installation
@@ -79,6 +81,7 @@ services:
         MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY: mms-test-agent-reports-write-secret-canary
         MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_ACCESS_KEY_ID: mms-test-agent-reports-read-key-id-canary
         MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_SECRET_ACCESS_KEY: mms-test-agent-reports-read-secret-canary
+        MMS_CHEZMOI_FIXTURE_REVMUX_ANTHROPIC_API_KEY: mms-test-revmux-anthropic-api-key-canary
     volumes:
       - ../home:/home/testuser/dotfiles:ro
       - ../tests:/home/testuser/tests:ro
@@ -122,6 +125,7 @@ services:
       - MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY=mms-test-agent-reports-write-secret-canary
       - MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_ACCESS_KEY_ID=mms-test-agent-reports-read-key-id-canary
       - MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_SECRET_ACCESS_KEY=mms-test-agent-reports-read-secret-canary
+      - MMS_CHEZMOI_FIXTURE_REVMUX_ANTHROPIC_API_KEY=mms-test-revmux-anthropic-api-key-canary
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
@@ -179,6 +183,7 @@ services:
         MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY: mms-test-agent-reports-write-secret-canary
         MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_ACCESS_KEY_ID: mms-test-agent-reports-read-key-id-canary
         MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_SECRET_ACCESS_KEY: mms-test-agent-reports-read-secret-canary
+        MMS_CHEZMOI_FIXTURE_REVMUX_ANTHROPIC_API_KEY: mms-test-revmux-anthropic-api-key-canary
     volumes:
       - ../home:/home/testuser/dotfiles:ro
       - ../tests:/home/testuser/tests:ro
@@ -216,6 +221,7 @@ services:
       - MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_WRITE_SECRET_ACCESS_KEY=mms-test-agent-reports-write-secret-canary
       - MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_ACCESS_KEY_ID=mms-test-agent-reports-read-key-id-canary
       - MMS_CHEZMOI_FIXTURE_AGENT_REPORTS_READ_SECRET_ACCESS_KEY=mms-test-agent-reports-read-secret-canary
+      - MMS_CHEZMOI_FIXTURE_REVMUX_ANTHROPIC_API_KEY=mms-test-revmux-anthropic-api-key-canary
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
