@@ -41,7 +41,7 @@ Each sub-task carries:
 
 - **Goal** — one sentence: what becomes true.
 - **Contract deltas** — which pieces of the contract spec this issue fulfills (link the stories/declarations), plus any deferred deltas it must itself produce: the artifact file and the precise entries/fields/values expected in its diff.
-- **Validation criteria** — numbered; each pairs an outcome that is plainly true or false with the named, committed, re-runnable check that decides it (test file, benchmark assertion, gate expectation, artifact diff). No vibes — a reader runs the checks and says "achieved" or "not yet".
+- **Validation criteria** — numbered; each pairs an outcome that is plainly true or false with the named, committed, re-runnable check that decides it (test file, benchmark assertion, gate expectation, artifact diff). No vibes — a reader runs the checks and says "achieved" or "not yet". Each criterion names its source: the contract delta it fulfills, or an occurrence the research narrative records (`tdd` → Before the chain). A criterion whose only source is a brief written during the build is a construction and stays out of the task.
 - **Deploy note** — required when the issue carries a migration or a flag: the big PR's merge is deploying, so state the rollout shape (expand-contract vs accepted transient errors, flag default).
 - **Out of scope** — one line.
 - **Dependencies** — which sibling(s) it builds on, if any.

@@ -28,7 +28,7 @@ Repeat this entry once per symptom criterion:
 - observation: <evidence when needed: command or scenario, state, output>
 
 ## Criteria
-1. <validation criterion>; evidence: <ticket sentence, report, log, incident, or reproduced failure>
+1. <validation criterion>; evidence: <occurrence: ticket sentence, report, log, transcript line, corpus entry, or incident, with where it happened>
 
 ## Non-goals
 - <behavior, file, or area the ticket deliberately leaves unchanged | None explicitly stated, when the ticket names none>

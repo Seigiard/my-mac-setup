@@ -176,8 +176,12 @@ grade is the caller's. A finding is **reachable** when it names a path the ticke
 ticket being the issue or request the caller named, `plan:<path>` included: an acceptance
 criterion, a flow the ticket's description names, an input this project's users produce, or,
 for agent-facing text, a run an agent following the text takes. A criterion establishes
-reachability through the evidence `ticket.md` records for it (`tdd`, Before the chain); a
-scenario, limit, or guard that no evidence names is polish, however plausible it reads. A
+reachability through the occurrence `ticket.md` records as its evidence (`tdd`, Before the
+chain); a scenario, limit, or guard that no occurrence names is polish, however plausible it
+reads. A finding whose input the reviewer built is a **construction**: polish, unless the
+ticket or the review context names an occurrence of that input or its class. When the ticket
+relaxes a guard, filter, or validator, an input the base blocked and the head allows is the
+ticket's intended direction, and a defect only through an occurrence. A
 reachable finding keeps the reviewer's severity. Every other finding is **polish** and is
 graded `minor`. A **behavior gap** on a reachable path keeps that path's grade; a finding
 that asks only for a test, with the code correct, is `minor`.
@@ -187,6 +191,12 @@ review loop. The loop is in **closeout** once the two latest rounds graded nothi
 `minor`, or once five fix rounds have been verified. In closeout, route no fix: defer every
 remaining `minor`, and put a reachable critical or major to the user as a decision brief on
 raising the budget.
+
+A reachable finding against the mechanism the previous round's fix changed, when it is not
+that round's defect returning, means the mechanism is wrong rather than one instance of it.
+Route no fix for it: put narrowing the ticket against redesigning the mechanism to the user
+as a decision brief (`~/.claude/shared/decision-brief.md`), with the occurrences each option
+keeps and loses.
 
 Write `<run-dir>/review-<round>.md` with one grade, the path that establishes reachability,
 and one verdict per finding and open question: `test`, `code`, `decision`, `defer`, or
