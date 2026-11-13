@@ -4,6 +4,7 @@
 // with no node_modules, and only resolves its imports once deployed under
 // ~/.pi/agent/, where pi's own runtime resolves them.
 
+import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { Decision, ToolEventValue } from "../../../dot_local/lib/agent-hooks/types.ts";
 
@@ -23,6 +24,29 @@ const HOME = process.env.HOME ?? "";
 
 const CORE_DIR = join(HOME, ".local", "lib", "agent-hooks");
 
+function readShellPath(home: string): string | undefined {
+  try {
+    const settings = JSON.parse(readFileSync(join(home, ".pi", "agent", "settings.json"), "utf8")) as {
+      shellPath?: unknown;
+    };
+
+    return typeof settings.shellPath === "string" && settings.shellPath !== ""
+      ? settings.shellPath
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const SHELL_PATH = readShellPath(HOME);
+
+function observedShell(toolName: string): string | undefined {
+  if (SHELL_PATH !== undefined) return SHELL_PATH;
+  if (toolName === "bash") return "/bin/bash";
+  if (toolName === "exec_command") return process.env.SHELL;
+  return undefined;
+}
+
 // Load-time import rather than per-call (KTD5): a failure is front-loaded into
 // an extension that registers nothing, which is the honest fail-open shape — an
 // installed handler that silently allows would look alive to a reader. It also
@@ -30,7 +54,9 @@ const CORE_DIR = join(HOME, ".local", "lib", "agent-hooks");
 // awaiting it. (pi 0.84.4 does await a promise-returning tool_call handler and
 // honours the block it resolves to — verified with a scratch extension — but
 // the core needs nothing from that.)
-let dispatch: ((client: string, rawEvent: ToolEventValue, options?: { setup?: { status: string } }) => Decision) | undefined;
+let dispatch: (
+  (client: string, rawEvent: ToolEventValue, options?: { setup?: { status: string }; shell?: string }) => Decision
+) | undefined;
 
 let setupTools: typeof import("../../../dot_local/lib/agent-hooks/worktree-setup.ts") | undefined;
 
@@ -83,7 +109,10 @@ export default function (pi) {
         state: { status: "absent" },
       };
 
-      decision = dispatch(CLIENT, event, { setup: observation.state });
+      decision = dispatch(CLIENT, event, {
+        setup: observation.state,
+        shell: observedShell(event.toolName),
+      });
 
       if (setupTools !== undefined && !setupTools.shouldDeliverSetupDecision(observation, decision)) return;
     } catch {
