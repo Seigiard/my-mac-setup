@@ -20,7 +20,9 @@ real=""
 old_ifs=$IFS
 IFS=:
 for dir in $PATH; do
-  [ -n "$dir" ] || dir=.
+  # An empty or relative entry means the working directory, which the key
+  # must never follow into a binary somebody planted there.
+  case "$dir" in /*) ;; *) continue ;; esac
   candidate="$dir/revmux"
   [ -f "$candidate" ] && [ -x "$candidate" ] || continue
   candidate_dir=$(cd "$dir" 2>/dev/null && pwd -P) || continue

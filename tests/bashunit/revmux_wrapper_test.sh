@@ -80,3 +80,15 @@ function test_revmux_wrapper_7304_fails_instead_of_calling_itself_when_no_binary
   assert_failure 127
   assert_output 'revmux: no revmux binary in PATH after this wrapper'
 }
+
+function test_revmux_wrapper_7305_ignores_empty_and_relative_path_entries() {
+  _bats_test_init 7305 'ignores empty and relative PATH entries'
+  # #given a planted revmux in the working directory
+  cp "$FAKE_DIR/revmux" "$BATS_TEST_TMPDIR/revmux"
+  # #when PATH names the working directory through an empty and a relative entry
+  run wrapped_revmux PATH="$WRAP_DIR::.:/usr/bin:/bin" REVMUX_ANTHROPIC_API_KEY=key-canary \
+    sh -c 'cd "$1" && "$2" --version' sh "$BATS_TEST_TMPDIR" "$WRAP_DIR/revmux"
+  # #then
+  assert_failure 127
+  assert_output 'revmux: no revmux binary in PATH after this wrapper'
+}
