@@ -16,22 +16,39 @@
 set -u
 
 self_dir=$(cd "$(dirname "$0")" && pwd -P)
-real=""
+# Invoked through PATH, the wrapper fronts the first revmux after its own entry:
+# an entry before it may be another front end that delegates back here, and
+# choosing it would exec in a loop. Invoked by a path outside PATH, it fronts
+# the first revmux anywhere but its own directory.
+before=""
+after=""
+seen_self=0
 old_ifs=$IFS
 IFS=:
 for dir in $PATH; do
   # An empty or relative entry means the working directory, which the key
   # must never follow into a binary somebody planted there.
   case "$dir" in /*) ;; *) continue ;; esac
-  candidate="$dir/revmux"
-  [ -f "$candidate" ] && [ -x "$candidate" ] || continue
   candidate_dir=$(cd "$dir" 2>/dev/null && pwd -P) || continue
-  [ "$candidate_dir" != "$self_dir" ] || continue
-  real=$candidate
-  break
+  if [ "$candidate_dir" = "$self_dir" ]; then
+    seen_self=1
+    continue
+  fi
+  candidate="$candidate_dir/revmux"
+  [ -f "$candidate" ] && [ -x "$candidate" ] || continue
+  if [ "$seen_self" = 1 ]; then
+    after=$candidate
+    break
+  fi
+  [ -n "$before" ] || before=$candidate
 done
 IFS=$old_ifs
 
+if [ "$seen_self" = 1 ]; then
+  real=$after
+else
+  real=$before
+fi
 if [ -z "$real" ]; then
   echo "revmux: no revmux binary in PATH after this wrapper" >&2
   exit 127

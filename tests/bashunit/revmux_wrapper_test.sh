@@ -29,8 +29,28 @@ function tear_down_after_script() {
   _bats_file_cleanup
 }
 
+# `VAR=value`... -- command args. A wall-clock watchdog turns a wrapper that
+# execs itself in a loop into a killed status instead of a hung suite. The
+# command gets its own process group and the watchdog kills the group: a
+# `sh -c` in front of the wrapper would otherwise die alone and leave the
+# loop holding the output pipe.
 wrapped_revmux() {
-  env -u ANTHROPIC_API_KEY -u REVMUX_ANTHROPIC_API_KEY "$@"
+  local assignments=()
+  while [ "$#" -gt 0 ] && [ "$1" != -- ]; do
+    assignments[${#assignments[@]}]="$1"
+    shift
+  done
+  shift
+  env -u ANTHROPIC_API_KEY -u REVMUX_ANTHROPIC_API_KEY "${assignments[@]}" bash -c '
+    perl -e "setpgrp(0, 0); exec @ARGV or exit 127" -- "$@" &
+    child=$!
+    perl -e "setpgrp(0, 0); exec @ARGV or exit 127" -- \
+      sh -c "sleep 10; kill -- -$child" >/dev/null 2>&1 &
+    watchdog=$!
+    wait "$child"
+    status=$?
+    kill -- -"$watchdog" 2>/dev/null
+    exit "$status"' bash "$@"
 }
 
 function test_revmux_wrapper_7301_routes_the_key_and_the_preserve_flag_to_the_real_binary() {
@@ -41,7 +61,7 @@ function test_revmux_wrapper_7301_routes_the_key_and_the_preserve_flag_to_the_re
     'arg=--task' 'arg=t' 'arg=--run' 'arg=r' 'arg=--no-tui')"
   # #when
   run wrapped_revmux PATH="$WITH_REAL" REVMUX_ANTHROPIC_API_KEY=key-canary \
-    "$WRAP_DIR/revmux" --task t --run r --no-tui
+    -- "$WRAP_DIR/revmux" --task t --run r --no-tui
   # #then
   assert_success
   assert_output "$expected"
@@ -51,13 +71,13 @@ function test_revmux_wrapper_7302_runs_the_real_binary_unchanged_without_the_key
   _bats_test_init 7302 'runs the real binary unchanged without the key'
   # #given
   # #when
-  run wrapped_revmux PATH="$WITH_REAL" "$WRAP_DIR/revmux" config
+  run wrapped_revmux PATH="$WITH_REAL" -- "$WRAP_DIR/revmux" config
   # #then
   assert_success
   assert_output "$(printf '%s\n' 'ANTHROPIC_API_KEY=unset' 'arg=config')"
 
   # a shell-wide ANTHROPIC_API_KEY passes through untouched; revmux itself decides its fate
-  run wrapped_revmux PATH="$WITH_REAL" ANTHROPIC_API_KEY=outer "$WRAP_DIR/revmux" config
+  run wrapped_revmux PATH="$WITH_REAL" ANTHROPIC_API_KEY=outer -- "$WRAP_DIR/revmux" config
   assert_success
   assert_output "$(printf '%s\n' 'ANTHROPIC_API_KEY=outer' 'arg=config')"
 }
@@ -66,7 +86,7 @@ function test_revmux_wrapper_7303_returns_the_real_binary_exit_status() {
   _bats_test_init 7303 'returns the real binary exit status'
   # #given
   # #when
-  run wrapped_revmux PATH="$WITH_REAL" REVMUX_ANTHROPIC_API_KEY=key-canary "$WRAP_DIR/revmux" fail
+  run wrapped_revmux PATH="$WITH_REAL" REVMUX_ANTHROPIC_API_KEY=key-canary -- "$WRAP_DIR/revmux" fail
   # #then
   assert_failure 7
 }
@@ -75,7 +95,7 @@ function test_revmux_wrapper_7304_fails_instead_of_calling_itself_when_no_binary
   _bats_test_init 7304 'fails instead of calling itself when no binary follows'
   # #given
   # #when
-  run wrapped_revmux PATH="$WRAP_DIR:/usr/bin:/bin" "$WRAP_DIR/revmux" --version
+  run wrapped_revmux PATH="$WRAP_DIR:/usr/bin:/bin" -- "$WRAP_DIR/revmux" --version
   # #then
   assert_failure 127
   assert_output 'revmux: no revmux binary in PATH after this wrapper'
@@ -87,8 +107,22 @@ function test_revmux_wrapper_7305_ignores_empty_and_relative_path_entries() {
   cp "$FAKE_DIR/revmux" "$BATS_TEST_TMPDIR/revmux"
   # #when PATH names the working directory through an empty and a relative entry
   run wrapped_revmux PATH="$WRAP_DIR::.:/usr/bin:/bin" REVMUX_ANTHROPIC_API_KEY=key-canary \
-    sh -c 'cd "$1" && "$2" --version' sh "$BATS_TEST_TMPDIR" "$WRAP_DIR/revmux"
+    -- sh -c 'cd "$1" && "$2" --version' sh "$BATS_TEST_TMPDIR" "$WRAP_DIR/revmux"
   # #then
   assert_failure 127
   assert_output 'revmux: no revmux binary in PATH after this wrapper'
+}
+
+function test_revmux_wrapper_7306_skips_a_front_end_before_it_that_delegates_back() {
+  _bats_test_init 7306 'skips a front end before it that delegates back'
+  # #given a shim ahead of the wrapper in PATH that execs the wrapper, as the revmux-round suite does
+  local shim_dir="$BATS_TEST_TMPDIR/shim"
+  mkdir -p "$shim_dir"
+  printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$WRAP_DIR/revmux" > "$shim_dir/revmux"
+  chmod +x "$shim_dir/revmux"
+  # #when
+  run wrapped_revmux PATH="$shim_dir:$WITH_REAL" REVMUX_ANTHROPIC_API_KEY=key-canary -- "$shim_dir/revmux" config
+  # #then the real binary behind the wrapper answers, not the shim again
+  assert_success
+  assert_output "$(printf '%s\n' 'ANTHROPIC_API_KEY=key-canary' 'arg=--preserve-anthropic-api-key' 'arg=config')"
 }
