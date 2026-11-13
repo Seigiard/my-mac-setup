@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -58,12 +58,19 @@ async function loadV2Plugin(
   pluginPath = PLUGIN_PATH,
   sessionDirectory?: string,
   getSession?: V2SessionGet,
+  bashShellPlugin = false,
 ): Promise<V2Host> {
   const home = temporaryDir("agent-hooks-opencode-v2-home-");
 
   if (coreDir !== undefined) {
     mkdirSync(join(home, ".local", "lib"), { recursive: true });
     symlinkSync(coreDir, join(home, ".local", "lib", "agent-hooks"));
+  }
+
+  if (bashShellPlugin) {
+    const plugin = join(home, ".config", "opencode", "plugins", "bash-shell.ts");
+    mkdirSync(dirname(plugin), { recursive: true });
+    writeFileSync(plugin, "// OpenCode discovers this plugin before creating shell tools.\n");
   }
 
   const module = await importV2Plugin(home, pluginPath);
@@ -344,6 +351,30 @@ describe("OpenCode V2 execute.before translation", () => {
     // #then both fail open by leaving the execution hook absent
     expect(Object.keys(missingHost.hooks)).toEqual([]);
     expect(Object.keys(brokenHost.hooks)).toEqual([]);
+  });
+
+  test("the deployed bash-shell plugin selects bash while its absence falls back to SHELL", async () => {
+    // #given one OpenCode home with the shell plugin and one without it, both starting from zsh
+    const command = "make lint; status=$?; exit $status";
+    const previousShell = process.env.SHELL;
+    process.env.SHELL = "/bin/zsh";
+
+    try {
+      const bashHost = await loadV2Plugin(CORE_DIR, PLUGIN_PATH, undefined, undefined, true);
+      const zshHost = await loadV2Plugin(CORE_DIR);
+
+      // #when each host receives the same native shell call
+      const decisions = [
+        await callBeforeV2(bashHost, { tool: "shell", input: { command } }),
+        await callBeforeV2(zshHost, { tool: "shell", input: { command } }),
+      ];
+
+      // #then the applied bash plugin allows the command and the SHELL fallback names zsh in its denial
+      expect(decisions).toEqual([undefined, expect.stringContaining("zsh")]);
+    } finally {
+      if (previousShell === undefined) delete process.env.SHELL;
+      else process.env.SHELL = previousShell;
+    }
   });
 
   test("a denied shell command and its renamed control keep the shipped verdicts", async () => {

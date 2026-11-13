@@ -30,6 +30,8 @@ export type DispatchOptions = {
   env?: Record<string, string | undefined>;
   /** Adapter-provided setup status; policies never read the filesystem. */
   setup?: SetupState;
+  /** Adapter-provided shell observation; policies never read the filesystem. */
+  shell?: string;
 };
 
 /**
@@ -93,9 +95,11 @@ export function dispatchTraced(
 
     if (!normalized) return { invoked: [], decision: ALLOW };
 
-    const event: NormalizedEvent = options.setup === undefined
-      ? normalized
-      : { ...normalized, setup: options.setup };
+    const event: NormalizedEvent = { ...normalized };
+
+    if (options.setup !== undefined) event.setup = options.setup;
+
+    if (options.shell !== undefined) event.shell = options.shell;
 
     const disabled = disabledPolicyNames(env);
 

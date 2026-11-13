@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 
@@ -43,12 +43,18 @@ afterEach(() => {
 
 type Host = { handlers: Record<string, Function>; events: string[] };
 
-async function loadExtension(coreDir?: string): Promise<Host> {
+async function loadExtension(coreDir?: string, shellPath?: string): Promise<Host> {
   const home = temporaryDir("agent-hooks-pi-home-");
 
   if (coreDir !== undefined) {
     mkdirSync(join(home, ".local", "lib"), { recursive: true });
     symlinkSync(coreDir, join(home, ".local", "lib", "agent-hooks"));
+  }
+
+  if (shellPath !== undefined) {
+    const settings = join(home, ".pi", "agent", "settings.json");
+    mkdirSync(dirname(settings), { recursive: true });
+    writeFileSync(settings, `${JSON.stringify({ shellPath })}\n`);
   }
 
   const copy = join(temporaryDir("agent-hooks-pi-extension-"), `agent-hooks-${loadCount++}.ts`);
@@ -91,6 +97,18 @@ async function callToolCall(host: Host, raw: any, context: { cwd?: string } = {}
   expect(handler).toBeTypeOf("function");
 
   return await handler(raw, context);
+}
+
+async function callExecWithShell(host: Host, shell: string, command: string) {
+  const previousShell = process.env.SHELL;
+  process.env.SHELL = shell;
+
+  try {
+    return await callToolCall(host, { toolName: "exec_command", input: { cmd: command } });
+  } finally {
+    if (previousShell === undefined) delete process.env.SHELL;
+    else process.env.SHELL = previousShell;
+  }
 }
 
 // pi's own wire spellings for the tools the policy corpus exercises, written out
@@ -271,10 +289,48 @@ describe("tool_call deny and allow (R3)", () => {
     ]);
   });
 
+  test("Pi reports shellPath settings before its bash and exec_command fallbacks", async () => {
+    // #given bash and zsh settings plus the built-in bash and exec_command fallback routes
+    const command = "make lint; status=$?; exit $status";
+    const previousShell = process.env.SHELL;
+    process.env.SHELL = "/bin/zsh";
+
+    try {
+      const settingBash = await loadExtension(CORE_DIR, "/bin/bash");
+      const settingZsh = await loadExtension(CORE_DIR, "/bin/zsh");
+      const builtinBash = await loadExtension(CORE_DIR);
+      process.env.SHELL = "/bin/bash";
+      const execBash = await loadExtension(CORE_DIR);
+      process.env.SHELL = "/bin/zsh";
+      const execZsh = await loadExtension(CORE_DIR);
+
+      // #when each source dispatches the status-capture command
+      const decisions = [
+        await callToolCall(settingBash, { toolName: "bash", input: { command } }),
+        await callToolCall(settingZsh, { toolName: "bash", input: { command } }),
+        await callToolCall(builtinBash, { toolName: "bash", input: { command } }),
+        await callExecWithShell(execBash, "/bin/bash", command),
+        await callExecWithShell(execZsh, "/bin/zsh", command),
+      ];
+
+      // #then every bash source passes, while the zsh sources return a zsh-naming block
+      expect(decisions).toEqual([
+        undefined,
+        { block: true, reason: expect.stringContaining("zsh") },
+        undefined,
+        undefined,
+        { block: true, reason: expect.stringContaining("zsh") },
+      ]);
+    } finally {
+      if (previousShell === undefined) delete process.env.SHELL;
+      else process.env.SHELL = previousShell;
+    }
+  });
+
   test("the known-bad bash fixture is denied with the policy's prefixed reason", async () => {
     // #given the shipped known-bad zsh command in pi's wire shape
     const fixture = policyFixture("zsh-reserved-name-guard", "zsh/flags the status capture idiom");
-    const host = await loadExtension(CORE_DIR);
+    const host = await loadExtension(CORE_DIR, "/bin/zsh");
 
     // #when the handler sees it
     const decision = await callToolCall(host, piRawFor(fixture));
@@ -293,7 +349,7 @@ describe("tool_call deny and allow (R3)", () => {
       "zsh/an ordinary name zsh accepts is not blocked",
     );
 
-    const host = await loadExtension(CORE_DIR);
+    const host = await loadExtension(CORE_DIR, "/bin/zsh");
 
     // #when the handler sees it
     const decision = await callToolCall(host, piRawFor(fixture));
@@ -371,7 +427,7 @@ describe("openai-codex tool_call dialect (R3)", () => {
 describe("pi arg dialect reaches Claude's verdicts (R3, KTD8)", () => {
   test("every shared fixture decides identically through the handler and through Claude", async () => {
     // #given each policy fixture pi has a wire shape for
-    const host = await loadExtension(CORE_DIR);
+    const host = await loadExtension(CORE_DIR, "/bin/zsh");
     const shared = corpus.POLICY_FIXTURES.filter((fixture: any) => piRawFor(fixture) !== undefined);
     let denials = 0;
     let clearances = 0;

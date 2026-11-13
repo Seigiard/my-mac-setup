@@ -2,7 +2,7 @@
 // Type checking is off: this file is checked out in a plain dotfiles repo with no
 // node_modules, and only resolves its imports once deployed under ~/.config/opencode/,
 // where opencode's own dependencies live.
-import { lstatSync, readlinkSync } from "node:fs"
+import { existsSync, lstatSync, readlinkSync } from "node:fs"
 import { dirname, isAbsolute, join, resolve } from "node:path"
 import type { Decision, ToolEventValue } from "../../../dot_local/lib/agent-hooks/types.ts"
 
@@ -24,9 +24,25 @@ const CLIENT = "opencode"
 // the runtime actually resolves a different core module.
 const RESIDENT_CORE_HASHES = Symbol.for("agent-hooks.opencode.resident-core-hashes")
 
-type Dispatch = (client: string, rawEvent: ToolEventValue, options?: { setup?: { status: string } }) => Decision
+type Dispatch = (client: string, rawEvent: ToolEventValue, options?: { setup?: { status: string }; shell?: string }) => Decision
 
 type SetupTools = typeof import("../../../dot_local/lib/agent-hooks/worktree-setup.ts")
+
+function observedShell(home: string): string | undefined {
+  try {
+    // OpenCode creates the shell tool before its create.before hook runs. The
+    // deployed plugin is therefore the only adapter-side evidence that the
+    // shell record will be changed to bash for this call.
+    if (
+      existsSync(join(home, ".config", "opencode", "plugins", "bash-shell.ts")) &&
+      existsSync("/bin/bash")
+    ) return "/bin/bash"
+  } catch {
+    // A failed optional observation must leave the guard fail-closed as zsh.
+  }
+
+  return process.env.SHELL
+}
 
 type ResidentCoreRegistryHost = {
   [key: symbol]: Map<Dispatch, string> | undefined
@@ -53,7 +69,7 @@ function residentCoreHash(dispatch: Dispatch, coreHash: () => string): string {
 // Load-time import rather than per-call (KTD5): a failure is front-loaded into
 // a plugin that registers nothing, which is the honest fail-open shape — an
 // installed handler that silently allows would look alive to a reader.
-async function loadV2Dispatch(home: string): Promise<{ dispatch: Dispatch; setup?: SetupTools } | undefined> {
+async function loadV2Dispatch(home: string): Promise<{ dispatch: Dispatch; setup?: SetupTools; shell?: string } | undefined> {
   try {
     const corePath = join(home, ".local", "lib", "agent-hooks")
 
@@ -78,7 +94,7 @@ async function loadV2Dispatch(home: string): Promise<{ dispatch: Dispatch; setup
 
     const setup = await import(join(coreDir, "worktree-setup.ts")).catch(() => undefined)
 
-    return { dispatch: core.dispatch, setup }
+    return { dispatch: core.dispatch, setup, shell: observedShell(home) }
   } catch {
     return undefined
   }
@@ -128,7 +144,10 @@ export default {
 
         const observation = loaded.setup?.readSetupObservation(workdir) ?? { state: { status: "absent" } }
 
-        decision = loaded.dispatch(CLIENT, event, { setup: observation.state })
+        decision = loaded.dispatch(CLIENT, event, {
+          setup: observation.state,
+          shell: loaded.shell,
+        })
 
         if (loaded.setup !== undefined && !loaded.setup.shouldDeliverSetupDecision(observation, decision)) return
 

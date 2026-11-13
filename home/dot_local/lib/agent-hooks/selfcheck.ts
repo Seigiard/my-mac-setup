@@ -294,7 +294,13 @@ export function runCanaries(registry: Registry = CORE_REGISTRY): CanaryResult[] 
         continue;
       }
 
-      const decision = dispatch(client, raw, { registry, env: {}, setup: policy.canarySetup });
+      const decision = dispatch(client, raw, {
+        registry,
+        env: {},
+        setup: policy.canarySetup,
+        shell: "/bin/zsh",
+      });
+
       results.push({
         policy: policy.name,
         client,

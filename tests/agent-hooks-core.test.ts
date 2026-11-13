@@ -1178,6 +1178,78 @@ describe("ported policy corpus (KTD3)", () => {
   }
 });
 
+type ShellDecision = { verdict: string; reason?: string };
+
+type ShellDispatchOptions = { env: Record<string, string>; shell?: string };
+
+function dispatchWithShell(command: string, shell?: string): ShellDecision {
+  const options: ShellDispatchOptions = { env: {} };
+
+  if (shell !== undefined) options.shell = shell;
+
+  return core.dispatch("claude", { tool_name: "Bash", tool_input: { command } }, options);
+}
+
+describe("zsh reserved names respect the observed shell", () => {
+  test("bash allows a status capture while zsh and an unknown shell deny it", () => {
+    // #given the status-capture idiom under each possible adapter observation
+    const command = "make lint; status=$?; exit $status";
+
+    // #when it enters the core through the Claude shell boundary
+    const decisions = [
+      dispatchWithShell(command, "/bin/bash"),
+      dispatchWithShell(command, "/bin/zsh"),
+      dispatchWithShell(command),
+    ];
+
+    // #then only the bash execution proceeds, while every assumed zsh reason names that shell
+    expect(decisions.map((decision) => decision.verdict)).toEqual(["allow", "block", "block"]);
+    expect(decisions.slice(1).map((decision) => decision.reason?.includes("zsh") === true)).toEqual([true, true]);
+  });
+
+  test("bash still denies reserved assignments sent to Herdr panes", () => {
+    // #given commands whose quoted payload runs in a zsh Herdr pane rather than the bash tool shell
+    const commands = [
+      'hc send t3 "make test; status=$?"',
+      'hc run --bg t3 "make test; status=$?"',
+      'hc exec t3 "make test; status=$?"',
+      'hc-run reviewer "make test; status=$?"',
+      'herdr-run t3 "make test; status=$?"',
+    ];
+
+    // #when bash dispatches each pane command
+    const decisions = commands.map((command) => dispatchWithShell(command, "/bin/bash"));
+
+    // #then the inner zsh payload, not an ordinary bash assignment, causes every block
+    expect(decisions.map((decision) => decision.verdict)).toEqual(["block", "block", "block", "block", "block"]);
+    expect(decisions.map((decision) => decision.reason?.includes("zsh") === true)).toEqual([true, true, true, true, true]);
+  });
+
+  test("zsh denies reserved loop and read variables but preserves its documented bypasses", () => {
+    // #given the incident loop, the related zsh forms, and nearby ordinary and bypass controls
+    const commands = [
+      "for path in a.ts b.ts; do git show HEAD:$path > $path; done",
+      "for status; do print -- $status; done",
+      "select status in a b; do print -- $status; done",
+      "read -r path",
+      "while read -r path; do print -- $path; done",
+      "for dir in a b; do print -- $dir; done",
+      "cat > /tmp/probe.sh <<EOF\nfor path in a b; do print -- $path; done\nEOF",
+      "for path in a b; do print -- $path; done # zsh-ok: this runs in bash",
+    ];
+
+    // #when the known zsh environment receives every form
+    const decisions = commands.map((command) => dispatchWithShell(command, "/bin/zsh"));
+
+    // #then the tied and readonly names deny, while the ordinary name, heredoc, and escape hatch pass
+    expect(decisions.map((decision) => decision.verdict)).toEqual([
+      "block", "block", "block", "block", "block", "allow", "allow", "allow",
+    ]);
+    expect(decisions.slice(0, 5).map((decision) => decision.reason?.includes("path") === true || decision.reason?.includes("status") === true))
+      .toEqual([true, true, true, true, true]);
+  });
+});
+
 describe("escape hatches (KTD3)", () => {
   test("removing the escape token flips each escaped fixture to a deny", () => {
     // #given the fixture the corpus expects to pass only because it is escaped
