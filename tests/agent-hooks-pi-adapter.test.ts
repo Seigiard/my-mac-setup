@@ -427,7 +427,7 @@ describe("openai-codex tool_call dialect (R3)", () => {
 describe("pi arg dialect reaches Claude's verdicts (R3, KTD8)", () => {
   test("every shared fixture decides identically through the handler and through Claude", async () => {
     // #given each policy fixture pi has a wire shape for
-    const host = await loadExtension(CORE_DIR);
+    const host = await loadExtension(CORE_DIR, "/bin/zsh");
     const shared = corpus.POLICY_FIXTURES.filter((fixture: any) => piRawFor(fixture) !== undefined);
     let denials = 0;
     let clearances = 0;
