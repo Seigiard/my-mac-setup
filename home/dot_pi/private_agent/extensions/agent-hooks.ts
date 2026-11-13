@@ -36,7 +36,13 @@ function readShellPath(home: string): string | undefined {
 
 const SHELL_PATH = readShellPath(HOME);
 
-function observedShell(toolName: string): string | undefined {
+function observedShell(toolName: string, input?: { shell?: unknown }): string | undefined {
+  const requestedShell = input?.shell?.trim();
+
+  if (toolName === "exec_command" && requestedShell !== undefined && requestedShell !== "") {
+    return requestedShell;
+  }
+
   if (SHELL_PATH !== undefined) return SHELL_PATH;
 
   if (toolName === "bash") return "/bin/bash";
@@ -110,7 +116,7 @@ export default function (pi) {
 
       decision = dispatch(CLIENT, event, {
         setup: observation.state,
-        shell: observedShell(event.toolName),
+        shell: observedShell(event.toolName, event.input),
       });
 
       if (setupTools !== undefined && !setupTools.shouldDeliverSetupDecision(observation, decision)) return;

@@ -2,13 +2,13 @@
 //
 // The adapter observes the shell that will run a tool call. Bash leaves these
 // names free, but zsh reserves them: `status` is a readonly alias of `$?`,
-// `path` and `argv` are tied to PATH and the positional parameters. Herdr panes
-// still run zsh even when the outer tool runs bash, so their quoted command is
-// checked as zsh text. `cmd; status=$?; exit $status` otherwise does not merely
-// print "read-only variable: status" — the failed assignment leaves `$?` at 1,
-// and the `exit $status` that follows reports a fabricated failure for a command
-// that succeeded. That silent wrong verdict, not the error line, is what this
-// gate exists to stop.
+// `path` and `argv` are tied to PATH and the positional parameters. The guard
+// scans the command only when the observation is zsh or absent; a bash
+// observation allows it without scanning. `cmd; status=$?; exit $status`
+// otherwise does not merely print "read-only variable: status" — the failed
+// assignment leaves `$?` at 1, and the `exit $status` that follows reports a
+// fabricated failure for a command that succeeded. That silent wrong verdict,
+// not the error line, is what this gate exists to stop.
 //
 // Reading `$status` is legal zsh and passes. An unknown shell is treated as zsh
 // so an adapter that cannot observe its execution boundary does not weaken the
@@ -55,9 +55,8 @@ const HEREDOC_DELIMITER = /^[^ \t;&|<>()]+/;
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-const PANE_COMMAND = /(?:^|[;&|\n][ \t]*)(?:hc[ \t]+(?:send|run|exec)|hc-run|herdr-run)\b[^\n]*/g;
-
-const CONTROL_PREFIX = /(?:^|[;&|][ \t]*|\b(?:while|until|do|then|else)[ \t]+)/;
+const CONTROL_PREFIX =
+  /(?:^[ \t]*|[;&|][ \t]*|[({][ \t]*|\b(?:while|until|do|then|else)[ \t]+|(?:[A-Za-z_][A-Za-z0-9_]*=(?:[^ \t;&|]*)?[ \t]+)+)/;
 
 const LOOP_VARIABLE = new RegExp(
   `${CONTROL_PREFIX.source}(?:for|select)[ \t]+([A-Za-z_][A-Za-z0-9_]*)(?=[ \t]*(?:in\\b|;|$))`,
@@ -75,11 +74,6 @@ const TIED_SENTENCE =
   "to PATH and the positional parameters. Assigning it silently destroys them for the rest of the command.";
 
 const FIX =
-  'Fix: rename the variable — `rc`, `st`, `exit_code`, `dir`. Reading $status is legal zsh and is not blocked, only assignment is. If this text genuinely runs under bash, the adapter should report bash; if it runs in a zsh pane, add a "zsh-ok:" comment only when the inner command is intentionally bash text and retry.';
-
-// Keep the absent-observation wording stable for the existing fail-closed
-// route. An adapter that does report a shell gets the shell-aware guidance above.
-const LEGACY_FIX =
   'Fix: rename the variable — `rc`, `st`, `exit_code`, `dir`. Reading $status is legal zsh and is not blocked, only assignment is. If this assignment genuinely runs under bash rather than this zsh, add a "zsh-ok:" comment to the command and retry.';
 
 type Hit = { name: string; text: string };
@@ -110,61 +104,6 @@ function reservedNameIn(segment: string): string {
   const name = assignment[0].replace(/(\[[^\]]*\])?\+?=$/, "");
 
   return RESERVED.has(name) ? name : "";
-}
-
-function quotedArguments(command: string): string[] {
-  const found: string[] = [];
-  let quote = "";
-  let value = "";
-  let escaped = false;
-
-  for (const character of command) {
-    if (quote === "") {
-      if (character === "'" || character === '"') {
-        quote = character;
-        value = "";
-      }
-
-      continue;
-    }
-
-    if (escaped) {
-      value += character;
-      escaped = false;
-      continue;
-    }
-
-    if (character === "\\" && quote === '"') {
-      escaped = true;
-
-      continue;
-    }
-
-    if (character === quote) {
-      found.push(value);
-      quote = "";
-
-      continue;
-    }
-
-    value += character;
-  }
-
-  return found;
-}
-
-function paneCommands(command: string): string[] {
-  const found: string[] = [];
-
-  for (const match of command.matchAll(PANE_COMMAND)) {
-    const quoted = quotedArguments(match[0]);
-
-    if (quoted.length > 0) {
-      found.push(quoted[quoted.length - 1]);
-    }
-  }
-
-  return found;
 }
 
 function loopOrReadName(line: string): string {
@@ -240,11 +179,9 @@ function evaluate(event: NormalizedEvent): Decision {
 
   if (command === "" || command.includes(ESCAPE_HATCH)) return ALLOW;
 
-  const bashInnerCommands = paneCommands(command);
+  if (isBash(event.shell)) return ALLOW;
 
-  const commandToScan = isBash(event.shell) ? bashInnerCommands.join("\n") : command;
-
-  const found = hits(commandToScan);
+  const found = hits(command);
 
   if (found.length === 0) return ALLOW;
 
@@ -260,7 +197,7 @@ function evaluate(event: NormalizedEvent): Decision {
   if (readonlyHits.length > 0) parts.push(`zsh makes ${readonlyHits.join(" ")} ${READONLY_SENTENCE}`);
 
   if (tiedHits.length > 0) parts.push(`zsh ties ${tiedHits.join(" ")} ${TIED_SENTENCE}`);
-  parts.push(isBash(event.shell) && bashInnerCommands.length > 0 ? FIX : LEGACY_FIX);
+  parts.push(FIX);
 
   return block(parts.join("\n"));
 }
