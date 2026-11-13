@@ -859,10 +859,10 @@ zshenv_dialect_probe() {
 
   if [[ -n "$marker" ]]; then
     env -i HOME="$ZSHENV_DIALECT_DIR/home" ZDOTDIR="$ZSHENV_DIALECT_DIR" PATH="/usr/bin:/bin" \
-      "$marker" /bin/zsh "$@"
+      "$marker" /bin/zsh --no-globalrcs "$@"
   else
     env -i HOME="$ZSHENV_DIALECT_DIR/home" ZDOTDIR="$ZSHENV_DIALECT_DIR" PATH="/usr/bin:/bin" \
-      /bin/zsh "$@"
+      /bin/zsh --no-globalrcs "$@"
   fi
 }
 
