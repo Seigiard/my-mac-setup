@@ -18,7 +18,7 @@ For a targeted fix, first restore the approved test and fixture paths from the p
 2. Search the existing tests and fixtures for the contract first. Strengthen its current owner when one exists. A scenario that differs from an existing fixture in a few fields is a **variant**: produce it from the shared fixture builder, written when the first variant appears, with those fields as parameters, and give it its own test case with its own literal expectation. A new fixture tree is for a scenario no builder can express, and the report says which scenario that is.
 3. Write each test at the seam `ticket.md` names, inside the allowed test paths and fixtures. Production code belongs to the implementer: leave every other path unchanged.
    - **Assert the contract, not the run.** For a call-count or sequence assertion, or a fixture shared with workers, apply [assertions.md](assertions.md).
-4. Establish the [controls](#controls), then run the test command. Record each new test's status and behavior assertion. For a symptom criterion, record what [symptom.md](symptom.md#symptom-red) asks. Setup, import, and syntax failures need correction. Run each check in `ticket.md` that covers a path you changed; a failing check needs correction the same way, and its evidence goes in the report. For an [uncalibrated](SKILL.md#calibration) negative or aggregate assertion, name it and propose its smallest faithful post-green regression. On a re-lock, corrected tests may already be green; say so in the report.
+4. Establish the [controls](#controls), then run the test command. Record each new test's status and behavior assertion. For a symptom criterion, record what [symptom.md](symptom.md#symptom-red) asks. Setup, import, and syntax failures need correction. Run each check in `ticket.md` that covers a path you changed; a failing check needs correction the same way, and its evidence goes in the report. For an [uncalibrated](SKILL.md#calibration) negative or aggregate assertion, name it and propose its smallest faithful post-green regression, with the focused command that runs its owner test alone. On a re-lock, corrected tests may already be green; say so in the report.
 5. Commit only the test and fixture changes, on the current branch.
 
 Follow the [child rules](run-directory.md#child-rules) for identifiers, controls, evidence, and resumed turns.
@@ -43,7 +43,7 @@ Write the report to the path in your prompt. For each criterion:
 - each test's file and name;
 - the failure output that shows it is red, trimmed to the assertion; for a symptom criterion, the symptom it shows, or the green run that reached the assertion.
 - each already-green or early-failing negative or aggregate test, its protected assertion, and its proposed post-green regression and temporary paths;
-- each check from `ticket.md` that covers a changed path, with its evidence.
+- every check listed in `ticket.md`, one row each: its evidence, or `not covering` with the changed paths and why the check does not reach them.
 
 Include a **Controls** table:
 
@@ -60,11 +60,11 @@ End with the commit SHA.
 Use this mode only when the prompt names it.
 
 1. Confirm HEAD equals `calibration_sha`, the worktree is clean, and the focused owner tests have [valid green evidence](SKILL.md#evidence). Establish a faithful mutation for each agreed regression from the contract, not from the test's expected text. Stay within the listed production paths; tests and fixtures remain unchanged.
-2. Apply one regression at a time and run its owner test. Save the mutation diff and the command's output and exit status in the run directory. Require red on the named protected assertion. A setup failure or an unrelated earlier assertion does not calibrate it. If a faithful regression remains green, record a **suspect test** with the counterexample instead of editing it.
+2. Apply one regression at a time and run its owner test. Save the mutation as `calibration-<n>/<regression>.patch`, `git diff` output that `git apply` accepts from the checkout root, with the command, its output, and its exit status beside it in `calibration-<n>/<regression>.log`, where `<n>` is your attempt number. Require red on the named protected assertion. A setup failure or an unrelated earlier assertion does not calibrate it. If a faithful regression remains green, record a **suspect test** with the counterexample instead of editing it.
 3. Restore the temporary paths from `calibration_sha` after each mutation, including failed or blocked checks. Require unchanged HEAD, `git diff --exit-code <calibration_sha>`, and an empty `git status --porcelain` before continuing or returning. Cite the entry green of step 1 as the owner tests' evidence only when those checks pass and the covered generated state and environment are unchanged or verified restored, per the [Evidence](SKILL.md#evidence) rule; otherwise restore that state and obtain fresh green evidence. When restoration cannot be verified, stop and report the exact remaining state for the parent to recover. Leave the branch at `calibration_sha`; write artifacts only in the run directory.
 
 Done when every planned regression has a verdict, or a suspect test or blocker is reported, and restoration is verified.
 
 ### Calibration report
 
-Use a table: criterion, owner test, regression, changed paths, exact command, red assertion result, restore check, and green result. Link the saved mutation diff and red/green command logs with their exit statuses. End with `calibration_sha` and one verdict: **calibrated**, **suspect test**, or **blocked**. Name any unperformed checks; a skipped mutation is not a calibrated result.
+Use a table: criterion, owner test, regression, changed paths, patch path, exact command, red assertion result, restore check, and green result. Link the saved patch and red/green command logs with their exit statuses. End with `calibration_sha` and one verdict: **calibrated**, **suspect test**, or **blocked**. Name any unperformed checks; a skipped mutation is not a calibrated result.

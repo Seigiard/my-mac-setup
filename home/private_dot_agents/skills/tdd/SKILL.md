@@ -5,7 +5,7 @@ description: Implement one ticket through delegated children, with an oracle gat
 
 # Test-driven development
 
-You are the **orchestrator** of one ticket. You decide what is tested, start one child per phase, and verify each result. Children write every test and every line of production code. You write only the run directory, the lock record, and the reset or restore after a rejection.
+You are the **orchestrator** of one ticket. You decide what is tested, start one child per phase, and verify each result. Children write every test and every line of production code. You write only the run directory, the lock record, the reset or restore after a rejection, and the [replay](calibration.md#replay) of a saved mutation patch.
 
 ## Invariants
 
@@ -59,7 +59,7 @@ Done when the worktree is clean and `ticket.md` holds the ticket, its criteria w
    - **Controls:** every control in the report's table has valid evidence, and its observed result matches the independent expected result. The helpers and fixtures the brief requires are covered. For unavailable live dependencies, follow the repository's verification rules and record the exact unverified boundary.
    - **Shape:** each new fixture and test case follows the variant rule in step 2 of the test writer brief.
    - **Static checks:** each check in `ticket.md` whose coverage includes a changed test path, the repository's lint and typecheck gates among them, has [valid passing evidence](#evidence) on the candidate.
-   - **Plan:** each uncalibrated negative or aggregate assertion has an owner test and a finite regression plan in `ticket.md`.
+   - **Plan:** each uncalibrated negative or aggregate assertion has an owner test, a finite regression plan, and a focused command in `ticket.md`: the owner test alone, by file or by name. A full-suite command is accepted only with the recorded reason why the owner cannot run in isolation.
    - **Reconciliation:** every criterion is reconciled with the report: each zero-test criterion has either an accepted **no test** reason or a diagnosis that blocks it. A mixed result stays pending until every disposition and required observation is recorded.
 
    An accepted zero-test reason moves its criterion to **no test**; lock the remaining test changes only after reconciliation. On acceptance, write the lock: the branch tip becomes `lock_sha`, and the changed files become the locked paths. On rejection, record the diagnosis, [preserve the candidate](recovery.md#preserving-a-candidate), then reset the branch (`git reset --hard <base_sha>`, then `git clean -fd`) and take the diagnosis's route. Done when the work is locked, or the ticket is on the checks-only path.
@@ -96,7 +96,7 @@ Every dispatched or resumed child is one **turn** of its batch. Before each disp
 
 ## Calibration
 
-Before assessing a lock with uncalibrated negative or aggregate assertions or a review that finds a masking helper or fixture, read [calibration.md](calibration.md).
+Before assessing a lock with uncalibrated negative or aggregate assertions, a review that finds a masking helper or fixture, or a production change after a calibration, read [calibration.md](calibration.md).
 
 ## Responding to a failure
 
