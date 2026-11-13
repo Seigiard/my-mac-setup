@@ -1,15 +1,18 @@
 // Reserved-parameter gate for proposed shell commands.
 //
-// Every agent runs its bash tool through the login shell, which is zsh on this
-// machine, and herdr panes are zsh too. zsh reserves parameter names that bash
-// leaves free: `status` is a readonly alias of `$?`, `path` and `argv` are tied
-// to PATH and the positional parameters. So `cmd; status=$?; exit $status`
-// does not merely print "read-only variable: status" — the failed assignment
-// leaves `$?` at 1, and the `exit $status` that follows reports a fabricated
-// failure for a command that succeeded. That silent wrong verdict, not the
-// error line, is what this gate exists to stop.
+// The adapter observes the shell that will run a tool call. Bash leaves these
+// names free, but zsh reserves them: `status` is a readonly alias of `$?`,
+// `path` and `argv` are tied to PATH and the positional parameters. The guard
+// scans the command only when the observation is zsh or absent; a bash
+// observation allows it without scanning. `cmd; status=$?; exit $status`
+// otherwise does not merely print "read-only variable: status" — the failed
+// assignment leaves `$?` at 1, and the `exit $status` that follows reports a
+// fabricated failure for a command that succeeded. That silent wrong verdict,
+// not the error line, is what this gate exists to stop.
 //
-// Only assignment is gated. Reading `$status` is legal zsh and passes.
+// Reading `$status` is legal zsh and passes. An unknown shell is treated as zsh
+// so an adapter that cannot observe its execution boundary does not weaken the
+// gate.
 
 import type { Decision, NormalizedEvent, Policy } from "../types.ts";
 import { ALLOW, block } from "../types.ts";
@@ -51,6 +54,15 @@ const HEREDOC_START = /<<-?[ \t]*/;
 const HEREDOC_DELIMITER = /^[^ \t;&|<>()]+/;
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+const CONTROL_PREFIX =
+  /(?:^[ \t]*|[;&|][ \t]*|[({][ \t]*|\b(?:while|until|do|then|else)[ \t]+|(?:[A-Za-z_][A-Za-z0-9_]*=(?:[^ \t;&|]*)?[ \t]+)+)/;
+
+const LOOP_VARIABLE = new RegExp(
+  `${CONTROL_PREFIX.source}(?:for|select)[ \t]+([A-Za-z_][A-Za-z0-9_]*)(?=[ \t]*(?:in\\b|;|$))`,
+);
+
+const READ_COMMAND = new RegExp(`${CONTROL_PREFIX.source}read\\b([^\n;&|]*)`);
 
 /** Report width; a long one-liner is truncated the way the report is read. */
 const MAX_SHOWN = 120;
@@ -94,6 +106,24 @@ function reservedNameIn(segment: string): string {
   return RESERVED.has(name) ? name : "";
 }
 
+function loopOrReadName(line: string): string {
+  const loop = line.match(LOOP_VARIABLE);
+
+  if (loop !== null && RESERVED.has(loop[1])) return loop[1];
+
+  const read = line.match(READ_COMMAND);
+
+  if (read === null) return "";
+
+  for (const token of read[1].trim().split(/[ \t]+/)) {
+    if (token.startsWith("-")) continue;
+
+    if (IDENTIFIER.test(token) && RESERVED.has(token)) return token;
+  }
+
+  return "";
+}
+
 function hits(command: string): Hit[] {
   const found: Hit[] = [];
   let heredoc = "";
@@ -115,11 +145,23 @@ function hits(command: string): Hit[] {
 
     if (stripped.startsWith("#")) return;
 
+    const controlName = loopOrReadName(line);
+
+    if (controlName !== "") {
+      const shown = stripped.length > MAX_SHOWN ? `${stripped.slice(0, MAX_SHOWN - 3)}...` : stripped;
+
+      found.push({ name: controlName, text: `  line ${index + 1}: ${shown}` });
+
+      return;
+    }
+
     for (const segment of line.replace(COMMAND_SEPARATORS, "\n").split("\n")) {
       const name = reservedNameIn(segment);
 
       if (name === "") continue;
+
       const shown = stripped.length > MAX_SHOWN ? `${stripped.slice(0, MAX_SHOWN - 3)}...` : stripped;
+
       found.push({ name, text: `  line ${index + 1}: ${shown}` });
       break;
     }
@@ -128,10 +170,16 @@ function hits(command: string): Hit[] {
   return found;
 }
 
+function isBash(shell: string | undefined): boolean {
+  return shell === "bash" || shell?.endsWith("/bash") === true;
+}
+
 function evaluate(event: NormalizedEvent): Decision {
   const command = event.command;
 
   if (command === "" || command.includes(ESCAPE_HATCH)) return ALLOW;
+
+  if (isBash(event.shell)) return ALLOW;
 
   const found = hits(command);
 

@@ -7,6 +7,8 @@ Always assume low context
 Talk to me in Russian by default. This covers only what is addressed to me: replies, questions, summaries, plans.
 Code, comments, commit messages, PR text, docs, and any other artifact keep their own conventional language.
 
+The shell tool runs zsh, except Pi's `bash` tool: keep a list of paths in `set -- …` or an array and expand it as `"$@"`, name variables other than `status`, `path` and `argv`, and quote globs.
+
 ## How to talk to user
 
 Write plainly in either language: short sentences, common words, one idea per sentence. Technical terms, identifiers and numbers stay exact.

@@ -75,6 +75,8 @@ export type NormalizedEvent = EventPayload & {
   clientToolName: string;
   tool: ToolKind;
   setup?: SetupState;
+  /** Shell binary the adapter observed for this tool call, when known. */
+  shell?: string;
 };
 
 export type Policy = {

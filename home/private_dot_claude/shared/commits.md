@@ -9,8 +9,11 @@ The subject is imperative and names the outcome: what now works, or what is fixe
 Write the message to a file outside the repository and commit each slice by its named paths, so index entries outside the slice stay where they are:
 
 ```bash
-git add <paths of the slice>
-git commit -F <message-file> -- <paths of the slice>
+set -- <paths of the slice>
+git add -- "$@"
+git commit -F <message-file> -- "$@"
 ```
+
+A string variable containing several paths is one word in zsh, so keep paths in positional parameters (or a shell array), never in a string.
 
 Confirm with `git status` and report each hash with its subject. Whether to push or open a PR follows the two-way-door rule in `~/.claude/CLAUDE.md`.

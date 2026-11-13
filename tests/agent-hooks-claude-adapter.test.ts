@@ -21,9 +21,20 @@ function worktree(): SetupWorktree {
   return created;
 }
 
-function callClaude(directory: string, command: string) {
+function callClaude(
+  directory: string,
+  command: string,
+  environment: Record<string, string | undefined> = {},
+) {
+  const env = { ...process.env, ...environment };
+
+  for (const [name, value] of Object.entries(env)) {
+    if (value === undefined) delete env[name];
+  }
+
   const result = Bun.spawnSync([process.execPath, CLAUDE_PATH], {
     cwd: directory,
+    env,
     stdin: Buffer.from(JSON.stringify({
       cwd: directory,
       tool_name: "Bash",
@@ -45,6 +56,29 @@ function denied(reason: string): string {
     },
   }, null, 2)}\n`;
 }
+
+describe("Claude shell observation", () => {
+  test("CLAUDE_CODE_SHELL takes precedence over SHELL and falls back to SHELL", () => {
+    // #given bash and zsh values from both shell sources that Claude Code uses
+    const fixture = worktree();
+    const command = "make lint; status=$?; exit $status";
+    const explicitBash = callClaude(fixture.directory, command, { CLAUDE_CODE_SHELL: "/bin/bash", SHELL: "/bin/zsh" });
+    const explicitZsh = callClaude(fixture.directory, command, { CLAUDE_CODE_SHELL: "/bin/zsh", SHELL: "/bin/bash" });
+    const fallbackBash = callClaude(fixture.directory, command, { CLAUDE_CODE_SHELL: undefined, SHELL: "/bin/bash" });
+    const fallbackZsh = callClaude(fixture.directory, command, { CLAUDE_CODE_SHELL: undefined, SHELL: "/bin/zsh" });
+
+    // #when each value reaches Claude's PreToolUse transport
+    const results = [explicitBash, explicitZsh, fallbackBash, fallbackZsh];
+
+    // #then bash commands pass, while each zsh source produces a zsh-naming deny envelope
+    expect(results).toEqual([
+      { exitCode: 0, stderr: "", stdout: "" },
+      { exitCode: 0, stderr: "", stdout: expect.stringContaining("zsh") },
+      { exitCode: 0, stderr: "", stdout: "" },
+      { exitCode: 0, stderr: "", stdout: expect.stringContaining("zsh") },
+    ]);
+  });
+});
 
 describe("Claude PreToolUse setup-status transport", () => {
   test("a running marker blocks a build command but not the same worktree without a marker", () => {

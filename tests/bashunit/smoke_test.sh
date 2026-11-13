@@ -493,7 +493,7 @@ function test_smoke_1067_deployed_claude_shim_denies_the_known_bad_fixture() {
   local shim="$HOME/.claude/hooks/agent-hooks-dispatch.sh"
   assert_file_exists "$shim"
 
-  run bash "$shim" <<'EOF'
+  run env -u CLAUDE_CODE_SHELL SHELL=/bin/zsh bash "$shim" <<'EOF'
 {"tool_name":"Bash","tool_input":{"command":"make check; status=$?; exit $status"}}
 EOF
   assert_success
@@ -507,7 +507,7 @@ EOF
   assert_success
   assert_output 'zsh-reserved-name-guard'
 
-  run bash "$shim" <<'EOF'
+  run env -u CLAUDE_CODE_SHELL SHELL=/bin/zsh bash "$shim" <<'EOF'
 {"tool_name":"Bash","tool_input":{"command":"make check; rc=$?; exit $rc"}}
 EOF
   assert_success
