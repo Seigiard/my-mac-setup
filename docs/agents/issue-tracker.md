@@ -36,6 +36,10 @@ Use GitHub comments for triage notes, questions, and agent-ready briefs. Every n
 
 Keep the issue body current when investigation changes the diagnosis, impact, scope, blocker, or intended outcome. Use comments for chronological updates that should not replace the durable problem statement.
 
+## Acceptance Examples
+
+An input listed as something the change must accept or must reject (`Done when`, must-block, must-allow lists) names its **occurrence**: the transcript, corpus line, log, report, or issue where that input happened. An input built to show what could happen is a **construction**: list it apart under that word, with no gate on it. The `tdd` chain admits a criterion, and `code-review` a finding, only through an occurrence, so a construction in the acceptance list stalls the chain at its first question.
+
 ## Skill Vocabulary
 
 When a skill says "publish to the issue tracker," create a GitHub issue after applying the ownership gate. When a skill says "fetch the relevant ticket," run `gh issue view <number> --repo Seigiard/my-mac-setup --json number,title,body,labels,assignees,state,url,comments`.

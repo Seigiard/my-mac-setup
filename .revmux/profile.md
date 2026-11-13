@@ -121,6 +121,10 @@ For restart and timing findings, establish that the failing path is reachable
 through its lifecycle and identity guards. A stale persisted value alone carries
 no defect weight when the operation that reads it cannot survive that restart.
 
+An input you built against a guard, filter, or validator the ticket relaxes is a
+construction: rate it `minor`, say it is constructed, and name the occurrence in the corpus
+or transcripts when you have one, because that is what makes it material.
+
 Do not report: style and formatting preference; a restatement of what the diff already
 shows; "add a test" where the test-oracle gate says zero new tests is the right answer;
 production-service advice from the first section; any convention listed above; anything
