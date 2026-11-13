@@ -45,7 +45,7 @@ afterEach(() => {
 // otherwise return the cached module and the second load would silently reuse
 // the first load's core.
 
-type Host = { hooks: Record<string, Function>; shell?: string };
+type Host = { hooks: Record<string, Function> };
 
 type V2Host = Host & { coreModule?: any };
 
@@ -75,12 +75,12 @@ async function loadV2Plugin(
   }
 
   const module = await importV2Plugin(home, pluginPath);
-  const host = await setupV2Plugin(module, home, sessionDirectory, getSession);
+  const host = await setupV2Plugin(module, home, sessionDirectory, getSession, shell);
 
   const coreModule =
     coreDir === undefined ? undefined : await import(join(coreDir, "index.ts")).catch(() => undefined);
 
-  return { hooks: host.hooks, coreModule, shell };
+  return { hooks: host.hooks, coreModule };
 }
 
 async function withHome<T>(home: string, action: () => Promise<T>): Promise<T> {
@@ -91,6 +91,20 @@ async function withHome<T>(home: string, action: () => Promise<T>): Promise<T> {
     return await action();
   } finally {
     process.env.HOME = previousHome;
+  }
+}
+
+async function withShell<T>(shell: string | undefined, action: () => Promise<T>): Promise<T> {
+  if (shell === undefined) return await action();
+
+  const previousShell = process.env.SHELL;
+  process.env.SHELL = shell;
+
+  try {
+    return await action();
+  } finally {
+    if (previousShell === undefined) delete process.env.SHELL;
+    else process.env.SHELL = previousShell;
   }
 }
 
@@ -111,28 +125,27 @@ async function setupV2Plugin(
   const hooks: Record<string, Function> = {};
 
   await withHome(home, async () => {
-    const plugin = module.default;
-    expect(plugin?.setup).toBeTypeOf("function");
-    await plugin.setup({
-      session: {
-        get: getSession ?? (async () => ({ location: { directory: sessionDirectory } })),
-      },
-      tool: {
-        hook: async (name: string, handler: Function) => {
-          hooks[name] = handler;
+    await withShell(shell, async () => {
+      const plugin = module.default;
+      expect(plugin?.setup).toBeTypeOf("function");
+      await plugin.setup({
+        session: {
+          get: getSession ?? (async () => ({ location: { directory: sessionDirectory } })),
         },
-      },
+        tool: {
+          hook: async (name: string, handler: Function) => {
+            hooks[name] = handler;
+          },
+        },
+      });
     });
   });
 
-  return { hooks, shell };
+  return { hooks };
 }
 
 async function callBeforeV2(host: Host, raw: any): Promise<string | undefined> {
   expect(host.hooks["execute.before"]).toBeTypeOf("function");
-  const previousShell = process.env.SHELL;
-
-  if (host.shell !== undefined) process.env.SHELL = host.shell;
 
   try {
     await host.hooks["execute.before"](raw);
@@ -140,11 +153,6 @@ async function callBeforeV2(host: Host, raw: any): Promise<string | undefined> {
     return undefined;
   } catch (error: any) {
     return error?.message;
-  } finally {
-    if (host.shell !== undefined) {
-      if (previousShell === undefined) delete process.env.SHELL;
-      else process.env.SHELL = previousShell;
-    }
   }
 }
 

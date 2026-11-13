@@ -419,7 +419,7 @@ describe("openai-codex tool_call dialect (R3)", () => {
     // #given the shipped known-bad command in pi-codex-conversion's wire shape
     const policy = policyFixture("zsh-reserved-name-guard", "zsh/flags the status capture idiom");
     const fixture = corpus.fixture("codex exec command");
-    const host = await loadExtension(CORE_DIR);
+    const host = await loadExtension(CORE_DIR, "/bin/zsh");
 
     // Setup, not an assertion: `policy.text` is only the right expected value
     // below while the two corpus entries carry the same command.
@@ -443,7 +443,7 @@ describe("openai-codex tool_call dialect (R3)", () => {
 
     const fixture = corpus.fixture("codex exec command");
     const raw = { ...fixture.raw.pi, input: { cmd: policy.payload.command } };
-    const host = await loadExtension(CORE_DIR);
+    const host = await loadExtension(CORE_DIR, "/bin/zsh");
 
     // #when it reaches the same handler
     const decision = await callToolCall(host, raw);
