@@ -17,8 +17,8 @@ description: "Implement a spec's ticket graph through the tdd chain in separate 
 4. Create the integration branch. If the tracker closes work through pull requests, or the user asks for one, open a draft PR after the first merge and make it close the spec and its tickets.
    Done when the integration branch exists and any requested draft PR is open.
 
-5. For each frontier ticket, create a worktree and ticket branch from the integration branch tip with `git worktree add -b <ticket-branch> <path> <integration-branch>`. Run the `tdd` chain there as that ticket's orchestrator. Several frontier tickets may run at once.
-   Done when each frontier ticket has a running or completed chain in its own worktree.
+5. For each frontier ticket, create a worktree and ticket branch from the integration branch tip with `git worktree add -b <ticket-branch> <path> <integration-branch>`. That command runs no setup hook, so prepare the checkout with `~/.local/bin/herdr-worktree-setup-run <path>` and wait for exit 0. Pass no branch: fresh-base is then skipped and the ticket branch stays on the integration tip. When the runner logs `no configuration`, seed what the repository's `AGENTS.md` asks for instead. A non-zero exit is a child that cannot start; step 6 applies. Run the `tdd` chain there as that ticket's orchestrator. Several frontier tickets may run at once.
+   Done when each frontier ticket's runner exited 0 and its chain is running or complete, or the ticket is reported under step 6.
 
 6. Per ticket, run only the chain's validation. Do not run a per-ticket review. If a chain stops, mark the ticket blocked; its dependents wait, the independent frontier continues, and ask the user at once as a decision brief that names the ticket; read `~/.claude/shared/decision-brief.md` before drafting it. If a child cannot start, report its reason and run directory to the user and stop. Do not wait for other chains before asking.
    Done when every completed chain is validated or every stopped chain is reported as blocked.

@@ -144,6 +144,15 @@ cost is accepted because the child already pays the setup cost later when setup
 is run by hand. Codex and OpenCode create their subagent worktrees without these
 hooks, so those checkouts get no setup.
 
+## Skill-created worktrees
+
+The `implement-spec` and `pf-build` skills create ticket worktrees with plain
+`git worktree add`, which runs no hook, and then run
+`herdr-worktree-setup-run <path>` themselves. The empty branch field skips
+fresh-base, as for the Claude Code hook, so the ticket branch stays on its
+base. The checkout gets the repository's copy and setup steps, such as
+`npm ci` here.
+
 ## Provenance boundary
 
 Worktree creation is native Herdr behavior. The `my-worktree` app mod creates
