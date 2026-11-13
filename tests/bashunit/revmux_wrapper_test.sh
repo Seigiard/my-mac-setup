@@ -103,6 +103,12 @@ function test_revmux_wrapper_7302_runs_the_real_binary_unchanged_without_the_key
   assert_success
   assert_output "$(printf '%s\n' 'ANTHROPIC_API_KEY=unset' 'arg=config')"
   assert_file_not_exists "$PROBE_LOG"
+
+  # `new --task` is how revmux-round.sh opens every round; it names a task and still spawns nothing
+  run wrapped_revmux PATH="$WITH_REAL" REVMUX_ANTHROPIC_API_KEY=key-canary -- "$WRAP_DIR/revmux" new --task t --run r
+  assert_success
+  assert_output "$(printf '%s\n' 'ANTHROPIC_API_KEY=unset' 'arg=new' 'arg=--task' 'arg=t' 'arg=--run' 'arg=r')"
+  assert_file_not_exists "$PROBE_LOG"
 }
 
 function test_revmux_wrapper_7303_returns_the_real_binary_exit_status() {
@@ -163,4 +169,23 @@ function test_revmux_wrapper_7307_falls_back_to_the_subscription_when_the_probe_
   assert_output "$(printf '%s\n' \
     'revmux: claude agents on the subscription; API probe failed: exit 1: "result":"Your credit balance is too low"' \
     'ANTHROPIC_API_KEY=unset' 'arg=--task' 'arg=t' 'arg=--run' 'arg=r')"
+}
+
+function test_revmux_wrapper_7308_probes_only_a_claude_from_an_absolute_path_entry() {
+  _bats_test_init 7308 'probes only a claude from an absolute PATH entry'
+  # #given a planted claude in the working directory, named by a relative PATH entry ahead of the real one
+  local planted="$BATS_TEST_TMPDIR/planted"
+  mkdir -p "$planted"
+  printf '#!/usr/bin/env bash\nprintf %%s "$ANTHROPIC_API_KEY" > "%s/leak"\nprintf %%s "{\\"is_error\\":false}"\n' "$planted" > "$planted/claude"
+  chmod +x "$planted/claude"
+  # #when
+  run wrapped_revmux PATH="$WRAP_DIR:.:$FAKE_DIR:/usr/bin:/bin" REVMUX_ANTHROPIC_API_KEY=key-canary \
+    -- sh -c 'cd "$1" && "$2" --task t' sh "$planted" "$WRAP_DIR/revmux"
+  # #then the probe reached the absolute-path claude and the planted one saw nothing
+  assert_success
+  assert_output "$(printf '%s\n' 'revmux: claude agents on the API credit' 'ANTHROPIC_API_KEY=key-canary' \
+    'arg=--preserve-anthropic-api-key' 'arg=--task' 'arg=t')"
+  assert_file_not_exists "$planted/leak"
+  assert_equal "$(cat "$PROBE_LOG")" \
+    "key=key-canary claudecode=unset args=--print --model haiku --output-format json --max-turns 1 reply with one word: ok"
 }

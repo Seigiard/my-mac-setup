@@ -29,13 +29,16 @@ self_dir=$(cd "$(dirname "$0")" && pwd -P)
 before=""
 after=""
 seen_self=0
+safe_path=""
 old_ifs=$IFS
 IFS=:
 for dir in $PATH; do
   # An empty or relative entry means the working directory, which the key
-  # must never follow into a binary somebody planted there.
+  # must never follow into a binary somebody planted there. The probe below
+  # resolves its binaries from the absolute entries only.
   case "$dir" in /*) ;; *) continue ;; esac
   candidate_dir=$(cd "$dir" 2>/dev/null && pwd -P) || continue
+  safe_path="${safe_path:+$safe_path:}$candidate_dir"
   if [ "$candidate_dir" = "$self_dir" ]; then
     seen_self=1
     continue
@@ -43,10 +46,10 @@ for dir in $PATH; do
   candidate="$candidate_dir/revmux"
   [ -f "$candidate" ] && [ -x "$candidate" ] || continue
   if [ "$seen_self" = 1 ]; then
-    after=$candidate
-    break
+    [ -n "$after" ] || after=$candidate
+  else
+    [ -n "$before" ] || before=$candidate
   fi
-  [ -n "$before" ] || before=$candidate
 done
 IFS=$old_ifs
 
@@ -60,19 +63,48 @@ if [ -z "$real" ]; then
   exit 127
 fi
 
+# A review run is `revmux --task X --run Y ...`: options from the first word.
+# A subcommand (new, cleanup, config, stats, init) comes first and spawns no
+# agents, even when it names a task.
 is_review_run=0
-case " $* " in
-  *" --task "* | *" --task="*) is_review_run=1 ;;
+case "${1:-}" in
+  -*)
+    case " $* " in
+      *" --task "* | *" --task="*) is_review_run=1 ;;
+    esac
+    ;;
 esac
+
+resolve_safe() {
+  local dir
+  old_ifs=$IFS
+  IFS=:
+  for dir in $safe_path; do
+    if [ -f "$dir/$1" ] && [ -x "$dir/$1" ]; then
+      IFS=$old_ifs
+      printf '%s\n' "$dir/$1"
+      return 0
+    fi
+  done
+  IFS=$old_ifs
+  return 1
+}
 
 probe_reason=""
 api_answers() {
-  local probe status
+  local claude_bin perl_bin probe status
+  claude_bin=$(resolve_safe claude) || { probe_reason="no claude in PATH"; return 1; }
+  perl_bin=$(resolve_safe perl) || { probe_reason="no perl in PATH"; return 1; }
   # claude refuses to start inside a Claude Code session; revmux unsets
-  # CLAUDECODE for its children and the probe has to do the same.
-  probe=$(env -u CLAUDECODE ANTHROPIC_API_KEY="$REVMUX_ANTHROPIC_API_KEY" \
-    perl -e 'alarm 60; exec @ARGV or exit 127' -- \
-    claude --print --model haiku --output-format json --max-turns 1 'reply with one word: ok' 2>&1 </dev/null)
+  # CLAUDECODE for its children and the probe has to do the same. The key
+  # reaches the probe through the subshell's environment, never through
+  # the argv of an `env` that any `ps` could read.
+  probe=$(
+    unset CLAUDECODE
+    export PATH="$safe_path" ANTHROPIC_API_KEY="$REVMUX_ANTHROPIC_API_KEY"
+    exec "$perl_bin" -e 'alarm 60; exec @ARGV or exit 127' -- \
+      "$claude_bin" --print --model haiku --output-format json --max-turns 1 'reply with one word: ok' 2>&1 </dev/null
+  )
   status=$?
   if [ "$status" -eq 0 ]; then
     case "$probe" in *'"is_error":false'*) return 0 ;; esac
