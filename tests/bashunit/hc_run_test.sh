@@ -18,23 +18,38 @@ write_hc_stub() {
   HC_STUB="$BATS_TEST_TMPDIR/hc-bin"
   HC_STUB_CALLS="$BATS_TEST_TMPDIR/hc.calls"
   HC_STUB_RUN_COUNT="$BATS_TEST_TMPDIR/hc.run-count"
+  HC_STUB_GET_COUNT="$BATS_TEST_TMPDIR/hc.get-count"
+  HC_STUB_KEYS_COUNT="$BATS_TEST_TMPDIR/hc.keys-count"
+  HC_STUB_KEYS_CALLS="$BATS_TEST_TMPDIR/hc.keys-calls"
+  HC_STUB_READ_COUNT="$BATS_TEST_TMPDIR/hc.read-count"
   HC_RUN_EVENT_LOG="$BATS_TEST_TMPDIR/hc-run.events"
   mkdir -p "$HC_STUB"
   : > "$HC_STUB_CALLS"
   : > "$HC_STUB_RUN_COUNT"
+  : > "$HC_STUB_GET_COUNT"
+  : > "$HC_STUB_KEYS_COUNT"
+  : > "$HC_STUB_KEYS_CALLS"
+  : > "$HC_STUB_READ_COUNT"
   : > "$HC_RUN_EVENT_LOG"
   cat > "$HC_STUB/hc" <<'SH'
 #!/usr/bin/env bash
 command="$1"
-for argument in "$@"; do
-  printf '%s\n' "$argument" >> "$HC_STUB_CALLS"
-done
-shift
-printf 'hc %s' "$command" >> "$HC_RUN_EVENT_LOG"
-for argument in "$@"; do
-  printf ' %s' "$argument" >> "$HC_RUN_EVENT_LOG"
-done
-printf '\n' >> "$HC_RUN_EVENT_LOG"
+case "$command" in
+  ls|run)
+    for argument in "$@"; do
+      printf '%s\n' "$argument" >> "$HC_STUB_CALLS"
+    done
+    printf 'hc %s' "$command" >> "$HC_RUN_EVENT_LOG"
+    shift
+    for argument in "$@"; do
+      printf ' %s' "$argument" >> "$HC_RUN_EVENT_LOG"
+    done
+    printf '\n' >> "$HC_RUN_EVENT_LOG"
+    ;;
+  *)
+    shift
+    ;;
+esac
 
 case "$command" in
   ls)
@@ -64,10 +79,59 @@ case "$command" in
     done
     printf '%s\n' "${HC_STUB_RUN_JSON:-{\"address\":\"t11\",\"agent\":\"sleep\",\"cwd\":\"/tmp\",\"name\":\"$alias\",\"state\":\"live\",\"turn\":0}}"
     ;;
+  get)
+    count="$(cat "$HC_STUB_GET_COUNT")"
+    count=$((count + 1))
+    printf '%s\n' "$count" > "$HC_STUB_GET_COUNT"
+    case "${HC_STUB_GET_PLAN:-working}" in
+      working)
+        printf '%s\n' '{"address":"t11","status":{"state":"working"},"turn":0}'
+        ;;
+      idle_then_enter)
+        if [ "$(cat "$HC_STUB_KEYS_COUNT")" -gt 0 ]; then
+          printf '%s\n' '{"address":"t11","status":{"state":"working"},"turn":1}'
+        else
+          printf '%s\n' '{"address":"t11","status":{"state":"idle"},"turn":0}'
+        fi
+        ;;
+      idle)
+        printf '%s\n' '{"address":"t11","status":{"state":"idle"},"turn":0}'
+        ;;
+    esac
+    ;;
+  read)
+    count="$(cat "$HC_STUB_READ_COUNT")"
+    count=$((count + 1))
+    printf '%s\n' "$count" > "$HC_STUB_READ_COUNT"
+    if [ "${HC_STUB_READ_JSON+x}" = x ]; then
+      printf '%s\n' "$HC_STUB_READ_JSON"
+    else
+      case "${HC_STUB_READ_PLAN:-draft}:$count" in
+        absent_then_draft:1|absent:*)
+          printf '%s\n' '{"complete":true,"how":"screen","text":"OpenCode"}'
+          ;;
+        dialog:*)
+          printf '%s\n' '{"complete":true,"how":"screen","text":"[Pasted ~23 lines]\nTrust this folder\nwrite report"}'
+          ;;
+        *)
+          printf '%s\n' '{"complete":true,"how":"screen","text":"write report"}'
+          ;;
+      esac
+    fi
+    ;;
+  keys)
+    for argument in "$@"; do
+      printf '%s\n' "$argument" >> "$HC_STUB_KEYS_CALLS"
+    done
+    count="$(cat "$HC_STUB_KEYS_COUNT")"
+    count=$((count + 1))
+    printf '%s\n' "$count" > "$HC_STUB_KEYS_COUNT"
+    ;;
 esac
 SH
   chmod +x "$HC_STUB/hc"
-  export HC_STUB_CALLS HC_STUB_RUN_COUNT HC_RUN_EVENT_LOG
+  export HC_STUB_CALLS HC_STUB_RUN_COUNT HC_STUB_GET_COUNT HC_STUB_KEYS_COUNT HC_STUB_READ_COUNT \
+    HC_RUN_EVENT_LOG HC_STUB_KEYS_CALLS
 }
 
 write_herdr_app_stub() {
@@ -300,4 +364,116 @@ function test_hc_run_4708_reports_an_undelivered_first_message_after_starting_th
   assert_failure 3
   assert_output 't11 red-wolf'
   assert_stderr 'hc-run: task not sent: hc read t11'
+}
+
+function test_hc_run_4709_confirms_a_working_child_turn_before_reporting_success() {
+  _bats_test_init 4709 'confirms a working child turn before reporting success'
+  # #given
+  local launch='{"address":"t11","agent":"planner","cwd":"/tmp","first_message":{"sent":true},"name":"red-wolf","state":"live","turn":0}'
+
+  # #when
+  run --separate-stderr env HC_STUB_RUN_JSON="$launch" PATH="$HC_STUB:$HERDR_APP_STUB:$PATH" \
+    HC_RUN_ALIASES_LIB="$HC_RUN_ALIASES_LIB" "$HC_RUN" --cwd "$HC_RUN_CWD" planner 'write report'
+  # #then
+  assert_success
+  assert_output 't11 red-wolf'
+  assert_stderr ''
+  assert_equal "$(cat "$HC_STUB_GET_COUNT")" '1'
+}
+
+# @timeout 30
+function test_hc_run_4710_submits_an_idle_turn_zero_draft_once_before_reporting_success() {
+  _bats_test_init 4710 'submits an idle turn zero draft once before reporting success'
+  # #given
+  local launch='{"address":"t11","agent":"planner","cwd":"/tmp","first_message":{"sent":true},"name":"red-wolf","state":"live","turn":0}'
+
+  # #when
+  run --separate-stderr env HC_STUB_GET_PLAN=idle_then_enter HC_STUB_RUN_JSON="$launch" \
+    PATH="$HC_STUB:$HERDR_APP_STUB:$PATH" HC_RUN_ALIASES_LIB="$HC_RUN_ALIASES_LIB" \
+    "$HC_RUN" --cwd "$HC_RUN_CWD" planner 'write report'
+  # #then
+  assert_success
+  assert_output 't11 red-wolf'
+  assert_stderr ''
+  assert_equal "$(cat "$HC_STUB_READ_COUNT")" '1'
+  assert_equal "$(cat "$HC_STUB_KEYS_COUNT")" '1'
+  assert_equal "$(cat "$HC_STUB_KEYS_CALLS")" "t11
+enter"
+}
+
+# @timeout 30
+function test_hc_run_4711_reports_a_sent_but_unstarted_idle_turn_zero_draft_after_enter() {
+  _bats_test_init 4711 'reports a sent but unstarted idle turn zero draft after enter'
+  # #given
+  local launch='{"address":"t11","agent":"planner","cwd":"/tmp","first_message":{"sent":true},"name":"red-wolf","state":"live","turn":0}'
+
+  # #when
+  run --separate-stderr env HC_STUB_GET_PLAN=idle HC_STUB_RUN_JSON="$launch" \
+    PATH="$HC_STUB:$HERDR_APP_STUB:$PATH" HC_RUN_ALIASES_LIB="$HC_RUN_ALIASES_LIB" \
+    "$HC_RUN" --cwd "$HC_RUN_CWD" planner 'write report'
+  # #then
+  assert_failure 3
+  assert_output 't11 red-wolf'
+  assert_stderr 'hc-run: task sent but not started: hc read t11'
+  assert_equal "$(cat "$HC_STUB_READ_COUNT")" '1'
+  assert_equal "$(cat "$HC_STUB_KEYS_COUNT")" '1'
+  assert_equal "$(cat "$HC_STUB_KEYS_CALLS")" "t11
+enter"
+}
+
+# @timeout 30
+function test_hc_run_4712_waits_for_a_delayed_idle_turn_zero_draft_before_submitting_it_once() {
+  _bats_test_init 4712 'waits for a delayed idle turn zero draft before submitting it once'
+  # #given
+  local launch='{"address":"t11","agent":"planner","cwd":"/tmp","first_message":{"sent":true},"name":"red-wolf","state":"live","turn":0}'
+
+  # #when
+  run --separate-stderr env HC_STUB_GET_PLAN=idle_then_enter HC_STUB_READ_PLAN=absent_then_draft \
+    HC_STUB_RUN_JSON="$launch" HC_RUN_START_CONFIRM_TIMEOUT=1 HC_RUN_START_CONFIRM_POLL_INTERVAL=0.01 \
+    PATH="$HC_STUB:$HERDR_APP_STUB:$PATH" HC_RUN_ALIASES_LIB="$HC_RUN_ALIASES_LIB" \
+    "$HC_RUN" --cwd "$HC_RUN_CWD" planner 'write report'
+  # #then
+  assert_success
+  assert_output 't11 red-wolf'
+  assert_stderr ''
+  assert_equal "$(cat "$HC_STUB_READ_COUNT")" '2'
+  assert_equal "$(cat "$HC_STUB_KEYS_COUNT")" '1'
+  assert_equal "$(cat "$HC_STUB_KEYS_CALLS")" "t11
+enter"
+}
+
+# @timeout 30
+function test_hc_run_4713_does_not_submit_an_idle_turn_zero_trust_dialog() {
+  _bats_test_init 4713 'does not submit an idle turn zero trust dialog'
+  # #given
+  local launch='{"address":"t11","agent":"planner","cwd":"/tmp","first_message":{"sent":true},"name":"red-wolf","state":"live","turn":0}'
+
+  # #when
+  run --separate-stderr env HC_STUB_GET_PLAN=idle HC_STUB_READ_PLAN=dialog HC_STUB_RUN_JSON="$launch" \
+    HC_RUN_START_CONFIRM_TIMEOUT=1 HC_RUN_START_CONFIRM_POLL_INTERVAL=0.01 \
+    PATH="$HC_STUB:$HERDR_APP_STUB:$PATH" HC_RUN_ALIASES_LIB="$HC_RUN_ALIASES_LIB" \
+    "$HC_RUN" --cwd "$HC_RUN_CWD" planner 'write report'
+  # #then
+  assert_failure 3
+  assert_output 't11 red-wolf'
+  assert_equal "$(cat "$HC_STUB_KEYS_CALLS")" ''
+  assert_stderr 'hc-run: task sent but not started: hc read t11'
+}
+
+# @timeout 30
+function test_hc_run_4714_does_not_submit_an_idle_turn_zero_screen_without_a_draft() {
+  _bats_test_init 4714 'does not submit an idle turn zero screen without a draft'
+  # #given
+  local launch='{"address":"t11","agent":"planner","cwd":"/tmp","first_message":{"sent":true},"name":"red-wolf","state":"live","turn":0}'
+
+  # #when
+  run --separate-stderr env HC_STUB_GET_PLAN=idle HC_STUB_READ_PLAN=absent HC_STUB_RUN_JSON="$launch" \
+    HC_RUN_START_CONFIRM_TIMEOUT=1 HC_RUN_START_CONFIRM_POLL_INTERVAL=0.01 \
+    PATH="$HC_STUB:$HERDR_APP_STUB:$PATH" HC_RUN_ALIASES_LIB="$HC_RUN_ALIASES_LIB" \
+    "$HC_RUN" --cwd "$HC_RUN_CWD" planner 'write report'
+  # #then
+  assert_failure 3
+  assert_output 't11 red-wolf'
+  assert_equal "$(cat "$HC_STUB_KEYS_CALLS")" ''
+  assert_stderr 'hc-run: task sent but not started: hc read t11'
 }
