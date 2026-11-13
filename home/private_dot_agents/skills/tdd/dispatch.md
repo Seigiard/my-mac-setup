@@ -1,24 +1,23 @@
 # Dispatch
 
-How the tdd orchestrator starts, resumes, and reaps a child, reached from [Dispatch](SKILL.md#dispatch) in SKILL.md.
-
 Write the child's prompt to `<role>-<n>.prompt.md`. It carries pointers only, never pasted history:
 
 ```text
 Role: <test writer | implementer>, attempt <n>.
 Mode: <prepare | calibrate>   <- test writer only
+Rows: <every plan row | the rows named after a failed replay, with their replay-<m>/ logs>   <- calibrate only
 Read your brief first and follow it: <absolute path to test-writer.md or implementer.md>.
 Ticket: <run-dir>/ticket.md (its Verdicts section lists earlier attempts and why they were rejected).
 Lock: <run-dir>/lock.json   <- when a lock exists: implementer, or a test writer that re-locks or extends it
 Targeted fix: <diagnosis ID in Verdicts>   <- targeted fix only
 Exclusive file scope: <allowed test paths and fixtures | planned temporary production paths | the whole checkout>   <- prepare | calibrate | implementer
 Report: <run-dir>/<role>-<n>.report.md; publish it by the atomic-write rule in <absolute path to run-directory.md>.
-Work in <checkout> on branch <branch>. Commit prepare and implementation work. Calibration restores <calibration_sha> without commits. Do not push.
+Work in <checkout> on branch <branch>. Calibration state: <calibration_sha>   <- calibrate only
 ```
 
-Choose the launch mode in this order:
+Every child runs on OpenCode, its tier mapped through the OpenCode column of `~/.claude/shared/model-tiers.md`. Choose the launch mode in this order:
 
-When `HC_TERMINAL_ID` is set, use hc mode: run `hc-run --cwd <checkout> implementer-<tier> "$(cat <prompt>)"`. Map the tdd tier to `implementer-low`, `implementer-low-plus`, `implementer-medium`, `implementer-high`, or `implementer-high-plus`; the test writer uses the same read-write opencode role and its prompt carries the role. Record the printed `<address> <alias>`. The child wakes you through the core's notes (`<hc>… is blocked/exited…</hc>`) and `hc send`; wait inside a turn with `hc wait --json --timeout S <address>`. The parent duties and cleanup guard are in `~/.claude/shared/hc-agent-contract.md`.
+When `HC_TERMINAL_ID` is set, use hc mode: run `hc-run --cwd <checkout> implementer-<tier> "$(cat <prompt>)"`, with `+` spelled `-plus`; the test writer uses the same read-write opencode role and its prompt carries the role. Record the printed `<address> <alias>`. Wait inside a turn with `hc wait --json --timeout S <address>`; parent duties and the cleanup guard are in `~/.claude/shared/hc-agent-contract.md`.
 
 If `hc-run` exits 3 because the task was not delivered, follow the exit-3 recovery rule in the `hc` skill.
 
@@ -36,8 +35,4 @@ If `hc-run` exits 3 because the task was not delivered, follow the exit-3 recove
 
 **Resuming a child** for a handoff gap keeps its session, tier, and attempt number, and counts as one turn. In headless mode: the same subshell command with `--session <id>` added and `'<the missing items>'` as the prompt, appending to `<run-dir>/<role>-<n>-resume.jsonl`, where the id is the `sessionID` in the attempt's JSONL log. Every resumed turn of the attempt appends to that file in order.
 
-In hc mode, resume a child with `hc send <address> '<the missing items>'`; its session stays in its terminal. Wait with `hc wait --json --timeout S <address>`.
-
-In hc mode, reap a child only after `hc get <address>` shows that its status is not `working` or `blocked`: run `hc kill <address>` and then `hc rm <address>`.
-
-The child's answer is its report file; its tool output and logs are the evidence the report cites. In headless mode, confirm the process has exited before the next phase starts.
+In hc mode, resume a child with `hc send <address> '<the missing items>'`; its session stays in its terminal.

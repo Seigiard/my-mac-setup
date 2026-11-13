@@ -8,7 +8,9 @@ The `tdd` orchestrator's files for one ticket. The `<run-id>` is the run directo
 | `lock.json` | the lock record (layout below) |
 | `<role>-<n>.prompt.md`, `<role>-<n>.report.md` | one prompt and one report per child, numbered per role from 1 |
 | `<role>-<n>.jsonl`, `<role>-<n>-resume.jsonl` | the headless child's initial log and every resumed turn, appended in order, when launched with `opencode run` |
-| `controls/`, `calibration-<n>.*` | temporary control scripts, their output, and saved mutation diffs and logs |
+| `controls/` | temporary control scripts and their output |
+| `calibration-<n>/` | the calibrate child's `<regression>.patch` and `<regression>.log`, one pair per plan row; `<n>` is the child's attempt number |
+| `replay-<m>/` | the orchestrator's `<regression>.log`, one per plan row; `<m>` counts replays from 1 |
 
 ## ticket.md
 
@@ -52,7 +54,7 @@ Repeat this entry once per symptom criterion:
 - turns: <count so far> / <limit>
 
 ## Calibration
-- <criterion>; owner: <test>; assertion: <protected result>; regression: <smallest faithful change>; paths: <temporary production paths>; command: <focused test>
+- <criterion>; owner: <test>; assertion: <protected result>; regression: <smallest faithful change>; paths: <temporary production paths>; command: <owner test alone | full-suite command; reason: <why the owner cannot run alone>>; patch: <calibration-<n>/<regression>.patch, after the first calibration>
 - <none, with reason | named unavailable boundary and coverage limit>
 
 ## Verdicts
@@ -60,9 +62,8 @@ Repeat this entry once per symptom criterion:
 - test-writer-2 (medium, prepare, targeted fix D1): accepted, lock <sha>; report test-writer-2.report.md
 - implementer-1 (low): D2 handoff: <missing items>; resumed; then accepted, tip <sha>; evidence <log paths>
 - test-writer-3 (medium, calibrate): <calibrated | suspect test | blocked>; state <sha>; report test-writer-3.report.md
+- replay-1: calibrated; state <sha>; logs replay-1/
 ```
-
-`Symptom` exists only when the ticket reports a bug ([symptom.md](symptom.md)).
 
 Each diagnosis gets a fresh ID. A [return](recovery.md#responding-to-a-failure) is written under the later entry as `D1 returned`.
 
@@ -82,8 +83,9 @@ A re-lock sets `base_sha` and `lock_sha` from the new test writer and adds the f
 
 Every child, whichever brief it follows:
 
-- **Identifiers:** every commit, range, or repository it records follows the [identifiers rule](SKILL.md#identifiers).
+- **Identifiers:** every commit, range, or repository it records is pasted whole from git output in the repository it names (the checkout when it names none) and resolves there: `git rev-parse --verify <sha>^{commit}` for a commit, and `git merge-base --is-ancestor <base> <head>` exits 0 for a range. A branch name is recorded as the commit it resolves to, or marked unresolved.
 - **Controls:** temporary control scripts and their output go under `controls/` and are cited by path; they need no repository commit.
-- **Evidence:** every test, check, and control result carries its [valid evidence](SKILL.md#evidence): the tested commit and the log or tool output with its exit status.
+- **Evidence:** valid evidence for a test, check, or control result is the command, its exit status, the code state it ran on, and the output that shows the required scenarios ran; a pass/fail summary alone is not evidence, nor is a skipped or focused run for a required broader suite. It comes from a command that finished inside your turn or from a named earlier run on the same state. A server or watcher started for a test is stopped before the report is published.
+- **Checks:** the report lists every check in `ticket.md`, one line each: its valid evidence, or `not covering` with the changed paths and why the check does not reach them; a reused result names the run it comes from.
 - **Resumed turns:** when the orchestrator resumes a child for missing report items, the child keeps its candidate or commit and adds only what the orchestrator names.
 - **Push:** the child commits on the current branch; pushing belongs to the caller.
