@@ -48,6 +48,10 @@ Do not discount loss of calibrated adapter regressions as upstream-grammar
 duplication. A known upstream flag can be input to a local behavioral oracle;
 retiring that coverage still needs a real replacement or an approved change.
 
+When runtime behavior is correct and a finding asks only for additional test coverage, rate it
+minor. Reserve higher weight for a false-green assertion shown to pass while its protected
+behavior is wrong.
+
 **An edit that looks live but is not.** chezmoi splits every managed file into two copies:
 this checkout (`home/…`), which chezmoi reads directly, and the deployed file (`~/…`), which
 only the user's `chezmoi apply` writes. A diff can be perfectly correct and still change

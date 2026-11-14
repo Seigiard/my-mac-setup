@@ -55,6 +55,19 @@ const HEREDOC_DELIMITER = /^[^ \t;&|<>()]+/;
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+const INERT_COMMANDS = new Set([
+  "grep", "rg", "echo", "printf", "jq", "curl", "sed", "cd", "cat", "head",
+  "tail", "wc", "sort", "uniq", "cut", "tr", "ls", "git", "gh",
+]);
+
+const LAUNCHERS = new Set([
+  "zsh", "bash", "sh", "dash", "ksh", "eval", "source", ".", "exec", "env", "xargs",
+  "sudo", "nohup", "timeout", "time", "command", "builtin", "hc", "hc-run", "herdr-run",
+  "find", "parallel", "fd", "watch", "entr", "script", "ssh", "tmux", "osascript",
+]);
+
+const ASSIGNMENT_WORD = /^[A-Za-z_][A-Za-z0-9_]*=/;
+
 const CONTROL_PREFIX =
   /(?:^[ \t]*|[;&|][ \t]*|[({][ \t]*|\b(?:while|until|do|then|else)[ \t]+|(?:[A-Za-z_][A-Za-z0-9_]*=(?:[^ \t;&|]*)?[ \t]+)+)/;
 
@@ -170,6 +183,157 @@ function hits(command: string): Hit[] {
   return found;
 }
 
+/**
+ * Return a masked copy only when the command fits the deliberately tiny
+ * grammar. Unknown shell syntax falls back to the ordinary, unmasked scan.
+ */
+function maskInert(command: string): string | null {
+  const out: string[] = [];
+  let i = 0;
+
+  while (i < command.length) {
+    const c = command[i];
+    const next = command[i + 1];
+
+    if (c === "\\") {
+      if (next === undefined) return null;
+      out.push(c, next);
+      i += 2;
+      continue;
+    }
+
+    if (c === "'") {
+      const close = command.indexOf("'", i + 1);
+
+      if (close === -1) return null;
+      out.push("'", ...Array.from(command.slice(i + 1, close), (part) => part === "\n" ? "\n" : "x"), "'");
+      i = close + 1;
+      continue;
+    }
+
+    if (c === '"') {
+      const body: string[] = [];
+      let j = i + 1;
+      let closed = false;
+
+      while (j < command.length) {
+        const d = command[j];
+
+        if (d === "\\") {
+          if (command[j + 1] === undefined) return null;
+          body.push("x", command[j + 1] === "\n" ? "\n" : "x");
+          j += 2;
+          continue;
+        }
+
+        if (d === "`") return null;
+
+        if (d === "$" && ["(", "{", "["].includes(command[j + 1])) return null;
+
+        if (d === '"') {
+          closed = true;
+          break;
+        }
+
+        body.push(d === "\n" ? "\n" : "x");
+        j += 1;
+      }
+
+      if (!closed) return null;
+      out.push('"', ...body, '"');
+      i = j + 1;
+      continue;
+    }
+
+    if (["`", "(", ")", "{", "}", "#"].includes(c)) return null;
+
+    if (c === "$" && ["'", '"', "(", "{", "["].includes(next ?? "")) return null;
+
+    if (c === "<" && next === "<") return null;
+
+    out.push(c);
+    i += 1;
+  }
+
+  const masked = out.join("");
+  const flat = flattenQuotedNewlines(masked);
+
+  return commandWordsAreInert(flat) ? masked : null;
+}
+
+function flattenQuotedNewlines(masked: string): string {
+  let quote = "";
+  let result = "";
+
+  for (let i = 0; i < masked.length; i += 1) {
+    const c = masked[i];
+
+    if (quote === "") {
+      if (c === "\\") {
+        result += c + (masked[i + 1] ?? "");
+        i += 1;
+        continue;
+      }
+
+      if (c === "'" || c === '"') quote = c;
+      result += c;
+      continue;
+    }
+
+    if (c === quote) {
+      quote = "";
+      result += c;
+      continue;
+    }
+
+    result += c === "\n" ? "x" : c;
+  }
+
+  return result;
+}
+
+function commandWordsAreInert(masked: string): boolean {
+  for (const simple of masked.split(/\|\||&&|\|&|[;&|\n]/)) {
+    const words = simple.trim().split(/[ \t]+/).filter((word) => word !== "");
+
+    if (words.length === 0) continue;
+
+    for (const word of words) {
+      const bare = word.replace(/^["']|["']$/g, "");
+
+      if (LAUNCHERS.has(bare)) return false;
+    }
+
+    let first = 0;
+
+    while (first < words.length && ASSIGNMENT_WORD.test(words[first])) first += 1;
+
+    if (first === words.length) continue;
+
+    if (/^[<>]|^[0-9]+[<>]/.test(words[first])) return false;
+
+    if (!INERT_COMMANDS.has(words[first])) return false;
+  }
+
+  return true;
+}
+
+function restoreOriginalLines(found: Hit[], original: string): Hit[] {
+  const lines = original.split("\n");
+
+  return found.map((hit) => {
+    const lineNumber = hit.text.match(/^  line (\d+):/);
+
+    if (lineNumber === null) return hit;
+
+    const line = lines[Number(lineNumber[1]) - 1] ?? "";
+    const stripped = line.replace(/^[ \t]+/, "");
+    const shown = stripped.length > MAX_SHOWN ? `${stripped.slice(0, MAX_SHOWN - 3)}...` : stripped;
+
+    return { ...hit, text: `  line ${lineNumber[1]}: ${shown}` };
+  });
+}
+
 function isBash(shell: string | undefined): boolean {
   return shell === "bash" || shell?.endsWith("/bash") === true;
 }
@@ -181,7 +345,8 @@ function evaluate(event: NormalizedEvent): Decision {
 
   if (isBash(event.shell)) return ALLOW;
 
-  const found = hits(command);
+  const masked = maskInert(command);
+  const found = restoreOriginalLines(hits(masked ?? command), command);
 
   if (found.length === 0) return ALLOW;
 

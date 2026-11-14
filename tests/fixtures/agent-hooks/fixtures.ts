@@ -182,6 +182,25 @@ function zshReason(lines: string[], readonlyNames: string, tiedNames: string): s
   return parts.join("\n");
 }
 
+function zshFixture(
+  name: string,
+  command: string,
+  verdict: PolicyFixture["verdict"],
+  text?: string,
+): PolicyFixture {
+  const fixture: PolicyFixture = {
+    name: `zsh/${name}`,
+    policy: "zsh-reserved-name-guard",
+    tool: "bash",
+    payload: { command },
+    verdict,
+  };
+
+  if (text !== undefined) fixture.text = text;
+
+  return fixture;
+}
+
 const FFF_BARE_QUERY = "KnowledgeContextField console";
 
 export const WEBFETCH_HINT_TEXT =
@@ -189,6 +208,72 @@ export const WEBFETCH_HINT_TEXT =
 
 export const AGENT_DOC_HINT_TEXT =
   "Reminder: this file is a document an agent reads, so the `writing-for-agents` skill governs its prose. Read the skill before writing or rewriting prose here. Skip it for an edit that touches no prose: a rename, a path fix, a frontmatter field.";
+
+// The first four allow fixtures are quoted-data false blocks from the recovered
+// #666 transcript corpus. The gh issue body and printf examples are #666 allow
+// list constructions, not transcript occurrences. The original-line fixture
+// checks message restoration. The two final blocks are executable quoted zsh
+// bodies from blocked_commands.txt:14 and oc_blocked_commands.json entry 125;
+// they keep observed launcher text denied without inventing parser rules.
+export const ZSH_QUOTED_DATA_FIXTURES = [
+  zshFixture(
+    "allows quoted grep pattern from the transcript",
+    'grep -aE "commit|exit_status|status=|control_exit" $C/control-no-release.log | head -20',
+    "allow",
+  ),
+  zshFixture(
+    "allows quoted sed program from the transcript",
+    `sed -i '' 's|path="/mnt/ext1/Dropbox PocketBook"|path="/mnt/ext1/Books"|' "$V/applications/syncthing/config.xml"`,
+    "allow",
+  ),
+  zshFixture(
+    "allows quoted gh api URL from the transcript",
+    `gh api 'repos/gdh1995/vimium-c/commits?per_page=1&path=content/scroller.ts' -q '.[0].sha + " " + .[0].commit.committer.date'`,
+    "allow",
+  ),
+  zshFixture(
+    "allows quoted jq program from the transcript",
+    `jq -r '.sources[]? | "\\(.name) status=\\(.status // "-")"' file.json 2>/dev/null | head`,
+    "allow",
+  ),
+  zshFixture(
+    "allows multiline quoted gh issue body from the #666 allow list",
+    "gh issue comment 1 --body 'Example:\n\n    make test; status=$?\n\nends here'",
+    "allow",
+  ),
+  zshFixture(
+    "allows quoted printf data from the #666 allow list",
+    "printf '%s\\n' 'a; status=1' 'b'",
+    "allow",
+  ),
+  zshFixture(
+    "reports the original line when an unquoted assignment still blocks",
+    "grep -n 'x; status=1' f; status=$?",
+    "block",
+    `zsh-reserved-name-guard: this command assigns to a parameter zsh reserves:
+  line 1: grep -n 'x; status=1' f; status=$?
+zsh makes status ${ZSH_READONLY_SENTENCE}
+${ZSH_FIX_SENTENCE}`,
+  ),
+  zshFixture(
+    "blocks the Claude corpus quoted zsh launcher body",
+    `env | grep -E '^(CLAUDECODE|CLAUDE_CODE_[A-Z_]*|OPENCODE[A-Z_]*|CODEX[A-Z_]*|PI_[A-Z_]*)=' | sed 's/=.*/=…/'; echo "shell=$(ps -o comm= -p $$)"; setopt | grep -E 'shwordsplit|nomatch|equals' ; zsh -c 'emulate sh; status=1; echo ok' 2>&1; zsh -c 'emulate sh; path=x; echo "PATH=$PATH"' 2>&1`,
+    "block",
+    `zsh-reserved-name-guard: this command assigns to a parameter zsh reserves:
+  line 1: env | grep -E '^(CLAUDECODE|CLAUDE_CODE_[A-Z_]*|OPENCODE[A-Z_]*|CODEX[A-Z_]*|PI_[A-Z_]*)=' | sed 's/=.*/=…/'; echo "s...
+zsh makes status readonly. The assignment fails AND leaves $? at 1, so a following \`exit $status\` or \`FINAL_EXIT:$status\` marker reports a fabricated failure for a command that actually succeeded.
+Fix: rename the variable — \`rc\`, \`st\`, \`exit_code\`, \`dir\`. Reading $status is legal zsh and is not blocked, only assignment is. If this assignment genuinely runs under bash rather than this zsh, add a "zsh-ok:" comment to the command and retry.`,
+  ),
+  zshFixture(
+    "blocks the OpenCode corpus quoted zsh launcher body",
+    `zsh -c 'make test-agents-local-opencode >/dev/null 2>&1; status=$?; printf "exit=%s\\n" "$status"'`,
+    "block",
+    `zsh-reserved-name-guard: this command assigns to a parameter zsh reserves:
+  line 1: zsh -c 'make test-agents-local-opencode >/dev/null 2>&1; status=$?; printf "exit=%s\\n" "$status"'
+zsh makes status readonly. The assignment fails AND leaves $? at 1, so a following \`exit $status\` or \`FINAL_EXIT:$status\` marker reports a fabricated failure for a command that actually succeeded.
+Fix: rename the variable — \`rc\`, \`st\`, \`exit_code\`, \`dir\`. Reading $status is legal zsh and is not blocked, only assignment is. If this assignment genuinely runs under bash rather than this zsh, add a "zsh-ok:" comment to the command and retry.`,
+  ),
+];
 
 export const POLICY_FIXTURES: PolicyFixture[] = [
   // zsh_reserved_name_guard_test.sh 001

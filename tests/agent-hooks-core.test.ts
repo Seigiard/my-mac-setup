@@ -1271,6 +1271,26 @@ describe("zsh reserved names respect the observed shell", () => {
     expect(decisions.slice(0, 6).map((decision) => decision.reason?.includes("path") === true || decision.reason?.includes("status") === true))
       .toEqual([true, true, true, true, true, true]);
   });
+
+  for (const fixture of corpus.ZSH_QUOTED_DATA_FIXTURES) {
+    test(fixture.name, () => {
+      // #given a recovered false block, an issue allow-list construction, or an
+      // observed executable quoted launcher whose original assignment must deny
+      const expected = fixture.verdict === "block"
+        ? { verdict: "block", reason: fixture.text }
+        : { verdict: "allow" };
+
+      // #when both zsh and an absent shell observation dispatch the command
+      const decisions = [
+        dispatchWithShell(fixture.payload.command ?? "", "/bin/zsh"),
+        dispatchWithShell(fixture.payload.command ?? ""),
+      ];
+
+      // #then inert quoted data passes, while real assignments retain their
+      // original-line reason under both zsh and absent-shell observations
+      expect(decisions).toEqual([expected, expected]);
+    });
+  }
 });
 
 describe("escape hatches (KTD3)", () => {
