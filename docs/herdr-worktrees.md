@@ -86,9 +86,12 @@ The `my-worktree` mod handles `Cmd+Shift+N`. The keybinding passes no space
 and no action, so the mod uses the focused terminal's space and folder and
 asks nothing. It generates a `worktree/<adjective>-<noun>-<4 hex>` branch, the shape
 Herdr's native worktrees used, and creates it from the focused checkout's `HEAD`.
-After `git worktree add`, it opens the new space and a terminal running
-`herdr-worktree-setup-run <path> <branch>`. The setup log is visible and has no
-time cap. The runner stays in the checkout folder: the Spaces sidebar reads the
+After `git worktree add`, it opens the new space with one tab running
+`herdr-worktree-setup-run <path> <branch>`. When setup finishes, the same tab
+returns to the interactive shell. A caller that supplies `argv` starts that
+program in the first tab and keeps setup in a separate tab.
+The setup log is visible and has no time cap. The runner stays in the checkout
+folder: the Spaces sidebar reads the
 terminal's folder, so the space keeps its branch row and its place under the
 repository while setup runs. A keybinding or an empty name field generates a
 `worktree/<adjective>-<noun>-<4 hex>` branch and passes that branch to setup, so

@@ -245,8 +245,11 @@ export default class Worktree extends View {
 
     if (!r.ok) return r.err || "git worktree add failed.";
     const p = props();
+    const setup = [`${this.userHome}/.local/bin/herdr-worktree-setup-run`, path, generatedBranch ? branch : ""];
     // Leave spaces unnamed so they follow the checkout folder and nest under the repo.
-    run("space.new", { folder: path, machine: this.on, tab: p.tab, argv: p.argv });
+    run("space.new", { folder: path, machine: this.on, tab: p.tab, argv: p.argv ?? setup });
+
+    if (p.argv == null) return "";
     const space = spaces().find((s) => s.folder === path && (s.machine ?? null) === (this.on ?? null));
 
     if (this.on && !space) {
@@ -259,7 +262,7 @@ export default class Worktree extends View {
       run("tab.new", {
         space: space?.id,
         folder: path,
-        argv: [`${this.userHome}/.local/bin/herdr-worktree-setup-run`, path, generatedBranch ? branch : ""],
+        argv: setup,
       });
     }
 
