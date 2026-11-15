@@ -11,7 +11,7 @@ You write the production code for one ticket. When `lock.json` exists, its tests
 
 ## The lock
 
-Every locked path stays byte-identical to `lock_sha`, with one exception. A **mechanical** defect ([SKILL.md, Mechanical corrections](SKILL.md#mechanical-corrections)), a literal, locator, fixture flag, or path whose correct value is already in the checkout or the ticket, is corrected in its own commit that touches only that test file, with the oracle and the assertion's meaning unchanged; your report records it as `M<n>: <path>:<line>, <old> → <new>; source: <file:line or ticket sentence that holds the value>`. Any other difference rejects your whole attempt. A locked test that is wrong in any other way stays as it is: report it with what it expects and why the ticket says otherwise.
+Every locked path stays byte-identical to `lock_sha`, with one exception: a mechanical defect ([SKILL.md, Mechanical corrections](SKILL.md#mechanical-corrections)). Correct it in its own commit that touches only that test file, with the oracle and the assertion's meaning unchanged, and record it in your report as an `M<n>` line ([layout](run-directory.md#ticketmd)). Any other difference rejects your whole attempt. A locked test that is wrong in any other way stays as it is: report what it expects and why the ticket says otherwise.
 
 Other test files follow the red-test rules in `~/.claude/shared/testing.md`. A change to one needs its justification in your report.
 

@@ -1,6 +1,6 @@
 # Calibration
 
-The rows are the assertions `ticket.md` names as false-green risks ([SKILL.md, Calibration](SKILL.md#calibration)); the preparation report supplies each row's regression. A known-bad revision or an already observed faithful mutation supplies the same evidence while the locked paths are unchanged.
+The rows are the assertions `ticket.md` names as false-green risks ([SKILL.md, Calibration](SKILL.md#calibration)); the preparation report supplies each row's regression. A known-bad revision or an already observed faithful mutation supplies the same evidence under Verdicts.
 
 `Non-goals` constrains final behavior, not temporary mutation paths. A non-goal that says "never touch path X" needs a different mutation plan, resolved before the calibrate child starts.
 
@@ -20,6 +20,6 @@ Done when every row has red evidence in `replay-<m>/` or went to a calibrate chi
 
 ## Verdicts
 
-- **Calibrated:** record the commands, results, and protected state in Verdicts. Reuse this evidence while the locked paths and the plan are unchanged since its `calibration_sha`; production changes alone do not invalidate it.
+- **Calibrated:** record the commands, results, and protected state in Verdicts. Reuse this evidence while the locked paths and the plan are unchanged since its `calibration_sha`, whatever changed outside the lock.
 - **Suspect test:** a faithful regression stayed green. Record the counterexample and take the suspect-test route under [Entering mid-chain](SKILL.md#entering-mid-chain) within the current batch.
 - **Blocked:** no faithful regression or environment can be established, or restoration cannot be verified. Diagnose and report the limit; a skipped or setup-failing mutation is not calibrated.

@@ -62,21 +62,15 @@ authorizes a change.
 ## 2. Run one review round
 
 Choose the profile before preparing each round. Use the selection from step 1 for the first
-round; apply the follow-up policy below on every return to this step.
+round; apply the confirming-round rule below on every return to this step.
 
-### Follow-up profile selection
+### Confirming rounds
 
-When the user has not pinned a profile, choose each follow-up profile without an approval
-question. This replaces revmux's Step 7 profile-selection question:
-
-- Every confirming round runs on `final`: it checks the fixes and blocking defects and does
-  not search for new minors.
-- A partial or failed review cannot justify narrowing; resolve its missing coverage first.
-
-Announce the selected profile and the reason, then launch. Carry unresolved findings and
-decisions forward: a finding omitted by the narrower profile is not thereby resolved. Report
-the resulting coverage explicitly instead of claiming that a final round proves there are no
-minors.
+A confirming round runs on `final` unless the user pinned a profile; a prose round has no
+profile and repeats the prose route. This replaces revmux's Step 7 profile-selection question.
+A partial or failed review is re-run with its missing coverage first. Announce the profile, then
+launch. Carry unresolved findings and decisions forward: a finding the `final` roster did not
+look for is still open, and the report states what the round covered.
 
 ### Prepare and collect the round
 
@@ -109,9 +103,8 @@ Reuse the task ID and create a new round each time. Carry the original goal and 
 recorded so far forward; on the revmux route that is one `--exclude` per exclusion. Let revmux
 inject prior findings and describe the current scope rather than copying old reports into it.
 Later rounds reuse the same run directory and its lock and Verdicts.
-Pass the caller's report-only constraint to reviewers: inspect the checkout without editing
-it or running tests. Reviewers stay report-only; fixes are delegated to fresh `tdd` chain
-children and verification stays with the caller.
+Reviewers are report-only: they inspect the checkout without editing it or running tests;
+fixes go to fresh `tdd` chain children and verification stays with the caller.
 
 Include available verification results in the round context, naming their commands and the
 state they cover; on the revmux route, write them to the `--context-file` under the same file
@@ -182,7 +175,7 @@ graded `minor`. A **behavior gap** on a reachable path keeps that path's grade; 
 that asks only for a test, with the code correct, is `minor`.
 
 A **fix round** is a round whose routed findings produced fix commits; the budget is two per
-review loop. Each fix round is followed by one confirming round on `final`. The loop is in
+review loop. Each fix round is followed by one confirming round (step 2). The loop is in
 **closeout** once a confirming round graded nothing above `minor`, or once the second fix round
 has been confirmed. In closeout, route no fix: defer every remaining `minor`, and put a
 reachable critical or major to the user as a decision brief on raising the budget.
@@ -226,10 +219,8 @@ tool's output. When a later round shows a routed criterion wrong, correct it in 
 and note the correction in that round's review file; a second correction of the same
 criterion is a decision. A **behavior gap** or a **suspect
 test** gets a test writer; every other supported finding is **code-only** and goes to one
-implementer against the existing lock, or checks-only when there is none. The review batch
-runs light: the extended lock is accepted on **Scope**, **Results**, and **Oracle** alone, and
-no calibration is planned for it unless the finding itself is a false-green risk. `tdd` owns
-the child modes, tiers, turn budget, and the response to a failure.
+implementer against the existing lock, or checks-only when there is none. `tdd` owns the
+batch's path, the child modes, tiers, calibration, turn budget, and the response to a failure.
 
 Children commit fixes on the reviewed branch. Pushes and PR
 creation follow the two-way-door rule in the global `CLAUDE.md`. Editing a fetched PR or running under `mode:agent`
@@ -247,7 +238,7 @@ Apply these rules in order:
 
 1. If checks fail or coverage is incomplete, stop as blocked.
 2. If this round produced fix commits and caller verification passed, return to step 2 for its
-   confirming round on `final`. This includes minor-only fixes and edits to docs, prompts, or
+   confirming round. This includes minor-only fixes and edits to docs, prompts, or
    skills, even when another finding still needs a decision.
 3. Otherwise finish: this complete round routed no fix, or the loop is in closeout. An unresolved reachable critical or
    major, a closeout decision included, leaves the review blocked; skipping it does not make

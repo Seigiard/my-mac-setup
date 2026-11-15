@@ -33,6 +33,6 @@ If `hc-run` exits 3, its address is only a recovery handle: use the printed `tas
    Keep the process exit status and the JSONL events separate; an `error` event or a log without a final answer is incomplete work.
 2. Otherwise no child can start. Stop.
 
-**Resuming a child** for a handoff gap keeps its session, tier, and attempt number, and counts as one turn. In headless mode: the same subshell command with `--session <id>` added and `'<the missing items>'` as the prompt, appending to `<run-dir>/<role>-<n>-resume.jsonl`, where the id is the `sessionID` in the attempt's JSONL log. Every resumed turn of the attempt appends to that file in order.
+**Resuming a child** for a handoff gap keeps its session, tier, and attempt number, and counts as one turn. In headless mode: the same subshell command with `--session <id>` added and `'<the missing work>'` as the prompt, appending to `<run-dir>/<role>-<n>-resume.jsonl`, where the id is the `sessionID` in the attempt's JSONL log. Every resumed turn of the attempt appends to that file in order.
 
-In hc mode, resume a child with `hc send <address> '<the missing items>'`; its session stays in its terminal.
+In hc mode, resume a child with `hc send <address> '<the missing work>'`; its session stays in its terminal.

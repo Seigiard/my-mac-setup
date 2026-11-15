@@ -14,7 +14,7 @@ You prepare tests for one ticket, or calibrate accepted tests after production g
 
 For a targeted fix, first restore the approved test and fixture paths from the preserved candidate ref (`git restore --source=<ref> --staged --worktree -- <paths>`), including locked paths approved for re-locking. Change only what the diagnosis names, then follow the preparation steps below.
 
-1. Take each criterion marked **test** in `ticket.md`. Before you edit a test file for it, copy its oracle line from `ticket.md` into your report, or correct it there with the reason.
+1. Take each criterion marked **test** in `ticket.md`. Before you edit a test file for it, state its oracle line from `ticket.md` in your visible response and copy it into your report, or correct it there with the reason.
 2. Search the existing tests and fixtures for the contract first. Strengthen its current owner when one exists. A scenario that differs from an existing fixture in a few fields is a **variant**: produce it from the shared fixture builder, written when the first variant appears, with those fields as parameters, and give it its own test case with its own literal expectation. A new fixture tree is for a scenario no builder can express, and the report says which scenario that is.
 3. Write each test at the seam `ticket.md` names, inside the allowed test paths and fixtures. Production code belongs to the implementer: leave every other path unchanged.
    - **Assert the contract, not the run.** For a call-count or sequence assertion, or a fixture shared with workers, apply [assertions.md](assertions.md).
@@ -38,9 +38,10 @@ Write the report to the path in your prompt. For each criterion:
 - the oracle line, or the reason for zero tests;
 - each test's file and name;
 - the failure output that shows it is red, trimmed to the assertion; for a symptom criterion, the symptom it shows, or the green run that reached the assertion.
-- each named false-green risk, its protected assertion, and its proposed post-green regression and temporary paths.
+- each named false-green risk, its protected assertion, and its proposed post-green regression and temporary paths;
+- any other assertion with a false-green form you saw, with that form, for the orchestrator to decide.
 
-Name each control you built in one line: what it isolates, its command, and its result or the unavailable precondition.
+Name each control you built in one line: what it isolates, its command, the expected and the observed result, or the unavailable precondition.
 
 End with the commit SHA.
 
