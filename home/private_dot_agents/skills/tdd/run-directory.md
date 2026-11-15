@@ -48,19 +48,23 @@ Repeat this entry once per symptom criterion:
 - test writer: <tier>; reason: <selection reason, SKILL.md step 2>
 - implementer: <tier>; reason: <selection reason, SKILL.md step 2>
 
+## Size
+- <small | full>; reason: <test criteria count, expected production files, interface settled or not>
+
 ## Batch
 - <number>: <initial ticket | caller-supplied review findings>
 - batch_start_sha: <HEAD when this batch opened; preserved across retries and re-locks>
 - turns: <count so far> / <limit>
 
 ## Calibration
-- <criterion>; owner: <test>; assertion: <protected result>; regression: <smallest faithful change>; paths: <temporary production paths>; command: <owner test alone | full-suite command; reason: <why the owner cannot run alone>>; patch: <calibration-<n>/<regression>.patch, after the first calibration>
-- <none, with reason | named unavailable boundary and coverage limit>
+- <criterion>; owner: <test>; assertion: <protected result>; risk: <false-green form>; regression: <smallest faithful change>; paths: <temporary production paths>; command: <owner test alone | full-suite command; reason: <why the owner cannot run alone>>; patch: <calibration-<n>/<regression>.patch, after the first calibration>
+- <none | named unavailable boundary and coverage limit>
 
 ## Verdicts
 - test-writer-1 (medium, prepare): rejected; D1 test preparation: <assertion or boundary>; repro: <command and observed result>; expected: <independent result>; source: <authority or missing decision>; cause: <candidate>; cause check: <observation, predicted and observed result>; candidate <ref>; report test-writer-1.report.md
 - test-writer-2 (medium, prepare, targeted fix D1): accepted, lock <sha>; report test-writer-2.report.md
-- implementer-1 (low): D2 handoff: <missing items>; resumed; then accepted, tip <sha>; evidence <log paths>
+- implementer-1 (low): D2 handoff: <missing work>; resumed; then accepted, tip <sha>; evidence <log paths>
+- M<n>: <path>:<line>, <old> → <new>; source: <file:line, ticket sentence, or command output that holds the value>
 - test-writer-3 (medium, calibrate): <calibrated | suspect test | blocked>; state <sha>; report test-writer-3.report.md
 - replay-1: calibrated; state <sha>; logs replay-1/
 ```
@@ -77,7 +81,7 @@ Each diagnosis gets a fresh ID. A [return](recovery.md#responding-to-a-failure) 
 }
 ```
 
-A re-lock sets `base_sha` and `lock_sha` from the new test writer and adds the files it changed to `paths`; earlier lock SHAs stay in Verdicts. A path stays locked once locked.
+A re-lock sets `base_sha` and `lock_sha` from the new test writer and adds the files it changed to `paths`; earlier lock SHAs stay in Verdicts. An accepted mechanical correction (SKILL.md) sets `lock_sha` to its commit; `paths` stay. A path stays locked once locked.
 
 ## Child rules
 
@@ -85,7 +89,7 @@ Every child, whichever brief it follows:
 
 - **Identifiers:** every commit, range, or repository it records is pasted whole from git output in the repository it names (the checkout when it names none) and resolves there: `git rev-parse --verify <sha>^{commit}` for a commit, and `git merge-base --is-ancestor <base> <head>` exits 0 for a range. A branch name is recorded as the commit it resolves to, or marked unresolved.
 - **Controls:** temporary control scripts and their output go under `controls/` and are cited by path; they need no repository commit.
-- **Evidence:** valid evidence for a test, check, or control result is the command, its exit status, the code state it ran on, and the output that shows the required scenarios ran; a pass/fail summary alone is not evidence, nor is a skipped or focused run for a required broader suite. It comes from a command that finished inside your turn or from a named earlier run on the same state. A server or watcher started for a test is stopped before the report is published.
-- **Checks:** the report lists every check in `ticket.md`, one line each: its valid evidence, or `not covering` with the changed paths and why the check does not reach them; a reused result names the run it comes from.
-- **Resumed turns:** when the orchestrator resumes a child for missing report items, the child keeps its candidate or commit and adds only what the orchestrator names.
+- **Evidence:** valid evidence for a test, check, or control result is the command, its exit status, the code state it ran on, and the output that shows the required scenarios ran; a skipped or focused run is no evidence for a required broader suite. It comes from a command that finished inside your turn or from a named earlier run on the same state. The report carries the command, the commit it ran on, and the log path or the output trimmed to the assertion. A server or watcher started for a test is stopped before the report is published.
+- **Checks:** the report lists every check in `ticket.md`, one line each: its command and exit status, or `not covering` with the changed paths and why the check does not reach them; a reused result names the run it comes from.
+- **Resumed turns:** when the orchestrator resumes a child for missing work, the child keeps its candidate or commit and adds only what the orchestrator names.
 - **Push:** the child commits on the current branch; pushing belongs to the caller.
