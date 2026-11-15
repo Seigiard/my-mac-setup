@@ -5,11 +5,11 @@ description: Implement one ticket through delegated children, with an oracle gat
 
 # Test-driven development
 
-You are the **orchestrator** of one ticket. You decide what is tested, start one child per phase, and verify each result. Children write every test and every line of production code. You write only the run directory, the lock record, the reset or restore after a rejection, and the [replay](calibration.md#replay) of a saved mutation patch.
+You are the **orchestrator** of one ticket. You decide what is tested, start one child per phase, and verify each result. Children write every test and every line of production code. You write only the run directory, the lock record, the reset or restore after a rejection, the [replay](calibration.md#replay) of a saved mutation patch, and a [mechanical correction](#mechanical-corrections) of a locked test.
 
 ## Invariants
 
-- **Lock before code.** When tests are required, they are accepted and locked before any implementer starts, and `git diff --exit-code <lock_sha> -- <locked paths>` is the only enforcement. An implementer that changes a locked path is rejected.
+- **Lock before code.** When tests are required, they are accepted and locked before any implementer starts, and `git diff --exit-code <lock_sha> -- <locked paths>` is the only enforcement. An implementer that changes a locked path is rejected, except through a recorded [mechanical correction](#mechanical-corrections).
 - **Evidence, not claims.** You accept a result on [valid evidence](#evidence), never on a report's verdict.
 
 ## Evidence
@@ -46,27 +46,31 @@ Done when the worktree is clean and `ticket.md` holds the ticket, its criteria w
    - for every **test** criterion: the public boundary, the allowed test paths and fixtures, and the test command;
    - the applicable checks from the repository's verification rules; ask the caller when it names none;
    - both roles' starting tiers and reasons (Starting tiers, below);
+   - the ticket's size and its reason (Size, below);
+   - each assertion named as a false-green risk, when any ([Calibration](#calibration));
    - the batch number, its `batch_start_sha`, and its turn count and limit ([batches](#batches-and-turns)).
 
    Starting tiers: the test writer starts on `medium`, or `high` when any test criterion drives a browser or renders UI (e2e, component, visual). The implementer starts on `low` when the production change touches one file, otherwise on `low+`; count only production files and record the reason in `ticket.md`. A later batch applies the same count to its own production files, with its reason recorded on the dispatch's Verdicts line. Tiers map to model and effort through `~/.claude/shared/model-tiers.md`.
+
+   Size: a ticket is **small** when at most two criteria are marked **test**, the production change is expected in at most three files, and no interface is unsettled (no new glossary term, ADR, or `codebase-design` load). Every other ticket is **full**. A small ticket takes the **light path**: the same two children, the lock accepted in step 3 on **Scope**, **Results**, and **Oracle** alone, and no calibration. Record `small` or `full` with the three counts as its reason.
 
    Read the area's glossary and ADRs when present. For an unsettled interface, load `codebase-design`. Done when these fields are recorded for the batch.
 3. **Test writer.** Record `base_sha` (`git rev-parse HEAD`) and start a test writer in **prepare** mode ([Dispatch](#dispatch), brief: `test-writer.md` in this skill's directory). When it settles, inspect the worktree, the report, and the evidence before changing repository state. Accept the lock only when all of these hold:
    - **Scope:** `git diff --name-only <base_sha> HEAD` lists only allowed test paths and fixtures, and the worktree is clean.
    - **Results:** each new test is red on its behavior assertion, or is a negative or aggregate case with an [uncalibrated assertion](#calibration). On a first lock or behavior gap, the test command must include red for missing behavior, and for a symptom criterion that red shows the symptom; red for another reason rejects the attempt. Setup, import, and syntax failures reject the attempt. Corrected tests on a re-lock may already be green.
    - **Oracle:** each test matches its report's oracle line, and the line holds against the oracle gate and the false-green rules in `~/.claude/shared/testing.md`.
-   - **Controls:** every control in the report's table has valid evidence, and its observed result matches the independent expected result. The helpers and fixtures the brief requires are covered. For unavailable live dependencies, follow the repository's verification rules and record the exact unverified boundary.
+   - **Controls:** each control the brief requires exists and its result matches the independent expectation; read its log under `controls/` when the report leaves a doubt. For unavailable live dependencies, follow the repository's verification rules and record the exact unverified boundary.
    - **Shape:** each new fixture and test case follows the variant rule in step 2 of the test writer brief.
    - **Static checks:** each check in `ticket.md` whose coverage includes a changed test path has [valid passing evidence](#evidence) on the candidate.
-   - **Plan:** each uncalibrated negative or aggregate assertion has a complete Calibration row in `ticket.md` ([layout](run-directory.md#ticketmd)).
+   - **Plan:** each assertion `ticket.md` names as a false-green risk has a complete Calibration row ([layout](run-directory.md#ticketmd)).
    - **Reconciliation:** every criterion is reconciled with the report: each zero-test criterion has either an accepted **no test** reason or a diagnosis that blocks it. A mixed result stays pending until every disposition and required observation is recorded.
 
-   An accepted zero-test reason moves its criterion to **no test**; lock the remaining test changes only after reconciliation. On acceptance, write the lock: the branch tip becomes `lock_sha`, and the changed files become the locked paths. A failed condition takes [recovery.md](recovery.md): diagnosis, preservation, then the route; a rejection resets the branch (`git reset --hard <base_sha>`, then `git clean -fd`). Done when the work is locked, or the ticket is on the checks-only path.
-4. **Implementer.** Start an implementer (brief: `implementer.md`). It writes code until the locked tests pass and the criteria hold. Done when the child has settled; a report missing an item its brief requires is a handoff gap.
+   An accepted zero-test reason moves its criterion to **no test**; lock the remaining test changes only after reconciliation. On acceptance, write the lock: the branch tip becomes `lock_sha`, and the changed files become the locked paths. A failed condition takes [recovery.md](recovery.md): diagnosis, preservation, then the route; a rejection resets the branch (`git reset --hard <base_sha>`, then `git clean -fd`). Done when the work is locked, or the ticket is on the checks-only path. On the light path, only **Scope**, **Results**, and **Oracle** decide.
+4. **Implementer.** Start an implementer (brief: `implementer.md`). It writes code until the locked tests pass and the criteria hold. Done when the child has settled; work its brief requires that did not happen is a handoff gap, and a missing report item is read from the run directory and the checkout instead.
 5. **Validation.** All of these must hold for the same state:
-   - the lock diff exits 0 (skip on the checks-only path);
+   - the lock diff exits 0 after `lock_sha` has moved past every recorded [mechanical correction](#mechanical-corrections) (skip on the checks-only path);
    - the test command has valid green evidence (skip when `ticket.md` names none);
-   - each planned [calibration](#calibration) holds a **calibrated** verdict whose evidence is still valid under Verdicts in [calibration.md](calibration.md);
+   - each planned [calibration](#calibration) holds a **calibrated** verdict whose evidence is still valid under Verdicts in [calibration.md](calibration.md) (none on the light path);
    - every applicable check in `ticket.md` has valid passing evidence;
    - every finding of the batch is [closed](#batches-and-turns);
    - **Scope:** inspect the cumulative diff from the batch's `batch_start_sha`, not `lock_sha`. Reject a changed file with no criterion, a hunk not needed for its named criterion, or a change inside `Non-goals`;
@@ -79,7 +83,7 @@ Report to the caller: `lock_sha` or the checks-only verdict, the final branch ti
 
 ### Entering mid-chain
 
-A caller with review findings for a ticket that already ran the chain opens a new [batch](#batches-and-turns), re-checks `Non-goals` against its new criteria in steps 1-2, and enters at a later step. A review-fix criterion that conflicts with a recorded non-goal is a **Decision** ([recovery.md](recovery.md#responding-to-a-failure)):
+A caller with review findings for a ticket that already ran the chain opens a new [batch](#batches-and-turns), re-checks `Non-goals` against its new criteria in steps 1-2, and enters at a later step. A small ticket stays on the light path. A review-fix criterion that conflicts with a recorded non-goal is a **Decision** ([recovery.md](recovery.md#responding-to-a-failure)):
 
 - A **behavior gap** (the code is wrong and no test catches it): add the criterion and its verdict, record its symptom, run step 3 to extend the lock, then steps 4 and 5.
 - A **code-only finding**: add it to the criteria, then run steps 4 and 5 against the existing lock, or checks-only when there is none.
@@ -93,9 +97,17 @@ Each finding of a batch is **open** until its acceptance evidence is recorded in
 
 Every dispatched or resumed child is one **turn** of its batch. Before each dispatch, compare the batch's turn count with its limit, recorded in `ticket.md` with a default of 8. At the limit, accept a completed success; otherwise report the remaining work and the diagnosis to the caller and wait. Only the caller changes the limit.
 
+## Mechanical corrections
+
+A defect in a locked test is **mechanical** when the correct value is already in the checkout or the ticket and nothing else in the test changes: a literal that must equal unchanged product copy or an existing label, a locator that must name an existing element, a fixture flag the scenario needs to be live, a path or import that moved. The oracle, the assertion's meaning, and the expected behavior stay as they are, so the gate in `~/.claude/shared/testing.md` (Editing a test is authoring it) is met by recording where the value comes from.
+
+You or the implementer make the correction in place: one commit that touches only that test path, and one Verdicts line, `M<n>: <path>:<line>, <old> → <new>; source: <file:line, ticket sentence, or command output that holds the value>`. Then `lock_sha` moves to that commit and the locked paths stay as they are. An implementer's correction is accepted when `git diff <lock_sha> <its commit> -- <locked paths>` shows only the recorded change; `lock_sha` moves afterwards. A correction is not a turn.
+
+A defect whose correct value needs a choice, such as which behavior the ticket means, which oracle holds, or whether the contract changed, is a diagnosis and takes [recovery.md](recovery.md).
+
 ## Calibration
 
-Before assessing a lock with uncalibrated negative or aggregate assertions, a review that finds a masking helper or fixture, or step 5 when any path outside the lock changed since `calibration_sha`, read [calibration.md](calibration.md).
+Calibration is opt-in. An assertion is calibrated only when you name it in `ticket.md` as a **false-green risk**: an assertion with a false-green form from `~/.claude/shared/testing.md` that you can state, such as a negative assertion that also passes when the element never renders, or an aggregate that also passes with the wrong members. Name them at step 2, and add any the preparation report shows, each with its form. An assertion without a named form gets no row. Calibrated evidence stays valid while the locked paths are unchanged since `calibration_sha`; a change outside the lock needs no replay. Read [calibration.md](calibration.md) before the calibrate child starts, when a review finds a masking helper or fixture, or when a locked path changed after calibration.
 
 ## Responding to a failure
 

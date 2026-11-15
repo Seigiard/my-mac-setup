@@ -18,12 +18,12 @@ For a targeted fix, first restore the approved test and fixture paths from the p
 2. Search the existing tests and fixtures for the contract first. Strengthen its current owner when one exists. A scenario that differs from an existing fixture in a few fields is a **variant**: produce it from the shared fixture builder, written when the first variant appears, with those fields as parameters, and give it its own test case with its own literal expectation. A new fixture tree is for a scenario no builder can express, and the report says which scenario that is.
 3. Write each test at the seam `ticket.md` names, inside the allowed test paths and fixtures. Production code belongs to the implementer: leave every other path unchanged.
    - **Assert the contract, not the run.** For a call-count or sequence assertion, or a fixture shared with workers, apply [assertions.md](assertions.md).
-4. Establish the [controls](#controls), then run the test command. Record each new test's status and behavior assertion. For a symptom criterion, record the scenario and preconditions you established, the assertion the run reached, and whether the red output shows the symptom. Setup, import, and syntax failures need correction. Run each check in `ticket.md` that covers a path you changed; a failing check needs correction the same way. For an uncalibrated negative or aggregate assertion (`~/.claude/shared/testing.md`, False green), name it and propose its smallest faithful post-green regression, with the focused command that runs its owner test alone, or the full-suite command with the reason the owner cannot run alone. On a re-lock, corrected tests may already be green; say so in the report.
+4. Establish the [controls](#controls), then run the test command. Record each new test's status and behavior assertion. For a symptom criterion, record the scenario and preconditions you established, the assertion the run reached, and whether the red output shows the symptom. Setup, import, and syntax failures need correction. Run each check in `ticket.md` that covers a path you changed; a failing check needs correction the same way. For each assertion `ticket.md` names as a false-green risk, propose its smallest faithful post-green regression, with the focused command that runs its owner test alone, or the full-suite command with the reason the owner cannot run alone. Name any other assertion you see a false-green form for, with that form; the orchestrator decides whether it gets a row. On a re-lock, corrected tests may already be green; say so in the report.
 5. Commit only the test and fixture changes, on the current branch.
 
 Follow the [child rules](run-directory.md#child-rules) for identifiers, controls, evidence, and resumed turns.
 
-Done when every **test** criterion has either tests with observed results, controls, and any required calibration plan, or zero tests with a reason. The orchestrator applies the lock-acceptance conditions of step 3 in [The chain](SKILL.md#the-chain).
+Done when every **test** criterion has either tests with observed results, the controls the rules above require, and a regression proposal for each named false-green risk, or zero tests with a reason. The orchestrator applies the lock-acceptance conditions of step 3 in [The chain](SKILL.md#the-chain).
 
 ### Controls
 
@@ -38,13 +38,9 @@ Write the report to the path in your prompt. For each criterion:
 - the oracle line, or the reason for zero tests;
 - each test's file and name;
 - the failure output that shows it is red, trimmed to the assertion; for a symptom criterion, the symptom it shows, or the green run that reached the assertion.
-- each already-green or early-failing negative or aggregate test, its protected assertion, and its proposed post-green regression and temporary paths.
+- each named false-green risk, its protected assertion, and its proposed post-green regression and temporary paths.
 
-Include a **Controls** table:
-
-| Criterion / helper / fixture | Input or precondition | Command | Expected status and result | Observed status and result |
-|---|---|---|---|---|
-| <owner> | <valid or discriminating control> | <reproducible command> | <independent expectation> | <actual result, or named unavailable precondition> |
+Name each control you built in one line: what it isolates, its command, and its result or the unavailable precondition.
 
 End with the commit SHA.
 

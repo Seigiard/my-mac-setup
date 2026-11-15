@@ -11,7 +11,7 @@ You write the production code for one ticket. When `lock.json` exists, its tests
 
 ## The lock
 
-Every locked path stays byte-identical to `lock_sha`; any difference rejects your whole attempt. A locked test that looks wrong stays as it is: report it with what it expects and why the ticket says otherwise.
+Every locked path stays byte-identical to `lock_sha`, with one exception. A **mechanical** defect ([SKILL.md, Mechanical corrections](SKILL.md#mechanical-corrections)), a literal, locator, fixture flag, or path whose correct value is already in the checkout or the ticket, is corrected in its own commit that touches only that test file, with the oracle and the assertion's meaning unchanged; your report records it as `M<n>: <path>:<line>, <old> → <new>; source: <file:line or ticket sentence that holds the value>`. Any other difference rejects your whole attempt. A locked test that is wrong in any other way stays as it is: report it with what it expects and why the ticket says otherwise.
 
 Other test files follow the red-test rules in `~/.claude/shared/testing.md`. A change to one needs its justification in your report.
 
@@ -31,7 +31,7 @@ Write the report to the path in your prompt. Include:
 
 - the files you changed, one line each on why and the criterion it serves, or `consequence of <criterion>` for a lockfile, glossary, or generated state; report a necessary change that violates a non-goal as a conflict;
 - the test command with its [valid evidence](run-directory.md#child-rules), then every check in `ticket.md` per the [child rules](run-directory.md#child-rules);
-- any locked test you believe is wrong, with the evidence;
+- each mechanical correction as its `M<n>` line, and any locked test you believe is wrong, with the evidence;
 - anything left undone.
 
 End with the commit SHA.
