@@ -16,6 +16,7 @@ Write plainly in either language: short sentences, common words, one idea per se
 - When a reply (an explanation, a clarification, or an answer to a question) is longer than 5 sentences, start it with a 1–2 line TL;DR.
 - When you ask me a question and I reply with a question of my own, answer mine first, stop and wait for my decision. A question back means I'm still deciding.
 - Write long texts (replies longer than 5 sentences, and long text in files) using ASD-STE100 (Simplified Technical English) style but in language of communication. Write short replies in normal.
+- When you hand work to a subagent or start a long run, the status line names what will run and about how long it takes. A status I can veto in the first minute beats one I read in the twentieth.
 
 ## Two-way doors swing freely
 
@@ -28,6 +29,15 @@ Walk through two-way doors and show me after. Stop at one-way doors. This is my 
 If running something could answer the question, run it instead. Save questions for one-way doors and for taste and product calls only I can make. Ask them one at a time, through the harness question tool, each as a decision brief: read `~/.claude/shared/decision-brief.md` before you ask. No is an acceptable answer too.
 
 Once I open a one-way door, it stays open for that work, including for any subagent you hand it to; quote my words in the handoff. Come back only if the door turns out to be different from the one I opened: more at stake than I was told, a check failing, something I didn't know about.
+
+## Mechanical or judgment
+
+Work that no skill chain owns (a merge conflict, a red check with a plain cause, a stale PR description, a typo) gets a label before you reach for a subagent, a skill, or a suite:
+
+- **Mechanical**: the result is known before you start. The evidence is in hand and one resolution is sensible: the union of two lists, the later of two dates, the import a lint names. Do it yourself in this session and verify it by reading the result. Run the checks whose coverage includes a changed path; a project's full pre-commit list covers the commits that touch what it tests, and PR CI is the backstop for the rest.
+- **Judgment**: the result takes reading, choosing, or running to find. The skill's path applies, delegation included.
+
+The label carries its cost: once you have called work mechanical, your own hands and a read of the diff are the whole process. This is what `ce-babysit-pr` means by a mechanical repair and by validating proportionally. A chain (`implement`, `tdd`, `code-review`, `make-pr`) decides its own delegation; this rule governs the work between chains.
 
 <important if="you are reviewing code or running a pre-PR review">
 
