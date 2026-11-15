@@ -5,15 +5,15 @@ description: Ship the current branch as a pull request, from evidence and body t
 
 # Make PR
 
-Commit, capture evidence, describe, publish, check. The body follows `references/pr-body-template.md`; the rule it must satisfy is `~/.claude/shared/pull-requests.md`.
+Commit, merge the base, capture evidence, describe, publish, check. The body follows `references/pr-body-template.md`; the rule it must satisfy is `~/.claude/shared/pull-requests.md`.
 
 ## Modes
 
 | Invocation | Steps |
 |---|---|
-| none | Full flow, steps 1 to 9. |
-| `describe [PR number or URL]` | Steps 1, 4, 5, then the `gh pr edit` line of step 6 and the PR URL. The PR is the given one, else the open PR of the current branch; with neither, stop and say so. |
-| `--no-evidence` | Step 3 skipped; the Visuals line says why. |
+| none | Full flow, steps 1 to 10. |
+| `describe [PR number or URL]` | Steps 1, 5, 6, then the `gh pr edit` line of step 7 and the PR URL. The PR is the given one, else the open PR of the current branch; with neither, stop and say so. |
+| `--no-evidence` | Step 4 skipped; the Visuals line says why. |
 
 ## Workflow
 
@@ -22,7 +22,8 @@ Commit, capture evidence, describe, publish, check. The body follows `references
 ```bash
 base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|origin/||'); base=${base:-main}
 branch=$(git branch --show-current)
-git log --oneline "$(git merge-base "$base" HEAD)"..HEAD
+git fetch origin "$base"
+git log --oneline "$(git merge-base "origin/$base" HEAD)"..HEAD
 gh pr list --state open --head "$branch" --json number,url,title,body,headRepositoryOwner
 ```
 
@@ -34,15 +35,25 @@ A repository may carry its own PR contract, and this skill reads it rather than 
 
 Commit uncommitted changes by `~/.claude/shared/commits.md`. Done when `git status` is clean.
 
-### 3. Capture evidence
+### 3. Merge the fresh base
 
-Read `references/evidence.md` and follow it. Done when every frame has a caption, a URL or a listed local path, and a named hosting route for step 6 to act on, or the change has no visible surface and its behavioural proof is captured as text.
+```bash
+git merge --no-edit "origin/$base"   # fetched in step 1
+```
 
-### 4. Write the stakeholder block
+Merge rather than rebase: a merge keeps already-pushed history, so publishing stays a plain push. On conflict, invoke the `resolving-merge-conflicts` skill. A hunk that needs a choice between two intents, rather than a combination of both, is the user's call: ask with a decision brief. When the merge resolved conflicts, re-run the repository's checks that cover the conflicted files, and fix a red check here; evidence captured afterwards then proves the merged tree.
 
-Invoke the `explain-for-manager` skill for the resolved range, take its block verbatim, and continue here; it opens the body and is reused in step 7.
+Done when `git merge-base --is-ancestor "origin/$base" HEAD` exits 0, `git status` is clean, and every re-run check is green.
 
-### 5. Compose title and body
+### 4. Capture evidence
+
+Read `references/evidence.md` and follow it. Done when every frame has a caption, a URL or a listed local path, and a named hosting route for step 7 to act on, or the change has no visible surface and its behavioural proof is captured as text.
+
+### 5. Write the stakeholder block
+
+Invoke the `explain-for-manager` skill for the resolved range, take its block verbatim, and continue here; it opens the body and is reused in step 8.
+
+### 6. Compose title and body
 
 Read `references/pr-body-template.md` and write the body it describes; a slot the template makes conditional appears only when its condition holds. With a repository contract from step 1, keep its headings and place each slot under the section it belongs to; the stakeholder block still comes first. Where the contract states a rule explicitly, that rule beats the slot's own: a mandated format, a forbidden section, a different cap. The Shape section uses the view families in `~/.agents/skills/show-me/SKILL.md` (a manual-only skill: read the file, the Skill tool will not load it).
 
@@ -54,7 +65,7 @@ Title: imperative, under 70 characters, the outcome rather than the mechanism, k
 
 Write the body to a temp file. `gh` exits 0 with an empty body when the body arrives on stdin, so the file is the only accepted route.
 
-### 6. Publish
+### 7. Publish
 
 ```bash
 git push -u origin "$branch"
@@ -68,7 +79,7 @@ On route 2 of `references/evidence.md`, add one `--attach <path>` per frame to t
 
 A failed upload exits non-zero after the PR is already created or edited, so the exit status does not say whether the PR exists: read the URL `gh` prints and check the body before running anything again. Frames that did not upload fall back to route 3.
 
-### 7. Post the summary to the related issue
+### 8. Post the summary to the related issue
 
 When the body carries `Fixes #N`, or a `#N` on the Related line before `later:`, and the issue is open, add one comment with the stakeholder block and the PR link:
 
@@ -76,16 +87,16 @@ When the body carries `Fixes #N`, or a `#N` on the Related line before `later:`,
 gh issue comment "$N" --body-file "$summary_file"
 ```
 
-The comment begins with the block from step 4, followed by one line: `Delivered in <PR URL>.` Without a GitHub issue reference, say so in the report and move on.
+The comment begins with the block from step 5, followed by one line: `Delivered in <PR URL>.` Without a GitHub issue reference, say so in the report and move on.
 
-### 8. Report
+### 9. Report
 
-Report in the chat language, in this order, then continue to step 9; in `describe` mode this report ends the run:
+Report in the chat language, in this order, then continue to step 10; in `describe` mode this report ends the run:
 
 1. **PR status:** PR URL, evidence (frame count and where they are hosted, or why none), issue comment URL or "no related issue", and what the user should do next. In `describe` mode, report the updated PR and omit checks and actions that mode did not run.
-2. **For the manager:** reuse the stakeholder block written into the PR in step 4. Translate it into the chat language when needed, preserving its meaning and claims.
+2. **For the manager:** reuse the stakeholder block written into the PR in step 5. Translate it into the chat language when needed, preserving its meaning and claims.
 3. **Optional explanation:** when the PR is large or complex, offer to create an `explain-diff-html` page and briefly name what would benefit from a visual walkthrough (for example, changes across several subsystems, a migration, or a non-obvious control flow). Run that skill only if the user accepts the offer. Omit the offer for a small, straightforward PR.
 
-### 9. Babysit the PR
+### 10. Babysit the PR
 
 Invoke the `ce-babysit-pr` skill with the PR number and stay in its default watch mode until it reaches a stop condition; its own final report ends the run. Pass `checkpoint` when the user asked for a single tick or said this session must stay free.
