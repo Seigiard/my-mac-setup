@@ -32,7 +32,9 @@ no table receives no setup or fresh-base mutation.
 
 ## Selected repository policies
 
-The 2026-11-15 review covered only the 22 repositories selected by the user.
+The 2026-11-15 review covers the 21 repositories remaining in the user's
+selected scope. `dicex` was explicitly excluded from worktree setup at the
+user's request.
 The policy adds setup only where the repository has a documented,
 non-interactive dependency step or needs an existing ignored local file.
 Every install is scoped to the checkout and uses its lockfile where the
@@ -43,12 +45,11 @@ project provides one. No fresh-base policy was added.
 | `github.com/Seigiard/agent-reports` | `npm ci --prefix worker`; `uv sync --locked --directory cli`. The worker owns `worker/package-lock.json`; the CLI owns `cli/uv.lock`. |
 | `github.com/Seigiard/my-mac-setup` | Existing policy preserved: `fresh-base = true` and `npm ci`. No new setup behavior was added. |
 | `github.com/Seigiard/Bento` | `bun install --frozen-lockfile` from the Bun CI workflow and `bun.lock`. |
-| `github.com/Seigiard/dicex` | `yarn install --frozen-lockfile` from the documented Yarn setup and `yarn.lock`. |
 | `github.com/Seigiard/dnd-generator` | Copy the existing ignored `.env.local`, then run `bun install --frozen-lockfile`. The copy preserves the local `NEXT_PUBLIC_CONVEX_URL`; its value is not read or recorded. |
 | `github.com/Seigiard/epg-scrapper` | `npm ci`, documented in the README and CI, with `package-lock.json`. |
 | `github.com/Seigiard/herdr-worktree-setup` | `npm ci`, required by the development README and CI, with `package-lock.json`. |
 | `github.com/Seigiard/jk-nav` | `npm ci`, documented in the README and CI, with `package-lock.json`. |
-| `github.com/Seigiard/opds-generator` | `bun install --frozen-lockfile` from CI, with `bun.lock`. |
+| `github.com/Seigiard/opds-generator` | Initialize `ui/vendor/foliate-js` with Git, then run selected policy `bun install --frozen-lockfile` with `bun.lock`. CI runs plain `bun install` at `.github/workflows/docker.yml:34-35`; the frozen flag matches the production Dockerfile stage. |
 | `github.com/Seigiard/opds-viewer` | `bun install --frozen-lockfile` from the repository instructions and CI, with `bun.lock`. |
 | `github.com/Seigiard/opml-generator` | `bun install --frozen-lockfile` from CI, with `bun.lock`. |
 | `github.com/Seigiard/owlbear-muster-roll` | `bun install --frozen-lockfile` from CI, with `bun.lock`. |
@@ -72,6 +73,9 @@ These five selected repositories remain without a table:
   Docker or initializing a database is outside worktree setup.
 - `github.com/Seigiard/ttrpg-typst` — tests depend on globally installed
   `tytanic` and Python, with no lock-backed project setup.
+
+`github.com/Seigiard/dicex` is excluded from the selected policy scope at the
+user's request. It has no worktree setup table.
 
 The selected review did not install dependencies, start services or
 containers, run device actions, deploy, or read secret values. Commands were

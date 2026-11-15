@@ -7,9 +7,6 @@ steps = ["npm ci --prefix worker", "uv sync --locked --directory cli"]
 [projects."github.com/Seigiard/Bento"]
 steps = ["bun install --frozen-lockfile"]
 
-[projects."github.com/Seigiard/dicex"]
-steps = ["yarn install --frozen-lockfile"]
-
 [projects."github.com/Seigiard/dnd-generator"]
 copy = [".env.local"]
 steps = ["bun install --frozen-lockfile"]
@@ -24,7 +21,10 @@ steps = ["npm ci"]
 steps = ["npm ci"]
 
 [projects."github.com/Seigiard/opds-generator"]
-steps = ["bun install --frozen-lockfile"]
+steps = [
+  "git submodule update --init --recursive -- ui/vendor/foliate-js",
+  "bun install --frozen-lockfile",
+]
 
 [projects."github.com/Seigiard/opds-viewer"]
 steps = ["bun install --frozen-lockfile"]
