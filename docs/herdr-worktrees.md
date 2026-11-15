@@ -30,6 +30,55 @@ run it by fixed path. Its sole policy file is
 `origin` remote, matching the former Worktrunk project keys. A repository with
 no table receives no setup or fresh-base mutation.
 
+## Selected repository policies
+
+The 2026-11-15 review covered only the 22 repositories selected by the user.
+The policy adds setup only where the repository has a documented,
+non-interactive dependency step or needs an existing ignored local file.
+Every install is scoped to the checkout and uses its lockfile where the
+project provides one. No fresh-base policy was added.
+
+| Canonical origin | Worktree setup |
+| --- | --- |
+| `github.com/Seigiard/agent-reports` | `npm ci --prefix worker`; `uv sync --locked --directory cli`. The worker owns `worker/package-lock.json`; the CLI owns `cli/uv.lock`. |
+| `github.com/Seigiard/my-mac-setup` | Existing policy preserved: `fresh-base = true` and `npm ci`. No new setup behavior was added. |
+| `github.com/Seigiard/Bento` | `bun install --frozen-lockfile` from the Bun CI workflow and `bun.lock`. |
+| `github.com/Seigiard/dicex` | `yarn install --frozen-lockfile` from the documented Yarn setup and `yarn.lock`. |
+| `github.com/Seigiard/dnd-generator` | Copy the existing ignored `.env.local`, then run `bun install --frozen-lockfile`. The copy preserves the local `NEXT_PUBLIC_CONVEX_URL`; its value is not read or recorded. |
+| `github.com/Seigiard/epg-scrapper` | `npm ci`, documented in the README and CI, with `package-lock.json`. |
+| `github.com/Seigiard/herdr-worktree-setup` | `npm ci`, required by the development README and CI, with `package-lock.json`. |
+| `github.com/Seigiard/jk-nav` | `npm ci`, documented in the README and CI, with `package-lock.json`. |
+| `github.com/Seigiard/opds-generator` | `bun install --frozen-lockfile` from CI, with `bun.lock`. |
+| `github.com/Seigiard/opds-viewer` | `bun install --frozen-lockfile` from the repository instructions and CI, with `bun.lock`. |
+| `github.com/Seigiard/opml-generator` | `bun install --frozen-lockfile` from CI, with `bun.lock`. |
+| `github.com/Seigiard/owlbear-muster-roll` | `bun install --frozen-lockfile` from CI, with `bun.lock`. |
+| `github.com/Seigiard/scribd-dl` | `bun install --frozen-lockfile` from the README and CI, with `bun.lock`. |
+| `github.com/Seigiard/seigiard.github.io` | `bun install --frozen-lockfile` from the README and CI, with `bun.lock`. |
+| `github.com/Seigiard/sync-engine` | `bun install --frozen-lockfile`, with `bun.lock` and the Bun prerequisite in `AGENTS.md`. |
+| `github.com/Seigiard/ttrpg-map-viewer` | `bun install --frozen-lockfile` from the repository instructions and CI, with `bun.lock`. |
+| `github.com/Seigiard/ttrpg-tools` | `bun install --frozen-lockfile` from the README and CI, with `bun.lock`. Chromium remains a separate browser prerequisite. |
+
+These five selected repositories remain without a table:
+
+- `github.com/Seigiard/herdr-command-palette` — no project dependency
+  manifest or lockfile; checks use Python, Bash, and globally installed
+  Lefthook.
+- `github.com/Seigiard/herdr-pane-labels` — no project dependency manifest
+  or lockfile; checks use Bash, ShellCheck, and globally installed Lefthook.
+- `github.com/Seigiard/homelab` — no dependency manifest or lockfile; the
+  documented install flow is interactive and mutating.
+- `github.com/yochaigal/kettlewright` — the supported setup is a Docker
+  devcontainer that installs dependencies and applies migrations. Starting
+  Docker or initializing a database is outside worktree setup.
+- `github.com/Seigiard/ttrpg-typst` — tests depend on globally installed
+  `tytanic` and Python, with no lock-backed project setup.
+
+The selected review did not install dependencies, start services or
+containers, run device actions, deploy, or read secret values. Commands were
+matched against each repository's manifest, lockfile, README, instructions,
+or CI workflow. Existing ignored files were considered only by path,
+regular-file status, and Git ignore/tracking status.
+
 ## Repository policies
 
 `membranehq/platform` retains the setup behavior of its `make worktree` target:

@@ -1,6 +1,55 @@
 # One table per canonical origin remote. A repository without a table is left
 # untouched. Fresh-base runs before copied files and setup commands.
 
+[projects."github.com/Seigiard/agent-reports"]
+steps = ["npm ci --prefix worker", "uv sync --locked --directory cli"]
+
+[projects."github.com/Seigiard/Bento"]
+steps = ["bun install --frozen-lockfile"]
+
+[projects."github.com/Seigiard/dicex"]
+steps = ["yarn install --frozen-lockfile"]
+
+[projects."github.com/Seigiard/dnd-generator"]
+copy = [".env.local"]
+steps = ["bun install --frozen-lockfile"]
+
+[projects."github.com/Seigiard/epg-scrapper"]
+steps = ["npm ci"]
+
+[projects."github.com/Seigiard/herdr-worktree-setup"]
+steps = ["npm ci"]
+
+[projects."github.com/Seigiard/jk-nav"]
+steps = ["npm ci"]
+
+[projects."github.com/Seigiard/opds-generator"]
+steps = ["bun install --frozen-lockfile"]
+
+[projects."github.com/Seigiard/opds-viewer"]
+steps = ["bun install --frozen-lockfile"]
+
+[projects."github.com/Seigiard/opml-generator"]
+steps = ["bun install --frozen-lockfile"]
+
+[projects."github.com/Seigiard/owlbear-muster-roll"]
+steps = ["bun install --frozen-lockfile"]
+
+[projects."github.com/Seigiard/scribd-dl"]
+steps = ["bun install --frozen-lockfile"]
+
+[projects."github.com/Seigiard/seigiard.github.io"]
+steps = ["bun install --frozen-lockfile"]
+
+[projects."github.com/Seigiard/sync-engine"]
+steps = ["bun install --frozen-lockfile"]
+
+[projects."github.com/Seigiard/ttrpg-map-viewer"]
+steps = ["bun install --frozen-lockfile"]
+
+[projects."github.com/Seigiard/ttrpg-tools"]
+steps = ["bun install --frozen-lockfile"]
+
 [projects."github.com/membranehq/platform"]
 fresh-base = true
 copy = [
