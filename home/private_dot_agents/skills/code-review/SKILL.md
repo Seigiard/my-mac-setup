@@ -69,19 +69,14 @@ round; apply the follow-up policy below on every return to this step.
 When the user has not pinned a profile, choose each follow-up profile without an approval
 question. This replaces revmux's Step 7 profile-selection question:
 
-- Use `final` when all eligible findings have been addressed and the fixes stayed within
-  the surface already examined. The surface is the set of public functions, options,
-  commands, file formats, dependencies, and modules the earlier rounds read. Handling
-  another input in an existing function, a new test for it, and a contained documentation
-  fix all stay within that surface.
-- Use the starting profile when a fix adds to the surface. Restore it even when the
-  preceding round was `final`.
+- Every confirming round runs on `final`: it checks the fixes and blocking defects and does
+  not search for new minors.
 - A partial or failed review cannot justify narrowing; resolve its missing coverage first.
 
-Announce the selected profile and the reason, then launch. `final` checks fixes and blocking
-defects; it does not search for new minors. Carry unresolved findings and decisions forward:
-a finding omitted by the narrower profile is not thereby resolved. Report the resulting
-coverage explicitly instead of claiming that a final round proves there are no minors.
+Announce the selected profile and the reason, then launch. Carry unresolved findings and
+decisions forward: a finding omitted by the narrower profile is not thereby resolved. Report
+the resulting coverage explicitly instead of claiming that a final round proves there are no
+minors.
 
 ### Prepare and collect the round
 
@@ -186,11 +181,11 @@ reachable finding keeps the reviewer's severity. Every other finding is **polish
 graded `minor`. A **behavior gap** on a reachable path keeps that path's grade; a finding
 that asks only for a test, with the code correct, is `minor`.
 
-A **fix round** is a round whose routed findings produced fix commits; the budget is five per
-review loop. The loop is in **closeout** once the two latest rounds graded nothing above
-`minor`, or once five fix rounds have been verified. In closeout, route no fix: defer every
-remaining `minor`, and put a reachable critical or major to the user as a decision brief on
-raising the budget.
+A **fix round** is a round whose routed findings produced fix commits; the budget is two per
+review loop. Each fix round is followed by one confirming round on `final`. The loop is in
+**closeout** once a confirming round graded nothing above `minor`, or once the second fix round
+has been confirmed. In closeout, route no fix: defer every remaining `minor`, and put a
+reachable critical or major to the user as a decision brief on raising the budget.
 
 A reachable finding against the mechanism the previous round's fix changed, when it is not
 that round's defect returning, means the mechanism is wrong rather than one instance of it.
@@ -231,8 +226,10 @@ tool's output. When a later round shows a routed criterion wrong, correct it in 
 and note the correction in that round's review file; a second correction of the same
 criterion is a decision. A **behavior gap** or a **suspect
 test** gets a test writer; every other supported finding is **code-only** and goes to one
-implementer against the existing lock, or checks-only when there is none. `tdd` owns the child
-modes, tiers, calibration, turn budget, and the response to a failure.
+implementer against the existing lock, or checks-only when there is none. The review batch
+runs light: the extended lock is accepted on **Scope**, **Results**, and **Oracle** alone, and
+no calibration is planned for it unless the finding itself is a false-green risk. `tdd` owns
+the child modes, tiers, turn budget, and the response to a failure.
 
 Children commit fixes on the reviewed branch. Pushes and PR
 creation follow the two-way-door rule in the global `CLAUDE.md`. Editing a fetched PR or running under `mode:agent`
@@ -249,10 +246,10 @@ caller still checks styling in code-review's own step 3.
 Apply these rules in order:
 
 1. If checks fail or coverage is incomplete, stop as blocked.
-2. If this round produced fix commits and caller verification passed, return to step 2. This
-   includes minor-only fixes and edits to docs, prompts, or skills: every fix gets a
-   confirming round, even when another finding still needs a decision.
-3. Otherwise finish: this complete round routed no fix. An unresolved reachable critical or
+2. If this round produced fix commits and caller verification passed, return to step 2 for its
+   confirming round on `final`. This includes minor-only fixes and edits to docs, prompts, or
+   skills, even when another finding still needs a decision.
+3. Otherwise finish: this complete round routed no fix, or the loop is in closeout. An unresolved reachable critical or
    major, a closeout decision included, leaves the review blocked; skipping it does not make
    the review clean. Report deferred findings and open decisions as remaining work, not as an
    empty findings list.
