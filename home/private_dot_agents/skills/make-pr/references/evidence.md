@@ -1,6 +1,6 @@
 # Capturing evidence
 
-Read from make-pr step 3. The outcome is a set of captioned frames, each with a URL or a listed local path, feeding the Visuals line.
+Read from make-pr step 4. The outcome is a set of captioned frames, each with a URL or a listed local path, feeding the Visuals line.
 
 ## Decide the surface
 
