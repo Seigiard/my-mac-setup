@@ -579,6 +579,7 @@ export default class Spaces extends View {
 
       return [this.row(r, t, joined), ...this.agentRows(r, t, crew, joined)];
     };
+
     const remote = [...new Set([...rows.map(r => r.w.machine).filter(Boolean), ...this.machines.map(m => m.name), ...Object.keys(this.reconnecting)])].sort();
 
     const loading = m => {
