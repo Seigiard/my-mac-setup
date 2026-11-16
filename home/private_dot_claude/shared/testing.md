@@ -17,6 +17,7 @@ Reached from the testing pointer in `~/.claude/CLAUDE.md` and from the `tdd` ski
   expect(calculateTotal([{ price: 10 }, { price: 5 }])).toBe(15);
   ```
 - **Editing a test is authoring it.** Changing expected values, renaming what a test calls, or porting it to a new API re-opens this gate: write the oracle line for the version you keep, or delete it and name the contract that goes uncovered.
+- **A port is authored once per contract, not once per file.** A **port** is a test or fixture change where the data format or API shape changes and the rule the tests protect does not. The ported tests share one oracle line that names the contract and the literal it fixes in the new shape; every file that line covers is ported mechanically against it, and red before green is owed to that contract's owner test once, not to each ported file. A ported test whose expected value has to change for a reason the line does not give has found a contract change: it leaves the port and takes this gate on its own.
 
 ### Select checks before execution
 
