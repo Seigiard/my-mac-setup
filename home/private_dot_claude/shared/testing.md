@@ -17,28 +17,12 @@ Reached from the testing pointer in `~/.claude/CLAUDE.md` and from the `tdd` ski
   expect(calculateTotal([{ price: 10 }, { price: 5 }])).toBe(15);
   ```
 - **Editing a test is authoring it.** Changing expected values, renaming what a test calls, or porting it to a new API re-opens this gate: write the oracle line for the version you keep, or delete it and name the contract that goes uncovered.
-- **Rendered text is behavior.** Pin a label or summary's format with one example, then assert the rules the text obeys — entries that read distinctly, each carrying its own record's fields, agreeing with the pipeline's own output.
-- Prefer one behavioral, deployment, or validation owner; keep exact text only for externally consumed literal contracts and inventories only when they compare independent sides of a relationship.
-- **Verify through the interface, not beside it.** A test that reads the database, a private field, or a spy on an internal collaborator is **implementation-coupled**: it breaks on a refactor that changes no behavior, and it stays green when the interface lies. Observe the result the way a caller would.
-
-  ```typescript
-  // implementation-coupled: bypasses the interface to verify
-  await createUser({ name: "Alice" });
-  const row = await db.query("SELECT * FROM users WHERE name = ?", ["Alice"]);
-  expect(row).toBeDefined();
-
-  // contract: the caller's own path answers
-  const user = await createUser({ name: "Alice" });
-  expect((await getUser(user.id)).name).toBe("Alice");
-  ```
-- Behavior owned by an upstream system — a tool you route input to, a library you call — has no valid local oracle. Do not reimplement it locally to make it testable; route to its real interface and leave its semantics untested here.
-- Removing a dependency, command, config entry, or file does not by itself justify an absence assertion. Test the capability that remains, or exercise the real deployment/runtime transition that clears stale state — never a source grep.
 
 ### Select checks before execution
 
 - Before running checks, identify the affected behavior each check verifies.
 - Reuse passing results while the state within their coverage is unchanged.
-- If a mandatory check is irrelevant to the affected behavior, surface that conflict before running it and ask for a decision. Do not silently skip it or spend time on a known-irrelevant gate.
+- If a mandatory check is irrelevant to the affected behavior, surface that conflict before running it and ask for a decision.
 
 ### False green
 
@@ -66,8 +50,27 @@ A unit is tested when its happy path, every error path it can produce, its empty
 - One logical assertion per test
 - Descriptive test names that explain the scenario
 
+### Observe the contract
+
+- **Verify through the interface.** Observe the result the way the consumer named in the oracle line would. A test that substitutes a database row, a private field, or a spy on an internal collaborator for that interface is **implementation-coupled**: it breaks on a refactor that changes no behavior, and it stays green when the interface lies. A database read is the interface only when the database itself is the contract the consumer reads.
+
+  ```typescript
+  // implementation-coupled: bypasses the interface to verify
+  await createUser({ name: "Alice" });
+  const row = await db.query("SELECT * FROM users WHERE name = ?", ["Alice"]);
+  expect(row).toBeDefined();
+
+  // contract: the caller's own path answers
+  const user = await createUser({ name: "Alice" });
+  expect((await getUser(user.id)).name).toBe("Alice");
+  ```
+- **Rendered text is behavior.** Pin a label or summary's format with one example, then assert the rules the text obeys — entries that read distinctly, each carrying its own record's fields, agreeing with the pipeline's own output.
+- Prefer one behavioral, deployment, or validation owner; keep exact text only for externally consumed literal contracts and inventories only when they compare independent sides of a relationship.
+- Behavior owned by an upstream system — a tool you route input to, a library you call — has no valid local oracle. Do not reimplement it locally to make it testable; route to its real interface and leave its semantics untested here.
+- Removing a dependency, command, config entry, or file does not by itself justify an absence assertion. Test the capability that remains, or exercise the real deployment/runtime transition that clears stale state — never a source grep.
+
 ### Mocking
 
-- Mock at **system boundaries** only: external APIs, time and randomness, and a database or file system when a real disposable one is unavailable. Your own modules, internal collaborators, and the unit under test run real: a mock there is the implementation-coupled form above.
+- Mock at **system boundaries** only: external APIs, time and randomness, and a database or file system when a real disposable one is unavailable. Your own modules, internal collaborators, and the unit under test run real: a mock there is implementation-coupled.
 - Reset mocks between tests.
-- Design the boundary so a mock is one value, not a program. Pass the external client in (dependency injection) instead of constructing it inside the unit, and expose one function per external operation (`api.getUser(id)`, `api.createOrder(data)`) instead of one generic `api.fetch(endpoint, options)`: each mock then returns one shape, and the test setup carries no conditional logic.
+- A mock is one value, not a program: each mock returns one shape, and the test setup carries no branch. When the production change is yours to shape, design the boundary for that: pass the external client in (dependency injection) instead of constructing it inside the unit, and expose one function per external operation (`api.getUser(id)`, `api.createOrder(data)`) instead of one generic `api.fetch(endpoint, options)`. When it is not, mock the boundary as it stands and report the seam that forced a branching mock.
