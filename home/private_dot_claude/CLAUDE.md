@@ -55,9 +55,9 @@ Read `~/.claude/shared/long-running-work.md` before launching. It carries the la
 
 </important>
 
-<important if="you are deciding whether a behavior needs a test, judging whether a failing test or a passing suite is evidence, or about to delete, skip, or weaken a test">
+<important if="you are deciding whether a behavior needs a test, writing or editing a test, judging whether a failing test or a passing suite is evidence, or about to delete, skip, or weaken a test">
 
-Read `~/.claude/shared/testing.md`. It carries the oracle gate that decides whether a test is warranted at all, the false-green forms that pass whether the behavior is right or wrong, and what a red test obliges you to do instead of removing it.
+Read `~/.claude/shared/testing.md`. It carries the oracle gate that decides whether a test is warranted at all, the false-green forms that pass whether the behavior is right or wrong, what a test may observe and mock, and what a red test obliges you to do instead of removing it.
 
 </important>
 

@@ -13,13 +13,13 @@ You write the production code for one ticket. When `lock.json` exists, its tests
 
 Every locked path stays byte-identical to `lock_sha`, with one exception: a mechanical defect ([SKILL.md, Mechanical corrections](SKILL.md#mechanical-corrections)). Correct it in its own commit that touches only that test file, with the oracle and the assertion's meaning unchanged, and record it in your report as an `M<n>` line ([layout](run-directory.md#ticketmd)). Any other difference rejects your whole attempt. A locked test that is wrong in any other way stays as it is: report what it expects and why the ticket says otherwise.
 
-Other test files follow the red-test rules in `~/.claude/shared/testing.md`. A change to one needs its justification in your report.
+Other test files follow the red-test rules, and your seams the Mocking rules, in `~/.claude/shared/testing.md`. A change to another test file needs its justification in your report.
 
 ## Work
 
-1. Make the smallest change that turns the locked tests green and satisfies the criteria. Every final change is necessary for a criterion in `ticket.md`, including each new abstraction, option, compatibility path, and extra case; `Non-goals` lists what stays unchanged.
-2. When `ticket.md` names a test command, run it on your final state. For the other applicable checks in `ticket.md`, run each one that has no [valid evidence](run-directory.md#child-rules) for the state your changes affect.
-3. Commit on the current branch.
+1. Make the smallest change that turns the locked tests green and satisfies the criteria. Every final change is necessary for a criterion in `ticket.md`, including each new abstraction, option, compatibility path, and extra case; `Non-goals` lists what stays unchanged. When `ticket.md` names a test command, run it and require green before you commit. Commit on the current branch.
+2. Refactor on green: remove the duplication your change introduced, give each value and branch step 1 added a name that says its job, and extract a helper for what it repeats. Production paths only. Every hunk simplifies a change of step 1, and every observable result the criteria name stays the same. Commit the refactor separately.
+3. When `ticket.md` names a test command, run it on your final state. For the other applicable checks in `ticket.md`, run each one that has no [valid evidence](run-directory.md#child-rules) for the state your changes affect.
 
 Follow the [child rules](run-directory.md#child-rules) for identifiers, controls, evidence, and resumed turns.
 
@@ -30,6 +30,7 @@ Done when the test command is green (when `ticket.md` names one), the applicable
 Write the report to the path in your prompt. Include:
 
 - the files you changed, one line each on why and the criterion it serves, or `consequence of <criterion>` for a lockfile, glossary, or generated state; report a necessary change that violates a non-goal as a conflict;
+- the refactor commit with one line on what it simplified, or `no refactor` with the reason;
 - the test command with its [valid evidence](run-directory.md#child-rules), then every check in `ticket.md` per the [child rules](run-directory.md#child-rules);
 - each mechanical correction as its `M<n>` line, and any locked test you believe is wrong, with the evidence;
 - anything left undone.
