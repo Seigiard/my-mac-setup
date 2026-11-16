@@ -832,7 +832,7 @@ export default class Spaces extends View {
 
     return h_flex()
       .id(`space-agent-${address}`)
-      .pt(4).pb(7)
+      .pt(4).pb(4)
       .flex_none()
       .pl(indent)
       .pr(8)
