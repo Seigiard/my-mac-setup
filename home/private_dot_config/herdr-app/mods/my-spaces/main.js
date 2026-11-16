@@ -572,7 +572,13 @@ export default class Spaces extends View {
       now: Date.now(),
     };
 
-    const draw = (r) => (collapsed ? [this.compact(r, t)] : [this.row(r, t), ...this.agentRows(r, t, crew)]);
+    const draw = (r) => {
+      if (collapsed) return [this.compact(r, t)];
+      // The active space and its focused first agent touch: one block, small corners where they meet.
+      const joined = r.w.active && Boolean(this.spaceAgents(r.w, crew)[0]?.focused);
+
+      return [this.row(r, t, joined), ...this.agentRows(r, t, crew, joined)];
+    };
     const remote = [...new Set([...rows.map(r => r.w.machine).filter(Boolean), ...this.machines.map(m => m.name), ...Object.keys(this.reconnecting)])].sort();
 
     const loading = m => {
@@ -664,7 +670,7 @@ export default class Spaces extends View {
       ].filter(Boolean))));
   }
 
-  row({ w, i, g, tree, key }, t) {
+  row({ w, i, g, tree, key }, t, joined = false) {
     const on = w.active;
     const pr = this.pr[key] ?? null;
     const extra = (g ? 1 : 0) + (pr ? 1 : 0);
@@ -682,7 +688,8 @@ export default class Spaces extends View {
       .h(rowHeight({ extra }))
       .flex_none()
       .justify_center()
-      .rounded(8)
+      .when(!joined, (el) => el.rounded(8))
+      .when(joined, (el) => el.rounded_t(8).rounded_b(5))
       .when(on, (el) => el.bg(t.selected))
       .when(!on, (el) => el.hover((s) => s.bg(t.hover)))
       .when(this.pressed === i && this.over !== i, (el) => el.opacity(0.5))
@@ -746,14 +753,22 @@ export default class Spaces extends View {
     });
   }
 
+  // The space's top-level agents. A sub-agent with a pane of its own is in
+  // agents() too; it shows under its parent.
+  spaceAgents(w, { list, byAddress }) {
+    const listed = new Set(list.map((a) => a.address));
+
+    return list.filter((a) => a.space === w.id && !listed.has(byAddress.get(a.address)?.parent));
+  }
+
   // The space's agents under it, one level deeper than the space, their sub-agents deeper still.
-  agentRows({ w }, t, { list, byAddress, meta, now }) {
+  agentRows({ w }, t, crew, joined = false) {
+    const { list, byAddress, meta, now } = crew;
     const listed = new Map(list.map((a) => [a.address, a.status]));
-    // A sub-agent with a pane of its own is in agents() too; it shows under its parent.
-    const mine = list.filter((a) => a.space === w.id && !listed.has(byAddress.get(a.address)?.parent));
+    const mine = this.spaceAgents(w, crew);
     const all = [...byAddress.values()];
 
-    return mine.flatMap((a) => {
+    return mine.flatMap((a, n) => {
       const terminal = byAddress.get(a.address);
       const step = a.status === "working" ? clean(terminal?.report?.msg) : null;
 
@@ -769,6 +784,7 @@ export default class Spaces extends View {
         indent: 27,
         now,
         open: () => run("pane.focus", { pane: a.pane }),
+        joined: joined && n === 0,
       });
 
       const subs = this.kids(all, a.address).map(({ k, lines }) => {
@@ -800,8 +816,8 @@ export default class Spaces extends View {
   }
 
   // sub: a sub-agent, drawn quieter, at the size of the line under it.
-  agentRow(t, { address, status, program, focused, name, doing, since, lines, indent, now, open, sub = false }) {
-    const pic = programIcon(program, sub ? 10 : 13, t.foreground);
+  agentRow(t, { address, status, program, focused, name, doing, since, lines, indent, now, open, sub = false, joined = false }) {
+    const pic = programIcon(program, sub ? 10 : 11, t.foreground);
 
     // One column per tree level: │ runs the whole row, ├ and └ bend into the icon,
     // inside the row from its top to the first line's middle. A bend is 12 wide
@@ -821,22 +837,26 @@ export default class Spaces extends View {
       .pl(indent)
       .pr(8)
       .items_center()
-      .rounded(8)
+      .when(!joined, (el) => el.rounded(8))
+      .when(joined, (el) => el.rounded_t(5).rounded_b(8))
       .cursor_pointer()
       .when(focused, (el) => el.bg(t.selected))
       .when(!focused, (el) => el.hover((s) => s.bg(t.hover)))
       .on_click(open)
       .children(lines.map(line))
+      // What it is doing and its state first; who it is under that.
       .child(v_flex().flex_1().min_w(0).justify_center()
         .child(h_flex().h(sub ? 13 : 15).gap(sub ? 5 : 6).items_center()
-          .when(Boolean(pic), (el) => el.child(pic))
-          .child(div().flex_1().min_w(0).truncate().text_color(t.foreground)
+          .child(div().id(`space-agent-doing-${address}`).flex_1().min_w(0).truncate().text_color(t.foreground)
             .when(sub, (el) => el.text_size(11))
             .when(!sub, (el) => el.text_size(12.5))
-            .child(name))
+            .tooltip(doing)
+            .child(doing))
           .when(Boolean(since), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - since))))
           .child(this.agentState(t, status)))
-        .child(div().id(`space-agent-doing-${address}`).h(15).truncate().text_size(11).text_color(t.dim).tooltip(doing).child(doing)));
+        .child(h_flex().h(15).gap(5).items_center().text_size(11).text_color(t.dim)
+          .when(Boolean(pic), (el) => el.child(pic))
+          .child(div().min_w(0).truncate().child(name))));
   }
 
   compact({ w, i }, t) {
