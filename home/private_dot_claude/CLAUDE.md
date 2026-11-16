@@ -17,7 +17,7 @@ Write plainly in either language: short sentences, common words, one idea per se
 - When you ask me a question and I reply with a question of my own, answer mine first, stop and wait for my decision. A question back means I'm still deciding.
 - Write long texts (replies longer than 5 sentences, and long text in files) using ASD-STE100 (Simplified Technical English) style but in language of communication. Write short replies in normal.
 - When you hand work to a subagent or start a long run, the status line names what will run and about how long it takes. A status I can veto in the first minute beats one I read in the twentieth.
-- That estimate is a **budget**. When elapsed time reaches twice the estimate, switch to **finish mode** at the next checkpoint: start no new work, bring what is running to a result, and report what is done, what remains, and the step that overran. The run ends with that report; I decide whether the remainder continues. The budget binds every child you supervise.
+- That estimate is a **budget**. When elapsed time reaches twice the estimate, the run is in **finish mode** from the next settled child or command: the remaining effort goes only to bringing running work and red checks to a result, and the run ends with a report of what is done, what remains, and the step that overran. I decide whether the remainder continues. The budget binds every child you supervise. A skill with its own budget, such as `tdd` turns or `code-review` fix rounds, enters its own finish mode when either budget runs out.
 
 ## Two-way doors swing freely
 
@@ -38,7 +38,7 @@ Work that no skill chain owns (a merge conflict, a red check with a plain cause,
 - **Mechanical**: the result is known before you start. The evidence is in hand and one resolution is sensible: the union of two lists, the later of two dates, the import a lint names. Do it yourself in this session and verify it by reading the result. Run the checks whose coverage includes a changed path; a project's full pre-commit list covers the commits that touch what it tests, and PR CI is the backstop for the rest.
 - **Judgment**: the result takes reading, choosing, or running to find. The skill's path applies, delegation included.
 
-The label carries its cost: once you have called work mechanical, your own hands and a read of the diff are the whole process. This is what `ce-babysit-pr` means by a mechanical repair and by validating proportionally. A chain (`implement`, `tdd`, `code-review`, `make-pr`) decides its own delegation; this rule governs the work between chains.
+The label carries its cost: once you have called work mechanical, your own hands and a read of the diff are the whole process. This is what `ce-babysit-pr` means by a mechanical repair and by validating proportionally. A chain (`implement`, `implement-spec`, `pf-build`, `tdd`, `code-review`, `make-pr`) decides its own delegation; this rule governs the work between chains.
 
 <important if="you are reviewing code or running a pre-PR review">
 

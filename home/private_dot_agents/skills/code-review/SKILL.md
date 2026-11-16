@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: Default code review and pre-PR review. Choose the review route, delegate confirmed fixes to fresh tdd chain children, and repeat after fixes. Use when asked to review code, a diff, a branch, or a PR.
+description: Default code review and pre-PR review. Choose the review route, fix confirmed findings through fresh tdd chain children or a direct commit, and repeat after fixes. Use when asked to review code, a diff, a branch, or a PR.
 argument-hint: "[scope | PR URL/number | base:<ref>] [plan:<path>] [--profile <name>] [mode:agent]"
 ---
 
@@ -104,7 +104,7 @@ recorded so far forward; on the revmux route that is one `--exclude` per exclusi
 inject prior findings and describe the current scope rather than copying old reports into it.
 Later rounds reuse the same run directory and its lock and Verdicts.
 Reviewers are report-only: they inspect the checkout without editing it or running tests;
-fixes go to fresh `tdd` chain children and verification stays with the caller.
+step 4 routes the fixes and verification stays with the caller.
 
 Include available verification results in the round context, naming their commands and the
 state they cover; on the revmux route, write them to the `--context-file` under the same file
@@ -174,10 +174,10 @@ reachable finding keeps the reviewer's severity. Every other finding is **polish
 graded `minor`. A **behavior gap** on a reachable path keeps that path's grade; a finding
 that asks only for a test, with the code correct, is `minor`.
 
-A **fix round** is a round whose routed findings produced fix commits; the budget is two per
+A **fix round** is a round whose verdicts produced fix commits, `direct` included; the budget is two per
 review loop. Each fix round is followed by one confirming round (step 2). The loop is in
 **closeout** once a confirming round graded nothing above `minor`, or once the second fix round
-has been confirmed. In closeout, route no fix: defer every remaining `minor`, and report a
+has been confirmed. In closeout, apply no fix, `direct` included: defer every remaining `minor`, and report a
 reachable critical or major as remaining work; the loop then finishes blocked (step 5).
 
 A reachable finding against the mechanism the previous round's fix changed, when it is not
@@ -195,10 +195,9 @@ round, review the new state before routing stale findings. Report the round's fi
 and the `good-css` results briefly, then act without another approval prompt:
 
 - Fix a reachable `critical` or `major` in the agreed scope through fresh `tdd` chain children.
-- Fix a reachable `minor` yourself, verdict `direct`, when its remedy is **mechanical**: the
-  exact change is known before you start, from the finding's body or the current source; it is
-  one local, reversible edit; it touches no locked path; and it adds no behavior a test would
-  have to cover.
+- Fix a reachable `minor` yourself, verdict `direct`, when its remedy is **mechanical** (global
+  `CLAUDE.md`, Mechanical or judgment) and local, touches no locked path, and adds no behavior a
+  test would have to cover.
 - Fix any other reachable `minor` through a fresh child when its defect and remedy are clear,
   the edit is one local, reversible change, and it needs no product decision, design choice, or
   taste judgment.
@@ -215,22 +214,22 @@ Before the first delegation, run `tdd`'s "Before the chain" in the run directory
 `ticket.md`; this performs the clean-tree check and defines the review scope and goal.
 
 Fix the mechanism, including matching in-scope occurrences, rather than only the quoted
-example. Each round's routed findings form one `tdd` batch: run `tdd` steps 1-2 for them in the
+example. Each round's `test` and `code` findings form one `tdd` batch; `direct` fixes stay outside it. Run `tdd` steps 1-2 for them in the
 existing run directory, reusing the fields an earlier batch recorded when they are unchanged,
 then enter through `tdd`'s "Entering mid-chain" section. Copy every literal in a routed
 criterion, such as an expected string, escape, or number, from the finding's body or from a
 tool's output. When a later round shows a routed criterion wrong, correct it in `ticket.md`
 and note the correction in that round's review file; a second correction of the same
 criterion is a decision. A **behavior gap** or a **suspect
-test** gets a test writer; every other supported finding is **code-only** and goes to one
+test** gets a test writer; every other `code` finding is **code-only** and goes to one
 implementer against the existing lock, or checks-only when there is none. `tdd` owns the
 batch's path, the child modes, tiers, calibration, turn budget, and the response to a failure.
 
-Apply `direct` fixes after the round's `tdd` batch passes `tdd` step 5, or at once when the
-round routed none: one commit per finding, touching only its paths. Verify them yourself: read
-the diff, confirm the lock diff still exits 0 when a lock exists, run the checks whose coverage
-includes a changed path, and confirm the worktree is clean. A `direct` fix that fails a check
-is reverted and routed as `code`.
+Apply `direct` fixes once the round's `tdd` batch has settled, passed or blocked, or at once
+when the round has no `test` or `code` finding: one commit per finding, touching only its paths.
+Verify them as the mechanical rule says, then confirm the lock diff still exits 0 when a lock
+exists and the worktree is clean. A `direct` fix that fails a check is reverted; the finding
+carries to the next round with verdict `code`, or is deferred in closeout.
 
 Children, and the caller for `direct` fixes, commit on the reviewed branch. Pushes and PR
 creation follow the two-way-door rule in the global `CLAUDE.md`. Editing a fetched PR or running under `mode:agent`
@@ -247,7 +246,8 @@ caller still checks styling in code-review's own step 3.
 
 Apply these rules in order:
 
-1. If checks fail or coverage is incomplete, stop as blocked.
+1. If checks fail, coverage is incomplete, or the round's `tdd` batch ended blocked, stop as
+   blocked and report the batch's remaining work.
 2. If this round produced fix commits and caller verification passed, return to step 2 for its
    confirming round. This includes minor-only fixes and edits to docs, prompts, or
    skills, even when another finding still needs a decision.

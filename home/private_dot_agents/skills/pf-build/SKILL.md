@@ -29,7 +29,7 @@ Invoked as `/pf-build <epic-or-topic>` (the artifact directory's id: a topic slu
 
 ## Autonomy
 
-Run the whole loop autonomously — the user is away and will not answer mid-run. Never ask, never pause, never wait for input. Slicing, dispatching, validating, routing fixes to chain children, merging into the epic branch, and closing tasks are all yours. When something would normally prompt a question, make the most reasonable call and record the assumption in your status report. Genuinely-user decisions (scope changes, contract-spec changes, an approach contradicting the epic's goal, human-only override labels, the final merge to main) get **flagged and routed around** while independent work can advance; when none can, the blocked phase in Each pass takes over.
+Run the whole loop autonomously — the user is away and will not answer mid-run. Never ask, never pause, never wait for input. Slicing, dispatching, validating, routing fixes to chain children, merging into the epic branch, and closing tasks are all yours. When something would normally prompt a question, make the most reasonable call and record the assumption in your status report. Genuinely-user decisions (scope changes, contract-spec changes, an approach contradicting the epic's goal, human-only override labels, the final merge to main) get **flagged and routed around** while independent work can advance; when none can, the blocked phase in Each pass takes over. The global time budget ends a pass, not the build: a pass that overruns finishes narrow, and the next heartbeat resumes.
 
 ## Step 0 — Slice the work into sub-tasks
 
@@ -57,7 +57,7 @@ Slicing rules:
 ## Role boundaries
 
 - **Every public surface you write — PR titles and bodies, GitHub review comments, commit messages, Linear text — follows pf-cycle → Naming on public surfaces**: name the product change, don't narrate the cycle. All of it is English (pf-cycle → Language).
-- **Children write every test and every line of code.** The orchestrator slices, decides, validates, rebases, pushes, opens PRs, triages, and merges into the epic branch. Findings follow Findings routing.
+- **Children write every test and every line of code, except a `direct` fix under `code-review` step 4.** The orchestrator slices, decides, validates, rebases, pushes, opens PRs, triages, and merges into the epic branch. Findings follow Findings routing.
 - **The contract spec is binding.** Implementation PRs must conform to it. A sub-task that carries deferred deltas must produce exactly those artifact diffs — verify against the task file. An *unexpected* contract delta (an unplanned Breaking/Notable label, an artifact change no task called for) is a finding: either the PR is wrong (fix it) or the spec missed something (flag for the user). Breaking overrides are human-only — flag, continue with everything else.
 - Don't invent scope: only this run's sub-tasks, nothing else, however green it looks.
 
@@ -103,7 +103,7 @@ There is no local usage meter for opencode. Throttle by policy instead:
 
 ## Findings routing
 
-Every finding on a sub-task — the orchestrator's own contract-delta check or a Greptile P1/P2 on a child PR — gets a verdict as in `code-review` step 4 (`test`, `code`, `decision`, `reject`). Only `test` and `code` verdicts enter `tdd` → Entering mid-chain in that sub-task's run directory. A behavior gap goes to a fresh test writer, then re-lock, then a fresh implementer; a code-only finding goes to a fresh implementer; use one child per role per round. A `decision` is flagged for the user under Autonomy while independent work continues. A `reject` is answered (for Greptile: body block + inline comment with the reason) without a code change. The orchestrator never writes a fix itself and resumes a child only for a handoff gap, as `tdd` → Dispatch describes. After the fix passes `tdd` step 5 again, the orchestrator pushes and answers Greptile (body block + inline comments per repo `CLAUDE.md` → AI PR Review). Greptile P1/P2 on the big PR route the same way, as a ticket on the epic branch.
+Every finding on a sub-task — the orchestrator's own contract-delta check or a Greptile P1/P2 on a child PR — gets a verdict as in `code-review` step 4 (`test`, `code`, `direct`, `decision`, `defer`, `reject`). A `direct` fix is the orchestrator's own commit, verified as `code-review` step 4 says; a `defer` goes into the PR body's "Watch out for" section. Only `test` and `code` verdicts enter `tdd` → Entering mid-chain in that sub-task's run directory. A behavior gap goes to a fresh test writer, then re-lock, then a fresh implementer; a code-only finding goes to a fresh implementer; use one child per role per round. A `decision` is flagged for the user under Autonomy while independent work continues. A `reject` is answered (for Greptile: body block + inline comment with the reason) without a code change. The orchestrator writes no fix except a `direct` one, and resumes a child only for a handoff gap, as `tdd` → Dispatch describes. After the fix passes `tdd` step 5 again, the orchestrator pushes and answers Greptile (body block + inline comments per repo `CLAUDE.md` → AI PR Review). Greptile P1/P2 on the big PR route the same way, as a ticket on the epic branch.
 
 **All rebases are yours.** The orchestrator runs clean rebases itself and then confirms each locked path still matches its `lock_sha` content and the test command is green. On a conflict, `git rebase --abort` and start a fresh medium-tier child to redo the rebase and resolve, then the same lock and green checks (as `implement-spec` steps 7–8 does for merges); or re-run the sub-task's chain fresh against the current tip.
 
@@ -134,11 +134,11 @@ In hc mode, the core's `<hc>` note and the child's `hc send` wake you. Progress 
 
 7. **Report.** Post a short status only when something changed — dispatch, new PR, review, fix, merge, or a new blocker/assumption/throttle event. A no-change pass stays silent.
 
-When at least one task is `Blocked` and no active task can advance — every task is Done, Canceled, Duplicate, `Blocked` (chain stopped, or a flagged decision holds its merge), or waiting directly or transitively on a `Blocked` task — and no chain child is running, stop the loop's autonomous work, report what has merged, and ask each directly `Blocked` item one per turn as a decision brief; read `~/.claude/shared/decision-brief.md` before drafting it. Resume the passes after the user decides. Set a task to `Blocked` when a `decision` finding holds its merge. The epic-branch review and the demo wait until no task is `Blocked`.
+When at least one task is `Blocked` and no active task can advance — every task is Done, Canceled, Duplicate, `Blocked` (chain stopped, or a flagged decision holds its merge), or waiting directly or transitively on a `Blocked` task — and no chain child is running, stop the loop's autonomous work and report what has merged. Each task blocked on a **Decision** goes to the user one per turn as a decision brief; read `~/.claude/shared/decision-brief.md` before drafting it. A task whose chain ended blocked at its budget is listed as remaining work. Resume the passes after the user decides. Set a task to `Blocked` when a `decision` finding holds its merge. The epic-branch review and the demo wait until no task is `Blocked`.
 
 ## Epic-branch review
 
-When every child is merged and the big PR is green, call the Skill tool with `code-review` once on the epic branch. Its step 1 picks the review route; defer route selection to it. Its fixes go through its own chain delegation and commit on the epic branch. Wait for the big PR's CI to go green again; then run the demo.
+When every child is merged and the big PR is green, call the Skill tool with `code-review` once on the epic branch. Its step 1 picks the review route; defer route selection to it. Its fixes follow its step 4, chain children or a `direct` commit for a mechanical minor, and commit on the epic branch. A review that finishes blocked puts its remaining critical or major among the final report's flagged items. Wait for the big PR's CI to go green again; then run the demo.
 
 ## The demo — proof it works live
 

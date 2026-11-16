@@ -28,7 +28,7 @@ Every SHA you record, `base_sha`, `batch_start_sha`, `lock_sha`, a Verdicts tip,
 - The worktree must be clean (`git status --porcelain` is empty). When it is not, report the dirty paths to the caller and stop.
 - Use the caller's run directory, or create `~/.claude/artifacts/tdd-<YYYYMMDD-HHMMSS>/<ticket>/`, where `<ticket>` is the issue number or a short slug. Its files, their layouts, and the atomic-write rule are in [`run-directory.md`](run-directory.md).
 - Write `ticket.md` with the ticket text, verbatim, and its validation criteria. The ticket is the issue the caller named, or the caller's request when there is none. When the ticket states no criteria, write them from its text. Each criterion carries its **evidence**, an **occurrence**: the ticket sentence it restates, or a report, log, transcript line, corpus entry, or incident that says where and when the behavior happened; a reproduction counts when it reproduces one of these. An input that a reviewer, a ticket author, or you built to show that a path *could* fail is a **construction**, however faithfully it runs. A construction, like any scenario, limit, guard, or path without an occurrence, is a question for the caller when it would decide the fix, and otherwise stays out of `ticket.md`.
-- A test enters the chain only through a criterion in `ticket.md`, and a criterion only with its occurrence. This holds for a criterion you add later as much as for the first list: a ticket sentence you missed is an occurrence, and so is the caller's answer to a **Decision**, recorded in Verdicts with its date. A defect you find yourself while inspecting a candidate is a diagnosis ([recovery.md](recovery.md)), never a criterion.
+- A test enters the chain only through a criterion in `ticket.md`. The occurrence rule holds for a criterion you add later as much as for the first list: a ticket sentence you missed is an occurrence, and so is the caller's answer to a **Decision**, recorded in Verdicts with its date. A defect you find yourself while inspecting a candidate is a diagnosis ([recovery.md](recovery.md)), never a criterion.
 - Copy only the ticket's explicit non-goals into `ticket.md`; an unnamed neighbor may be a necessary consequence of the change. Ask the caller only when an assumed non-goal would exclude a plausible solution or decide a product contract.
 - When the ticket reports a bug (the `bug` label, or its text describes current behavior as wrong), add the `Symptom` section from [`symptom.md`](symptom.md) to `ticket.md`.
 
@@ -86,7 +86,7 @@ Report to the caller: `lock_sha` or the checks-only verdict, the final branch ti
 
 A caller with review findings for a ticket that already ran the chain opens a new [batch](#batches-and-turns), re-checks `Non-goals` against its new criteria in steps 1-2, and enters at a later step. A review batch takes the light path. These routes are for the caller's findings; your own diagnosis takes [recovery.md](recovery.md). A review-fix criterion that conflicts with a recorded non-goal is a **Decision** ([recovery.md](recovery.md#responding-to-a-failure)):
 
-- A **behavior gap** (the code is wrong and no test catches it): add the criterion with the finding as its occurrence and its verdict, record its symptom, run step 3 to extend the lock, then steps 4 and 5.
+- A **behavior gap** (the code is wrong and no test catches it): add the criterion with the occurrence the finding names as its evidence ([Before the chain](#before-the-chain)), and its verdict; a finding that names no occurrence is a construction and takes the **Decision** route. Record its symptom, run step 3 to extend the lock, then steps 4 and 5.
 - A **code-only finding**: add it to the criteria, then run steps 4 and 5 against the existing lock, or checks-only when there is none.
 - A **suspect test** (wrong oracle, false green, or contradictory fixture): record the counterexample, run step 3 to re-lock, then step 4 for every open finding that still needs production work, including code-only findings and any defect the corrected tests expose. Then step 5.
 
@@ -94,9 +94,17 @@ A caller with review findings for a ticket that already ran the chain opens a ne
 
 A **batch** is the caller's initial ticket or one caller-supplied set of review findings. Internal retries, resumed children, calibration, and re-locks keep the current batch's number and count. Only a new caller-supplied set opens another batch.
 
-A **finding** is a caller-supplied review finding or a diagnosis you recorded. A finding is **open** until its acceptance evidence is recorded in Verdicts. A finding is **closed** by the route its diagnosis takes; a finding whose route is **Decision** is **reported**: it stays in Verdicts as an open question and does not block step 5. When several are open, repair prerequisites first, then suspect tests, then run one implementer for all open production work.
+A **finding** is a caller-supplied review finding or a diagnosis you recorded. A finding is **open** until the acceptance evidence of its route is recorded in Verdicts. It is **reported** when its route is **Decision**, or when [finish mode](#finish-mode) stops its route: it stays in Verdicts as an open question with its diagnosis and does not block the findings condition of step 5. A finding that added a criterion to `ticket.md` stays open until the criterion holds. When several are open, repair prerequisites first, then suspect tests, then run one implementer for all open production work.
 
-Every dispatched or resumed child is one **turn** of its batch. Before each dispatch, compare the batch's turn count with its limit, recorded in `ticket.md` with a default of 8. Two turns before the limit, the batch enters **finish mode**: the remaining turns go only to the implementer, for failing locked tests and red checks. Open no criterion, re-lock, or calibration; drop a planned calibration that has not run, and record every other open finding as reported with its diagnosis, so it does not block step 5. At the limit, accept a completed success; otherwise end the batch blocked and report the remaining work and the diagnosis to the caller. Only the caller changes the limit.
+Every dispatched or resumed child is one **turn** of its batch. Before each dispatch, compare the batch's turn count with its limit, recorded in `ticket.md` with a default of 8, and apply [finish mode](#finish-mode) when its trigger holds. Only the caller changes the limit.
+
+### Finish mode
+
+The batch's budget is spent; this is the global `CLAUDE.md` finish mode applied to one batch. It starts once the turn count reaches the limit minus two, or once the run's time budget runs out.
+
+1. The remaining turns go only to the implementer, for failing locked tests, red checks, and open findings that added a criterion to `ticket.md`.
+2. A planned calibration that has not run becomes a named uncalibrated boundary (step 3, **Results**). Every other open finding is **reported** with its diagnosis.
+3. The batch ends at step 5. When step 5 passes, the batch succeeds. When a failed condition has no implementer route, or the turns run out first, the batch ends **blocked**, and its report to the caller names the remaining work and the diagnosis.
 
 ## Mechanical corrections
 
