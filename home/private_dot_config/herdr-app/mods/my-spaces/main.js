@@ -31,7 +31,7 @@ function place(s, ps) {
   return ps.find((p) => tabs.has(p.tab) && p.cwd)?.cwd || s.folder;
 }
 
-const rowHeight = ({ tree, extra }) => (tree ? 28 : 30) + extra * 16;
+const rowHeight = ({ extra }) => 24 + extra * 16;
 
 const where = (s, ps) => JSON.stringify([s.machine ?? null, place(s, ps)]);
 
@@ -643,7 +643,7 @@ export default class Spaces extends View {
       .children(parts.map(([, text, color]) => div().flex_none().text_color(color).child(text)));
   }
 
-  prRow(pr, tree, t) {
+  prRow(pr, t) {
     const checks = pr.state === "merged" || pr.state === "closed" ? null : checksLabel(pr.checks);
     const review = pr.state === "merged" || pr.state === "closed" ? null : reviewLabel(pr.review);
     const details = [checks, review].filter(Boolean);
@@ -654,7 +654,7 @@ export default class Spaces extends View {
           : pr.state === "checks_pending" ? t.working
             : t.ansi2;
 
-    return h_flex().h(16).flex_none().min_w(0).items_center().gap(5).pl(tree ? 22 : 0).text_size(11).text_color(t.dim)
+    return h_flex().h(16).flex_none().min_w(0).items_center().gap(5).pl(18).text_size(11).text_color(t.dim)
       .child(div().flex_none().text_color(color).child(prGlyph(pr.state)))
       .child(div().flex_none().child(`#${pr.number}${prLabel(pr.state) ? ` ${prLabel(pr.state)}` : ""}`))
       .when(details.length > 0, (el) => el.child(div().flex_none().child("·")))
@@ -669,8 +669,8 @@ export default class Spaces extends View {
     const pr = this.pr[key] ?? null;
     const extra = (g ? 1 : 0) + (pr ? 1 : 0);
 
-    const header = h_flex().h(16).flex_none().gap(9).items_center()
-      .when(Boolean(tree), el => el.child(svg("mods/workspace-chrome/branch.svg").size(13).text_color(t.dim)))
+    const header = h_flex().h(16).flex_none().gap(5).items_center()
+      .child(svg(`mods/workspace-chrome/${tree ? "branch" : "folder"}.svg`).size(13).flex_none().text_color(t.dim))
       // Herdr's Geist ignores font weights; the system font has real ones.
       .child(div().flex_shrink(0).max_w(150).truncate().when(!tree, el => el.font_family(".SystemUIFont").font_semibold()).text_color(t.foreground).child(w.name))
       .when(Boolean(glyph(w.status)), el => el.child(div().flex_none().font_semibold().text_color(tone(t, w.status)).child(glyph(w.status))));
@@ -679,7 +679,7 @@ export default class Spaces extends View {
       .relative()
       .id(`space-${w.id}`)
       .px(8)
-      .h(rowHeight({ tree, extra }))
+      .h(rowHeight({ extra }))
       .flex_none()
       .justify_center()
       .rounded(8)
@@ -717,11 +717,11 @@ export default class Spaces extends View {
       .on_mouse_down("right", () => this.menu(w))
       .children([
         header,
-        g ? h_flex().h(16).flex_none().min_w(0).items_center().gap(6).pl(tree ? 22 : 0).text_size(11.5)
+        g ? h_flex().h(16).flex_none().min_w(0).items_center().gap(6).pl(18).text_size(11.5)
           .child(svg("mods/workspace-chrome/git-branch.svg").size(11).flex_none().text_color(t.dim))
           .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(g.branch ?? "detached"))
           .child(this.gitCounts(g, t)) : null,
-        pr ? this.prRow(pr, tree, t) : null,
+        pr ? this.prRow(pr, t) : null,
       ].filter(Boolean));
   }
 
@@ -747,7 +747,7 @@ export default class Spaces extends View {
   }
 
   // The space's agents under it, one level deeper than the space, their sub-agents deeper still.
-  agentRows({ w, tree }, t, { list, byAddress, meta, now }) {
+  agentRows({ w }, t, { list, byAddress, meta, now }) {
     const listed = new Map(list.map((a) => [a.address, a.status]));
     // A sub-agent with a pane of its own is in agents() too; it shows under its parent.
     const mine = list.filter((a) => a.space === w.id && !listed.has(byAddress.get(a.address)?.parent));
@@ -766,7 +766,7 @@ export default class Spaces extends View {
         doing: step || agentTask({ ...a, ...terminal }) || a.program?.name || "",
         since: meta[a.address]?.since,
         lines: ["└"],
-        indent: tree ? 30 : 8,
+        indent: 27,
         now,
         open: () => run("pane.focus", { pane: a.pane }),
       });
@@ -788,7 +788,7 @@ export default class Spaces extends View {
           doing: working || (alias ? label : null) || "",
           since: meta[k.address]?.since,
           lines: ["", ...lines],
-          indent: tree ? 30 : 8,
+          indent: 27,
           sub: true,
           now,
           open: () => run("terminal.peek", { terminal: k.address }),
@@ -803,20 +803,20 @@ export default class Spaces extends View {
   agentRow(t, { address, status, program, focused, name, doing, since, lines, indent, now, open, sub = false }) {
     const pic = programIcon(program, sub ? 10 : 13, t.foreground);
 
-    // One column per tree level: │ runs the whole row, ├ and └ bend into it.
-    const line = (l) => {
-      const col = div().w(9).mr(6).flex_none().border_color(t.input);
+    // One column per tree level: │ runs the whole row, ├ and └ bend into the icon,
+    // inside the row from its top to the first line's middle. A bend is 12 wide
+    // (6 + 6); a level above it is 12, from one bend to the next.
+    const line = (l, i) => {
+      const col = div().flex_none().border_color(t.input);
 
-      if (l === "│") return col.self_stretch().border_l(1.5);
+      if (i === lines.length - 1) return col.w(6).mr(6).self_start().mt(-2).h(10).border_l(1.5).border_b(1.5).rounded_bl(4);
 
-      if (l === "├" || l === "└") return col.self_start().mt(-2).h(19).border_l(1.5).border_b(1.5).rounded_bl(6);
-
-      return col;
+      return l === "│" ? col.w(12).self_stretch().border_l(1.5) : col.w(12);
     };
 
     return h_flex()
       .id(`space-agent-${address}`)
-      .h(36)
+      .pt(4).pb(7)
       .flex_none()
       .pl(indent)
       .pr(8)
@@ -828,7 +828,7 @@ export default class Spaces extends View {
       .on_click(open)
       .children(lines.map(line))
       .child(v_flex().flex_1().min_w(0).justify_center()
-        .child(h_flex().h(sub ? 15 : 17).gap(sub ? 5 : 6).items_center()
+        .child(h_flex().h(sub ? 13 : 15).gap(sub ? 5 : 6).items_center()
           .when(Boolean(pic), (el) => el.child(pic))
           .child(div().flex_1().min_w(0).truncate().text_color(t.foreground)
             .when(sub, (el) => el.text_size(11))
