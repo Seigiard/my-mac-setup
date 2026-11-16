@@ -43,7 +43,7 @@ Done when the worktree is clean and `ticket.md` holds the ticket, its criteria w
 
    Done when every criterion in `ticket.md` carries a verdict. When none is marked **test** and no `lock.json` exists, this is the **checks-only path**: skip step 3. An existing lock and its test command stay in force.
 2. **Seams and checks.** Record in `ticket.md`, reusing fields an earlier batch recorded when they are unchanged:
-   - for every **test** criterion: the public boundary, the allowed test paths and fixtures, and the test command;
+   - for every **test** criterion: the public boundary, the allowed test paths and fixtures, and the test command: the repository's own, or the stack's built-in runner (`node --test`, `python -m unittest`, `go test`, `cargo test`) when it has none; installing a runner is a new dependency and a **Decision** for the caller ([recovery.md](recovery.md#responding-to-a-failure));
    - the applicable checks from the repository's verification rules; ask the caller when it names none;
    - both roles' starting tiers and reasons (Starting tiers, below);
    - the ticket's size and its reason (Size, below);
@@ -73,7 +73,7 @@ Done when the worktree is clean and `ticket.md` holds the ticket, its criteria w
    - each planned [calibration](#calibration) holds a **calibrated** verdict whose evidence is still valid under Verdicts in [calibration.md](calibration.md);
    - every applicable check in `ticket.md` has valid passing evidence;
    - every finding of the batch is [closed](#batches-and-turns);
-   - **Scope:** inspect the cumulative diff from the batch's `batch_start_sha`, not `lock_sha`. Reject a changed file with no criterion, a hunk not needed for its named criterion, or a change inside `Non-goals`;
+   - **Scope:** inspect the cumulative diff from the batch's `batch_start_sha`, not `lock_sha`. Reject a changed file with no criterion, a hunk not needed for its named criterion, or a change inside `Non-goals`. A hunk of the implementer's refactor commit (step 2 of its brief) serves the criterion whose change it simplifies; reject it when it adds behavior, an option, or a case, or changes a result the criteria name;
    - **Identifiers:** the [identifiers rule](#identifiers) holds for every record in the batch's diff;
    - the worktree is clean, and the branch tip has moved past `lock_sha`, or past `batch_start_sha` on the checks-only path. A test-only correction needs only its accepted test commit.
 

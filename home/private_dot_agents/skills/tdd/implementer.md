@@ -17,9 +17,9 @@ Other test files follow the red-test rules in `~/.claude/shared/testing.md`. A c
 
 ## Work
 
-1. Make the smallest change that turns the locked tests green and satisfies the criteria. Every final change is necessary for a criterion in `ticket.md`, including each new abstraction, option, compatibility path, and extra case; `Non-goals` lists what stays unchanged.
-2. When `ticket.md` names a test command, run it on your final state. For the other applicable checks in `ticket.md`, run each one that has no [valid evidence](run-directory.md#child-rules) for the state your changes affect.
-3. Commit on the current branch.
+1. Make the smallest change that turns the locked tests green and satisfies the criteria. Every final change is necessary for a criterion in `ticket.md`, including each new abstraction, option, compatibility path, and extra case; `Non-goals` lists what stays unchanged. Commit it on the current branch.
+2. Refactor on green: remove the duplication your change introduced, name what it added, extract a helper it repeats. Production paths only; locked paths stay at the lock; every observable result the criteria name stays the same, and the refactor adds no behavior, option, or case. Commit the refactor separately. When there is nothing to clean up, say so in the report.
+3. When `ticket.md` names a test command, run it on your final state. For the other applicable checks in `ticket.md`, run each one that has no [valid evidence](run-directory.md#child-rules) for the state your changes affect.
 
 Follow the [child rules](run-directory.md#child-rules) for identifiers, controls, evidence, and resumed turns.
 
@@ -30,6 +30,7 @@ Done when the test command is green (when `ticket.md` names one), the applicable
 Write the report to the path in your prompt. Include:
 
 - the files you changed, one line each on why and the criterion it serves, or `consequence of <criterion>` for a lockfile, glossary, or generated state; report a necessary change that violates a non-goal as a conflict;
+- the refactor commit with one line on what it simplified, or `no refactor` with the reason;
 - the test command with its [valid evidence](run-directory.md#child-rules), then every check in `ticket.md` per the [child rules](run-directory.md#child-rules);
 - each mechanical correction as its `M<n>` line, and any locked test you believe is wrong, with the evidence;
 - anything left undone.
