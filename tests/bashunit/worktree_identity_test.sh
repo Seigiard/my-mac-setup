@@ -89,13 +89,14 @@ function test_worktree_identity_003_never_renames_the_same_worktree_twice() {
 }
 
 function test_worktree_identity_004_labels_the_matching_space_once_without_undoing_a_branch_rename() {
-  _bats_test_init 4 'space rename uses the matching folder and is best effort after branch rename'
+  _bats_test_init 4 'space rename uses the matching folder and the model title, and is best effort after branch rename'
 
   : > "$HWI_WORK/fail-herdr-app"
   run hwi_run_worker failed-app 'Name matching space'
   assert_success
   assert_equal "$(hwi_branch "$HWI_CHECKOUT")" 'model-task'
-  assert_file_contains "$HWI_APP_CALLS" '^do space.rename --id sp-matching --name model-task$'
+  assert_file_contains "$HWI_APP_CALLS" '^do space.rename --id sp-matching --name Model task title$'
+  assert_equal "$(cat "$HWI_WORK/space-names")" 'Model task title'
   assert_equal "$(hwi_app_rename_call_count)" 1
 
   hwi_teardown
@@ -112,6 +113,17 @@ function test_worktree_identity_004_labels_the_matching_space_once_without_undoi
   run hwi_run_worker_without_app missing-app 'Name without herdr-app'
   assert_success
   assert_equal "$(hwi_branch "$HWI_CHECKOUT")" 'model-task'
+}
+
+function test_worktree_identity_0041_names_the_space_with_one_capped_title_line() {
+  _bats_test_init 41 'a model title with control characters and extra lines becomes one capped sidebar line'
+
+  run env HWI_MODEL_REPLY='{"title":"\u0007Fix the\tsidebar space name for every generated worktree checkout\nsecond line","branch":"model-task"}' \
+    PATH="$HWI_BIN:$PATH" bash "$HWI_ENGINE" --worker --agent pi --session messy-title --cwd "$HWI_CHECKOUT" <<< 'Name a messy title'
+
+  assert_success
+  assert_equal "$(hwi_branch "$HWI_CHECKOUT")" 'model-task'
+  assert_equal "$(cat "$HWI_WORK/space-names")" 'Fix the sidebar space name for every generated…'
 }
 
 function test_worktree_identity_005_claude_hook_passes_its_payload_directory_and_ignores_subagents() {
@@ -205,7 +217,7 @@ function test_worktree_identity_007_foreground_ignores_checkouts_that_cannot_ren
 }
 
 function test_worktree_identity_008_uses_a_free_suffix_and_falls_back_from_an_invalid_model_reply() {
-  _bats_test_init 8 'branch collisions suffix the model slug and invalid model output falls back to the prompt slug'
+  _bats_test_init 8 'branch collisions suffix the model slug and invalid model output falls back to the prompt slug and line'
   git -C "$HWI_MAIN" branch model-task
 
   run hwi_run_worker local-collision 'Collision task'
@@ -215,9 +227,10 @@ function test_worktree_identity_008_uses_a_free_suffix_and_falls_back_from_an_in
   hwi_teardown
   hwi_setup
   run env HWI_MODEL_REPLY='not json' PATH="$HWI_BIN:$PATH" \
-    bash "$HWI_ENGINE" --worker --agent pi --session fallback --cwd "$HWI_CHECKOUT" <<< 'Restore branch naming'
+    bash "$HWI_ENGINE" --worker --agent pi --session fallback --cwd "$HWI_CHECKOUT" <<< '- Restore Herdr  branch naming'
   assert_success
-  assert_equal "$(hwi_branch "$HWI_CHECKOUT")" 'restore-branch-naming'
+  assert_equal "$(hwi_branch "$HWI_CHECKOUT")" 'restore-herdr-branch-naming'
+  assert_equal "$(cat "$HWI_WORK/space-names")" 'Restore Herdr branch naming'
 }
 
 function test_worktree_identity_0081_avoids_a_remote_tracking_branch_name() {
@@ -390,7 +403,7 @@ function test_worktree_identity_020_prefers_a_checkout_root_space_over_a_subdire
 
   assert_success
   assert_equal "$(hwi_branch "$HWI_CHECKOUT")" 'model-task'
-  assert_file_contains "$HWI_APP_CALLS" '^do space.rename --id sp-matching --name model-task$'
+  assert_file_contains "$HWI_APP_CALLS" '^do space.rename --id sp-matching --name Model task title$'
   assert_equal "$(hwi_app_rename_call_count)" 1
 }
 
@@ -402,7 +415,7 @@ function test_worktree_identity_0201_labels_the_root_space_when_the_agent_starts
 
   assert_success
   assert_equal "$(hwi_branch "$HWI_CHECKOUT")" 'model-task'
-  assert_file_contains "$HWI_APP_CALLS" '^do space.rename --id sp-matching --name model-task$'
+  assert_file_contains "$HWI_APP_CALLS" '^do space.rename --id sp-matching --name Model task title$'
 }
 
 function test_worktree_identity_021_labels_a_worktree_space_once_across_two_prompts() {

@@ -10,6 +10,10 @@ source "$SCRIPT_DIR/../lib/herdr-worktree-state.sh"
 
 SLUG_MAX_LEN=40
 SLUG_MAX_WORDS=5
+# The title names the Herdr app space, one sidebar row. 48 characters hold
+# every model title recorded on this machine before #166 dropped titles; the
+# longest was "2026-08-30-006: Unattended chezmoi test mode" at 44.
+TITLE_MAX_LEN=48
 BRANCH_CLAIM_ATTEMPTS="${HERDR_WORKTREE_IDENTITY_BRANCH_CLAIM_ATTEMPTS:-3}"
 FIRST_PROMPT_CLAIM_ATTEMPTS="${HERDR_WORKTREE_IDENTITY_FIRST_PROMPT_CLAIM_ATTEMPTS:-3}"
 LIFECYCLE_CLAIM_ATTEMPTS="${HERDR_WORKTREE_IDENTITY_LIFECYCLE_CLAIM_ATTEMPTS:-260}"
@@ -54,6 +58,43 @@ slug_word_count() {
   printf '%s' "$1" | tr '-' '\n' | grep -c '.' || true
 }
 
+# One display line: the first non-blank line, with control, format and line
+# separator characters turned into spaces and whitespace collapsed. A longer
+# title is cut at a word boundary and ends in an ellipsis. jq slices by code
+# point, so a non-ASCII prompt line is never cut inside a character.
+normalize_title() {
+  printf '%s' "$1" | jq -Rrs --argjson max "$TITLE_MAX_LEN" '
+    ([splits("\r?\n") | select(test("\\S"))] | .[0] // "")
+    | gsub("[\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]"; " ")
+    | gsub("\\s+"; " ") | sub("^ "; "") | sub(" $"; "")
+    | if length <= $max then .
+      else .[0:$max - 1] as $head
+        | ($head | sub(" [^ ]*$"; "")) as $words
+        | (if ($words | length) >= ($max / 2) then $words else $head end)
+        | sub("[ [:punct:]]+$"; "") + "…"
+      end
+  ' 2>/dev/null
+}
+
+title_word_count() {
+  printf '%s\n' "$1" | awk '{ print NF }'
+}
+
+title_from_slug() {
+  printf '%s' "$1" | tr '-' ' ' \
+    | awk '{ if (length($0)) $0 = toupper(substr($0, 1, 1)) substr($0, 2); print }'
+}
+
+ensure_title_floor() {
+  local title="$1" slug="$2"
+  title="$(normalize_title "$title")"
+  if [ -z "$title" ] || [ "$(title_word_count "$title")" -lt 2 ]; then
+    title="$(normalize_title "$(title_from_slug "$slug")")"
+  fi
+  [ -n "$title" ] || title='Agent task'
+  printf '%s' "$title"
+}
+
 repository_discriminator() {
   local root="$1" name
   name="${root%/}"
@@ -85,12 +126,13 @@ ensure_slug_floor() {
 build_naming_prompt() {
   local first="$1"
   cat <<EOF
-You name a coding-agent Git branch from the first user task.
+You name a coding-agent task and its Git branch from the first user task.
 Return exactly one JSON object on one line and nothing else.
 
 Output rules:
-- branch: 2 to 5 concise lowercase English words, hyphen-separated, preserving an issue ID when present
-  - example: {"branch":"prd-2939-fix-agent-launch"}
+- title: 2 to 6 concise English words for display, preserving an issue ID when present
+- branch: the same task as 2 to 5 concise lowercase English words, hyphen-separated, preserving an issue ID when present
+  - example: {"title":"PRD-2939: Fix agent launch","branch":"prd-2939-fix-agent-launch"}
 
 Naming rules:
 - Name the overall task in the first prompt.
@@ -102,7 +144,7 @@ EOF
 }
 
 identity_from_output() {
-  local raw="$1" object slug
+  local raw="$1" object title slug
   # Model CLIs routinely wrap the object in a markdown fence -- claude -p does
   # it for this prompt every time -- and jq rejects the fenced text, so a
   # correct branch name was being thrown away at the parse and replaced by the
@@ -110,7 +152,10 @@ identity_from_output() {
   # contract below still decides.
   raw="$(printf '%s' "$raw" | sed -e '/^[[:space:]]*```[[:alnum:]]*[[:space:]]*$/d')"
   object="$(printf '%s' "$raw" | jq -ce '
-    select(type == "object" and keys == ["branch"] and (.branch | type == "string"))
+    select(type == "object"
+      and (keys == ["branch", "title"] or keys == ["branch"])
+      and (.branch | type == "string")
+      and ((.title // "") | type == "string"))
   ' 2>/dev/null)" || return 1
   case "$object" in
     '' | *$'\n'*) return 1 ;;
@@ -118,16 +163,19 @@ identity_from_output() {
   slug="$(printf '%s' "$object" | jq -r '.branch' 2>/dev/null)" || return 1
   slug="$(normalize_slug "$slug" | limit_slug_words)"
   [ "$(slug_word_count "$slug")" -ge 2 ] || return 1
-  printf '%s\037%s' "$slug" "$slug"
+  title="$(printf '%s' "$object" | jq -r '.title // ""' 2>/dev/null)" || return 1
+  title="$(ensure_title_floor "$title" "$slug")"
+  printf '%s\037%s' "$title" "$slug"
 }
 
 deterministic_identity() {
-  local prompt="$1" root="$2" line slug
+  local prompt="$1" root="$2" line title slug
   line="$(first_nonempty_line "$prompt" | sed \
     -e 's/^[[:space:]]*[-*#][[:space:]]*//' \
     -e 's/^[[:space:]]*[0-9][0-9]*[.)][[:space:]]*//')"
   slug="$(ensure_slug_floor "$(normalize_slug "$line" | limit_slug_words)" "$root")"
-  printf '%s\037%s' "$slug" "$slug"
+  title="$(ensure_title_floor "$line" "$slug")"
+  printf '%s\037%s' "$title" "$slug"
 }
 
 run_with_timeout() {
@@ -504,10 +552,13 @@ retry_attribution() {
 }
 
 label_herdr_app_space() {
-  local root="$1" cwd="$2" state="$3" branch slug desired_name payload id
+  local root="$1" cwd="$2" state="$3" title branch slug desired_name payload id
+  title="$(read_state_field "$state" title)"
   branch="$(read_state_field "$state" branch)"
   slug="$(read_state_field "$state" slug)"
-  desired_name="${branch:-$slug}"
+  # The sidebar already shows the branch under the space, so the space carries
+  # the readable task title instead of the branch a second time.
+  desired_name="${title:-${branch:-$slug}}"
   if [ -z "$desired_name" ]; then
     record_diagnostic "$(diagnostic_file_for_state "$state")" space-label-name-unavailable "checkout=$root" || true
     return 0

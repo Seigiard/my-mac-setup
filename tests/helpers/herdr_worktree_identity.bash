@@ -47,7 +47,10 @@ if [ -e "$HWI_WORK/block-model" ]; then
   while [ ! -e "$HWI_WORK/model.release" ]; do sleep 0.01; done
 fi
 cat >/dev/null
-printf '%s\n' "${HWI_MODEL_REPLY:-{\"branch\":\"model-task\"}}"
+# A brace in a ${VAR:-default} word leaks a trailing } into a set reply.
+reply="${HWI_MODEL_REPLY:-}"
+[ -n "$reply" ] || reply='{"title":"Model task title","branch":"model-task"}'
+printf '%s\n' "$reply"
 SH
   cat > "$HWI_BIN/claude" <<'SH'
 #!/usr/bin/env bash
@@ -57,7 +60,10 @@ if [ -e "$HWI_WORK/block-model" ]; then
   while [ ! -e "$HWI_WORK/model.release" ]; do sleep 0.01; done
 fi
 cat >/dev/null
-printf '%s\n' "${HWI_MODEL_REPLY:-{\"branch\":\"model-task\"}}"
+# A brace in a ${VAR:-default} word leaks a trailing } into a set reply.
+reply="${HWI_MODEL_REPLY:-}"
+[ -n "$reply" ] || reply='{"title":"Model task title","branch":"model-task"}'
+printf '%s\n' "$reply"
 SH
   cat > "$HWI_BIN/herdr-app" <<'SH'
 #!/usr/bin/env bash
@@ -78,6 +84,8 @@ checkout_root="$(git -C "$HWI_CHECKOUT" rev-parse --show-toplevel)"
       fi
     ;;
   'do space.rename')
+    # The joined call log cannot tell one spaced name from several arguments.
+    printf '%s\n' "$6" >> "$HWI_WORK/space-names"
     [ ! -e "$HWI_WORK/fail-herdr-app" ] || exit 1
     ;;
   esac
@@ -152,7 +160,7 @@ hwi_write_worktree_state() {
   root="$(git -C "$HWI_CHECKOUT" rev-parse --show-toplevel)"
   state="$(bash -c '. "$1"; printf "%s/repositories/%s/worktrees/%s.state" "$HERDR_WORKTREE_IDENTITY_STATE_DIR" "$(encode_key "$2")" "$(encode_key "$3")"' _ \
     "$SOURCE_ROOT/dot_local/lib/herdr-worktree-state.sh" "$common" "$root")"
-  bash -c '. "$1"; write_identity_state "$2" checkout_root "$3" repository_anchor "$4" original_branch "$5" branch model-task outcome "$6" authorization authorized title model-task slug model-task' _ \
+  bash -c '. "$1"; write_identity_state "$2" checkout_root "$3" repository_anchor "$4" original_branch "$5" branch model-task outcome "$6" authorization authorized title "Model task title" slug model-task' _ \
     "$SOURCE_ROOT/dot_local/lib/herdr-worktree-state.sh" "$state" "$root" "$common" "$HWI_BRANCH" "$outcome"
 }
 

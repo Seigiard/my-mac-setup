@@ -63,8 +63,9 @@ The marker file the worktree-setup plugin writes into a worktree's git per-workt
 ### Worktree-identity component
 The managed engine and client adapters that use a generated-worktree marker to
 rename an authorized generated branch from the first root agent prompt. After
-the Git outcome, it best-effort labels the Herdr app space with the same
-checkout folder. It does not use the retired TUI server.
+the Git outcome, it best-effort names the Herdr app space with the same
+checkout folder after the task title, not the branch. It does not use the
+retired TUI server.
 
 ### Detached worker
 A background process a component forks so its caller can return immediately. Detachment has two halves and both are load-bearing: the worker takes its own session, and it closes every file descriptor it inherited above standard error.

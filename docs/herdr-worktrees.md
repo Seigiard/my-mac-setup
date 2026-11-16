@@ -151,12 +151,14 @@ repository while setup runs. A keybinding or an empty name field generates a
 fresh-base and the `herdr-generated-worktree` marker apply. A typed name,
 including an existing branch, passes an empty branch field and receives no
 marker. The worktree-identity component uses the marker only when its first
-line is the generated branch. On the first root agent prompt, it derives one
-task slug, renames that branch once, records the attribution in Git, and labels
-the app space whose `folder` exactly matches the checkout root. If no root
-space exists, it can use an exact `--cwd` folder match. A branch with an
-upstream is declined before model work and does not label a space. Missing or
-failed app commands are diagnostic-only and leave the Git result intact.
+line is the generated branch. On the first root agent prompt, it derives a
+task title and slug, renames that branch to the slug once, records the
+attribution in Git, and names the app space whose `folder` exactly matches the
+checkout root with the title, because the sidebar already shows the branch
+under the space. If no root space exists, it can use an exact `--cwd` folder
+match. A branch with an upstream is declined before model work and does not
+label a space. Missing or failed app commands are diagnostic-only and leave the
+Git result intact.
 
 ## Claude Code nested worktrees
 
