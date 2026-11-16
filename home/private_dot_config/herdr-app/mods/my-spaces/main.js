@@ -1,12 +1,12 @@
 // Workspace spaces: heavier checkouts, worktrees under them,
 // grouped by machine when more than one is known. Each expanded space shows its
-// branch, Git counts, pull-request state and its most urgent agent state; the
-// agents themselves live in the agents list. Click to switch, right-click for
-// its menu, drag to reorder.
+// branch, Git counts, pull-request state and its most urgent agent state, then
+// its agents: name, time in their state and what they are doing. Click to
+// switch, right-click for its menu, drag to reorder.
 
-import { View, div, svg } from "gpui-kit";
+import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, machines, panes, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout } from "herdr";
+import { spaces, machines, panes, agents, terminals, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout } from "herdr";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -105,6 +105,37 @@ function checksLabel(checks) {
 
 function reviewLabel(review) {
   return { APPROVED: "approved", CHANGES_REQUESTED: "changes req", REVIEW_REQUIRED: "review req" }[review] ?? null;
+}
+
+// Aliases and state ages, published by my-agents.
+const AGENT_META_KEY = "my-agents.meta";
+
+const clean = (s) => (s ?? "").replace(/^[^\p{L}\p{N}]+/u, "").trim();
+
+// The agent's own name for its work. OpenCode prefixes its terminal title; its report doesn't.
+function agentTask(terminal) {
+  const task = clean(terminal?.report?.title ?? terminal?.title).replace(/^OC \| /, "");
+  const program = terminal?.program;
+  const telling = task && task !== program?.name && task.toLowerCase() !== program?.key && !/^[~/]|^[A-Za-z]:\\/.test(task) && !task.includes("@");
+
+  return telling ? task : null;
+}
+
+function duration(ms) {
+  const m = Math.floor(ms / 60000);
+
+  if (m < 1) return "<1m";
+
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+
+  return h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`;
+}
+
+function programIcon(p, size, color) {
+  if (!p?.icon) return null;
+
+  return p.tint ? svg(p.icon).size(size).flex_none().text_color(color) : image(p.icon).w(size).h(size).flex_none();
 }
 
 // A space speaks up only when something in it needs you.
@@ -533,7 +564,15 @@ export default class Spaces extends View {
   // The rows, under a header per machine once one isn't this computer.
   grouped(t, collapsed) {
     const rows = this.ordered();
-    const draw = (r) => (collapsed ? this.compact(r, t) : this.row(r, t));
+
+    const crew = {
+      list: collapsed ? [] : agents(),
+      byAddress: new Map(terminals().map((k) => [k.address, k])),
+      meta: shared(AGENT_META_KEY) ?? {},
+      now: Date.now(),
+    };
+
+    const draw = (r) => (collapsed ? [this.compact(r, t)] : [this.row(r, t), ...this.agentRows(r, t, crew)]);
     const remote = [...new Set([...rows.map(r => r.w.machine).filter(Boolean), ...this.machines.map(m => m.name), ...Object.keys(this.reconnecting)])].sort();
 
     const loading = m => {
@@ -545,7 +584,7 @@ export default class Spaces extends View {
 
     const loadingRow = m => div().id(`machine-loading-${m ?? "local"}`).h(28).flex_none().px(8).text_size(12).text_color(t.dim).child(collapsed ? "…" : "Loading…");
 
-    if (!remote.length) return loading(null) && !rows.length ? [loadingRow(null)] : rows.map(draw);
+    if (!remote.length) return loading(null) && !rows.length ? [loadingRow(null)] : rows.flatMap(draw);
     const machineNames = [null, ...remote];
 
     return machineNames.flatMap((m) => {
@@ -586,7 +625,7 @@ export default class Spaces extends View {
 
       if (!collapsed && rebuilt) return [head];
 
-      return [head, ...(folded ? [] : mine.length ? mine.map(draw) : [loading(m) ? loadingRow(m) : empty])];
+      return [head, ...(folded ? [] : mine.length ? mine.flatMap(draw) : [loading(m) ? loadingRow(m) : empty])];
     });
   }
 
@@ -679,10 +718,125 @@ export default class Spaces extends View {
       .children([
         header,
         g ? h_flex().h(16).flex_none().min_w(0).items_center().gap(6).pl(tree ? 22 : 0).text_size(11.5)
-          .child(div().flex_1().min_w(0).truncate().text_color(t.foreground).child(g.branch ?? "detached"))
+          .child(svg("mods/workspace-chrome/git-branch.svg").size(11).flex_none().text_color(t.dim))
+          .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(g.branch ?? "detached"))
           .child(this.gitCounts(g, t)) : null,
         pr ? this.prRow(pr, tree, t) : null,
       ].filter(Boolean));
+  }
+
+  agentState(t, status) {
+    if (status === "working") return svg("mods/workspace-chrome/spinner.svg").size(12).mx(1).flex_none().text_color(t.working).spin(900);
+
+    if (status === "blocked") return div().flex_none().px(6).h(16).rounded(5).bg(t.blocked + "26").text_size(10.5).font_semibold().text_color(t.blocked).flex().items_center().child("Needs you");
+
+    if (status === "done") return div().w(14).flex_none().text_size(13).font_semibold().text_color(t.done ?? t.unknown).text_center().child("✓");
+
+    return div().size(7).mx(3).flex_none().rounded(4).border(1.5).border_color(t.idle ?? t.dim);
+  }
+
+  // Live sub-agents of `address`, depth first, each with the tree lines in front of it.
+  kids(all, address, lead = []) {
+    const kids = all.filter((k) => k.parent === address && k.state === "live");
+
+    return kids.flatMap((k, i) => {
+      const last = i === kids.length - 1;
+
+      return [{ k, lines: [...lead, last ? "└" : "├"] }, ...this.kids(all, k.address, [...lead, last ? "" : "│"])];
+    });
+  }
+
+  // The space's agents under it, one level deeper than the space, their sub-agents deeper still.
+  agentRows({ w, tree }, t, { list, byAddress, meta, now }) {
+    const listed = new Map(list.map((a) => [a.address, a.status]));
+    // A sub-agent with a pane of its own is in agents() too; it shows under its parent.
+    const mine = list.filter((a) => a.space === w.id && !listed.has(byAddress.get(a.address)?.parent));
+    const all = [...byAddress.values()];
+
+    return mine.flatMap((a) => {
+      const terminal = byAddress.get(a.address);
+      const step = a.status === "working" ? clean(terminal?.report?.msg) : null;
+
+      const top = this.agentRow(t, {
+        address: a.address,
+        status: a.status,
+        program: a.program,
+        focused: a.focused,
+        name: meta[a.address]?.alias ?? a.program?.name ?? a.address,
+        doing: step || agentTask({ ...a, ...terminal }) || a.program?.name || "",
+        since: meta[a.address]?.since,
+        lines: ["└"],
+        indent: tree ? 30 : 8,
+        now,
+        open: () => run("pane.focus", { pane: a.pane }),
+      });
+
+      const subs = this.kids(all, a.address).map(({ k, lines }) => {
+        // Error counts as blocked; done is the parent's news, not the sub-agent's.
+        const raw = listed.get(k.address) ?? k.status;
+        const status = raw === "error" ? "blocked" : raw === "done" ? "idle" : raw;
+        const alias = meta[k.address]?.alias;
+        const label = [agentTask(k), k.name, k.template, k.program?.name, k.address].find((s) => s && s !== alias);
+        const working = status === "working" ? clean(k.report?.msg) : null;
+
+        return this.agentRow(t, {
+          address: k.address,
+          status,
+          program: k.program,
+          focused: false,
+          name: alias ?? label ?? "",
+          doing: working || (alias ? label : null) || "",
+          since: meta[k.address]?.since,
+          lines: ["", ...lines],
+          indent: tree ? 30 : 8,
+          sub: true,
+          now,
+          open: () => run("terminal.peek", { terminal: k.address }),
+        });
+      });
+
+      return [top, ...subs];
+    });
+  }
+
+  // sub: a sub-agent, drawn quieter, at the size of the line under it.
+  agentRow(t, { address, status, program, focused, name, doing, since, lines, indent, now, open, sub = false }) {
+    const pic = programIcon(program, sub ? 10 : 13, t.foreground);
+
+    // One column per tree level: │ runs the whole row, ├ and └ bend into it.
+    const line = (l) => {
+      const col = div().w(9).mr(6).flex_none().border_color(t.input);
+
+      if (l === "│") return col.self_stretch().border_l(1.5);
+
+      if (l === "├" || l === "└") return col.self_start().mt(-2).h(19).border_l(1.5).border_b(1.5).rounded_bl(6);
+
+      return col;
+    };
+
+    return h_flex()
+      .id(`space-agent-${address}`)
+      .h(36)
+      .flex_none()
+      .pl(indent)
+      .pr(8)
+      .items_center()
+      .rounded(8)
+      .cursor_pointer()
+      .when(focused, (el) => el.bg(t.selected))
+      .when(!focused, (el) => el.hover((s) => s.bg(t.hover)))
+      .on_click(open)
+      .children(lines.map(line))
+      .child(v_flex().flex_1().min_w(0).justify_center()
+        .child(h_flex().h(sub ? 15 : 17).gap(sub ? 5 : 6).items_center()
+          .when(Boolean(pic), (el) => el.child(pic))
+          .child(div().flex_1().min_w(0).truncate().text_color(t.foreground)
+            .when(sub, (el) => el.text_size(11))
+            .when(!sub, (el) => el.text_size(12.5))
+            .child(name))
+          .when(Boolean(since), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - since))))
+          .child(this.agentState(t, status)))
+        .child(div().id(`space-agent-doing-${address}`).h(15).truncate().text_size(11).text_color(t.dim).tooltip(doing).child(doing)));
   }
 
   compact({ w, i }, t) {

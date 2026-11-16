@@ -118,6 +118,9 @@ const RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
 
 const TAB_NAMES_KEY = "my-agents.tabNames";
 
+// address -> { alias, since }: the spaces list names agents and their age the same way.
+const META_KEY = "my-agents.meta";
+
 function decodeTabName(value) {
   const encoded = JSON.stringify(value);
 
@@ -218,7 +221,18 @@ export default class Agents extends View {
     this.originFolders = new Map();
     this.originPending = new Set();
     this.originRefreshing = false;
+    this.publishedMeta = JSON.stringify(shared(META_KEY) ?? {});
     cx.timer.every(30000, (cx) => cx.notify());
+  }
+
+  // Written only when it changed: every write re-renders every mod.
+  publishMeta(list) {
+    const meta = Object.fromEntries(list.map((a) => [a.address, { alias: this.aliases.get(a.address) ?? null, since: this.since(a) || null }]));
+    const encoded = JSON.stringify(meta);
+
+    if (encoded === this.publishedMeta) return;
+    this.publishedMeta = encoded;
+    setShared(META_KEY, meta);
   }
 
   // Stamps agents whose state changed. Done and idle count as one: looking at a
@@ -657,7 +671,9 @@ export default class Agents extends View {
     this.migratePins(all);
     const shown = focused()?.agent;
     const now = Date.now();
-    this.track(list, now);
+    // Sub-agents get ages too: the spaces list shows them.
+    const kids = list.flatMap((a) => this.tree(all, a.address).map((s) => ({ address: s.t.address, status: kidStatus(s.t, this.listed) })));
+    this.track([...list, ...kids], now);
     this.hold(list);
     const byPriority = sort.id === "priority";
     const byProject = sort.id === "project";
@@ -727,6 +743,7 @@ export default class Agents extends View {
     const terminalsByAddress = new Map(all.map((terminal) => [terminal.address, terminal]));
     this.assignAliases([...list, ...list.flatMap((a) => this.tree(all, a.address).map((s) => s.t))], spaceList, all);
     this.syncTabNames(spaceList, panes(), list, cx);
+    this.publishMeta([...list, ...kids]);
 
     const location = (a) => {
       const project = worktreeOf(a);
