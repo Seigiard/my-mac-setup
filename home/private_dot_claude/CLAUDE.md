@@ -17,7 +17,7 @@ Write plainly in either language: short sentences, common words, one idea per se
 - When you ask me a question and I reply with a question of my own, answer mine first, stop and wait for my decision. A question back means I'm still deciding.
 - Write long texts (replies longer than 5 sentences, and long text in files) using ASD-STE100 (Simplified Technical English) style but in language of communication. Write short replies in normal.
 - When you hand work to a subagent or start a long run, the status line names what will run and about how long it takes. A status I can veto in the first minute beats one I read in the twentieth.
-- That estimate is a **budget**. When elapsed time reaches twice the estimate, stop at the next checkpoint and ask me one question: continue, split the work, or keep the partial result, with what is done and what remains. "Still running" is a status, not that question. The question names the step that overran, and the budget binds every child you supervise.
+- That estimate is a **budget**. When elapsed time reaches twice the estimate, switch to **finish mode** at the next checkpoint: start no new work, bring what is running to a result, and report what is done, what remains, and the step that overran. The run ends with that report; I decide whether the remainder continues. The budget binds every child you supervise.
 
 ## Two-way doors swing freely
 

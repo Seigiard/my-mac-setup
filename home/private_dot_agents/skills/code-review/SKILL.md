@@ -177,8 +177,8 @@ that asks only for a test, with the code correct, is `minor`.
 A **fix round** is a round whose routed findings produced fix commits; the budget is two per
 review loop. Each fix round is followed by one confirming round (step 2). The loop is in
 **closeout** once a confirming round graded nothing above `minor`, or once the second fix round
-has been confirmed. In closeout, route no fix: defer every remaining `minor`, and put a
-reachable critical or major to the user as a decision brief on raising the budget.
+has been confirmed. In closeout, route no fix: defer every remaining `minor`, and report a
+reachable critical or major as remaining work; the loop then finishes blocked (step 5).
 
 A reachable finding against the mechanism the previous round's fix changed, when it is not
 that round's defect returning, means the mechanism is wrong rather than one instance of it.
@@ -252,7 +252,7 @@ Apply these rules in order:
    confirming round. This includes minor-only fixes and edits to docs, prompts, or
    skills, even when another finding still needs a decision.
 3. Otherwise finish: this complete round routed no fix, or the loop is in closeout. An unresolved reachable critical or
-   major, a closeout decision included, leaves the review blocked; skipping it does not make
+   major, one left at closeout included, leaves the review blocked; skipping it does not make
    the review clean. Report deferred findings and open decisions as remaining work, not as an
    empty findings list.
 

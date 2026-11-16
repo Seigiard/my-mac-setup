@@ -96,7 +96,7 @@ A **batch** is the caller's initial ticket or one caller-supplied set of review 
 
 A **finding** is a caller-supplied review finding or a diagnosis you recorded. A finding is **open** until its acceptance evidence is recorded in Verdicts. A finding is **closed** by the route its diagnosis takes; a finding whose route is **Decision** is **reported**: it stays in Verdicts as an open question and does not block step 5. When several are open, repair prerequisites first, then suspect tests, then run one implementer for all open production work.
 
-Every dispatched or resumed child is one **turn** of its batch. Before each dispatch, compare the batch's turn count with its limit, recorded in `ticket.md` with a default of 8. At the limit, accept a completed success; otherwise report the remaining work and the diagnosis to the caller and wait. Only the caller changes the limit.
+Every dispatched or resumed child is one **turn** of its batch. Before each dispatch, compare the batch's turn count with its limit, recorded in `ticket.md` with a default of 8. Two turns before the limit, the batch enters **finish mode**: the remaining turns go only to the implementer, for failing locked tests and red checks. Open no criterion, re-lock, or calibration; drop a planned calibration that has not run, and record every other open finding as reported with its diagnosis, so it does not block step 5. At the limit, accept a completed success; otherwise end the batch blocked and report the remaining work and the diagnosis to the caller. Only the caller changes the limit.
 
 ## Mechanical corrections
 
