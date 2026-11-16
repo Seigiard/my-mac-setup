@@ -187,17 +187,21 @@ as a decision brief (`~/.claude/shared/decision-brief.md`), with the occurrences
 keeps and loses.
 
 Write `<run-dir>/review-<round>.md` with one grade, the path that establishes reachability,
-and one verdict per finding and open question: `test`, `code`, `decision`, `defer`, or
-`reject` with the reason, using the eligibility rules below.
+and one verdict per finding and open question: `test`, `code`, `direct`, `decision`, `defer`,
+or `reject` with the reason, using the eligibility rules below.
 
 Confirm the in-scope tree still matches what was reviewed. If it changed during the
 round, review the new state before routing stale findings. Report the round's findings
 and the `good-css` results briefly, then act without another approval prompt:
 
 - Fix a reachable `critical` or `major` in the agreed scope through fresh `tdd` chain children.
-- Fix a reachable `minor` through a fresh child when its defect and remedy are clear, the edit
-  is one local, reversible change, and it needs no product decision, design choice, or taste
-  judgment.
+- Fix a reachable `minor` yourself, verdict `direct`, when its remedy is **mechanical**: the
+  exact change is known before you start, from the finding's body or the current source; it is
+  one local, reversible edit; it touches no locked path; and it adds no behavior a test would
+  have to cover.
+- Fix any other reachable `minor` through a fresh child when its defect and remedy are clear,
+  the edit is one local, reversible change, and it needs no product decision, design choice, or
+  taste judgment.
 - Defer every other `minor`, polish included: one line each in the review file, with the
   reviewer's title and the reason. Deferred findings go into the final report under step 5;
   the PR body's "Watch out for" section lists them as deliberate omissions, and the ticket's
@@ -222,13 +226,20 @@ test** gets a test writer; every other supported finding is **code-only** and go
 implementer against the existing lock, or checks-only when there is none. `tdd` owns the
 batch's path, the child modes, tiers, calibration, turn budget, and the response to a failure.
 
-Children commit fixes on the reviewed branch. Pushes and PR
+Apply `direct` fixes after the round's `tdd` batch passes `tdd` step 5, or at once when the
+round routed none: one commit per finding, touching only its paths. Verify them yourself: read
+the diff, confirm the lock diff still exits 0 when a lock exists, run the checks whose coverage
+includes a changed path, and confirm the worktree is clean. A `direct` fix that fails a check
+is reverted and routed as `code`.
+
+Children, and the caller for `direct` fixes, commit on the reviewed branch. Pushes and PR
 creation follow the two-way-door rule in the global `CLAUDE.md`. Editing a fetched PR or running under `mode:agent`
 follows the report-only rules in step 1.
 
-When no child can start, report the reason and stop. The caller never writes a fix itself.
+When no child can start, apply the `direct` fixes, report the reason, and stop. Every fix
+other than a `direct` one comes from a child.
 
-The caller verifies the result through the complete `tdd` step 5, including any planned test
+The caller verifies child fixes through the complete `tdd` step 5, including any planned test
 calibration, on `tdd`'s evidence rules: a child's verdict is not evidence, its logs are. The
 caller still checks styling in code-review's own step 3.
 
