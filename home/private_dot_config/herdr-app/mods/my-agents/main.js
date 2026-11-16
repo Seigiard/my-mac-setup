@@ -700,13 +700,24 @@ export default class Agents extends View {
     list = [...pinned, ...rest];
     setAgentOrder(list.map((a) => a.address));
 
+    // Priority lists only the sub-agents that need you; the spaces list has the rest.
+    const kidsOf = (a) => {
+      const subs = this.tree(all, a.address);
+
+      if (!byPriority) return subs;
+      const needy = subs.filter((s) => kidStatus(s.t, this.listed) === "blocked");
+
+      return needy.map((s, n) => ({ ...s, lines: [n === needy.length - 1 ? "└" : "├"] }));
+    };
+
     const withKids = (a, i) => {
-      const subs = collapsed ? [] : this.tree(all, a.address);
+      const subs = collapsed ? [] : kidsOf(a);
       const r = row(a, i, subs);
+      const gap = div().h(byPriority ? 2 : 6).flex_none();
 
-      if (this.folded.has(a.address)) return [r, div().h(6).flex_none()];
+      if (this.folded.has(a.address)) return [r, gap];
 
-      return [r, ...subs.map((s) => this.subRow(t, s, shown, byPriority)), div().h(6).flex_none()];
+      return [r, ...subs.map((s) => this.subRow(t, s, shown, byPriority)), gap];
     };
 
     // The fold chevron; folded, the count too, colored by the most urgent one.
@@ -808,6 +819,51 @@ export default class Agents extends View {
           cx.notify();
         })
         .child(svg(`mods/workspace-chrome/${isPinned ? "pin-off" : "pin"}.svg`).size(13));
+
+      // Priority is the triage list, laid out like the spaces list: what the
+      // agent is doing and its state, then who it is, its space and machine.
+      if (byPriority) {
+        const doing = step || task;
+
+        const top = h_flex()
+          .h(15)
+          .gap(6)
+          .items_center()
+          .child(div().flex_1().min_w(0).truncate().text_size(12.5).text_color(idle ? t.muted : t.foreground).child(doing))
+          .when(this.hovered === a.address, (el) => el.child(pin))
+          .when(this.hovered !== a.address && Boolean(when), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
+          .child(isPinned && a.status === "blocked" ? this.status(t, a, true) : this.stateGlyph(t, a.status));
+
+        const who = h_flex()
+          .h(15)
+          .gap(5)
+          .items_center()
+          .text_size(11)
+          .text_color(t.dim)
+          .when(Boolean(pic), (el) => el.child(icon(a.program, 11, t.foreground)))
+          .child(div().flex_none().max_w(110).truncate().child(this.aliases.get(a.address) ?? a.program?.name ?? ""))
+          .child(div().flex_1().min_w(0).truncate().child(`· ${location(a)}`))
+          .when(Boolean(machine), (el) => el.child(div().id(`machine-${a.address}`).flex_none().tooltip(machine).child(svg(`mods/my-agents/${machineAsset(machine)}.svg`).size(12).flex_none().text_color(t.dim))));
+
+        return v_flex()
+          .id(`ag-${a.address}`)
+          .pt(4)
+          .pb(7)
+          .px(8)
+          .flex_none()
+          .rounded(8)
+          .when(a.focused, (el) => el.bg(t.selected))
+          .cursor_pointer()
+          .hover((s) => s.bg(t.hover))
+          .tooltip(doing)
+          .on_hover((on, cx) => {
+            if (on) this.hovered = a.address;
+            else if (this.hovered === a.address) this.hovered = null;
+            cx.notify();
+          })
+          .on_click(() => run("pane.focus", { pane: a.pane }))
+          .children([top, who]);
+      }
 
       const row1 = h_flex()
         .h(30)
