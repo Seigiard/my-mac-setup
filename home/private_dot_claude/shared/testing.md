@@ -7,9 +7,30 @@ Reached from the testing pointer in `~/.claude/CLAUDE.md` and from the `tdd` ski
 - **Declare the oracle before the first test edit.** Before the first Edit/Write to any test file, write one line in your visible response naming the consumer, the observable failure, and an oracle independent of the files this patch changes. If you cannot complete the line, write zero new tests and say so. A useful test fails when the protected behavior breaks and stays green through harmless source refactors.
 - **This gate outranks every skill's step list.** A "write failing tests first" step in any workflow does not waive it: a red test proves nothing when its expected value comes from the same patch or inspects source shape. Without the oracle line, the correct output of that step is zero tests.
 - Reject expected values copied from source, prompt, config, fixture, or inventory changed by the same patch, and values *re-derived* by running the logic under test — the same formula, the same transform, the same helper the production path calls. Write the literal result the contract produces. When expectation and implementation share a source, the test is a false green: it stays green when both are wrong.
+
+  ```typescript
+  // tautological: the expectation is the implementation, restated
+  const expected = items.reduce((sum, i) => sum + i.price, 0);
+  expect(calculateTotal(items)).toBe(expected);
+
+  // oracle: a literal the contract fixes
+  expect(calculateTotal([{ price: 10 }, { price: 5 }])).toBe(15);
+  ```
 - **Editing a test is authoring it.** Changing expected values, renaming what a test calls, or porting it to a new API re-opens this gate: write the oracle line for the version you keep, or delete it and name the contract that goes uncovered.
 - **Rendered text is behavior.** Pin a label or summary's format with one example, then assert the rules the text obeys — entries that read distinctly, each carrying its own record's fields, agreeing with the pipeline's own output.
 - Prefer one behavioral, deployment, or validation owner; keep exact text only for externally consumed literal contracts and inventories only when they compare independent sides of a relationship.
+- **Verify through the interface, not beside it.** A test that reads the database, a private field, or a spy on an internal collaborator is **implementation-coupled**: it breaks on a refactor that changes no behavior, and it stays green when the interface lies. Observe the result the way a caller would.
+
+  ```typescript
+  // implementation-coupled: bypasses the interface to verify
+  await createUser({ name: "Alice" });
+  const row = await db.query("SELECT * FROM users WHERE name = ?", ["Alice"]);
+  expect(row).toBeDefined();
+
+  // contract: the caller's own path answers
+  const user = await createUser({ name: "Alice" });
+  expect((await getUser(user.id)).name).toBe("Alice");
+  ```
 - Behavior owned by an upstream system — a tool you route input to, a library you call — has no valid local oracle. Do not reimplement it locally to make it testable; route to its real interface and leave its semantics untested here.
 - Removing a dependency, command, config entry, or file does not by itself justify an absence assertion. Test the capability that remains, or exercise the real deployment/runtime transition that clears stale state — never a source grep.
 
@@ -47,6 +68,6 @@ A unit is tested when its happy path, every error path it can produce, its empty
 
 ### Mocking
 
-- Mock external dependencies (APIs, databases)
-- Don't mock the unit under test
-- Reset mocks between tests
+- Mock at **system boundaries** only: external APIs, time and randomness, and a database or file system when a real disposable one is unavailable. Your own modules, internal collaborators, and the unit under test run real: a mock there is the implementation-coupled form above.
+- Reset mocks between tests.
+- Design the boundary so a mock is one value, not a program. Pass the external client in (dependency injection) instead of constructing it inside the unit, and expose one function per external operation (`api.getUser(id)`, `api.createOrder(data)`) instead of one generic `api.fetch(endpoint, options)`: each mock then returns one shape, and the test setup carries no conditional logic.
