@@ -22,7 +22,7 @@ Done when the worktree is clean and `ticket.md` holds the ticket, its criteria w
 
 1. **Oracle gate.** For each criterion, decide whether a permanent test is warranted: the oracle rule in `~/.claude/shared/testing.md`, and the repository's test-oracle gate when its instructions name one. Each criterion gets one verdict in `ticket.md`: **test**, with its oracle line (consumer, observable failure, independent oracle), or **no test**, with the reason. The usual **no test** cases are agent-facing text, a verbatim copy or move, and config with no observable behavior. When no criterion is marked **test** and no lock exists, this is the **checks-only path**: skip step 3.
    Done when every criterion carries a verdict.
-2. **Seams, checks, tiers, batch.** Record in `ticket.md`, reusing what an earlier batch recorded when unchanged: for each **test** criterion the public boundary and the allowed test paths and fixtures; the test command when a criterion is marked **test**, the repository's own runner or the stack's built-in one (installing a runner is a new dependency and a **decision**), otherwise `Tests: not applicable` with the oracle-gate reason; the checks the repository's verification rules name; each assertion you name as a **false-green risk** ([calibration](#calibration)); both tiers; and the `Batch` line with its number, start SHA, and turn count against the limit of 8. The test writer starts on `medium`, or `high` when a test drives a browser or renders UI; the implementer starts on `low`. Tiers map to models through `~/.claude/shared/model-tiers.md`. Read the area's glossary and ADRs when present; for an unsettled interface, load `codebase-design`.
+2. **Seams, checks, tiers, batch.** Record in `ticket.md`, reusing what an earlier batch recorded when unchanged: for each **test** criterion the public boundary and the allowed test paths and fixtures; the test command when a criterion is marked **test**, the repository's own runner or the stack's built-in one (installing a runner is a new dependency and a **decision**), otherwise `Tests: not applicable` with the oracle-gate reason; the checks the repository's verification rules name; each assertion you name as a **false-green risk** ([calibration](#calibration)); both tiers; and the `Batch` line with its number and start SHA. The test writer starts on `medium`, or `high` when a test drives a browser or renders UI; the implementer starts on `low`. Tiers map to models through `~/.claude/shared/model-tiers.md`. Read the area's glossary and ADRs when present; for an unsettled interface, load `codebase-design`.
    Done when these fields are recorded for the batch.
 3. **Test writer.** Start a test writer in **prepare** mode ([Dispatch](#dispatch), brief: `test-writer.md`), recording `base_sha` (`git rev-parse HEAD`) on its Verdicts dispatch line. When it settles, read the diff and the report before changing repository state. Accept the **lock** when all of these hold:
    - **Scope:** `git diff --name-only <base_sha> HEAD` lists only the allowed test paths and fixtures, and the worktree is clean.
@@ -44,7 +44,7 @@ Done when the worktree is clean and `ticket.md` holds the ticket, its criteria w
    Check the lock first, then the test command, then the diff, then calibration, then the broader checks. A failed condition takes [When a child fails](#when-a-child-fails).
    Done when all conditions hold.
 
-Report to the caller: `lock_sha` or the checks-only verdict, the final branch tip, each check and calibration verdict, each open question, the turn count, the run directory, and the **Risks** section ([run-directory.md](run-directory.md#risks)) merged from both children's reports.
+Report to the caller: `lock_sha` or the checks-only verdict, the final branch tip, each check and calibration verdict, each open question, the number of children dispatched, the run directory, and the **Risks** section ([run-directory.md](run-directory.md#risks)) merged from both children's reports.
 
 ### Entering mid-chain
 
@@ -69,12 +69,11 @@ A locked test is wrong in a **mechanical** way when the correct value is already
 Before any new dispatch, record a **diagnosis** `D<n>` in Verdicts: the artifact, the failing assertion or condition, the reproduction, and the expected result with its source. Keep a rejected candidate reachable under `refs/tdd/<run-id>/<role>-<n>`; a rejected test writer's branch then returns to `base_sha` (`git reset --hard <base_sha> && git clean -fd`), a rejected implementer's stays at its tip. Then take the smallest of these routes:
 
 - **Resume** the same child when work its brief requires did not happen and the inspected work looks sound (a check never ran, a report field is missing). Once per attempt.
-- **Targeted fix** on the same tier when the defect is localized and the correct result is known: a test writer for a test defect, an implementer for a production defect. The prompt names the diagnosis and the paths it may change.
+- **Targeted fix** on the same tier when the defect is localized and the correct result is known: a test writer for a test defect, an implementer for a production defect. The prompt names the diagnosis and the paths it may change. A diagnosis whose reproduction still fails after its fix turn has **returned**: it takes the next route, one tier up, never a second fix on the same tier.
 - **One tier up** when the child could not establish, exercise, or implement a behavior whose expected result is settled. On `high+` there is no next tier: report the diagnosis to the caller as remaining work.
 - **Decision** to the caller when the available authority does not settle the expected result, the fix needs a behavior the criteria do not name, or a necessary change violates a non-goal. Report the question with its diagnosis; a person's answer adds a criterion and opens a new batch. A calling skill forwards the question and does not answer it.
 
-At the batch's turn limit the batch ends **blocked**: report the remaining work. Only a person raises the limit.
 
 ## Dispatch
 
-Before starting or resuming a child, read [`dispatch.md`](dispatch.md): the prompt template, the launch modes, resuming, and turn counting.
+Before starting or resuming a child, read [`dispatch.md`](dispatch.md): the prompt template, the launch modes, and resuming.

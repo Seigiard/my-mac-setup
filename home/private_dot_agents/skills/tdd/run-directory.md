@@ -43,7 +43,7 @@ A re-lock sets `base_sha` and `lock_sha` from the new test writer and adds the f
 - <criterion>; owner: <test>; assertion: <protected result>; form: <why it could stay green>; paths: <production paths a mutation may touch>
 
 ## Batch
-- <number>: <initial ticket | caller-supplied review findings>; start: <sha>; turns: <count> / <limit>
+- <number>: <initial ticket | caller-supplied review findings>; start: <sha>
 
 ## Verdicts
 - test-writer-1 (medium, base <sha>): rejected; D1 <assertion>: <reproduction>; expected <result>, source <authority>; candidate refs/tdd/<run-id>/test-writer-1; report test-writer-1.report.md

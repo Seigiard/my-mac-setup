@@ -1,6 +1,6 @@
 # Dispatch
 
-Every dispatched or resumed child is one **turn** of its batch; update the `Batch` line in `ticket.md` before the dispatch. Write the child's prompt to `<role>-<n>.prompt.md`. It carries pointers only, never pasted history:
+Write the child's prompt to `<role>-<n>.prompt.md`. It carries pointers only, never pasted history:
 
 ```text
 Role: <test writer | implementer>, attempt <n>.
