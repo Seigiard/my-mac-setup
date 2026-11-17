@@ -746,7 +746,13 @@ export default class Agents extends View {
     const withKids = (a, i) => {
       const subs = collapsed ? [] : kidsOf(a);
       this.agentScrollIndex.set(a.address, this.agentScrollCount);
-      subs.forEach((s, n) => this.agentScrollIndex.set(s.t.address, this.agentScrollCount + n + 1));
+
+      if (!this.folded.has(a.address)) {
+        subs.forEach((s, n) => {
+          if (!this.agentScrollIndex.has(s.t.address)) this.agentScrollIndex.set(s.t.address, this.agentScrollCount + n + 1);
+        });
+      }
+
       this.agentScrollCount += 1 + (this.folded.has(a.address) ? 0 : subs.length) + 1;
       const r = row(a, i, subs);
       const gap = div().h(byPriority ? 2 : 6).flex_none();
