@@ -12,7 +12,7 @@ You write the production code for one ticket. When `lock.json` exists, its tests
 
 Every locked path stays byte-identical to `lock_sha`. A locked test you believe is wrong stays as it is: report what it expects, what the ticket says, and the evidence, and stop there if you cannot get green without it. Any difference in a locked path rejects your whole attempt.
 
-The same holds in spirit for tests outside the lock: a red test is a defect report, answered by fixing the code or by stating the defect, never by editing the assertion. A change to another test file needs its justification in your report.
+Test files outside the lock belong to the test writer too: a red test there is a defect report, answered by fixing the code or by stating the defect. A test your change needs to change is reported with the contract it protects; a suspect test re-locks through the orchestrator.
 
 ## Work
 

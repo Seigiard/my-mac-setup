@@ -43,7 +43,7 @@ A **false green** is a test that passes whether the behavior is right or wrong. 
 
 ### Coverage
 
-A unit is tested when its happy path, every error path it can produce, its empty/null/boundary inputs, and each async state (loading, success, error) all have a test. An untested error path means the work is not done. This does not override the oracle gate: a path with no independent oracle stays untested rather than getting a test that asserts its own patch back.
+A path gets a test through a criterion that names its occurrence and its oracle line; an error path, a boundary input, or an async state is covered when a criterion names it. One owner per behavior: a second test on the same contract is a variant only when its occurrence differs. A path with no independent oracle stays untested rather than getting a test that asserts its own patch back.
 
 ### Structure
 
@@ -66,7 +66,7 @@ A unit is tested when its happy path, every error path it can produce, its empty
   expect((await getUser(user.id)).name).toBe("Alice");
   ```
 - **Rendered text is behavior.** Pin a label or summary's format with one example, then assert the rules the text obeys — entries that read distinctly, each carrying its own record's fields, agreeing with the pipeline's own output.
-- Prefer one behavioral, deployment, or validation owner; keep exact text only for externally consumed literal contracts and inventories only when they compare independent sides of a relationship.
+- Keep exact text only for externally consumed literal contracts, and inventories only when they compare independent sides of a relationship.
 - Behavior owned by an upstream system — a tool you route input to, a library you call — has no valid local oracle. Do not reimplement it locally to make it testable; route to its real interface and leave its semantics untested here.
 - Removing a dependency, command, config entry, or file does not by itself justify an absence assertion. Test the capability that remains, or exercise the real deployment/runtime transition that clears stale state — never a source grep.
 

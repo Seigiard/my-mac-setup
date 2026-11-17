@@ -165,17 +165,19 @@ styling then counts as unchecked.
 Grade each finding before writing its verdict. The reviewer's severity is a proposal; the
 grade is the caller's. A finding is **reachable** when it names a path the ticket owns, the
 ticket being the issue or request the caller named, `plan:<path>` included: an acceptance
-criterion, a flow the ticket's description names, an input this project's users produce, or,
+criterion, a flow the ticket's description names, an input an occurrence shows this project's users produce, or,
 for agent-facing text, a run an agent following the text takes. A criterion establishes
 reachability through the occurrence `ticket.md` records as its evidence (`tdd`, Before the
 chain); a scenario, limit, or guard that no occurrence names is polish, however plausible it
 reads. A finding whose input the reviewer built is a **construction**: polish, unless the
-ticket or the review context names an occurrence of that input or its class. When the ticket
+ticket or the review context names an occurrence of that input, or an incident in which its class
+failed. A **Risks** line from the `tdd` chain is a doubt to reproduce, not an occurrence. When the ticket
 relaxes a guard, filter, or validator, an input the base blocked and the head allows is the
 ticket's intended direction, and a defect only through an occurrence. A
 reachable finding keeps the reviewer's severity. Every other finding is **polish** and is
 graded `minor`. A **behavior gap** on a reachable path keeps that path's grade; a finding
-that asks only for a test, with the code correct, is `minor`.
+that asks only for a test, with the code correct, is `minor` and is deferred: a test enters the
+chain through a criterion with an occurrence.
 
 A **fix round** is a round whose verdicts produced fix commits, `direct` included; the budget is two per
 review loop. Each fix round is followed by one confirming round (step 2). The loop is in
@@ -204,7 +206,7 @@ and the `good-css` results briefly, then act without another approval prompt:
 - Fix any other reachable `minor` through a fresh child when its defect and remedy are clear,
   the edit is one local, reversible change, and it needs no product decision, design choice, or
   taste judgment.
-- Defer every other `minor`, polish included: one line each in the review file, with the
+- Defer every other `minor`, polish and test-only findings included: one line each in the review file, with the
   reviewer's title and the reason. Deferred findings go into the final report under step 5;
   the PR body's "Watch out for" section lists them as deliberate omissions, and the ticket's
   closing comment names them, from there.

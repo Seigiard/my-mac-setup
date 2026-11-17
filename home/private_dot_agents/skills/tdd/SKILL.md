@@ -13,7 +13,7 @@ You are the **orchestrator** of one ticket. You decide what is tested, start one
 
 - Record the checkout and the branch: the ticket branch the caller gave, or the current branch. The worktree must be clean (`git status --porcelain` is empty); otherwise report the dirty paths to the caller and stop.
 - Use the caller's run directory, or create `~/.claude/artifacts/tdd-<YYYYMMDD-HHMMSS>/<ticket>/`. Its files and the `ticket.md` layout are in [`run-directory.md`](run-directory.md).
-- Write `ticket.md`: the ticket text verbatim and its **criteria**, each with its **occurrence**: the ticket sentence it restates, or the report, log, transcript line, or incident that says where the behavior happened. A scenario, limit, or guard that someone built to show a path *could* fail is a **construction**: a question for the caller when it would decide the fix, otherwise out of `ticket.md`. A test enters the chain only through a criterion. Copy the ticket's explicit non-goals; an unnamed neighbor may be a necessary consequence of the change.
+- Write `ticket.md`: the ticket text verbatim and its **criteria**, each with its **occurrence**: the ticket sentence it restates, or the report, log, transcript line, or incident that says where the behavior happened. A scenario, limit, or guard that someone built to show a path *could* fail is a **construction**: a question for a person when it would decide the fix, otherwise out of `ticket.md`. A test enters the chain only through a criterion. Copy the ticket's explicit non-goals; an unnamed neighbor may be a necessary consequence of the change.
 - When the ticket reports a bug, add its `Symptom`: the observed behavior, the expected behavior, and the command or scenario that shows it.
 
 Done when the worktree is clean and `ticket.md` holds the ticket, its criteria with occurrences, its non-goals, and its `Symptom` when the ticket reports a bug.
@@ -28,7 +28,7 @@ Done when the worktree is clean and `ticket.md` holds the ticket, its criteria w
    - **Scope:** `git diff --name-only <base_sha> HEAD` lists only the allowed test paths and fixtures, and the worktree is clean.
    - **Red:** each new test is red on its behavior assertion, and the red output shows the missing behavior, or the reported symptom for a bug. Red for a setup, import, or syntax reason rejects the attempt. On a re-lock, corrected tests may already be green.
    - **Oracle:** each test matches its oracle line, and the line holds against `~/.claude/shared/testing.md`.
-   - **Reconciliation:** every **test** criterion has a test, or an accepted reason that moves it to **no test**.
+   - **Reconciliation:** each test names the **test** criterion it serves, and every **test** criterion has one, or an accepted reason that moves it to **no test**.
 
    On acceptance write `lock.json`: `base_sha`, the branch tip as `lock_sha`, the changed files as the locked `paths`. A failed condition takes [When a child fails](#when-a-child-fails).
    Done when the work is locked, or the ticket is on the checks-only path.
@@ -58,7 +58,7 @@ When several findings are open, re-lock suspect tests first, then run one implem
 
 ## Calibration
 
-A test proves its worth by going red when the behavior breaks. For each assertion you named as a **false-green risk** in step 2 (a negative assertion that also passes when nothing renders, an aggregate that passes with the wrong members, a pair of independent arrays where order is the contract), the test writer in **calibrate** mode breaks the production code the assertion protects, runs the owner test, and restores the code. A mutation is **calibrated** when the owner test fails on the protected behavior assertion. A passing owner test is a **suspect test** and re-locks through step 3. A hang, a timeout, a setup failure, or a crash elsewhere is neither verdict: diagnose it first, since a faithful mutation can expose a production defect. Calibrate after step 5's test command is green, and again only for rows whose owner test changed since.
+A test proves its worth by going red when the behavior breaks. A **false-green risk** is an assertion that could stay green while the behavior is wrong: a negative assertion that also passes when nothing renders, an aggregate that passes with the wrong members, a pair of independent arrays where order is the contract. One row and one mutation per protected assertion; the rows are frozen for the batch, and a row is added only for an assertion a new criterion brings. For each row, the test writer in **calibrate** mode returns **calibrated**, **suspect test**, or **blocked** (`test-writer.md`, Calibrate). A **suspect test** re-locks through step 3. **Blocked** is diagnosed before any other dispatch, since a faithful mutation can expose a production defect. Calibrate after step 5's test command is green, and again only for rows whose owner test changed since.
 
 ## Correcting a locked test
 
@@ -71,9 +71,9 @@ Before any new dispatch, record a **diagnosis** `D<n>` in Verdicts: the artifact
 - **Resume** the same child when work its brief requires did not happen and the inspected work looks sound (a check never ran, a report field is missing). Once per attempt.
 - **Targeted fix** on the same tier when the defect is localized and the correct result is known: a test writer for a test defect, an implementer for a production defect. The prompt names the diagnosis and the paths it may change.
 - **One tier up** when the child could not establish, exercise, or implement a behavior whose expected result is settled. On `high+` there is no next tier: report the diagnosis to the caller as remaining work.
-- **Decision** to the caller when the available authority does not settle the expected result, the fix needs a behavior the criteria do not name, or a necessary change violates a non-goal. Report the question with its diagnosis; the caller's answer adds a criterion and opens a new batch.
+- **Decision** to the caller when the available authority does not settle the expected result, the fix needs a behavior the criteria do not name, or a necessary change violates a non-goal. Report the question with its diagnosis; a person's answer adds a criterion and opens a new batch. A calling skill forwards the question and does not answer it.
 
-At the batch's turn limit, report the remaining work and ask the caller to raise it or stop. Only the caller changes the limit.
+At the batch's turn limit the batch ends **blocked**: report the remaining work. Only a person raises the limit.
 
 ## Dispatch
 

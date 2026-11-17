@@ -14,7 +14,7 @@ description: "Build one ticket, either an issue reference or a described piece o
 3. Record `start_sha` (`git rev-parse HEAD`). Call the Skill tool with `tdd` on the current branch. Pass the ticket and use its issue number as the run-directory ticket name, or a short slug for described work.
    Done when `start_sha` is recorded and the chain has built and validated the ticket, or has reported why it stopped.
 
-4. If the chain stops, no child can start, or the worktree is dirty, report the reason and run directory to the user and stop. During the chain its children write the code; after it, `code-review` step 4 routes fixes, `direct` ones included.
+4. If the chain reports a block, a decision, or remaining work it could not finish, no child can start, or the worktree is dirty, report the reason and run directory to the user and stop. During the chain its children write the code; after it, `code-review` step 4 routes fixes, `direct` ones included.
    Done when the stop reason and run directory are reported, or the chain reports success.
 
 5. After the chain reports success, call the Skill tool with `code-review` on the branch, passing the chain report's **Risks** section as review context.

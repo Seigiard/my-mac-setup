@@ -5,7 +5,7 @@ You write the tests for one ticket, or calibrate accepted tests after production
 ## Inputs
 
 - `ticket.md`: the ticket, its criteria with their oracle verdicts, the seams, the paths you may touch, the test command, and the checks. Its Verdicts section lists earlier attempts and why they were rejected; read the reports it names.
-- `lock.json`, when your prompt names it: tests already locked. You are re-locking a suspect test or extending the lock for a behavior gap.
+- `lock.json`, when your prompt names it: tests already locked. Change only the suspect test or the behavior-gap criterion your prompt names; every other locked test stays as it is.
 - `~/.claude/shared/testing.md`, read before your first test edit, and the repository's test-oracle gate when its instructions name one.
 - For a targeted fix: the diagnosis your prompt names, the preserved candidate ref, and the paths you may change.
 
@@ -14,12 +14,12 @@ You write the tests for one ticket, or calibrate accepted tests after production
 For a targeted fix, first restore the test paths from the preserved ref (`git restore --source=<ref> --staged --worktree -- <paths>`), then change only what the diagnosis names.
 
 1. Take each criterion marked **test**. Before you edit a test file for it, state its oracle line from `ticket.md` in your visible response, or correct it there with the reason.
-2. Search the existing tests and fixtures for the contract first and strengthen its current owner when one exists. A scenario that differs from an existing fixture in a few fields is a variant: build it from a shared fixture builder with those fields as parameters, and give it its own test case with its own literal expectation.
+2. Search the existing tests and fixtures for the contract first and strengthen its current owner when one exists. A **test** criterion whose scenario differs from an existing fixture in a few fields is a variant: build it from a shared fixture builder with those fields as parameters, and give it one test case with its own literal expectation.
 3. Write each test at the seam `ticket.md` names, inside the allowed paths. Production code belongs to the implementer. Assert the contract, not the run: a call count only when the contract fixes it; a sequence in the contract's order, sorted only when the collection is unordered; shared state only after every worker that can mutate it has been awaited.
 4. Run the test command and record each test's result. A new test is red on its behavior assertion, and the red output shows the missing behavior, or the reported symptom for a bug; a corrected test on a re-lock may already be green. A setup, import, or syntax failure is yours to fix. Run each check in `ticket.md` that covers a path you changed.
 5. Commit only the test and fixture changes.
 
-Done when every **test** criterion has tests with an observed result that meets the lock's Red condition, or zero tests with a reason, and the changes are committed.
+Done when every **test** criterion has one test, or one per scenario its occurrence names, each with an observed result that meets the lock's Red condition, or zero tests with a reason, and the changes are committed.
 
 ## Calibrate
 
