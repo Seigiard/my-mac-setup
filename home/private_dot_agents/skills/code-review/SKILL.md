@@ -93,11 +93,8 @@ Choose the route before preparing the round:
   change, add one repeatable `--only <pathspec>` per part to review. Collect the round's report,
   progress log, and terminal status from `<run-dir>/<run>.json`, `.log`, and `.exit`.
 
-  When a round reviews values that do not live in Git, such as artifact checksums, digests, or
-  version strings, write them as a flat JSON object and pass `--candidate <file>` instead of
-  putting them in `--note`. Candidate keys must match `[A-Za-z0-9_.-]+`; values must be non-empty,
-  single-line strings. The rendered Candidate section counts toward the 1500-character scope
-  limit. Use `--note` for prose about what changed since the previous round.
+  Values that do not live in Git, such as checksums or version strings, go in a `--candidate` file:
+  format and limits in [`revmux-round.md`](revmux-round.md).
 
 Reuse the task ID and create a new round each time. Carry the original goal and every exclusion
 recorded so far forward; on the revmux route that is one `--exclude` per exclusion. Let revmux
@@ -114,14 +111,9 @@ the reviewers' reproduction list: on the revmux route in the `--context-file`, o
 in the child's prompt. Each line names a doubt the chain could not settle, with the command that
 reproduces it.
 
-On the revmux route, wait for a terminal result under the host's long-running-work rules.
-With `--wait`, the command blocks until the `.exit` file exists; run it detached and read
-`.exit` afterwards. Keep report JSON and
-progress logs separate. `.exit` `0` and `1` are completed reviews; anything else is a tool failure.
-A tool or launcher error, malformed output, missing sources, or non-empty
-`sources.degraded` means incomplete coverage: report the failure and stop rather than claiming
-convergence. For a healthy `raised 0` source, name the source and inspect its `agents/<name>.*`
-tee; treat it as incomplete only when the tee shows that the agent could not work.
+On the revmux route, wait for a terminal result under the host's long-running-work rules and
+read the `.exit` code and the coverage fields by [`revmux-round.md`](revmux-round.md): a tool
+failure or incomplete coverage is reported as such, never as convergence.
 
 On the prose route, the fresh child must produce a parseable report with the required keys;
 an absent or malformed report is incomplete coverage, so report the failure and stop.
@@ -226,8 +218,8 @@ criterion, such as an expected string, escape, or number, from the finding's bod
 tool's output. When a later round shows a routed criterion wrong, correct it in `ticket.md`
 and note the correction in that round's review file; a second correction of the same
 criterion is a decision. "Entering mid-chain" routes a **behavior gap**, a **code-only** finding,
-and a **suspect test**; `tdd` owns the batch's path, the child modes, tiers, calibration, turn
-budget, and the response to a failure.
+and a **suspect test**; `tdd` owns the batch's path, the child modes, tiers, calibration, and the
+response to a failure.
 
 Apply `direct` fixes once the round's `tdd` batch has settled, passed or blocked, or at once
 when the round has no `test` or `code` finding: one commit per finding, touching only its paths.
