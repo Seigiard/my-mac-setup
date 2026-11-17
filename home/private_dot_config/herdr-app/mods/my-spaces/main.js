@@ -570,6 +570,10 @@ export default class Spaces extends View {
     const rows = this.ordered();
     this.spaceScrollIndex = new Map();
     this.spaceScrollCount = 0;
+    const revealTarget = shared(SPACE_REVEAL_KEY)?.target;
+    const targetMachine = rows.find((r) => r.w.id === revealTarget)?.w.machine ?? null;
+
+    if (revealTarget && this.folded.has(targetMachine)) this.folded.delete(targetMachine);
 
     const crew = {
       list: collapsed ? [] : agents(),
@@ -645,7 +649,10 @@ export default class Spaces extends View {
 
       if (!collapsed && rebuilt) return [head];
 
-      return [head, ...(folded ? [] : mine.length ? mine.flatMap(draw) : [loading(m) ? loadingRow(m) : empty])];
+      const children = folded ? [] : mine.length ? mine.flatMap(draw) : [loading(m) ? loadingRow(m) : empty];
+
+      if (!mine.length && !folded) this.spaceScrollCount += children.length;
+      return [head, ...children];
     });
   }
 
@@ -756,8 +763,8 @@ export default class Spaces extends View {
     const current = focused();
 
     if (!pending || current?.space !== pending.space) return;
-    const agent = agents().find((a) => (current.agent && a.address === current.agent)
-      || (current.pane && a.pane === current.pane && a.space === current.space));
+    const agent = agents().find((a) => a.space === current.space
+      && ((current.pane && a.pane === current.pane) || (current.terminal && a.address === current.terminal)));
 
     this.pendingAgentReveal = null;
     if (agent) setShared(REVEAL_KEY, { target: agent.address, sequence: pending.sequence });

@@ -627,7 +627,7 @@ export default class Agents extends View {
     });
   }
 
-  subRow(t, s, shown, compact) {
+  subRow(t, s, shown, compact, space) {
     const k = s.t;
     const st = kidStatus(k, this.listed);
     const pic = icon(k.program, 14, t.foreground);
@@ -648,7 +648,13 @@ export default class Agents extends View {
       .text_size(12.5)
       .when(on, (el) => el.bg(t.raised))
       .hover((s) => s.bg(t.hover))
-      .on_click(() => this.peek(k.address))
+      .on_click(() => {
+        setShared(REVEAL_KEY, {
+          target: space,
+          sequence: (this.revealSequence = (this.revealSequence ?? 0) + 1),
+        });
+        this.peek(k.address);
+      })
       .children(s.lines.map(l => div().self_start().mt(-4).w(9).h(17).mr(2).flex_none()
         .when(Boolean(l), el => el.border_l(1.5).border_color(t.input))
         .when(l === "└" || l === "├", el => el.border_b(1.5).rounded_bl(6))))
@@ -744,7 +750,7 @@ export default class Agents extends View {
 
       if (this.folded.has(a.address)) return [r, gap];
 
-      return [r, ...subs.map((s) => this.subRow(t, s, shown, byPriority)), gap];
+      return [r, ...subs.map((s) => this.subRow(t, s, shown, byPriority, a.space)), gap];
     };
 
     // The fold chevron; folded, the count too, colored by the most urgent one.
@@ -957,6 +963,14 @@ export default class Agents extends View {
       if (groups.at(-1)?.id === group.id) groups.at(-1).members.push(a);
       else groups.push({ ...group, members: [a] });
     }
+    const revealTarget = shared(AGENT_REVEAL_KEY)?.target;
+    const targetGroup = groups.find((g) => g.members.some((a) => a.address === revealTarget
+      || this.tree(all, a.address).some((s) => s.t.address === revealTarget)));
+    const targetParent = list.find((a) => a.address === revealTarget
+      || this.tree(all, a.address).some((s) => s.t.address === revealTarget));
+
+    if (targetGroup) this.folded.delete(targetGroup.id);
+    if (targetParent) this.folded.delete(targetParent.address);
 
     const worktreeHeader = (a) => {
       this.agentScrollCount += 1;
