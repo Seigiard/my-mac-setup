@@ -963,14 +963,17 @@ export default class Agents extends View {
       if (groups.at(-1)?.id === group.id) groups.at(-1).members.push(a);
       else groups.push({ ...group, members: [a] });
     }
-    const revealTarget = shared(AGENT_REVEAL_KEY)?.target;
+    const revealRequest = shared(AGENT_REVEAL_KEY);
+    const revealTarget = revealRequest?.target;
     const targetGroup = groups.find((g) => g.members.some((a) => a.address === revealTarget
       || this.tree(all, a.address).some((s) => s.t.address === revealTarget)));
     const targetParent = list.find((a) => a.address === revealTarget
       || this.tree(all, a.address).some((s) => s.t.address === revealTarget));
 
-    if (targetGroup) this.folded.delete(targetGroup.id);
-    if (targetParent) this.folded.delete(targetParent.address);
+    if (JSON.stringify(revealRequest) !== this.lastReveal) {
+      if (targetGroup) this.folded.delete(targetGroup.id);
+      if (targetParent) this.folded.delete(targetParent.address);
+    }
 
     const worktreeHeader = (a) => {
       this.agentScrollCount += 1;

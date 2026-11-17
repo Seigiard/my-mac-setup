@@ -570,10 +570,11 @@ export default class Spaces extends View {
     const rows = this.ordered();
     this.spaceScrollIndex = new Map();
     this.spaceScrollCount = 0;
-    const revealTarget = shared(SPACE_REVEAL_KEY)?.target;
-    const targetMachine = rows.find((r) => r.w.id === revealTarget)?.w.machine ?? null;
+    const revealRequest = shared(SPACE_REVEAL_KEY);
+    const revealTarget = revealRequest?.target;
+    const targetMachine = rows.find((r) => r.w.id === revealTarget)?.w.machine;
 
-    if (revealTarget && this.folded.has(targetMachine)) this.folded.delete(targetMachine);
+    if (revealTarget && targetMachine !== undefined && JSON.stringify(revealRequest) !== this.lastReveal) this.folded.delete(targetMachine);
 
     const crew = {
       list: collapsed ? [] : agents(),
