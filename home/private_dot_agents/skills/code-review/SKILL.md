@@ -110,8 +110,9 @@ Include available verification results in the round context, naming their comman
 state they cover; on the revmux route, write them to the `--context-file` under the same file
 name in every round, so it replaces the carried copy. Mark checks without current evidence as
 unknown. When the scope came through the `tdd` chain, include its report's **Risks** section as
-the reviewers' reproduction list: each line names a doubt the chain could not settle, with the
-command that reproduces it.
+the reviewers' reproduction list: on the revmux route in the `--context-file`, on the prose route
+in the child's prompt. Each line names a doubt the chain could not settle, with the command that
+reproduces it.
 
 On the revmux route, wait for a terminal result under the host's long-running-work rules.
 With `--wait`, the command blocks until the `.exit` file exists; run it detached and read
@@ -222,10 +223,9 @@ then enter through `tdd`'s "Entering mid-chain" section. Copy every literal in a
 criterion, such as an expected string, escape, or number, from the finding's body or from a
 tool's output. When a later round shows a routed criterion wrong, correct it in `ticket.md`
 and note the correction in that round's review file; a second correction of the same
-criterion is a decision. A **behavior gap** or a **suspect
-test** gets a test writer; every other `code` finding is **code-only** and goes to one
-implementer against the existing lock, or checks-only when there is none. `tdd` owns the
-batch's path, the child modes, tiers, calibration, turn budget, and the response to a failure.
+criterion is a decision. "Entering mid-chain" routes a **behavior gap**, a **code-only** finding,
+and a **suspect test**; `tdd` owns the batch's path, the child modes, tiers, calibration, turn
+budget, and the response to a failure.
 
 Apply `direct` fixes once the round's `tdd` batch has settled, passed or blocked, or at once
 when the round has no `test` or `code` finding: one commit per finding, touching only its paths.

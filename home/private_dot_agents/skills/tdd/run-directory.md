@@ -9,6 +9,8 @@ The `tdd` orchestrator's files for one ticket. The `<run-id>` is the run directo
 | `<role>-<n>.prompt.md`, `<role>-<n>.report.md` | one prompt and one report per child, numbered per role from 1 |
 | `<role>-<n>.jsonl` | the headless child's log, when launched with `opencode run` |
 
+A re-lock sets `base_sha` and `lock_sha` from the new test writer and adds the files it changed to `paths`. A path stays locked once locked.
+
 ## ticket.md
 
 ```markdown
@@ -17,7 +19,7 @@ The `tdd` orchestrator's files for one ticket. The `<run-id>` is the run directo
 ## Ticket
 <the ticket text, verbatim>
 
-## Symptom
+## Symptom   <- bug tickets only
 - observed: <the wrong behavior the ticket reports, and the command or scenario that shows it>
 - expected: <the behavior the ticket expects>
 
@@ -31,7 +33,7 @@ The `tdd` orchestrator's files for one ticket. The `<run-id>` is the run directo
 1. <public boundary>; paths: <test files and fixtures>
 
 ## Commands
-- Tests: <command>
+- Tests: <command | not applicable: reason>
 - Checks: <each applicable check from the repository's verification rules>
 
 ## Tiers
@@ -44,14 +46,13 @@ The `tdd` orchestrator's files for one ticket. The `<run-id>` is the run directo
 - <number>: <initial ticket | caller-supplied review findings>; start: <sha>; turns: <count> / <limit>
 
 ## Verdicts
-- test-writer-1 (medium): rejected; D1 <assertion>: <reproduction>; expected <result>, source <authority>; report test-writer-1.report.md
-- test-writer-2 (medium, targeted fix D1): accepted, lock <sha>
+- test-writer-1 (medium, base <sha>): rejected; D1 <assertion>: <reproduction>; expected <result>, source <authority>; candidate refs/tdd/<run-id>/test-writer-1; report test-writer-1.report.md
+- test-writer-2 (medium, base <sha>, targeted fix D1): accepted, lock <sha>
 - implementer-1 (low): accepted, tip <sha>; evidence <log paths>
 - correction: <path>:<line>, <old> → <new>; source <file:line or ticket sentence>; lock <sha>
 - test-writer-3 (medium, calibrate): calibrated; state <sha>
+- implement: start <sha>; chain refs/tdd/<run-id>/chain; sliced tip <sha>
 ```
-
-A re-lock sets `base_sha` and `lock_sha` from the new test writer and adds the files it changed to `paths`. A path stays locked once locked.
 
 ## Risks
 
