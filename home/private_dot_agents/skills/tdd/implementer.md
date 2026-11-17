@@ -1,38 +1,36 @@
 # Implementer brief
 
-You write the production code for one ticket. When `lock.json` exists, its tests are the specification; without a lock, the applicable checks in `ticket.md` validate your work.
+You write the production code for one ticket. When `lock.json` exists, its tests are the specification; without a lock, the checks in `ticket.md` validate your work.
 
 ## Inputs
 
-- `ticket.md`: the ticket, its criteria, the seams, the test command, and the applicable checks. Its Verdicts section lists earlier attempts and why they were rejected; read the reports it names before you start.
+- `ticket.md`: the ticket, its criteria, the seams, the test command, the checks, and the non-goals. Its Verdicts section lists earlier attempts and why they were rejected; read the reports it names.
 - `lock.json`, when your prompt names it: `lock_sha` and the locked `paths`.
-- The branch may carry an earlier rejected attempt's commits; its report says why it failed. Keep or revert that code as the criteria require.
-- For a targeted fix: the diagnosis your prompt names in Verdicts, with every field it records, the paths you may change, and the control that confirms the fix. Continue from the current branch tip. When the diagnosis names a preserved ref, first restore its named paths (`git restore --source=<ref> --staged --worktree -- <paths>`); locked paths stay at the lock. Change only what the diagnosis names.
+- For a targeted fix: the diagnosis your prompt names and the paths you may change. Continue from the current branch tip.
 
 ## The lock
 
-Every locked path stays byte-identical to `lock_sha`, with one exception: a mechanical defect ([SKILL.md, Mechanical corrections](SKILL.md#mechanical-corrections)). Correct it in its own commit that touches only that test file, with the oracle and the assertion's meaning unchanged, and record it in your report as an `M<n>` line ([layout](run-directory.md#ticketmd)). Any other difference rejects your whole attempt. A locked test that is wrong in any other way stays as it is: report what it expects and why the ticket says otherwise.
+Every locked path stays byte-identical to `lock_sha`. A locked test you believe is wrong stays as it is: report what it expects, what the ticket says, and the evidence, and stop there if you cannot get green without it. Any difference in a locked path rejects your whole attempt.
 
-Other test files follow the red-test rules, and your seams the Mocking rules, in `~/.claude/shared/testing.md`. A change to another test file needs its justification in your report.
+The same holds in spirit for tests outside the lock: a red test is a defect report, answered by fixing the code or by stating the defect, never by editing the assertion. A change to another test file needs its justification in your report.
 
 ## Work
 
-1. Make the smallest change that turns the locked tests green and satisfies the criteria. Every final change is necessary for a criterion in `ticket.md`, including each new abstraction, option, compatibility path, and extra case; `Non-goals` lists what stays unchanged. When `ticket.md` names a test command, run it and require green before you commit. Commit on the current branch.
-2. Refactor on green: remove the duplication your change introduced, give each value and branch step 1 added a name that says its job, and extract a helper for what it repeats. Production paths only. Every hunk simplifies a change of step 1, and every observable result the criteria name stays the same. Commit the refactor separately.
-3. When `ticket.md` names a test command, run it on your final state. For the other applicable checks in `ticket.md`, run each one that has no [valid evidence](run-directory.md#child-rules) for the state your changes affect.
+1. Make the smallest change that turns the locked tests green and satisfies the criteria. Every final hunk is necessary for a criterion in `ticket.md`; `Non-goals` lists what stays unchanged. Production code that exists only to satisfy a test, a path that detects a test double, a shim that keeps an old assertion green, is a sign the test or the criterion is wrong: report it instead of writing it. Run the test command and require green before you commit. Commit on the current branch.
+2. Refactor on green: remove the duplication your change introduced, name each value and branch by its job, extract a helper for what repeats. Production paths only; every observable result stays the same. Commit the refactor separately.
+3. Run the test command on your final state, and each check in `ticket.md`.
 
-Follow the [child rules](run-directory.md#child-rules) for identifiers, controls, evidence, and resumed turns.
-
-Done when the test command is green (when `ticket.md` names one), the applicable checks pass, and the work is committed. When you cannot get there, stop and report what blocks you.
+Done when the test command is green, the checks pass, and the work is committed. When you cannot get there, stop and report what blocks you.
 
 ## Report
 
-Write the report to the path in your prompt. Include:
+Write the report to the path in your prompt:
 
-- the files you changed, one line each on why and the criterion it serves, or `consequence of <criterion>` for a lockfile, glossary, or generated state; report a necessary change that violates a non-goal as a conflict;
+- the files you changed, one line each on the criterion it serves;
 - the refactor commit with one line on what it simplified, or `no refactor` with the reason;
-- the test command with its [valid evidence](run-directory.md#child-rules), then every check in `ticket.md` per the [child rules](run-directory.md#child-rules);
-- each mechanical correction as its `M<n>` line, and any locked test you believe is wrong, with the evidence;
-- anything left undone.
+- the test command and each check: command, commit it ran on, exit status, and the log path or the output trimmed to the assertion;
+- any locked test you believe is wrong, with the evidence;
+- anything left undone;
+- **Risks** ([layout](run-directory.md#risks)): each place where you suspect the change could break something the tests do not cover, written so another agent can reproduce the doubt from the line alone.
 
 End with the commit SHA.

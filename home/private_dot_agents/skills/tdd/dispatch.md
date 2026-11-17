@@ -5,12 +5,12 @@ Write the child's prompt to `<role>-<n>.prompt.md`. It carries pointers only, ne
 ```text
 Role: <test writer | implementer>, attempt <n>.
 Mode: <prepare | calibrate>   <- test writer only
-Rows: <every plan row | the rows named after a failed replay, with their replay-<m>/ logs>   <- calibrate only
+Rows: <the false-green risk rows to calibrate>   <- calibrate only
 Read your brief first and follow it: <absolute path to test-writer.md or implementer.md>.
 Ticket: <run-dir>/ticket.md (its Verdicts section lists earlier attempts and why they were rejected).
 Lock: <run-dir>/lock.json   <- when a lock exists: implementer, or a test writer that re-locks or extends it
 Targeted fix: <diagnosis ID in Verdicts>   <- targeted fix only
-Exclusive file scope: <allowed test paths and fixtures | planned temporary production paths | the whole checkout>   <- prepare | calibrate | implementer
+Exclusive file scope: <allowed test paths and fixtures | production paths a mutation may touch | the whole checkout>   <- prepare | calibrate | implementer
 Report: <run-dir>/<role>-<n>.report.md; publish it by the atomic-write rule in <absolute path to run-directory.md>.
 Work in <checkout> on branch <branch>. Calibration state: <calibration_sha>   <- calibrate only
 ```
@@ -33,6 +33,6 @@ If `hc-run` exits 3, its address is only a recovery handle: use the printed `tas
    Keep the process exit status and the JSONL events separate; an `error` event or a log without a final answer is incomplete work.
 2. Otherwise no child can start. Stop.
 
-**Resuming a child** for a handoff gap keeps its session, tier, and attempt number, and counts as one turn. In headless mode: the same subshell command with `--session <id>` added and `'<the missing work>'` as the prompt, appending to `<run-dir>/<role>-<n>-resume.jsonl`, where the id is the `sessionID` in the attempt's JSONL log. Every resumed turn of the attempt appends to that file in order.
+**Resuming a child** for missing work keeps its session, tier, and attempt number, and counts as one turn. In headless mode: the same subshell command with `--session <id>` added and `'<the missing work>'` as the prompt, appending to `<run-dir>/<role>-<n>-resume.jsonl`, where the id is the `sessionID` in the attempt's JSONL log. Every resumed turn of the attempt appends to that file in order.
 
 In hc mode, resume a child with `hc send <address> '<the missing work>'`; its session stays in its terminal.

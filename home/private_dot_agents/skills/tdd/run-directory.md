@@ -1,16 +1,13 @@
 # Run directory
 
-The `tdd` orchestrator's files for one ticket. The `<run-id>` is the run directory's path relative to `~/.claude/artifacts/` (for example, `tdd-20261013-120000/495`). Publish `ticket.md`, `lock.json`, prompts, and reports through a temporary file and an atomic rename: write `<file>.tmp`, then rename it. Execution logs may stream while the child runs.
+The `tdd` orchestrator's files for one ticket. The `<run-id>` is the run directory's path relative to `~/.claude/artifacts/` (for example, `tdd-20261013-120000/495`). Write `ticket.md`, `lock.json`, prompts, and reports through a temporary file and an atomic rename.
 
 | File | Holds |
 |---|---|
 | `ticket.md` | the ticket and every decision about it (layout below) |
-| `lock.json` | the lock record (layout below) |
+| `lock.json` | `base_sha`, `lock_sha`, and the locked `paths` |
 | `<role>-<n>.prompt.md`, `<role>-<n>.report.md` | one prompt and one report per child, numbered per role from 1 |
-| `<role>-<n>.jsonl`, `<role>-<n>-resume.jsonl` | the headless child's initial log and every resumed turn, appended in order, when launched with `opencode run` |
-| `controls/` | temporary control scripts and their output |
-| `calibration-<n>/` | the calibrate child's `<regression>.patch` and `<regression>.log`, one pair per plan row; `<n>` is the child's attempt number |
-| `replay-<m>/` | the orchestrator's `<regression>.log`, one per plan row; `<m>` counts replays from 1 |
+| `<role>-<n>.jsonl` | the headless child's log, when launched with `opencode run` |
 
 ## ticket.md
 
@@ -21,21 +18,14 @@ The `tdd` orchestrator's files for one ticket. The `<run-id>` is the run directo
 <the ticket text, verbatim>
 
 ## Symptom
-Repeat this entry once per symptom criterion:
-- criterion: <number>
-- observed: <the wrong behavior the ticket reports, and the command or scenario it gives>
+- observed: <the wrong behavior the ticket reports, and the command or scenario that shows it>
 - expected: <the behavior the ticket expects>
-- observation: <evidence when needed: command or scenario, state, output>
 
 ## Criteria
-1. <validation criterion>; evidence: <occurrence: ticket sentence, report, log, transcript line, corpus entry, or incident, with where it happened>
+1. <criterion>; occurrence: <ticket sentence, report, log, transcript line, or incident, with where it happened>; verdict: <test: consumer / observable failure / independent oracle | no test: reason>
 
 ## Non-goals
-- <behavior, file, or area the ticket deliberately leaves unchanged | None explicitly stated, when the ticket names none>
-
-## Oracle gate
-1. test: <consumer> / <observable failure> / <independent oracle>
-2. no test: <reason>
+- <behavior, file, or area the ticket leaves unchanged | None explicitly stated>
 
 ## Seams
 1. <public boundary>; paths: <test files and fixtures>
@@ -44,52 +34,41 @@ Repeat this entry once per symptom criterion:
 - Tests: <command>
 - Checks: <each applicable check from the repository's verification rules>
 
-## Starting tiers
-- test writer: <tier>; reason: <selection reason, SKILL.md step 2>
-- implementer: <tier>; reason: <selection reason, SKILL.md step 2>
+## Tiers
+- test writer: <tier>; implementer: <tier>
 
-## Size
-- <small | full>; reason: <test criteria count, expected production files, interface settled or not>
+## False-green risks
+- <criterion>; owner: <test>; assertion: <protected result>; form: <why it could stay green>; paths: <production paths a mutation may touch>
 
 ## Batch
-- <number>: <initial ticket | caller-supplied review findings>
-- batch_start_sha: <HEAD when this batch opened; preserved across retries and re-locks>
-- turns: <count so far> / <limit>
-
-## Calibration
-- <criterion>; owner: <test>; assertion: <protected result>; risk: <false-green form>; regression: <smallest faithful change>; paths: <temporary production paths>; command: <owner test alone | full-suite command; reason: <why the owner cannot run alone>>; patch: <calibration-<n>/<regression>.patch, after the first calibration>
-- <none | named unavailable boundary and coverage limit>
+- <number>: <initial ticket | caller-supplied review findings>; start: <sha>; turns: <count> / <limit>
 
 ## Verdicts
-- test-writer-1 (medium, prepare): rejected; D1 test preparation: <assertion or boundary>; repro: <command and observed result>; expected: <independent result>; source: <authority or missing decision>; cause: <candidate>; cause check: <observation, predicted and observed result>; candidate <ref>; report test-writer-1.report.md
-- test-writer-2 (medium, prepare, targeted fix D1): accepted, lock <sha>; report test-writer-2.report.md
-- implementer-1 (low): D2 handoff: <missing work>; resumed; then accepted, tip <sha>; evidence <log paths>
-- M<n>: <path>:<line>, <old> → <new>; source: <file:line, ticket sentence, or command output that holds the value>
-- test-writer-3 (medium, calibrate): <calibrated | suspect test | blocked>; state <sha>; report test-writer-3.report.md
-- replay-1: calibrated; state <sha>; logs replay-1/
+- test-writer-1 (medium): rejected; D1 <assertion>: <reproduction>; expected <result>, source <authority>; report test-writer-1.report.md
+- test-writer-2 (medium, targeted fix D1): accepted, lock <sha>
+- implementer-1 (low): accepted, tip <sha>; evidence <log paths>
+- correction: <path>:<line>, <old> → <new>; source <file:line or ticket sentence>; lock <sha>
+- test-writer-3 (medium, calibrate): calibrated; state <sha>
 ```
 
-Each diagnosis gets a fresh ID. A [return](recovery.md#responding-to-a-failure) is written under the later entry as `D1 returned`.
+A re-lock sets `base_sha` and `lock_sha` from the new test writer and adds the files it changed to `paths`. A path stays locked once locked.
 
-## lock.json
+## Risks
 
-```json
-{
-  "base_sha": "<HEAD before the test writer>",
-  "lock_sha": "<branch tip after the accepted test writer>",
-  "paths": ["<each file the test writer changed>"]
-}
+The last section of every child report and of the orchestrator's report to the caller. One line per item, in the form another agent can act on without this run's context:
+
+```markdown
+## Risks
+- <path or seam>: <what could be wrong>; reproduce: <command or scenario>; expect: <what a correct system shows>
 ```
 
-A re-lock sets `base_sha` and `lock_sha` from the new test writer and adds the files it changed to `paths`; earlier lock SHAs stay in Verdicts. An accepted mechanical correction (SKILL.md) sets `lock_sha` to its commit; `paths` stay. A path stays locked once locked.
+An item names a doubt, not a finding: a boundary the tests do not reach, an assertion that could stay green while the behavior is wrong, an environment the run could not exercise. The caller passes the section to the reviewer or to a fresh agent as its reproduction list.
 
 ## Child rules
 
 Every child, whichever brief it follows:
 
-- **Identifiers:** every commit, range, or repository it records is pasted whole from git output in the repository it names (the checkout when it names none) and resolves there: `git rev-parse --verify <sha>^{commit}` for a commit, and `git merge-base --is-ancestor <base> <head>` exits 0 for a range. A branch name is recorded as the commit it resolves to, or marked unresolved.
-- **Controls:** temporary control scripts and their output go under `controls/` and are cited by path; they need no repository commit.
-- **Evidence:** valid evidence for a test, check, or control result is the command, its exit status, the code state it ran on, and the output that shows the required scenarios ran; a skipped or focused run is no evidence for a required broader suite. It comes from a command that finished inside your turn or from a named earlier run on the same state. The report carries the command, the commit it ran on, and the log path or the output trimmed to the assertion. A server or watcher started for a test is stopped before the report is published.
-- **Checks:** the report lists every check in `ticket.md`, one line each: its command and exit status, or `not covering` with the changed paths and why the check does not reach them; a reused result names the run it comes from.
-- **Resumed turns:** when the orchestrator resumes a child for missing work, the child keeps its candidate or commit and adds only what the orchestrator names.
+- **Evidence:** a test, check, or control result is the command, its exit status, the commit it ran on, and the output that shows the required scenarios ran. A skipped or focused run is no evidence for a broader suite. A server or watcher started for a test is stopped before the report is published.
+- **Identifiers:** every SHA in a report is pasted from git output in the checkout.
+- **Resumed turns:** a child resumed for missing work keeps its commit and adds only what the orchestrator names.
 - **Push:** the child commits on the current branch; pushing belongs to the caller.
