@@ -26,6 +26,9 @@ tags:
   - evidence-reuse
 ---
 
+> **Superseded 2026-11-17.** The `tdd` skill no longer saves or replays mutation patches. A measurement over 163 runs on two machines showed that calibration catches real false greens (about 30 tests and 3 production defects), but that almost every mechanism failure came from the patch and replay plumbing. The skill now recalibrates only the rows whose owner test changed, with a fresh mutation. The record below is kept as history.
+
+
 # Replay saved mutations instead of re-deriving them
 
 ## Context
