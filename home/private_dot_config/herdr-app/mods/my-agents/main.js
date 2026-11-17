@@ -120,7 +120,8 @@ const TAB_NAMES_KEY = "my-agents.tabNames";
 
 // address -> { alias, since }: the spaces list names agents and their age the same way.
 const META_KEY = "my-agents.meta";
-const REVEAL_KEY = "my-agents.reveal";
+const REVEAL_KEY = "my-spaces.reveal";
+const AGENT_REVEAL_KEY = "my-agents.reveal";
 
 function decodeTabName(value) {
   const encoded = JSON.stringify(value);
@@ -1003,7 +1004,7 @@ export default class Agents extends View {
       ? list.flatMap(withKids)
       : groups.flatMap((g) => [header(g), ...(this.folded.has(g.id) ? [] : groupRows(g))]);
 
-    const reveal = shared(REVEAL_KEY);
+    const reveal = shared(AGENT_REVEAL_KEY);
     const target = reveal?.target && this.agentScrollIndex.get(reveal.target);
 
     if (target !== undefined && JSON.stringify(reveal) !== this.lastReveal) {

@@ -6,7 +6,7 @@
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, ScrollHandle } from "gpui-base";
-import { spaces, machines, panes, agents, terminals, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout } from "herdr";
+import { spaces, machines, panes, agents, focused, terminals, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout } from "herdr";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -109,7 +109,8 @@ function reviewLabel(review) {
 
 // Aliases and state ages, published by my-agents.
 const AGENT_META_KEY = "my-agents.meta";
-const REVEAL_KEY = "my-spaces.reveal";
+const REVEAL_KEY = "my-agents.reveal";
+const SPACE_REVEAL_KEY = "my-spaces.reveal";
 
 const clean = (s) => (s ?? "").replace(/^[^\p{L}\p{N}]+/u, "").trim();
 
@@ -746,15 +747,20 @@ export default class Spaces extends View {
   }
 
   select(w) {
-    const agent = w.active ? agents().find((a) => a.space === w.id && a.focused) : null;
-
-    if (agent) {
-      setShared(REVEAL_KEY, {
-        target: agent.address,
-        sequence: (this.revealSequence = (this.revealSequence ?? 0) + 1),
-      });
-    }
+    this.pendingAgentReveal = { space: w.id, sequence: (this.revealSequence = (this.revealSequence ?? 0) + 1) };
     run("space.select", { id: w.id });
+  }
+
+  revealAgentForCurrentSpace() {
+    const pending = this.pendingAgentReveal;
+    const current = focused();
+
+    if (!pending || current?.space !== pending.space) return;
+    const agent = agents().find((a) => (current.agent && a.address === current.agent)
+      || (current.pane && a.pane === current.pane && a.space === current.space));
+
+    this.pendingAgentReveal = null;
+    if (agent) setShared(REVEAL_KEY, { target: agent.address, sequence: pending.sequence });
   }
 
   agentState(t, status) {
@@ -917,7 +923,9 @@ export default class Spaces extends View {
     if (changed) setShared("space.colors", kept);
 
     const children = this.grouped(t, collapsed);
-    const reveal = shared(REVEAL_KEY);
+    this.revealAgentForCurrentSpace();
+
+    const reveal = shared(SPACE_REVEAL_KEY);
     const target = reveal?.target && this.spaceScrollIndex.get(reveal.target);
 
     if (target !== undefined && JSON.stringify(reveal) !== this.lastReveal) {
