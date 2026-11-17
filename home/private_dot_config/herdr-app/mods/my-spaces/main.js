@@ -5,8 +5,8 @@
 // switch, right-click for its menu, drag to reorder.
 
 import { View, div, image, svg } from "gpui-kit";
-import { v_flex, h_flex } from "gpui-base";
-import { spaces, machines, panes, agents, terminals, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout } from "herdr";
+import { v_flex, h_flex, ScrollHandle } from "gpui-base";
+import { spaces, machines, panes, agents, focused, terminals, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout } from "herdr";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -110,6 +110,10 @@ function reviewLabel(review) {
 // Aliases and state ages, published by my-agents.
 const AGENT_META_KEY = "my-agents.meta";
 
+const REVEAL_KEY = "my-agents.reveal";
+
+const SPACE_REVEAL_KEY = "my-spaces.reveal";
+
 const clean = (s) => (s ?? "").replace(/^[^\p{L}\p{N}]+/u, "").trim();
 
 // The agent's own name for its work. OpenCode prefixes its terminal title; its report doesn't.
@@ -168,6 +172,8 @@ export default class Spaces extends View {
     this.over = null;
     this.machines = [];
     this.reconnecting = JSON.parse(localStorage.getItem("machines.reconnecting") ?? "{}");
+    this.scroll = ScrollHandle.new();
+    this.lastReveal = null;
 
     for (const state of Object.values(this.reconnecting)) state.busy = false;
     this.folded = new Set(JSON.parse(localStorage.getItem("machines.folded") ?? "[]"));
@@ -564,6 +570,13 @@ export default class Spaces extends View {
   // The rows, under a header per machine once one isn't this computer.
   grouped(t, collapsed) {
     const rows = this.ordered();
+    this.spaceScrollIndex = new Map();
+    this.spaceScrollCount = 0;
+    const revealRequest = shared(SPACE_REVEAL_KEY);
+    const revealTarget = revealRequest?.target;
+    const targetMachine = rows.find((r) => r.w.id === revealTarget)?.w.machine;
+
+    if (revealTarget && targetMachine !== undefined && JSON.stringify(revealRequest) !== this.lastReveal) this.folded.delete(targetMachine);
 
     const crew = {
       list: collapsed ? [] : agents(),
@@ -573,11 +586,21 @@ export default class Spaces extends View {
     };
 
     const draw = (r) => {
-      if (collapsed) return [this.compact(r, t)];
+      this.spaceScrollIndex.set(r.w.id, this.spaceScrollCount);
+
+      if (collapsed) {
+        this.spaceScrollCount += 1;
+
+        return [this.compact(r, t)];
+      }
+
       // The active space and its focused first agent touch: one block, small corners where they meet.
       const joined = r.w.active && Boolean(this.spaceAgents(r.w, crew)[0]?.focused);
 
-      return [this.row(r, t, joined), ...this.agentRows(r, t, crew, joined)];
+      const items = [this.row(r, t, joined), ...this.agentRows(r, t, crew, joined)];
+      this.spaceScrollCount += items.length;
+
+      return items;
     };
 
     const remote = [...new Set([...rows.map(r => r.w.machine).filter(Boolean), ...this.machines.map(m => m.name), ...Object.keys(this.reconnecting)])].sort();
@@ -601,6 +624,7 @@ export default class Spaces extends View {
       const connected = !m || machine?.state === "connected";
       const rebuilt = this.rebuilt(machine) || !!repair;
       const folded = this.folded.has(m);
+      this.spaceScrollCount += 1;
 
       const head = h_flex().id(`machine-${m ?? "local"}`).h(26).flex_none().px(collapsed ? 2 : 8).gap(7).items_center().text_size(11).text_color(t.dim)
         .cursor_pointer().hover(s => s.bg(t.hover))
@@ -632,7 +656,11 @@ export default class Spaces extends View {
 
       if (!collapsed && rebuilt) return [head];
 
-      return [head, ...(folded ? [] : mine.length ? mine.flatMap(draw) : [loading(m) ? loadingRow(m) : empty])];
+      const children = folded ? [] : mine.length ? mine.flatMap(draw) : [loading(m) ? loadingRow(m) : empty];
+
+      if (!mine.length && !folded) this.spaceScrollCount += children.length;
+
+      return [head, ...children];
     });
   }
 
@@ -719,7 +747,7 @@ export default class Spaces extends View {
         this.over = null;
 
         if (from !== null && over === i && from !== i) run("space.move", { id: spaces()[from].id, index: i + 1 });
-        else if (from === i) run("space.select", { id: w.id });
+        else if (from === i) this.select(w);
         cx.notify();
       })
       .on_mouse_down("right", () => this.menu(w))
@@ -731,6 +759,35 @@ export default class Spaces extends View {
           .child(this.gitCounts(g, t)) : null,
         pr ? this.prRow(pr, t) : null,
       ].filter(Boolean));
+  }
+
+  select(w) {
+    this.pendingAgentReveal = { space: w.id, sequence: (this.revealSequence = (this.revealSequence ?? 0) + 1) };
+    run("space.select", { id: w.id });
+  }
+
+  revealAgentForCurrentSpace() {
+    const pending = this.pendingAgentReveal;
+    const current = focused();
+
+    if (!pending || current?.space !== pending.space) return;
+
+    const agent = agents().find((a) => a.space === current.space
+      && ((current.pane && a.pane === current.pane) || (current.terminal && a.address === current.terminal)));
+
+    this.pendingAgentReveal = null;
+
+    if (agent) setShared(REVEAL_KEY, { target: agent.address, sequence: pending.sequence });
+  }
+
+  reveal(indexes) {
+    const request = shared(SPACE_REVEAL_KEY);
+    const target = request?.target && indexes.get(request.target);
+
+    if (target !== undefined && JSON.stringify(request) !== this.lastReveal) {
+      this.scroll.scroll_to_item(target);
+      this.lastReveal = JSON.stringify(request);
+    }
   }
 
   agentState(t, status) {
@@ -869,7 +926,7 @@ export default class Spaces extends View {
       .gap(4)
       .when(w.active, (el) => el.bg(t.raised))
       .hover((s) => s.bg(t.hover))
-      .on_click(() => run("space.select", { id: w.id }))
+      .on_click(() => this.select(w))
       .child(div().text_color(w.active ? t.foreground : t.muted).child(String(i + 1)))
       .when(Boolean(glyph(w.status)), el => el.child(div().font_semibold().text_color(tone(t, w.status)).child(glyph(w.status))));
   }
@@ -892,13 +949,18 @@ export default class Spaces extends View {
 
     if (changed) setShared("space.colors", kept);
 
+    const children = this.grouped(t, collapsed);
+    this.revealAgentForCurrentSpace();
+
+    this.reveal(this.spaceScrollIndex);
+
     return v_flex().size_full().min_h(0).bg(t.chrome).text_size(13)
       .child(h_flex().h(31).pl(16).pr(10).items_center().justify_between().text_size(11.5).text_color(t.dim)
         .when(!collapsed, el => el.child("Spaces"))
         .child(div().id("space-new").size(26).flex_none().flex().items_center().justify_center().rounded(6).hover(s => s.bg(t.hover).text_color(t.foreground))
           .on_click(() => run("space.new")).child(svg("mods/workspace-chrome/plus.svg").size(14))))
-      .child(v_flex().flex_1().min_h(0).px(8).pb(14).overflow_y_scrollbar().mode("always")
+      .child(v_flex().flex_1().min_h(0).px(8).pb(14).overflow_y_scrollbar().mode("always").track_scroll(this.scroll)
         .on_mouse_up("left", (_e, cx) => { this.pressed = null; cx.notify(); })
-        .children(this.grouped(t, collapsed)));
+        .children(children));
   }
 }
