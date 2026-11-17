@@ -43,7 +43,7 @@ A **false green** is a test that passes whether the behavior is right or wrong. 
 
 ### Coverage
 
-A path gets a test through a criterion that names its occurrence and its oracle line; an error path, a boundary input, or an async state is covered when a criterion names it. One owner per behavior: a second test on the same contract is a variant only when its occurrence differs. A path with no independent oracle stays untested rather than getting a test that asserts its own patch back.
+A **criterion** is one behavior the task asks for, and its **occurrence** is where that behavior was seen or requested: the ticket sentence, a report, a log line, or an incident. In the `tdd` chain they live in `ticket.md`; elsewhere the task's own request supplies them, and a path the request does not name has no criterion. A path gets a test through a criterion that names its occurrence and its oracle line; an error path, a boundary input, or an async state is covered when a criterion names it. One owner per behavior: a second test on the same contract is a variant only when its occurrence differs. A path with no independent oracle stays untested rather than getting a test that asserts its own patch back.
 
 ### Structure
 
