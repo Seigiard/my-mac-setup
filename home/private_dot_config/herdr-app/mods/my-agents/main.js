@@ -2,7 +2,7 @@
 // A viewed done agent stays in Done until left.
 
 import { View, div, image, svg } from "gpui-kit";
-import { v_flex, h_flex } from "gpui-base";
+import { v_flex, h_flex, ScrollHandle } from "gpui-base";
 import { agents, terminals, panes, focused, spaces, machines, exec, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout } from "herdr";
 
 function find(node, id) {
@@ -120,6 +120,7 @@ const TAB_NAMES_KEY = "my-agents.tabNames";
 
 // address -> { alias, since }: the spaces list names agents and their age the same way.
 const META_KEY = "my-agents.meta";
+const REVEAL_KEY = "my-agents.reveal";
 
 function decodeTabName(value) {
   const encoded = JSON.stringify(value);
@@ -222,7 +223,17 @@ export default class Agents extends View {
     this.originPending = new Set();
     this.originRefreshing = false;
     this.publishedMeta = JSON.stringify(shared(META_KEY) ?? {});
+    this.scroll = ScrollHandle.new();
+    this.lastReveal = null;
     cx.timer.every(30000, (cx) => cx.notify());
+  }
+
+  focus(a) {
+    setShared(REVEAL_KEY, {
+      target: a.space,
+      sequence: (this.revealSequence = (this.revealSequence ?? 0) + 1),
+    });
+    run("pane.focus", { pane: a.pane });
   }
 
   // Written only when it changed: every write re-renders every mod.
@@ -710,8 +721,13 @@ export default class Agents extends View {
       return needy.map((s, n) => ({ ...s, lines: [n === needy.length - 1 ? "└" : "├"] }));
     };
 
+    this.agentScrollIndex = new Map();
+    this.agentScrollCount = 0;
     const withKids = (a, i) => {
       const subs = collapsed ? [] : kidsOf(a);
+      this.agentScrollIndex.set(a.address, this.agentScrollCount);
+      subs.forEach((s, n) => this.agentScrollIndex.set(s.t.address, this.agentScrollCount + n + 1));
+      this.agentScrollCount += 1 + (this.folded.has(a.address) ? 0 : subs.length) + 1;
       const r = row(a, i, subs);
       const gap = div().h(byPriority ? 2 : 6).flex_none();
 
@@ -793,7 +809,7 @@ export default class Agents extends View {
           .items_center()
           .gap(4)
           .hover((s) => s.bg(t.hover))
-          .on_click(() => run("pane.focus", { pane: a.pane }))
+          .on_click(() => this.focus(a))
           .child(div().flex_1().min_w(0).whitespace_nowrap().text_right().text_color(t.muted).child(String(i + 1)))
           .child(h_flex().w(14).flex_none().items_center().justify_center().child(this.status(t, a, true)));
       }
@@ -861,7 +877,7 @@ export default class Agents extends View {
             else if (this.hovered === a.address) this.hovered = null;
             cx.notify();
           })
-          .on_click(() => run("pane.focus", { pane: a.pane }))
+          .on_click(() => this.focus(a))
           .children([top, who]);
       }
 
@@ -909,7 +925,7 @@ export default class Agents extends View {
           else if (this.hovered === a.address) this.hovered = null;
           cx.notify();
         })
-        .on_click(() => run("pane.focus", { pane: a.pane }))
+        .on_click(() => this.focus(a))
         .children([row1, row2]);
     };
 
@@ -931,7 +947,9 @@ export default class Agents extends View {
       else groups.push({ ...group, members: [a] });
     }
 
-    const worktreeHeader = (a) => h_flex()
+    const worktreeHeader = (a) => {
+      this.agentScrollCount += 1;
+      return h_flex()
       .h(22)
       .px(8)
       .gap(5)
@@ -941,6 +959,7 @@ export default class Agents extends View {
       .text_color(t.muted)
       .child(svg("mods/workspace-chrome/git-branch.svg").size(11).flex_none().text_color(t.dim))
       .child(div().min_w(0).truncate().child(worktreeLabel(a.space_name, worktreeOf(a))));
+    };
 
     const groupRows = (g) => g.members.flatMap((a, i) => {
       const startsWorktree = byProject && g.id !== "pinned" && worktreeOf(a) && g.members[i - 1]?.space !== a.space;
@@ -950,6 +969,7 @@ export default class Agents extends View {
 
     // A group's header; it folds the group. Folded, it says how many and the most urgent state.
     const header = (g) => {
+      this.agentScrollCount += 1;
       const open = !this.folded.has(g.id);
       const top = g.members.reduce((m, a) => ((RANK[a.status] ?? 0) > (RANK[m] ?? 0) ? a.status : m), null);
 
@@ -982,6 +1002,14 @@ export default class Agents extends View {
     const rows = collapsed
       ? list.flatMap(withKids)
       : groups.flatMap((g) => [header(g), ...(this.folded.has(g.id) ? [] : groupRows(g))]);
+
+    const reveal = shared(REVEAL_KEY);
+    const target = reveal?.target && this.agentScrollIndex.get(reveal.target);
+
+    if (target !== undefined && JSON.stringify(reveal) !== this.lastReveal) {
+      this.scroll.scroll_to_item(target);
+      this.lastReveal = JSON.stringify(reveal);
+    }
 
     this.flushTabRenames(cx);
 
@@ -1018,7 +1046,7 @@ export default class Agents extends View {
       .when(list.length === 0 && !collapsed, (el) =>
         el.child(div().px(12).text_size(12).text_color(t.dim).child("No agent status yet. Agents show up here when they report their status. Older versions and agents inside tmux may not.")),
       )
-      .child(v_flex().id("ag-list").flex_1().min_h(0).px(collapsed ? 0 : 8).overflow_y_scrollbar().mode("always").children(rows))
+      .child(v_flex().id("ag-list").flex_1().min_h(0).px(collapsed ? 0 : 8).overflow_y_scrollbar().mode("always").track_scroll(this.scroll).children(rows))
       .when(collapsed, (el) =>
         el.child(
           h_flex()
