@@ -109,7 +109,9 @@ step 4 routes the fixes and verification stays with the caller.
 Include available verification results in the round context, naming their commands and the
 state they cover; on the revmux route, write them to the `--context-file` under the same file
 name in every round, so it replaces the carried copy. Mark checks without current evidence as
-unknown.
+unknown. When the scope came through the `tdd` chain, include its report's **Risks** section as
+the reviewers' reproduction list: each line names a doubt the chain could not settle, with the
+command that reproduces it.
 
 On the revmux route, wait for a terminal result under the host's long-running-work rules.
 With `--wait`, the command blocks until the `.exit` file exists; run it detached and read

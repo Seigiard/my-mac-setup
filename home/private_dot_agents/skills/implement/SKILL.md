@@ -17,7 +17,7 @@ description: "Build one ticket, either an issue reference or a described piece o
 4. If the chain stops, no child can start, or the worktree is dirty, report the reason and run directory to the user and stop. During the chain its children write the code; after it, `code-review` step 4 routes fixes, `direct` ones included.
    Done when the stop reason and run directory are reported, or the chain reports success.
 
-5. After the chain reports success, call the Skill tool with `code-review` on the branch.
+5. After the chain reports success, call the Skill tool with `code-review` on the branch, passing the chain report's **Risks** section as review context.
    Done when `code-review` reports its outcome.
 
 6. Organize the ticket commits by concern. Skip this step, and say so in the report, when `code-review` reported blocked, when the branch has an upstream (`git rev-parse @{u}` succeeds), or when a remote already holds the tip (`git fetch`, then `git branch -r --contains HEAD` is non-empty). Otherwise keep the chain reachable: create `refs/tdd/<run-id>/chain` once (`git update-ref refs/tdd/<run-id>/chain HEAD ""` creates it only when it does not exist), and on re-entry reuse the existing ref. Then `lock_sha`, the run directory's evidence, and a later `code-review` entering the chain mid-way still find their commits. Record `start_sha` and the ref in `ticket.md`, then `git reset --soft <start_sha>` and commit the tree in slices by `~/.claude/shared/commits.md`; when a lock exists, the lock's paths are the test slice, and the implementation is a second slice. Record the new tip in `ticket.md`.
