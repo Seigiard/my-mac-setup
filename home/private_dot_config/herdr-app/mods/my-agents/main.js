@@ -120,7 +120,9 @@ const TAB_NAMES_KEY = "my-agents.tabNames";
 
 // address -> { alias, since }: the spaces list names agents and their age the same way.
 const META_KEY = "my-agents.meta";
+
 const REVEAL_KEY = "my-spaces.reveal";
+
 const AGENT_REVEAL_KEY = "my-agents.reveal";
 
 function decodeTabName(value) {
@@ -740,6 +742,7 @@ export default class Agents extends View {
 
     this.agentScrollIndex = new Map();
     this.agentScrollCount = 0;
+
     const withKids = (a, i) => {
       const subs = collapsed ? [] : kidsOf(a);
       this.agentScrollIndex.set(a.address, this.agentScrollCount);
@@ -963,20 +966,25 @@ export default class Agents extends View {
       if (groups.at(-1)?.id === group.id) groups.at(-1).members.push(a);
       else groups.push({ ...group, members: [a] });
     }
+
     const revealRequest = shared(AGENT_REVEAL_KEY);
     const revealTarget = revealRequest?.target;
+
     const targetGroup = groups.find((g) => g.members.some((a) => a.address === revealTarget
       || this.tree(all, a.address).some((s) => s.t.address === revealTarget)));
+
     const targetParent = list.find((a) => a.address === revealTarget
       || this.tree(all, a.address).some((s) => s.t.address === revealTarget));
 
     if (JSON.stringify(revealRequest) !== this.lastReveal) {
       if (targetGroup) this.folded.delete(targetGroup.id);
+
       if (targetParent) this.folded.delete(targetParent.address);
     }
 
     const worktreeHeader = (a) => {
       this.agentScrollCount += 1;
+
       return h_flex()
       .h(22)
       .px(8)

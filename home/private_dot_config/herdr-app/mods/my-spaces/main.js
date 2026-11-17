@@ -109,7 +109,9 @@ function reviewLabel(review) {
 
 // Aliases and state ages, published by my-agents.
 const AGENT_META_KEY = "my-agents.meta";
+
 const REVEAL_KEY = "my-agents.reveal";
+
 const SPACE_REVEAL_KEY = "my-spaces.reveal";
 
 const clean = (s) => (s ?? "").replace(/^[^\p{L}\p{N}]+/u, "").trim();
@@ -585,15 +587,19 @@ export default class Spaces extends View {
 
     const draw = (r) => {
       this.spaceScrollIndex.set(r.w.id, this.spaceScrollCount);
+
       if (collapsed) {
         this.spaceScrollCount += 1;
+
         return [this.compact(r, t)];
       }
+
       // The active space and its focused first agent touch: one block, small corners where they meet.
       const joined = r.w.active && Boolean(this.spaceAgents(r.w, crew)[0]?.focused);
 
       const items = [this.row(r, t, joined), ...this.agentRows(r, t, crew, joined)];
       this.spaceScrollCount += items.length;
+
       return items;
     };
 
@@ -653,6 +659,7 @@ export default class Spaces extends View {
       const children = folded ? [] : mine.length ? mine.flatMap(draw) : [loading(m) ? loadingRow(m) : empty];
 
       if (!mine.length && !folded) this.spaceScrollCount += children.length;
+
       return [head, ...children];
     });
   }
@@ -764,10 +771,12 @@ export default class Spaces extends View {
     const current = focused();
 
     if (!pending || current?.space !== pending.space) return;
+
     const agent = agents().find((a) => a.space === current.space
       && ((current.pane && a.pane === current.pane) || (current.terminal && a.address === current.terminal)));
 
     this.pendingAgentReveal = null;
+
     if (agent) setShared(REVEAL_KEY, { target: agent.address, sequence: pending.sequence });
   }
 
