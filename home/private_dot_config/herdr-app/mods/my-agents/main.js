@@ -237,6 +237,16 @@ export default class Agents extends View {
     run("pane.focus", { pane: a.pane });
   }
 
+  reveal(indexes) {
+    const request = shared(AGENT_REVEAL_KEY);
+    const target = request?.target && indexes.get(request.target);
+
+    if (target !== undefined && JSON.stringify(request) !== this.lastReveal) {
+      this.scroll.scroll_to_item(target);
+      this.lastReveal = JSON.stringify(request);
+    }
+  }
+
   // Written only when it changed: every write re-renders every mod.
   publishMeta(list) {
     const meta = Object.fromEntries(list.map((a) => [a.address, { alias: this.aliases.get(a.address) ?? null, since: this.since(a) || null }]));
@@ -1004,13 +1014,7 @@ export default class Agents extends View {
       ? list.flatMap(withKids)
       : groups.flatMap((g) => [header(g), ...(this.folded.has(g.id) ? [] : groupRows(g))]);
 
-    const reveal = shared(AGENT_REVEAL_KEY);
-    const target = reveal?.target && this.agentScrollIndex.get(reveal.target);
-
-    if (target !== undefined && JSON.stringify(reveal) !== this.lastReveal) {
-      this.scroll.scroll_to_item(target);
-      this.lastReveal = JSON.stringify(reveal);
-    }
+    this.reveal(this.agentScrollIndex);
 
     this.flushTabRenames(cx);
 

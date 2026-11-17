@@ -763,6 +763,16 @@ export default class Spaces extends View {
     if (agent) setShared(REVEAL_KEY, { target: agent.address, sequence: pending.sequence });
   }
 
+  reveal(indexes) {
+    const request = shared(SPACE_REVEAL_KEY);
+    const target = request?.target && indexes.get(request.target);
+
+    if (target !== undefined && JSON.stringify(request) !== this.lastReveal) {
+      this.scroll.scroll_to_item(target);
+      this.lastReveal = JSON.stringify(request);
+    }
+  }
+
   agentState(t, status) {
     if (status === "working") return svg("mods/workspace-chrome/spinner.svg").size(12).mx(1).flex_none().text_color(t.working).spin(900);
 
@@ -925,13 +935,7 @@ export default class Spaces extends View {
     const children = this.grouped(t, collapsed);
     this.revealAgentForCurrentSpace();
 
-    const reveal = shared(SPACE_REVEAL_KEY);
-    const target = reveal?.target && this.spaceScrollIndex.get(reveal.target);
-
-    if (target !== undefined && JSON.stringify(reveal) !== this.lastReveal) {
-      this.scroll.scroll_to_item(target);
-      this.lastReveal = JSON.stringify(reveal);
-    }
+    this.reveal(this.spaceScrollIndex);
 
     return v_flex().size_full().min_h(0).bg(t.chrome).text_size(13)
       .child(h_flex().h(31).pl(16).pr(10).items_center().justify_between().text_size(11.5).text_color(t.dim)
