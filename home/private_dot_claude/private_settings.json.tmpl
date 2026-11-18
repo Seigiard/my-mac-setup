@@ -5,10 +5,16 @@
     "command": "~/.claude/hooks/file-suggestion.sh"
   },
   "cleanupPeriodDays": 365,
+  "syncClaudeAiSkills": false,
+  "syncClaudeAiPlugins": false,
+  "env": {
+    "CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS": "400000"
+  },
   "attribution": {
     "commit": "",
     "pr": ""
   },
+  "includeGitInstructions": false,
   "permissions": {
     "allow": [
       "mcp__claude-in-chrome",
@@ -28,8 +34,6 @@
   },
   "disableClaudeAiConnectors": true,
   "disableBundledSkills": true,
-  "syncClaudeAiSkills": false,
-  "syncClaudeAiPlugins": false,
   "hooks": {
     "WorktreeCreate": [
       {
@@ -102,7 +106,6 @@
     ]
   },
   "disableRemoteControl": true,
-  "crossSessionInbound": "refuse",
   "disableWorkflows": true,
   "statusLine": {
     "type": "command",
@@ -139,19 +142,8 @@
     }
 {{- end }}
   },
-  "effortLevel": "high",
-  "autoUpdatesChannel": "stable",
-  "skipDangerousModePermissionPrompt": true,
-  "theme": "custom:light-ansi-daltonized",
-  "autoCompactEnabled": true,
-  "feedbackDrafts": "off",
   "feedbackSurveyRate": 0,
-  "includeGitInstructions": false,
-  "env": {
-    "CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS": "400000"
-  },
-  "autoMemoryEnabled": false,
-  "tui": "fullscreen",
+  "effortLevel": "high",
   "modelSettings": {
     "claude-opus-5-5": {
       "effortLevel": "high",
@@ -160,5 +152,13 @@
     "claude-fable-5-1": {
       "autoCompactWindow": 400000
     }
-  }
+  },
+  "autoUpdatesChannel": "stable",
+  "tui": "fullscreen",
+  "autoMemoryEnabled": false,
+  "skipDangerousModePermissionPrompt": true,
+  "theme": "custom:light-ansi-daltonized",
+  "autoCompactEnabled": true,
+  "crossSessionInbound": "refuse",
+  "feedbackDrafts": "off"
 }
