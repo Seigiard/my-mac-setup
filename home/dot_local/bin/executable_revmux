@@ -12,7 +12,11 @@
 # The credit runs out before the month does, and a key with no credit behind
 # it fails every agent mid-round. So a review run first spends one small call
 # on the key: if it answers, the round runs on the credit; if it does not, the
-# round runs on the subscription and stderr says why. Subcommands (config,
+# round runs on the subscription and stderr says why. The credit can also run
+# out mid-round, and its claude agents then fail; a caller reading those
+# failures tends to switch to a codex-only profile when a plain re-run would
+# do. So a round on the credit is probed again when it ends, and if the key no
+# longer answers, stderr tells the caller to run it again. Subcommands (config,
 # new, stats, ...) spawn no agents and skip both the probe and the key.
 #
 # Without REVMUX_ANTHROPIC_API_KEY the real binary runs unchanged. The wrapper
@@ -125,8 +129,28 @@ api_answers() {
 if [ "$is_review_run" = 1 ] && [ -n "${REVMUX_ANTHROPIC_API_KEY:-}" ]; then
   if api_answers; then
     echo "revmux: claude agents on the API credit" >&2
-    export ANTHROPIC_API_KEY="$REVMUX_ANTHROPIC_API_KEY"
-    exec "$real" --preserve-anthropic-api-key "$@"
+    # The second probe needs this shell to outlive revmux, so revmux runs as a
+    # child rather than through exec. Without job control bash gives a
+    # background child /dev/null for stdin, which the explicit <&0 overrides
+    # for the TUI; a signal sent to this shell alone is passed on.
+    ANTHROPIC_API_KEY="$REVMUX_ANTHROPIC_API_KEY" "$real" --preserve-anthropic-api-key "$@" <&0 &
+    child=$!
+    trap 'kill -INT "$child" 2>/dev/null' INT
+    trap 'kill -TERM "$child" 2>/dev/null' TERM
+    trap 'kill -HUP "$child" 2>/dev/null' HUP
+    status=0
+    wait "$child" || status=$?
+    # a trapped signal ends the wait early while revmux shuts down
+    while kill -0 "$child" 2>/dev/null; do
+      status=0
+      wait "$child" || status=$?
+    done
+    trap - INT TERM HUP
+    # 0, 1 and 2 are revmux's own verdicts; anything higher is a killed run
+    if [ "$status" -le 2 ] && ! api_answers; then
+      echo "revmux: API credit limit reached ($probe_reason). Re-run the review with the same profile as a new round: its claude agents will run on the subscription." >&2
+    fi
+    exit "$status"
   fi
   echo "revmux: claude agents on the subscription; API probe failed: $probe_reason" >&2
 fi

@@ -20,6 +20,14 @@ printf 'ANTHROPIC_API_KEY=%s\n' "${ANTHROPIC_API_KEY-unset}"
 printf 'arg=%s\n' "$@"
 [ "${1:-}" != --preserve-anthropic-api-key ] || shift
 [ "${1:-}" != fail ] || exit 7
+if [ -n "${FAKE_REVMUX_READY:-}" ]; then
+  trap 'printf term > "$FAKE_REVMUX_READY.got"; exit 143' TERM
+  : > "$FAKE_REVMUX_READY"
+  # bounded, so a TERM that never arrives fails the test instead of hanging it
+  i=0
+  while [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+fi
+exit "${FAKE_REVMUX_EXIT:-0}"
 FAKE
   chmod +x "$FAKE_DIR/revmux"
   # the probe target: records what reached it, answers as FAKE_CLAUDE says
@@ -27,7 +35,12 @@ FAKE
   cat > "$FAKE_DIR/claude" <<'FAKE'
 #!/usr/bin/env bash
 printf 'key=%s claudecode=%s args=%s\n' "${ANTHROPIC_API_KEY-unset}" "${CLAUDECODE-unset}" "$*" >> "$PROBE_LOG"
-case "${FAKE_CLAUDE:-ok}" in
+mode=${FAKE_CLAUDE:-ok}
+# ok-then-credit: the credit answers the first probe and runs out before the second
+if [ "$mode" = ok-then-credit ]; then
+  if [ "$(wc -l < "$PROBE_LOG")" -le 1 ]; then mode=ok; else mode=credit; fi
+fi
+case "$mode" in
   ok) printf '{"type":"result","subtype":"success","is_error":false,"result":"ok"}\n' ;;
   credit) printf '{"type":"result","subtype":"error","is_error":true,"result":"Your credit balance is too low"}\n'; exit 1 ;;
 esac
@@ -80,8 +93,10 @@ function test_revmux_wrapper_7301_routes_the_key_and_the_preserve_flag_to_the_re
   # #then
   assert_success
   assert_output "$expected"
-  assert_equal "$(cat "$PROBE_LOG")" \
-    "key=key-canary claudecode=unset args=--print --model haiku --output-format json --max-turns 1 reply with one word: ok"
+  # one probe before the round, one after it
+  assert_equal "$(cat "$PROBE_LOG")" "$(printf '%s\n' \
+    'key=key-canary claudecode=unset args=--print --model haiku --output-format json --max-turns 1 reply with one word: ok' \
+    'key=key-canary claudecode=unset args=--print --model haiku --output-format json --max-turns 1 reply with one word: ok')"
 }
 
 function test_revmux_wrapper_7302_runs_the_real_binary_unchanged_without_the_key() {
@@ -198,6 +213,39 @@ function test_revmux_wrapper_7308_probes_only_a_claude_from_an_absolute_path_ent
   assert_output "$(printf '%s\n' 'revmux: claude agents on the API credit' 'ANTHROPIC_API_KEY=key-canary' \
     'arg=--preserve-anthropic-api-key' 'arg=--task' 'arg=t')"
   assert_file_not_exists "$planted/leak"
-  assert_equal "$(cat "$PROBE_LOG")" \
-    "key=key-canary claudecode=unset args=--print --model haiku --output-format json --max-turns 1 reply with one word: ok"
+  # one probe before the round, one after it
+  assert_equal "$(cat "$PROBE_LOG")" "$(printf '%s\n' \
+    'key=key-canary claudecode=unset args=--print --model haiku --output-format json --max-turns 1 reply with one word: ok' \
+    'key=key-canary claudecode=unset args=--print --model haiku --output-format json --max-turns 1 reply with one word: ok')"
+}
+
+function test_revmux_wrapper_7309_tells_the_caller_to_rerun_when_the_credit_runs_out_mid_round() {
+  _bats_test_init 7309 'tells the caller to re-run when the credit runs out mid-round'
+  # #given a key that answers before the round and is out of credit after it
+  # #when the round ends with findings
+  run wrapped_revmux PATH="$WITH_REAL" REVMUX_ANTHROPIC_API_KEY=key-canary FAKE_CLAUDE=ok-then-credit \
+    FAKE_REVMUX_EXIT=1 -- "$WRAP_DIR/revmux" --task t --run r
+  # #then revmux's verdict stands and stderr says a re-run goes to the subscription
+  assert_failure 1
+  assert_output "$(printf '%s\n' 'revmux: claude agents on the API credit' 'ANTHROPIC_API_KEY=key-canary' \
+    'arg=--preserve-anthropic-api-key' 'arg=--task' 'arg=t' 'arg=--run' 'arg=r' \
+    'revmux: API credit limit reached (exit 1: "result":"Your credit balance is too low"). Re-run the review with the same profile as a new round: its claude agents will run on the subscription.')"
+}
+
+function test_revmux_wrapper_7310_passes_a_term_on_to_a_round_on_the_credit() {
+  _bats_test_init 7310 'passes a TERM on to a round on the credit'
+  # #given a round on the credit that runs until it is stopped
+  local ready="$BATS_TEST_TMPDIR/ready" wrapper waited=0
+  env -u ANTHROPIC_API_KEY PATH="$WITH_REAL" REVMUX_ANTHROPIC_API_KEY=key-canary FAKE_REVMUX_READY="$ready" \
+    "$WRAP_DIR/revmux" --task t >/dev/null 2>&1 &
+  wrapper=$!
+  while [ ! -e "$ready" ] && [ "$waited" -lt 100 ]; do sleep 0.1; waited=$((waited + 1)); done
+  assert_file_exists "$ready"
+  # #when the wrapper alone is told to stop
+  kill -TERM "$wrapper"
+  local code=0
+  wait "$wrapper" || code=$?
+  # #then revmux received it and its status comes back
+  assert_equal "$(cat "$ready.got")" term
+  assert_equal "$code" 143
 }
