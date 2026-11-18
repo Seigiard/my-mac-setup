@@ -13,10 +13,10 @@ You are the **orchestrator** of one ticket. You decide what is tested, start one
 
 - Record the checkout and the branch: the ticket branch the caller gave, or the current branch. The worktree must be clean (`git status --porcelain` is empty); otherwise report the dirty paths to the caller and stop.
 - Use the caller's run directory, or create `~/.claude/artifacts/tdd-<YYYYMMDD-HHMMSS>/<ticket>/`. Its files and the `ticket.md` layout are in [`run-directory.md`](run-directory.md).
-- Write `ticket.md`: the ticket text verbatim and its **criteria**, each with its **occurrence** (both defined in `~/.claude/shared/testing.md`, Coverage): the ticket sentence it restates, or the report, log, transcript line, or incident that says where the behavior happened. A scenario, limit, or guard that someone built to show a path *could* fail is a **construction**: a question for a person when it would decide the fix, otherwise out of `ticket.md`. A test enters the chain only through a criterion. Copy the ticket's explicit non-goals; an unnamed neighbor may be a necessary consequence of the change.
+- Write `ticket.md`: the ticket text verbatim and its **criteria**, each with its **occurrence** (both defined in `~/.claude/shared/testing.md`, Coverage): the ticket sentence it restates, or the report, log, transcript line, or incident that says where the behavior happened. A **construction** is a behavior with no occurrence, however plausible its failure: a race, a limit, a guard built to show a path *could* fail. It is a question for a person when the fix differs by its answer; otherwise it stays out of the criteria, one line under `## Constructions` in the Risks form. A test enters the chain only through a criterion. Copy the ticket's explicit non-goals. Cleanup after a change (removing what it leaves unused, updating the text that described it) is part of the criterion that caused it: name it in that criterion's line.
 - When the ticket reports a bug, add its `Symptom`: the observed behavior, the expected behavior, and the command or scenario that shows it.
 
-Done when the worktree is clean and `ticket.md` holds the ticket, its criteria with occurrences, its non-goals, and its `Symptom` when the ticket reports a bug.
+Done when the worktree is clean and `ticket.md` holds the ticket, its criteria with occurrences, its non-goals, each construction as an open question or a `## Constructions` line, and its `Symptom` when the ticket reports a bug.
 
 ## The chain
 
@@ -44,13 +44,13 @@ Done when the worktree is clean and `ticket.md` holds the ticket, its criteria w
    Check the lock first, then the test command, then the diff, then calibration, then the broader checks. A failed condition takes [When a child fails](#when-a-child-fails).
    Done when all conditions hold.
 
-Report to the caller: `lock_sha` or the checks-only verdict, the final branch tip, each check and calibration verdict, each open question, the number of children dispatched, the run directory, and the **Risks** section ([run-directory.md](run-directory.md#risks)) merged from both children's reports.
+Report to the caller: `lock_sha` or the checks-only verdict, the final branch tip, each check and calibration verdict, each open question, the number of children dispatched, the run directory, and the **Risks** section ([run-directory.md](run-directory.md#risks)) merged from both children's reports and `ticket.md`'s `## Constructions`.
 
 ### Entering mid-chain
 
 A caller with review findings for a ticket that already ran the chain opens a new **batch**: re-check the non-goals against its findings, run steps 1-2 for them, then enter at a later step:
 
-- A **behavior gap** (the code is wrong and no test catches it): add the criterion with the occurrence the finding names; a finding with no occurrence is a construction and a **decision**. Run step 3 to extend the lock, then steps 4 and 5.
+- A **behavior gap** (the code is wrong and no test catches it): add the criterion with the occurrence the finding names; a finding with no occurrence is a **construction** and takes the route in [Before the chain](#before-the-chain). Run step 3 to extend the lock, then steps 4 and 5.
 - A **code-only finding**: add it to the criteria, then run steps 4 and 5 against the existing lock, or checks-only when there is none.
 - A **suspect test** (false green, wrong oracle, contradictory fixture): record the counterexample, run step 3 to re-lock, then steps 4 and 5 for every open finding.
 
