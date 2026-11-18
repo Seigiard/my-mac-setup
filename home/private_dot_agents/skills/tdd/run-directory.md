@@ -29,6 +29,9 @@ A re-lock sets `base_sha` and `lock_sha` from the new test writer and adds the f
 ## Non-goals
 - <behavior, file, or area the ticket leaves unchanged | None explicitly stated>
 
+## Constructions
+- <path or seam>: <behavior with no occurrence, kept out of the criteria>; reproduce: <command or scenario>; expect: <what a correct system shows>
+
 ## Seams
 1. <public boundary>; paths: <test files and fixtures>
 
