@@ -229,7 +229,7 @@ function test_revmux_wrapper_7309_tells_the_caller_to_rerun_when_the_credit_runs
   assert_failure 1
   assert_output "$(printf '%s\n' 'revmux: claude agents on the API credit' 'ANTHROPIC_API_KEY=key-canary' \
     'arg=--preserve-anthropic-api-key' 'arg=--task' 'arg=t' 'arg=--run' 'arg=r' \
-    'revmux: API credit limit reached (exit 1: "result":"Your credit balance is too low"). Claude agents that failed in this round failed on it. Run the review again as a new round: revmux will run its claude agents on the subscription. A codex-only profile is not needed.')"
+    'revmux: API credit limit reached (exit 1: "result":"Your credit balance is too low"). Re-run the review with the same profile as a new round: its claude agents will run on the subscription.')"
 }
 
 function test_revmux_wrapper_7310_passes_a_term_on_to_a_round_on_the_credit() {

@@ -148,7 +148,7 @@ if [ "$is_review_run" = 1 ] && [ -n "${REVMUX_ANTHROPIC_API_KEY:-}" ]; then
     trap - INT TERM HUP
     # 0, 1 and 2 are revmux's own verdicts; anything higher is a killed run
     if [ "$status" -le 2 ] && ! api_answers; then
-      echo "revmux: API credit limit reached ($probe_reason). Claude agents that failed in this round failed on it. Run the review again as a new round: revmux will run its claude agents on the subscription. A codex-only profile is not needed." >&2
+      echo "revmux: API credit limit reached ($probe_reason). Re-run the review with the same profile as a new round: its claude agents will run on the subscription." >&2
     fi
     exit "$status"
   fi
