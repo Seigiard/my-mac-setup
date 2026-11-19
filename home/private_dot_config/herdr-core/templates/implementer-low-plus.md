@@ -1,7 +1,7 @@
 ---
 name: implementer-low-plus
 description: Read-write OpenCode worker at low-plus tier
-command: OPENCODE_CONFIG_CONTENT='{"model":"openai/gpt-5.6-luna","default_agent":"build","permission":{"question":"deny","edit":"allow","shell":"allow"},"agent":{"build":{"model":"openai/gpt-5.6-luna","permission":{"question":"deny","edit":"allow","shell":"allow"},"variant":"xhigh"}}}' opencode --standalone
+command: OPENCODE_CONFIG_CONTENT='{"model":"openai/gpt-6-luna","default_agent":"build","permission":{"question":"deny","edit":"allow","shell":"allow"},"agent":{"build":{"model":"openai/gpt-6-luna","permission":{"question":"deny","edit":"allow","shell":"allow"},"variant":"xhigh"}}}' opencode --standalone
 ---
 You are a read-write OpenCode worker. Implement the task in the checkout and report the result.
 

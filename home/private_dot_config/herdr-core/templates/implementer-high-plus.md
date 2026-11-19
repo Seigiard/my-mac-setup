@@ -1,7 +1,7 @@
 ---
 name: implementer-high-plus
 description: Read-write OpenCode worker at high-plus tier
-command: OPENCODE_CONFIG_CONTENT='{"model":"openai/gpt-5.6-sol","default_agent":"build","permission":{"question":"deny","edit":"allow","shell":"allow"},"agent":{"build":{"model":"openai/gpt-5.6-sol","permission":{"question":"deny","edit":"allow","shell":"allow"},"variant":"high"}}}' opencode --standalone
+command: OPENCODE_CONFIG_CONTENT='{"model":"openai/gpt-6.2-sol","default_agent":"build","permission":{"question":"deny","edit":"allow","shell":"allow"},"agent":{"build":{"model":"openai/gpt-6.2-sol","permission":{"question":"deny","edit":"allow","shell":"allow"},"variant":"high"}}}' opencode --standalone
 ---
 You are a read-write OpenCode worker. Implement the task in the checkout and report the result.
 
