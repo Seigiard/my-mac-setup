@@ -1,6 +1,6 @@
 ---
 name: analyse-architecture
-description: Analyse how a codebase is split into modules and propose a clearer split, from the import graph and co-change history. Use when the user asks to analyse architecture or module structure, asks which modules to merge, split, or re-own, reports tangled modules, import cycles, or changes that ripple across modules, or asks in Russian («проанализируй архитектуру», «как разбить на модули», «связанность модулей»).
+description: Propose a clearer split of a codebase into modules, from the import graph and co-change history. Use when the user asks to analyse the architecture, asks which modules to merge, split, or move, reports import cycles or changes that ripple across modules, or asks in Russian («проанализируй архитектуру», «как разбить на модули», «связанность модулей»).
 ---
 
 # Analyse architecture
@@ -11,9 +11,9 @@ The output is a proposal. Leave the code unchanged.
 
 ## Vocabulary and criteria
 
-- Call the Skill tool with `codebase-design` and use its terms exactly: **module**, **interface**, **seam**, **depth**, **locality**, **leverage**.
-- Call the Skill tool with `module-boundaries`. It supplies the verdict criteria: merge signals, split signals, the third option, and the knowledge-owner criterion. Where it says "boundary", write **seam**.
-- Read `GLOSSARY.md` and `docs/adr/` when the repository has them. Name modules with glossary terms. Propose a move that contradicts an ADR only when the evidence is strong, and mark the contradiction on the move.
+- Call the Skill tool with `codebase-design`. This skill's work lives in three of its terms: **module**, **interface**, **seam**.
+- Call the Skill tool with `module-boundaries`. It supplies the verdict criteria: merge signals, split signals, the third option, and the shared-information criterion (which module is the authoritative owner of the knowledge). Where it says "boundary", write **seam**.
+- Read `GLOSSARY.md` and `docs/adr/` when the repository has them. Name modules with glossary terms.
 
 ## Steps
 
@@ -21,17 +21,17 @@ The output is a proposal. Leave the code unchanged.
 
 Take the area the user named; otherwise take the whole repository. Pick the level at which people talk about the code: `packages/*`, `src/features/*`, top-level app areas. Write one line per module: its path and the knowledge it owns.
 
-Done when every source file in scope belongs to exactly one module, or is declared out of scope (generated, vendored, build output). Tests belong to the module they test.
+Done when every source file in scope belongs to exactly one module, or is declared out of scope (generated, vendored, build output). Tests under a module's path belong to it; a test tree outside every module path is out of scope for the tables, and the map says so.
 
 ### 2. Collect evidence
 
-Run `scripts/modules.py` from this skill's directory, at the root of the analysed repository. Pass the map from step 1 as one `--module` per module, so both tables use the same modules.
+Run `<skill-dir>/scripts/modules.py` with the analysed repository's root as the working directory. Pass the map from step 1 as one `--module` per module, so both tables use the same modules.
 
 ```bash
 python3 <skill-dir>/scripts/modules.py cochange --module src/features/auth --module src/shared/api ...
 ```
 
-`cochange` reads `git log` (default `--since "12 months ago"`; it skips commits that touch more than 50 files). Per pair it reports `together`, the commits that changed both modules, and `ratio`, `together` divided by the commit count of the smaller module. A ratio of 0.5 means half the changes to the smaller module also changed the other.
+`cochange` reads `git log` for the last 12 months and skips bulk commits (renames, formatting); override with `--since` and `--max-files`.
 
 For the import graph, produce a JSON object `{file: [imported files]}`:
 
@@ -42,19 +42,17 @@ For the import graph, produce a JSON object `{file: [imported files]}`:
 python3 <skill-dir>/scripts/modules.py imports "$TMPDIR/graph.json" --prefix src --module src/features/auth ...
 ```
 
-`imports` reports module edges with import counts, two-way pairs, cycles between modules, and per module its fan-in, fan-out, and internal against external imports.
-
-Done when both reports exist for the scope, or the report names the missing one and why (no history, no import tool for the language).
+Done when both tables exist for the scope, or the map records which one is missing and why (no history, no import tool for the language), for the page in step 5.
 
 ### 3. Judge the suspects
 
 A **suspect** is any of:
 
-- a pair with `ratio` ≥ 0.3 and `together` ≥ 3;
+- a pair with `ratio` ≥ 0.3 (the script already drops pairs under `--min-together`);
 - a two-way pair or a cycle;
 - an edge from general code to specific code (shared → feature, domain → UI, library → app);
 - a module with more external than internal imports, or with the highest fan-in and fan-out together;
-- a module whose files fall into groups that never change together.
+- a module whose parts change apart: rerun `cochange --scope <module> --depth <one level deeper>`; parts whose pairs stay under the ratio threshold change apart. A part with fewer than 3 commits is unknown, not independent.
 
 For each suspect, read the code and name the knowledge each side owns and the knowledge it borrows: a data shape, a format, a protocol, a business rule. Then apply the `module-boundaries` criteria. For a large scope, dispatch one subagent per cluster of suspects with the question "which knowledge does each module own, and which does it borrow from the other?", and judge from their answers.
 
@@ -69,7 +67,7 @@ Each suspect gets one verdict:
 | invert | the dependency points from general to specific; turn it around |
 | keep | the coupling is real and cheap; state why |
 
-Done when every suspect has a verdict that cites its numbers from step 2 and names the knowledge involved.
+Done when every suspect has a verdict that names the knowledge involved and cites its numbers from step 2. Where a table is missing, the verdict names the criterion it could not check.
 
 ### 4. Write the target map
 
@@ -78,14 +76,17 @@ Turn the verdicts into **moves**, ordered so that a move that unblocks others co
 - the files and modules it touches;
 - the evidence: numbers from step 2 and the named knowledge from step 3;
 - the expected effect on the numbers: a cycle gone, a co-change pair now inside one module, an edge reversed;
-- strength: `Strong`, `Worth exploring`, or `Speculative`;
-- the cost: files moved, imports rewritten, public interfaces changed.
+- strength: `Strong` when the code and the numbers both support it and no open question could change the verdict; `Worth exploring` when a named open question could; `Speculative` when a named hypothesis still lacks evidence;
+- the cost: files moved, imports rewritten, public interfaces changed;
+- the ADR it contradicts, when there is one; propose such a move only at `Strong`.
 
-A move names the seam; the shape of the interface at that seam is decided later.
+A move names the seam; the shape of the interface at that seam is decided in step 6.
+
+Done when every verdict other than `keep` is a move with all its fields.
 
 ### 5. Report
 
-Build an HTML page on the render kit (`~/.claude/shared/render-kit.md`) and publish it through the `agent-reports` skill with the repository's name as the project. Sections, in order:
+Read `~/.claude/shared/render-kit.md` and build the page by its assembly contract. Publish it by calling the Skill tool with `agent-reports`, with the repository's name as the project. Sections, in order:
 
 1. **Summary**: the move to make first and why, in three sentences.
 2. **Current map**: the modules, and a Mermaid flowchart of module edges with cycles highlighted.
@@ -94,8 +95,10 @@ Build an HTML page on the render kit (`~/.claude/shared/render-kit.md`) and publ
 5. **Target map**: the Mermaid flowchart after all `Strong` moves.
 6. **Kept as is**: suspects with a `keep` verdict and the reason.
 
-In chat, give the link, the first move in one line, and ask which move to explore.
+When no move survives step 4, the summary says why the current split holds, the target map is the current map, and the Moves section is omitted.
+
+In chat, give the link and the first move in one line, then ask which move to explore. With no moves, give the link and that conclusion.
 
 ### 6. Explore the chosen move
 
-When the user picks a move, call the Skill tool with `grilling` to settle its shape: what crosses the new seam, what stays private, which tests survive. To compare interface shapes for a new or merged module, use the design-it-twice pattern from `codebase-design`.
+When the user picks a move, call the Skill tool with `grilling` to settle its shape: what crosses the new seam, what stays private, which tests survive. Done when the move carries those three answers.

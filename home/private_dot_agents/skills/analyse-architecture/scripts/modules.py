@@ -71,7 +71,7 @@ def cochange(args, to_module):
         "commits_analysed": analysed,
         "commits_skipped_bulk": skipped,
         "modules": dict(sorted(per_module.items(), key=lambda kv: (-kv[1], kv[0]))),
-        "pairs": pairs[: args.top],
+        "pairs": pairs[: args.top] if args.top else pairs,
     }
 
 
@@ -205,7 +205,7 @@ def main():
     co.add_argument("--max-files", type=int, default=50,
                     help="skip commits touching more files (renames, formatting)")
     co.add_argument("--min-together", type=int, default=3)
-    co.add_argument("--top", type=int, default=40)
+    co.add_argument("--top", type=int, default=0, help="keep only the first N pairs; 0 keeps all")
     im = sub.choices["imports"]
     im.add_argument("graph", help="JSON object {file: [imported files]}, as madge --json prints")
     im.add_argument("--prefix", default="",
