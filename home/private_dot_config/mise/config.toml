@@ -7,3 +7,8 @@ node = "lts"
 # Repository scripts and `make test-python` need Python 3.10 or later; the
 # macOS system python3 is 3.9. mise puts this version ahead of /usr/bin.
 python = "3.15"
+
+[settings]
+# Read a project's .node-version or .nvmrc, the files CI and hosted builds
+# such as Cloudflare Workers Builds understand, so local Node matches them.
+idiomatic_version_file_enable_tools = ["node"]
