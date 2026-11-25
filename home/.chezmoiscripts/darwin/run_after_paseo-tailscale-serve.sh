@@ -10,6 +10,10 @@
 # runs on every apply and changes nothing once the entry exists. Tailscale
 # that is missing or logged out is skipped: the next apply retries.
 #
+# The daemon has no password, and through serve every tailnet peer reaches it
+# as 127.0.0.1. That is safe only while the tailnet holds the owner's devices
+# alone; add a password or a Tailscale ACL on tcp:6767 before anyone else joins.
+#
 # Roll back on a machine: tailscale serve --tcp=6767 off
 
 set -euo pipefail
