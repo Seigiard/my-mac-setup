@@ -51,6 +51,8 @@ Library/**
 .config/zed/**
 .config/herdr-app
 .config/herdr-app/**
+.paseo
+.paseo/**
 .chezmoiscripts/darwin
 .chezmoiscripts/darwin/**
 # Executor CLI: the symlink target lives inside /Applications/Executor.app,

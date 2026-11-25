@@ -1,0 +1,27 @@
+#!/bin/bash
+# Own the Paseo daemon settings this setup depends on in ~/.paseo/config.json.
+# Paseo writes the rest at runtime (CORS origins, app URL, a password hash set
+# with `paseo daemon set-password`), so every other key passes through.
+#
+# listen stays on loopback: the desktop app reaches its daemon only on
+# 127.0.0.1:6767, and run_after_paseo-tailscale-serve.sh forwards the tailnet
+# port to it. Relay stays off because the tailnet is the remote path.
+# Requires: jq.
+
+existing=$(cat)
+
+# Without jq the file cannot be edited, so stdin is the only safe answer.
+if ! command -v jq &>/dev/null; then
+  printf '%s' "$existing"
+  exit 0
+fi
+
+# A machine where Paseo has not run yet has no file; Paseo fills in its own
+# defaults around these keys on first launch.
+[ -n "$existing" ] || existing='{"version": 1}'
+
+printf '%s' "$existing" | jq '
+  .daemon.listen = "127.0.0.1:6767"
+  | .daemon.mcp.injectIntoAgents = true
+  | .daemon.relay.enabled = false
+'
