@@ -48,6 +48,9 @@ cask "codex"
 cask "executor"
 # Supervised multi-agent review; drives the claude-code and codex CLIs above.
 cask "umputun/apps/revmux"
+# Self-hosted daemon and app for coding agents; installs ~/.local/bin/paseo itself.
+# run_after_paseo-tailscale-serve.sh exposes its port to the tailnet.
+cask "paseo"
 # Browser for the local Claude and Codex history that the memex CLI indexes (Brewfile).
 # Trust only this cask: a whole-tap `tap ..., trusted: true` makes `brew tap` validate every
 # formula for every platform, and gmx/ghostreelite there have no URL outside on_macos
